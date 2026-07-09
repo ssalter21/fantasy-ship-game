@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues and PRDs live as markdown files under `.scratch/<feature-slug>/` in this repo; no external tracker or PR surface is used. See `docs/agents/issue-tracker.md`.
+Issues and PRDs live as GitHub Issues in this repo (`ssalter21/fantasy-ship-game`), managed via `gh`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
