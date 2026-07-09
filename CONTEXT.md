@@ -55,6 +55,15 @@ _Avoid_: Game mode, client mode
 - **Effective visibility** — a fitting's visibility as actually observed by an opponent (e.g. when scouting a ghost snapshot), resolved through a three-layer precedence: slot base visibility → fitting-level override → ship/captain-level forced override. See ADR-0005.
 - **Captain** — a run-start choice, structurally separate from the slot system (not a fitting, consumes no slot). Can influence a ship's slot limits/structure and grants additional manual per-round captain actions.
 
+### Ghost snapshots and async PvP (see ADR-0008)
+
+- **Ghost_Snapshot** — a captured copy of a ship's current state (stats, layout/fittings, captain) plus its run progress (steps taken, zone, difficulty rating), used as the opponent-ship representation for a Ship Battle encounter. The same struct serves both this slice's hand-authored PvE opponents and, eventually, real players' captured state — there is no separate opponent-config type.
+- **EncounterResolved** — the Event the Sim emits after every encounter point resolves (Ship Battle, Upgrade Offer, or Stat Trade), carrying a fresh `Ghost_Snapshot` of the ship's state at that point. Not emitted for port visits, which don't change ship state.
+- **Hold** — a `Command` variant that is a formal no-op: a scripted (non-player-controlled) ship submits it every round except when automatically taking Leave Combat once escape-eligible. Scripted opponents never choose Boost/Man the Sails/Jettison Cargo in this slice.
+_Avoid_: assuming a scripted opponent's Input_Source needs randomness — it doesn't; see ADR-0008.
+
+A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time, regardless of the real ship's current run-persistent HP — a ghost is a decoupled copy that may be fought independently by multiple opponents, while the real player's own HP keeps degrading normally on their own run. Hand-authored PvE opponents may still set HP to any explicit value as a difficulty knob.
+
 ## Vertical-slice scope (see GitHub issue #4)
 
 - One fixed ship template: 6 slots — 2 medium exposed ("top deck", "top crew"), 1 large exposed ("gun deck"), 3 small concealed.
