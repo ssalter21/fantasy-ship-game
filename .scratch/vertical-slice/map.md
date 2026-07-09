@@ -16,7 +16,7 @@ A combined PRD (game design + technical architecture) for a very small vertical 
 
 ## Decisions so far
 
-(none yet — map just charted)
+- **Ship & crew model** (issue 02, resolved): minimal ship stats (HP, Durability, Speed, starting treasure); layout is a fixed list of sized (small/medium/large), visibility-tagged (exposed/concealed) slots, no grid/packing; crew members generalize into a unified "fitting" concept shared with weapons/cargo/quarters/other fantasy entities; three-layer visibility precedence (slot → fitting override → future ship/captain-forced override, only the first two built now); one ship template, one captain, and a fixed starting loadout with upgrade-only findable content for this slice. See `CONTEXT.md`, `docs/adr/0001-unified-fitting-and-sized-slot-layout.md`, `docs/adr/0002-three-layer-visibility-precedence.md`, and `.scratch/vertical-slice/issues/02-ship-crew-model.md`.
 
 ## Not yet specified
 
