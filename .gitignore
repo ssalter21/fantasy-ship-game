@@ -1,0 +1,21 @@
+# Claude Code
+.claude/worktrees/
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Env / secrets
+.env
+.env.local
+
+# Common build output (placeholder until a stack is chosen)
+node_modules/
+dist/
+build/
+*.log
