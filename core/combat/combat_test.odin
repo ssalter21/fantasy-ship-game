@@ -112,6 +112,35 @@ buff_output_adds_into_the_same_rounds_defensive_and_offensive_totals :: proc(t: 
 }
 
 @(test)
+buff_output_reduces_incoming_damage_via_the_same_sides_defensive_total :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
+	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
+	a := ship.Ship{
+		hp = 20, durability = 1, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = warcry},
+			{slot = ship.Slot{size = .Small}, fitting = shield},
+		},
+	}
+	b := ship.Ship{
+		hp = 20, durability = 0, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
+	}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+
+	// A's own defense total = durability(1) + defensive(4) + buff(3) = 8;
+	// B's raw damage = 20, so final = 20 - 8 = 12. Confirms a side's own
+	// buff output folds into its own Defensive total, not just Offensive.
+	testing.expect_value(t, a.hp, 20-12)
+}
+
+@(test)
 boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
@@ -132,6 +161,61 @@ boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^test
 
 	testing.expect_value(t, b.hp, 20-10*BOOST_MULTIPLIER)
 	testing.expect_value(t, a.hp, 20-10)
+}
+
+@(test)
+boost_offensive_amplifies_the_phase_output_and_this_rounds_buff_output_together :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
+	a := ship.Ship{
+		hp = 20, durability = 0, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = warcry},
+			{slot = ship.Slot{size = .Large}, fitting = cannon},
+		},
+	}
+	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Boost{phase = .Offensive})
+	combat_resolve_round(&battle, cmds, &events)
+
+	// Boost multiplies (cannon(5) + buff(2)) as one combined total, not
+	// just the cannon's own phase output: (5+2)*BOOST_MULTIPLIER = 14.
+	// (A bug that boosted only the cannon would instead give 5*2+2 = 12.)
+	testing.expect_value(t, b.hp, 20-(5+2)*BOOST_MULTIPLIER)
+}
+
+@(test)
+boost_defensive_amplifies_the_phase_output_and_this_rounds_buff_output_together :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
+	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
+	a := ship.Ship{
+		hp = 20, durability = 0, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = warcry},
+			{slot = ship.Slot{size = .Small}, fitting = shield},
+		},
+	}
+	b := ship.Ship{
+		hp = 20, durability = 0, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
+	}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Boost{phase = .Defensive})
+	combat_resolve_round(&battle, cmds, &events)
+
+	// A's boosted defense total = (shield(4) + buff(3)) * BOOST_MULTIPLIER = 14;
+	// B's raw damage = 20, so final = 20 - 14 = 6.
+	testing.expect_value(t, a.hp, 20-6)
 }
 
 @(test)
@@ -271,6 +355,58 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 }
 
 @(test)
+an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc(t: ^testing.T) {
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
+	a := ship.Ship{
+		hp = 20, durability = 0, speed = 10,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
+	}
+	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	battle.round = BASELINE_ROUND_COUNT
+
+	events: [dynamic]Event
+	defer delete(events)
+
+	testing.expect(t, combat_may_leave(&battle, .A))
+
+	// A is escape-eligible this round but submits no command (declines the
+	// offer): the round resolves as normal instead of ending combat.
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+
+	testing.expect(t, !battle.ended)
+	testing.expect_value(t, b.hp, 20-10)
+}
+
+@(test)
+man_the_sails_speed_boost_can_swing_escape_eligibility_for_the_round_it_was_used :: proc(t: ^testing.T) {
+	a := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	battle.round = BASELINE_ROUND_COUNT - 1
+
+	events: [dynamic]Event
+	defer delete(events)
+
+	// Tied base Speed: not escape-eligible on its own once baseline is reached.
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events) // battle.round == BASELINE_ROUND_COUNT
+	testing.expect(t, !combat_may_leave(&battle, .A))
+
+	// A plays Man the Sails this round, tipping it strictly faster. The
+	// temp_speed bonus isn't reset until the *next* combat_resolve_round
+	// call, so it's still in effect for the escape-eligibility check made
+	// right after this round resolves (i.e. before next round's command).
+	clear(&events)
+	sails_cmds: [Side]Maybe(Command)
+	sails_cmds[.A] = Command(Command_Man_The_Sails{})
+	combat_resolve_round(&battle, sails_cmds, &events)
+
+	testing.expect(t, combat_may_leave(&battle, .A))
+}
+
+@(test)
 a_ship_reduced_to_zero_hp_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 25}}
 	a := ship.Ship{
@@ -391,7 +527,7 @@ hard_round_cap_forces_resolution_by_higher_hp :: proc(t: ^testing.T) {
 }
 
 @(test)
-hard_round_cap_tie_break_falls_back_to_speed_then_to_no_winner :: proc(t: ^testing.T) {
+hard_round_cap_tie_break_falls_back_to_speed_when_hp_is_tied :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 10, speed = 8}
 	b := ship.Ship{hp = 10, speed = 5}
 	battle := combat_battle_create(&a, &b)
@@ -407,6 +543,24 @@ hard_round_cap_tie_break_falls_back_to_speed_then_to_no_winner :: proc(t: ^testi
 	winner, has_winner := ended.winner.?
 	testing.expect(t, has_winner)
 	testing.expect_value(t, winner, Side.A)
+}
+
+@(test)
+hard_round_cap_tie_break_has_no_winner_when_hp_and_speed_are_both_tied :: proc(t: ^testing.T) {
+	a := ship.Ship{hp = 10, speed = 5}
+	b := ship.Ship{hp = 10, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	battle.round = HARD_ROUND_CAP - 1
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+
+	ended, ok := find_battle_ended(events[:])
+	testing.expect(t, ok)
+	_, has_winner := ended.winner.?
+	testing.expect(t, !has_winner)
 }
 
 find_battle_ended :: proc(events: []Event) -> (Event_Battle_Ended, bool) {

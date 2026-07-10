@@ -65,6 +65,17 @@ End_Reason :: enum {
 	Round_Cap,
 }
 
+// Round_State is the per-side working state threaded through one call to
+// combat_resolve_round: the round's Boost choice, each phase's resolved
+// output, and whether the side was sunk this round.
+Round_State :: struct {
+	boost_phase:   Maybe(ship.Category),
+	buff_output:   int,
+	defense_bonus: int,
+	raw_damage:    int,
+	sunk:          bool,
+}
+
 // Event is the only way a caller learns what happened inside a resolved
 // round (mirrors ADR-0001's Command/Event boundary for the Sim).
 Event :: union {
@@ -181,7 +192,9 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		battle.temp_speed[side] = 0
 	}
 
-	boost_phase: [Side]Maybe(ship.Category)
+	// round_state carries every per-side value threaded through the rest of
+	// this round together (Standards review: was five parallel [Side]T locals).
+	round_state: [Side]Round_State
 	for side in Side {
 		cmd, has_cmd := cmds[side].?
 		if !has_cmd {
@@ -189,7 +202,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		}
 		switch c in cmd {
 		case Command_Boost:
-			boost_phase[side] = c.phase
+			round_state[side].boost_phase = c.phase
 		case Command_Man_The_Sails:
 			battle.temp_speed[side] = MAN_THE_SAILS_SPEED_BONUS
 		case Command_Jettison_Cargo:
@@ -215,52 +228,47 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		return total
 	}
 
-	// Buff -> Defensive -> Offensive, both ships resolving each phase
-	// together off shared state (ADR-0006), not sequential-by-Speed.
-	buff_output: [Side]int
+	// Buff resolves first so its output is available to fold into this same
+	// round's Defensive and Offensive totals below (ADR-0006).
 	for side in Side {
-		buff_output[side] = boosted(combat_phase_output(battle.ships[side], .Buff), .Buff, boost_phase[side])
+		round_state[side].buff_output = boosted(combat_phase_output(battle.ships[side], .Buff), .Buff, round_state[side].boost_phase)
 	}
 
-	defense_bonus: [Side]int
+	// Defensive and Offensive share the same shape (phase output + this
+	// round's buff output, then boosted), so they resolve in one loop.
 	for side in Side {
-		total := combat_phase_output(battle.ships[side], .Defensive) + buff_output[side]
-		defense_bonus[side] = boosted(total, .Defensive, boost_phase[side])
-	}
-
-	raw_damage: [Side]int
-	for side in Side {
-		total := combat_phase_output(battle.ships[side], .Offensive) + buff_output[side]
-		raw_damage[side] = boosted(total, .Offensive, boost_phase[side])
+		buff := round_state[side].buff_output
+		boost_phase := round_state[side].boost_phase
+		round_state[side].defense_bonus = boosted(combat_phase_output(battle.ships[side], .Defensive)+buff, .Defensive, boost_phase)
+		round_state[side].raw_damage = boosted(combat_phase_output(battle.ships[side], .Offensive)+buff, .Offensive, boost_phase)
 	}
 
 	for side in Side {
 		target := combat_opposite_side(side)
 		target_ship := battle.ships[target]
-		final := max(0, raw_damage[side]-(target_ship.durability + defense_bonus[target]))
+		final := max(0, round_state[side].raw_damage-(target_ship.durability + round_state[target].defense_bonus))
 		if final > 0 {
 			target_ship.hp = max(0, target_ship.hp-final)
-			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, raw_damage = raw_damage[side], final_damage = final}))
+			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, raw_damage = round_state[side].raw_damage, final_damage = final}))
 		}
 	}
 
-	sunk: [Side]bool
 	for side in Side {
 		if battle.ships[side].hp <= 0 {
-			sunk[side] = true
+			round_state[side].sunk = true
 			append(events, Event(Event_Ship_Sunk{round = battle.round, side = side}))
 		}
 	}
 
-	if sunk[.A] || sunk[.B] {
+	if round_state[.A].sunk || round_state[.B].sunk {
 		battle.ended = true
 		winner: Maybe(Side)
 		switch {
-		case sunk[.A] && sunk[.B]:
+		case round_state[.A].sunk && round_state[.B].sunk:
 			winner = combat_speed_tiebreak(battle)
-		case sunk[.A]:
+		case round_state[.A].sunk:
 			winner = Side.B
-		case sunk[.B]:
+		case round_state[.B].sunk:
 			winner = Side.A
 		}
 		append(events, Event(Event_Battle_Ended{round = battle.round, reason = .Destroyed, winner = winner}))

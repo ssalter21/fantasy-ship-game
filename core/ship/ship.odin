@@ -13,7 +13,12 @@ Visibility :: enum {
 
 // Category is a fitting's round phase (ADR-0006): every round resolves
 // Buff -> Defensive -> Offensive, and a fitting's Category is which of the
-// three it triggers in.
+// three it triggers in. Effect's comment below says combat vocabulary
+// belongs to core/combat, not this data model — Category is the deliberate
+// exception: core/combat needs to group fittings by phase to resolve a
+// round, and layout order (this package's data) is what fixes that
+// grouping, so the enum lives here rather than as a lookup keyed some other
+// way from core/combat.
 Category :: enum {
 	Buff,
 	Defensive,
