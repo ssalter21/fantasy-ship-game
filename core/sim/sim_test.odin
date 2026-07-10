@@ -30,6 +30,18 @@ tick_again_while_awaiting_decision_asserts :: proc(t: ^testing.T) {
 }
 
 @(test)
+submit_captain_choice_asserts_when_command_is_not_the_captain_choice_variant :: proc(t: ^testing.T) {
+	// seed 0 gives this stub run a round cap of 2, so round 1 awaits a decision.
+	sim := sim_create(0)
+	events: [dynamic]Event
+	defer delete(events)
+	sim_tick(&sim, &events)
+
+	testing.expect_assert(t, "sim_submit_captain_choice received a Command that wasn't Command_Submit_Captain_Choice")
+	sim_submit_captain_choice(&sim, Command{})
+}
+
+@(test)
 run_session_ends_without_a_decision_when_the_run_needs_none :: proc(t: ^testing.T) {
 	// seed 1 gives this stub run a round cap of 1: it ends on the first round.
 	sim := sim_create(1)
@@ -57,7 +69,7 @@ run_session_asks_for_and_submits_a_decision_before_the_run_ends :: proc(t: ^test
 	defer delete(sink_state.events)
 	sink := Event_Sink{data = &sink_state, dispatch = recording_sink_dispatch}
 
-	input_state := Scripted_Input_State{choice = Command_Submit_Captain_Choice{choice = 7}}
+	input_state := Scripted_Input_State{choice = Command(Command_Submit_Captain_Choice{choice = 7})}
 	input := Input_Source{data = &input_state, get_captain_choice = scripted_input_get_captain_choice}
 
 	run_session(&sim, input, sink)
@@ -79,16 +91,16 @@ recording_sink_dispatch :: proc(data: rawptr, event: Event) {
 	append(&state.events, event)
 }
 
-unreachable_get_captain_choice :: proc(data: rawptr, sim: ^Sim) -> Command_Submit_Captain_Choice {
+unreachable_get_captain_choice :: proc(data: rawptr) -> Command {
 	panic("input source should not be asked for a decision when the run ends without needing one")
 }
 
 Scripted_Input_State :: struct {
-	choice: Command_Submit_Captain_Choice,
+	choice: Command,
 	calls:  int,
 }
 
-scripted_input_get_captain_choice :: proc(data: rawptr, sim: ^Sim) -> Command_Submit_Captain_Choice {
+scripted_input_get_captain_choice :: proc(data: rawptr) -> Command {
 	state := cast(^Scripted_Input_State)data
 	state.calls += 1
 	return state.choice
