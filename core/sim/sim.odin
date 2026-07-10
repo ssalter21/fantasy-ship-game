@@ -66,7 +66,9 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event_Awaiting_Captain_Decision{round = sim.round})
 }
 
-sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command_Submit_Captain_Choice) {
+sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	assert(sim.awaiting_decision, "submitted a captain choice while the sim wasn't awaiting one")
+	_, ok := cmd.(Command_Submit_Captain_Choice)
+	assert(ok, "sim_submit_captain_choice received a Command that wasn't Command_Submit_Captain_Choice")
 	sim.awaiting_decision = false
 }

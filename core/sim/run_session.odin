@@ -6,7 +6,7 @@ package sim
 // UI mode supplies one that blocks on a rendered decision menu.
 Input_Source :: struct {
 	data:                rawptr,
-	get_captain_choice: proc(data: rawptr, sim: ^Sim) -> Command_Submit_Captain_Choice,
+	get_captain_choice: proc(data: rawptr) -> Command,
 }
 
 // Event_Sink is the pluggable destination run_session dispatches a Tick's
@@ -42,7 +42,7 @@ run_session :: proc(sim: ^Sim, input: Input_Source, sink: Event_Sink) {
 		}
 
 		if sim.awaiting_decision {
-			cmd := input.get_captain_choice(input.data, sim)
+			cmd := input.get_captain_choice(input.data)
 			sim_submit_captain_choice(sim, cmd)
 		}
 	}
