@@ -6,6 +6,7 @@ import rl "vendor:raylib"
 main :: proc() {
 	rl.InitWindow(800, 450, "Fantasy Ship Game")
 	defer rl.CloseWindow()
+	rl.SetTargetFPS(60)
 
 	s := sim.sim_create(0)
 	input := sim.Input_Source{data = nil, get_captain_choice = rendered_captain_choice}
