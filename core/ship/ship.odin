@@ -11,19 +11,36 @@ Visibility :: enum {
 	Concealed,
 }
 
+// Category is a fitting's round phase (ADR-0006): every round resolves
+// Buff -> Defensive -> Offensive, and a fitting's Category is which of the
+// three it triggers in.
+Category :: enum {
+	Buff,
+	Defensive,
+	Offensive,
+}
+
 Slot :: struct {
 	name:            string,
 	size:            Slot_Size,
 	base_visibility: Visibility,
 }
 
-// Effect is a stub: the actual passive/active effect vocabulary belongs to
-// the combat resolution engine (ADR-0006, issue #19), not this data model.
-Effect :: struct {}
+// Effect is the numeric strength of a fitting's passive/active combat
+// contribution. What magnitude means is decided by the combat resolver
+// (ADR-0006, core/combat) from the owning fitting's Category; the concrete
+// fitting roster and its balance values belong to the vertical-slice content
+// ticket (issue #23), not this data model.
+Effect :: struct {
+	magnitude: int,
+}
 
 Fitting :: struct {
 	name:                string,
 	size:                Slot_Size,
+	// category is which round phase (ADR-0006) this fitting's active effect
+	// triggers in. Meaningless for cargo, which carries no effects.
+	category:            Category,
 	visibility_override: Maybe(Visibility),
 	passive:             Maybe(Effect),
 	active:              Maybe(Effect),
