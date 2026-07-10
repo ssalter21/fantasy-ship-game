@@ -19,6 +19,15 @@ Create a new issue: `gh issue create --title "<title>" --label "effort:<slug>,ty
 
 `gh issue view <number>`. The user will normally pass the issue number or URL directly.
 
+## Session-start overview
+
+Use `scripts/issue-status.sh` instead of ad hoc `gh issue view --json ...comments...` calls for a session-start check — pulling comments and re-serializing with `ConvertTo-Json -Depth N` burns a lot of tokens for a status glance.
+
+- `scripts/issue-status.sh` — compact one-line-per-open-issue overview (number, state, labels, title only)
+- `scripts/issue-status.sh list --unassigned --label effort:<slug>` — frontier candidates for one effort
+- `scripts/issue-status.sh map` — open `map`-labeled issue(s): title, url, body (no comments)
+- `scripts/issue-status.sh view <number>` — full detail for one issue, body included but comments excluded by default; add `--comments` only when the conversation history is actually needed
+
 ## Wayfinding operations
 
 Used by `/wayfinder`. The **map** is a tracking issue with one **child** issue per ticket.
