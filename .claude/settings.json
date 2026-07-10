@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(odin test *)"
+      "Bash(odin test *)",
+      "Bash(git fetch *)"
     ]
   }
 }
