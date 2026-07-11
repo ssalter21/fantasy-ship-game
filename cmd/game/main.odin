@@ -32,9 +32,10 @@ main :: proc() {
 // halves of the UI read/write (issue #24 — the same rawptr-sharing trick as
 // cmd/headless's Headless_State, since Odin gives each callback only its own
 // rawptr): dispatch records what the last event told us (current ship
-// state, sighted opponent, whether a battle/upgrade is pending, map layout)
-// and every blocking decision loop in menu.odin renders from this same
-// state.
+// state, sighted opponent, upgrade options on offer, map layout) and every
+// blocking decision loop in menu.odin renders from this same state.
+// get_captain_choice's awaiting parameter (issue #39) — not any field here
+// — is what decides which decision menu to render.
 Game_State :: struct {
 	run_map:          run.Map,
 	positions:        []rl.Vector2, // parallel to run_map.points; screen position
@@ -44,15 +45,15 @@ Game_State :: struct {
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
 	may_leave:        bool,
-	upgrade_options:  Maybe([3]ship.Fitting),
+	upgrade_options:  [3]ship.Fitting,
 	status:           run.Run_Status,
 }
 
 // get_captain_choice is the game Input_Source: it picks which blocking
 // decision menu to render (ADR-0002 — each menu_loop runs its own nested
-// render+poll loop and blocks until the player picks) based on what the
-// most recently dispatched events told Game_State to expect.
-get_captain_choice :: proc(data: rawptr) -> sim.Command {
+// render+poll loop and blocks until the player picks) based on awaiting,
+// Sim's current Phase.
+get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Game_State)data
 	if !rl.IsWindowReady() {
 		// No live window (e.g. under `odin test`): return a harmless
@@ -60,13 +61,17 @@ get_captain_choice :: proc(data: rawptr) -> sim.Command {
 		return sim.Command(sim.Command_Travel_To{point_id = 0})
 	}
 
-	if _, has_options := state.upgrade_options.?; has_options {
+	switch awaiting {
+	case .Awaiting_Upgrade_Choice:
 		return upgrade_menu_loop(state)
-	}
-	if state.in_battle {
+	case .Awaiting_Battle_Command:
 		return battle_menu_loop(state)
+	case .Awaiting_Travel_Choice:
+		return travel_menu_loop(state)
+	case .Ended:
+		panic("get_captain_choice called while the sim isn't awaiting a decision")
 	}
-	return travel_menu_loop(state)
+	panic("unreachable")
 }
 
 // dispatch is the game Event_Sink: updates Game_State from every event and,
@@ -105,7 +110,6 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		state.upgrade_options = e.options
 
 	case sim.Event_Upgrade_Applied:
-		state.upgrade_options = nil
 		play_beat(state, fmt.tprintf("Installed %s!", e.fitting.name))
 
 	case sim.Event_Encounter_Resolved:

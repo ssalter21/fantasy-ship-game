@@ -22,42 +22,47 @@ main :: proc() {
 // Headless_State is the shared context both the Input_Source and Event_Sink
 // halves of the headless auto-player read/write (issue #24): Odin has no
 // other way for the two callbacks to cooperate, since each only receives its
-// own rawptr. dispatch records what kind of decision is coming next;
-// get_captain_choice reads that back to decide what Command to return.
+// own rawptr. get_captain_choice's awaiting parameter (issue #39) tells it
+// what kind of decision is coming next, so this state only needs to track
+// the auto-player's own travel plan.
 Headless_State :: struct {
-	events:          [dynamic]sim.Event,
+	events:     [dynamic]sim.Event,
 	// next_point is the auto-player's travel plan: every point id in
 	// ascending order (every port and every encounter, then Goal) — the
 	// same "same content, runnable headless" full-map coverage the issue's
 	// playtest goal asks for.
-	next_point:      int,
-	in_battle:       bool,
-	upgrade_pending: bool,
+	next_point: int,
 }
 
 // get_captain_choice is the headless Input_Source: no real player, so it
 // always resolves the current decision deterministically — Hold every
 // battle round, always pick upgrade option 0, otherwise travel to the next
 // point in ascending id order.
-get_captain_choice :: proc(data: rawptr) -> sim.Command {
+get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Headless_State)data
 
-	if state.in_battle {
+	switch awaiting {
+	case .Awaiting_Battle_Command:
 		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command_Hold{}})
-	}
-	if state.upgrade_pending {
+	case .Awaiting_Upgrade_Choice:
 		return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})
+	case .Awaiting_Travel_Choice:
+		point_id := state.next_point
+		state.next_point += 1
+		return sim.Command(sim.Command_Travel_To{point_id = point_id})
+	case .Ended:
+		panic("get_captain_choice called while the sim isn't awaiting a decision")
 	}
-
-	point_id := state.next_point
-	state.next_point += 1
-	return sim.Command(sim.Command_Travel_To{point_id = point_id})
+	panic("unreachable")
 }
 
 // dispatch is the headless Event_Sink: log-record every event (instead of
 // animating it) and track just enough context for get_captain_choice above.
 // Destroys Event_Encounter_Resolved.snapshot once logged, per that type's
 // caller-owns-it contract (core/sim/sim.odin).
+// dispatch is the headless Event_Sink: log-record every event instead of
+// animating it. Frees Event_Encounter_Resolved.snapshot.ship.layout once
+// logged, per that type's caller-owns-it contract (core/sim/sim.odin).
 dispatch :: proc(data: rawptr, event: sim.Event) {
 	state := cast(^Headless_State)data
 	append(&state.events, event)
@@ -67,17 +72,11 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Run_Started:
 	case sim.Event_Arrived_At_Point:
 	case sim.Event_Ship_Battle_Sighted:
-		state.in_battle = true
 	case sim.Event_Battle_Menu:
 	case sim.Event_Battle_Event:
-		if _, ended := e.inner.(combat.Event_Battle_Ended); ended {
-			state.in_battle = false
-		}
 	case sim.Event_Ship_Updated:
 	case sim.Event_Upgrade_Offer_Presented:
-		state.upgrade_pending = true
 	case sim.Event_Upgrade_Applied:
-		state.upgrade_pending = false
 	case sim.Event_Encounter_Resolved:
 		run.run_ghost_snapshot_destroy(e.snapshot)
 	case sim.Event_Run_Ended:

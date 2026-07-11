@@ -7,8 +7,10 @@ import "core:math/rand"
 
 // Phase is what kind of captain decision Sim is (or is about to be) awaiting
 // (issue #24 — wiring core/run/core/combat under the shared run_session
-// loop, ADR-0002). It is internal bookkeeping only: run_session itself only
-// ever reads/writes the awaiting_decision bool below, exactly as before.
+// loop, ADR-0002). run_session passes sim.phase into
+// Input_Source.get_captain_choice (issue #39) so adapters route to the
+// right decision UI directly instead of re-deriving it from the Event
+// stream themselves.
 Phase :: enum {
 	Awaiting_Travel_Choice,
 	Awaiting_Battle_Command,

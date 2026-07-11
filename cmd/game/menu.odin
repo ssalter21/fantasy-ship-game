@@ -203,7 +203,7 @@ upgrade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})
 	}
-	options, _ := state.upgrade_options.?
+	options := state.upgrade_options
 
 	// See battle_menu_loop's comment: labels must survive across this
 	// loop's per-frame free_all(context.temp_allocator), so they're
