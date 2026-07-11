@@ -171,6 +171,16 @@ cargo_capacity_increases_by_the_size_contribution_of_each_cargo_filled_slot :: p
 }
 
 @(test)
+cargo_capacity_includes_the_ships_captains_structural_bonus :: proc(t: ^testing.T) {
+	s := Ship{
+		base_cargo_capacity = 4,
+		captain             = Captain{name = "Blackheart", cargo_capacity_bonus = 2},
+	}
+
+	testing.expect_value(t, ship_cargo_capacity(s), 6)
+}
+
+@(test)
 ship_with_no_captain_assigned_has_no_captain :: proc(t: ^testing.T) {
 	s := Ship{}
 

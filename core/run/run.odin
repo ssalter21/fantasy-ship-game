@@ -156,10 +156,29 @@ Map :: struct {
 	points: []Point,
 }
 
-// run_make_opponent_ship turns a Ship Battle point's zone/port_closeness into
-// a concrete opponent ship.Ship (placeholder mapping — real PvE opponent
-// content is issue #23). hp and durability both scale by zone and
-// port_closeness, so difficulty isn't HP-pool-only.
+// run_map_destroy frees a Map's owned memory: m.points itself, plus each
+// Ship Battle encounter's opponent.layout slice (issue #23; run_pve_opponent
+// allocates a fresh layout per point, unlike the bare-stats placeholder this
+// replaced). Callers of run_map_create must use this instead of a bare
+// delete(m.points) now that Ship Battle opponents own layout memory too.
+run_map_destroy :: proc(m: ^Map) {
+	for point in m.points {
+		encounter, has_encounter := point.encounter.?
+		if !has_encounter {
+			continue
+		}
+		if battle, is_battle := encounter.(Encounter_Ship_Battle); is_battle {
+			delete(battle.opponent.layout)
+		}
+	}
+	delete(m.points)
+}
+
+// run_make_opponent_ship computes a Ship Battle opponent's baseline stats
+// (hp, durability, speed) from zone/port_closeness — the numeric half of a
+// hand-authored PvE opponent (issue #23). run_pve_opponent (content.odin)
+// layers a hand-authored layout on top of these same stats; this proc has
+// no layout/captain of its own and is not itself a complete opponent.
 run_make_opponent_ship :: proc(zone: Zone, port_closeness: int) -> ship.Ship {
 	hp := run_ship_battle_difficulty(zone, port_closeness)
 	return ship.Ship{
@@ -183,7 +202,9 @@ zone_encounter_kinds := [Zone][4]Encounter_Kind{
 
 // run_map_create builds the run's fixed hand-placed map (ADR-0007): Start
 // (home port) -> Coastal -> Open_Sea -> Deep (each 1 Port + 4 Encounter
-// points) -> Goal. Caller owns the returned Map.points slice.
+// points) -> Goal. Caller owns the returned Map and must free it with
+// run_map_destroy, not a bare delete(m.points) — Ship Battle opponents own
+// layout memory of their own (issue #23).
 run_map_create :: proc() -> Map {
 	// id is always len(points) at the point of each append below (points are
 	// appended strictly in order, one id each), so it needs no separate
@@ -205,7 +226,7 @@ run_map_create :: proc() -> Map {
 			case .Ship_Battle:
 				encounter = Encounter_Ship_Battle{
 					port_closeness = closeness,
-					opponent       = run_make_opponent_ship(zone, closeness),
+					opponent       = run_pve_opponent(zone, closeness),
 				}
 			case .Upgrade_Offer:
 				encounter = Encounter_Upgrade_Offer{quality = run_upgrade_offer_quality(zone)}
