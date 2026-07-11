@@ -42,7 +42,7 @@ dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^t
 }
 
 @(test)
-dispatch_does_not_crash_on_an_encounter_resolved_event :: proc(t: ^testing.T) {
+dispatch_does_not_crash_on_an_encounter_resolved_event_without_a_live_window :: proc(t: ^testing.T) {
 	state := Game_State{}
 	defer delete(state.visited)
 	defer delete(state.positions)

@@ -18,8 +18,11 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	opponent_command := combat.combat_scripted_command(&sim.battle, .B)
 	cmds := [combat.Side]Maybe(combat.Command){.A = cmd.combat_command, .B = opponent_command}
 
-	combat_events: [dynamic]combat.Event
-	defer delete(combat_events)
+	// combat_events is per-tick scratch (issue #53): explicitly locked to
+	// context.temp_allocator so the arena-scoped block below (needed for
+	// battle.jettisoned, issue #52) can't reach it — run_session frees it via
+	// free_all(context.temp_allocator) once per driver iteration.
+	combat_events := make([dynamic]combat.Event, 0, 0, context.temp_allocator)
 	{
 		// A Jettison Cargo command records its fitting on sim.battle.jettisoned
 		// (issue #52: run-lifetime, freed only by sim_destroy), so it must
@@ -41,8 +44,11 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	zone, has_zone := sim.run_map.points[sim.current].zone.?
 	assert(has_zone, "a Ship Battle point must have a zone")
-	run_events: [dynamic]run.Event
-	defer delete(run_events)
+	// run_events is per-tick scratch too (issue #53): explicitly locked to
+	// context.temp_allocator despite the arena-scoped block below — needed
+	// since run_finish_ship_battle's Ghost_Snapshot capture (issue #52) must
+	// land on the arena, not here.
+	run_events := make([dynamic]run.Event, 0, 0, context.temp_allocator)
 	{
 		// The captured Ghost_Snapshot's layout must outlive this call
 		// (issue #52: it escapes via Event_Encounter_Resolved), so it's
