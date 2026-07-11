@@ -260,7 +260,7 @@ Scripted_Input_State :: struct {
 	index:   int,
 }
 
-scripted_input_get_captain_choice :: proc(data: rawptr) -> Command {
+scripted_input_get_captain_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 	state := cast(^Scripted_Input_State)data
 	assert(state.index < len(state.choices), "scripted input exhausted its scripted choices")
 	cmd := state.choices[state.index]
@@ -268,6 +268,6 @@ scripted_input_get_captain_choice :: proc(data: rawptr) -> Command {
 	return cmd
 }
 
-unreachable_get_captain_choice :: proc(data: rawptr) -> Command {
+unreachable_get_captain_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 	panic("input source should not be asked for a decision when the run ends without needing one")
 }

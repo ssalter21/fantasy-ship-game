@@ -4,9 +4,12 @@ package sim
 // decision. Odin has no interfaces, so this is a proc-pointer-table struct
 // (see ADR-0002): headless mode supplies a scripted/seeded implementation,
 // UI mode supplies one that blocks on a rendered decision menu.
+// get_captain_choice receives Sim's current Phase (issue #39) so the
+// implementation can route to the right decision straight away instead of
+// re-deriving "what kind of decision is this" from the Event stream itself.
 Input_Source :: struct {
 	data:                rawptr,
-	get_captain_choice: proc(data: rawptr) -> Command,
+	get_captain_choice: proc(data: rawptr, awaiting: Phase) -> Command,
 }
 
 // Event_Sink is the pluggable destination run_session dispatches a Tick's
@@ -42,7 +45,7 @@ run_session :: proc(sim: ^Sim, input: Input_Source, sink: Event_Sink) {
 		}
 
 		if sim.awaiting_decision {
-			cmd := input.get_captain_choice(input.data)
+			cmd := input.get_captain_choice(input.data, sim.phase)
 			sim_submit_captain_choice(sim, cmd)
 		}
 	}
