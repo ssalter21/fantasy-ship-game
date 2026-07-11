@@ -134,6 +134,53 @@ zoom/pan or a viewport-follows-current-position scheme before locking in
 the drawing code, but that's an implementation concern, not this ticket's
 design question.
 
+## Layout: fixed-step world + camera pan (edge-length fix, "much wider")
+
+Follow-up feedback after looking at the running prototype: still didn't feel
+right compared to Slay the Spire's map, specifically because edge lengths
+were noticeably variable -- a same-lane connection (roughly horizontal) and
+an adjacent-lane connection (diagonal) could look quite different, and a
+rare "no adjacent-lane candidate" fallback in `connect_stepping` could jump
+several lanes at once, producing an occasional long diagonal edge on top of
+that.
+
+Root cause: layer x-position was `total width / num_layers` (so dx was
+whatever fit the fixed 1180px-wide map) while lane y-position used a fixed
+per-lane step -- with only `LANES = 5` slots spread over a ~400px band, one
+lane step (~100px) dwarfed one layer step (~60px), so a diagonal edge was
+nearly *twice* as long as a straight one. Each layer's lane subset was also
+picked independently at random, so two adjacent layers could occupy
+non-overlapping lanes, forcing `connect_stepping`'s degree-only fallback to
+bridge a multi-lane gap.
+
+Fix, two parts:
+- **Fixed-step layout** (`graph.odin`): `LAYER_DX = 170`, `LANE_DY = 70`
+  replace the old "divide total width by layer count" math. Because
+  `LAYER_DX` is now large relative to `LANE_DY`, a same-lane edge (dx only)
+  and an adjacent-lane edge (dx + one dy step) come out within ~8% of each
+  other in length -- "very similar," not "variable." A side effect: the
+  world's total width now *grows* with node count instead of being squeezed
+  into one fixed canvas, which is what actually delivers "much wider."
+- **Contiguous, drifting lane ranges** (`graph.odin`'s `next_lane_lo`):
+  instead of an independent random lane subset per layer, each layer now
+  picks a contiguous block of lanes that drifts by at most one lane from
+  the previous layer's block, guaranteeing every lane has a same-or-
+  adjacent-lane neighbor next door. `connect_stepping`'s "no adjacent
+  candidate" fallback should now almost never fire; when it does (rare
+  construction edge case), it now picks the nearest lane rather than the
+  least-loaded node anywhere in the layer, bounding the worst case instead
+  of allowing an arbitrary long jump.
+
+Since the world is now routinely 2000+ px wide against a 1280px window,
+`main.odin` gained a `follow_camera` -- a `raylib.Camera2D` that pans
+horizontally to keep the current node centered (vertical position is left
+alone), clamped to the world's actual left/right edges, closing the
+"zoom/pan" open follow-up this file flagged earlier. Variant A/B's graph
+drawing runs inside `BeginMode2D`/`EndMode2D`; the switcher hint, the
+variant-B fog caption, and the bottom switcher bar/status line were moved
+out to screen-fixed HUD calls in `main.odin` so they don't scroll off with
+the world. Variant C (no graph shown) is unaffected -- no camera applied.
+
 ## Status
 
 Not yet posted as the issue's `## Answer` — recommendation above is mine;

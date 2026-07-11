@@ -93,7 +93,7 @@ draw_zone_gradient_v :: proc(left, top, right, bottom: i32) {
 // full label, visited or not.
 
 draw_variant_a :: proc(g: Graph, visited: []bool, current_id: int, options: []int) {
-	draw_zone_gradient_h(i32(MAP_LEFT) - 10, i32(MAP_TOP) - 10, i32(MAP_RIGHT) + 10, i32(MAP_BOTTOM) + 10)
+	draw_zone_gradient_h(i32(MAP_LEFT) - 10, i32(MAP_TOP) - 10, i32(g.world_right) + 10, i32(MAP_BOTTOM) + 10)
 
 	for e in g.edges {
 		from := g.nodes[e.from].pos
@@ -125,7 +125,6 @@ draw_variant_a :: proc(g: Graph, visited: []bool, current_id: int, options: []in
 	}
 
 	draw_option_rings(g, visited, options)
-	draw_switcher_hint(options)
 }
 
 // ===================== Variant B: fog by graph-distance (horizon) =====================
@@ -139,7 +138,7 @@ draw_variant_a :: proc(g: Graph, visited: []bool, current_id: int, options: []in
 // it is.
 
 draw_variant_b :: proc(g: Graph, visited: []bool, current_id: int, options: []int) {
-	draw_zone_gradient_h(i32(MAP_LEFT) - 10, i32(MAP_TOP) - 10, i32(MAP_RIGHT) + 10, i32(MAP_BOTTOM) + 10)
+	draw_zone_gradient_h(i32(MAP_LEFT) - 10, i32(MAP_TOP) - 10, i32(g.world_right) + 10, i32(MAP_BOTTOM) + 10)
 
 	revealed := make([dynamic]int)
 	defer delete(revealed)
@@ -197,9 +196,6 @@ draw_variant_b :: proc(g: Graph, visited: []bool, current_id: int, options: []in
 	}
 
 	draw_option_rings(g, visited, options)
-
-	rl.DrawText("Fog: unrevealed graph beyond the horizon is not drawn at all", i32(MAP_LEFT), i32(MAP_TOP) - 24, 14, rl.DARKGRAY)
-	draw_switcher_hint(options)
 }
 
 // ===================== Variant C: zone progress + local choice fan =====================
@@ -300,5 +296,4 @@ draw_variant_c :: proc(g: Graph, visited: []bool, current_id: int, options: []in
 	}
 
 	rl.DrawText("No full map is ever shown -- only zone progress and your immediate options.", i32(MAP_LEFT), fan_top - 6, 14, rl.DARKGRAY)
-	draw_switcher_hint(options)
 }

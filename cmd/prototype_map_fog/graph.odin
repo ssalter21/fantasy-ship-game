@@ -64,11 +64,12 @@ Edge :: struct {
 }
 
 Graph :: struct {
-	nodes:    []Node,
-	edges:    []Edge,
-	layers:   [][]int, // node ids grouped by layer, in layer order
-	start_id: int,
-	goal_id:  int,
+	nodes:      []Node,
+	edges:      []Edge,
+	layers:     [][]int, // node ids grouped by layer, in layer order
+	start_id:   int,
+	goal_id:    int,
+	world_right: f32, // rightmost node x -- world is much wider than any window, camera pans (main.odin)
 }
 
 Gen_Config :: struct {
@@ -93,10 +94,23 @@ default_gen_config := Gen_Config {
 	layer_width_max = 4,
 }
 
-MAP_LEFT :: 40
-MAP_RIGHT :: 1180
-MAP_TOP :: 110
-MAP_BOTTOM :: 500
+// Fixed per-layer/per-lane world-space steps (not "total width / layer
+// count") -- two things follow directly from this: (1) the world grows
+// wider as more layers are generated instead of being squeezed into one
+// screen, which is what "much wider, Slay-the-Spire-like" (issue #62
+// feedback) needs -- main.odin pans a camera across it; (2) because
+// LAYER_DX is large relative to LANE_DY, a same-lane edge (dx only) and an
+// adjacent-lane edge (dx and one dy step) end up close in length instead of
+// wildly different -- combined with next_lane_lo's overlap guarantee below
+// (which keeps every edge within one lane step to begin with, never a long
+// diagonal), this is what makes edges "very similar lengths" rather than
+// variable.
+LAYER_DX :: 170
+LANE_DY :: 70
+
+MAP_LEFT :: 60
+MAP_TOP :: 140
+MAP_BOTTOM :: MAP_TOP + (LANES - 1) * LANE_DY
 
 // generate builds one candidate ~50-node graph, laid out left (Start) to
 // right (Goal), grouped into per-zone layers -- same seed always produces
@@ -119,20 +133,23 @@ generate_graph :: proc(seed: u64) -> Graph {
 	kinds_cycle := [3]Kind{.Ship_Battle, .Upgrade_Offer, .Stat_Trade}
 	kind_i := 0
 
-	add_layer :: proc(nodes: ^[dynamic]Node, layer_ids: ^[dynamic][dynamic]int, zone: Zone, width: int, kind_i: ^int, kinds_cycle: [3]Kind, gen: runtime.Random_Generator) {
-		lanes := pick_lanes(width, gen)
-		defer delete(lanes)
+	add_layer :: proc(nodes: ^[dynamic]Node, layer_ids: ^[dynamic][dynamic]int, zone: Zone, width: int, kind_i: ^int, kinds_cycle: [3]Kind, prev_lo, prev_width: ^int, gen: runtime.Random_Generator) {
+		lo := next_lane_lo(prev_lo^, prev_width^, width, gen)
 		layer := make([dynamic]int)
-		for lane in lanes {
+		for i in 0 ..< width {
 			id := len(nodes)
 			kind := kinds_cycle[kind_i^ % len(kinds_cycle)]
 			kind_i^ += 1
-			append(nodes, Node{id = id, zone = zone, layer = len(layer_ids), lane = lane, kind = kind})
+			append(nodes, Node{id = id, zone = zone, layer = len(layer_ids), lane = lo + i, kind = kind})
 			append(&layer, id)
 		}
 		append(layer_ids, layer)
+		prev_lo^ = lo
+		prev_width^ = width
 	}
 
+	prev_lo := mid_lane
+	prev_width := 1
 	for zone in zones {
 		remaining := default_gen_config.nodes_per_zone
 		for li in 0 ..< default_gen_config.layers_per_zone {
@@ -142,7 +159,7 @@ generate_graph :: proc(seed: u64) -> Graph {
 			width := default_gen_config.layer_width_min + rand.int_max(default_gen_config.layer_width_max - default_gen_config.layer_width_min + 1, gen)
 			width = min(width, remaining, LANES)
 			remaining -= width
-			add_layer(&nodes, &layer_ids, zone, width, &kind_i, kinds_cycle, gen)
+			add_layer(&nodes, &layer_ids, zone, width, &kind_i, kinds_cycle, &prev_lo, &prev_width, gen)
 		}
 		// leftover nodes (nodes_per_zone bigger than layers_per_zone*LANES
 		// can fit) land in extra top-up layers -- rough-mock only, not the
@@ -150,7 +167,7 @@ generate_graph :: proc(seed: u64) -> Graph {
 		for remaining > 0 {
 			width := min(remaining, LANES)
 			remaining -= width
-			add_layer(&nodes, &layer_ids, zone, width, &kind_i, kinds_cycle, gen)
+			add_layer(&nodes, &layer_ids, zone, width, &kind_i, kinds_cycle, &prev_lo, &prev_width, gen)
 		}
 	}
 
@@ -177,33 +194,35 @@ generate_graph :: proc(seed: u64) -> Graph {
 		}
 	}
 
-	layout(nodes[:], layer_ids[:])
+	world_right := layout(nodes[:], layer_ids[:])
 
 	layers := make([][]int, len(layer_ids))
 	for layer, i in layer_ids {
 		layers[i] = layer[:]
 	}
 
-	return Graph{nodes = nodes[:], edges = edges[:], layers = layers, start_id = start_id, goal_id = goal_id}
+	return Graph{nodes = nodes[:], edges = edges[:], layers = layers, start_id = start_id, goal_id = goal_id, world_right = world_right}
 }
 
-// pick_lanes returns `width` distinct lanes out of 0..LANES-1 (partial
-// Fisher-Yates over a fixed-size array, since LANES is tiny).
-pick_lanes :: proc(width: int, gen: runtime.Random_Generator) -> [dynamic]int {
-	pool: [LANES]int
-	for i in 0 ..< LANES {
-		pool[i] = i
-	}
-	n := LANES
-	for i in 0 ..< width {
-		j := i + rand.int_max(n - i, gen)
-		pool[i], pool[j] = pool[j], pool[i]
-	}
-	lanes := make([dynamic]int)
-	for i in 0 ..< width {
-		append(&lanes, pool[i])
-	}
-	return lanes
+// next_lane_lo picks the starting lane of a `width`-wide contiguous block of
+// lanes, drifting by at most one lane from the previous layer's block so
+// consecutive layers' blocks always overlap (or sit flush adjacent) -- every
+// node ends up with a same-or-adjacent-lane neighbor next door in the next
+// layer. That's what lets connect_stepping keep every edge within one lane
+// step, never a long diagonal fallback -- issue #62 feedback: "edges should
+// all be very similar lengths," which the old independent-random-lane-
+// subset-per-layer approach didn't guarantee.
+next_lane_lo :: proc(prev_lo, prev_width, width: int, gen: runtime.Random_Generator) -> int {
+	max_lo := LANES - width
+	prev_hi := prev_lo + prev_width - 1
+
+	lo_min := max(prev_lo - 1, 0)
+	lo_min = min(lo_min, max_lo)
+
+	lo_max := min(prev_hi, max_lo)
+	lo_max = max(lo_max, lo_min)
+
+	return lo_min + rand.int_max(lo_max - lo_min + 1, gen)
 }
 
 abs_int :: proc(x: int) -> int {
@@ -241,11 +260,17 @@ connect_stepping :: proc(nodes: []Node, from_layer, to_layer: []int, edges: ^[dy
 			}
 		}
 		if best == -1 {
-			// no adjacent-lane candidate (can happen with odd lane picks) --
-			// fall back to the least-loaded node in the whole layer.
+			// no adjacent-lane candidate -- next_lane_lo's overlap guarantee
+			// should make this rare. Fall back to the nearest lane (degree
+			// breaks ties) rather than pure least-loaded, so any edge that
+			// must break the ±1 rule is still as short as possible instead
+			// of an arbitrary long diagonal.
+			best_dist := 1_000_000
 			for from_id in from_layer {
+				d := abs_int(nodes[from_id].lane - to_lane)
 				deg := out_degree[from_id]
-				if deg < best_degree {
+				if d < best_dist || (d == best_dist && deg < best_degree) {
+					best_dist = d
 					best_degree = deg
 					best = from_id
 				}
@@ -283,20 +308,25 @@ graph_destroy :: proc(g: ^Graph) {
 	delete(g.layers)
 }
 
-// layout positions every node by (layer, lane): x from its layer index,
-// y from its lane -- a fixed lane keeps a node's vertical position stable
-// relative to its neighbors layer to layer, which is what keeps edges
-// short and mostly non-crossing (issue #62 feedback).
-layout :: proc(nodes: []Node, layer_ids: [][dynamic]int) {
-	num_layers := len(layer_ids)
+// layout positions every node by (layer, lane): x from its layer index at a
+// fixed LAYER_DX step, y from its lane at a fixed LANE_DY step -- fixed
+// (not "total width / layer count") steps are what make the world grow
+// wider as more layers are generated (issue #62: "much wider") instead of
+// squeezing into one screen, and what keep a same-lane edge (dx only) and
+// an adjacent-lane edge (dx + one dy step) close in length to each other
+// (issue #62: "edges should all be very similar lengths"). Returns the
+// rightmost node's x so callers (main.odin's camera, the zone-gradient
+// background) know the world's actual extent.
+layout :: proc(nodes: []Node, layer_ids: [][dynamic]int) -> f32 {
 	for layer, li in layer_ids {
-		x := MAP_LEFT + f32(li) * (MAP_RIGHT - MAP_LEFT) / f32(num_layers - 1)
+		x := MAP_LEFT + f32(li) * LAYER_DX
 		for id in layer {
 			lane := nodes[id].lane
-			y := MAP_TOP + f32(lane) * (MAP_BOTTOM - MAP_TOP) / f32(LANES - 1)
+			y := MAP_TOP + f32(lane) * LANE_DY
 			nodes[id].pos = rl.Vector2{x, y}
 		}
 	}
+	return MAP_LEFT + f32(len(layer_ids) - 1) * LAYER_DX
 }
 
 // travel_options returns every node the player may step to this turn:
