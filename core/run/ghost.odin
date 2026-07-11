@@ -40,7 +40,8 @@ Event_Encounter_Resolved :: struct {
 // in-progress ship (ADR-0008): hp is always reset to s.max_hp regardless of
 // the ship's current run-persistent hp, and the layout is cloned so later
 // mutation to the source ship (e.g. Jettison Cargo) can't leak into the
-// snapshot. Caller owns the returned snapshot's ship.layout slice.
+// snapshot. Caller owns the returned snapshot and must call
+// run_ghost_snapshot_destroy on it when done.
 run_ghost_snapshot_capture :: proc(s: ^ship.Ship, steps: int, zone: Zone, difficulty_rating: int) -> Ghost_Snapshot {
 	layout := make([]ship.Layout_Slot, len(s.layout))
 	copy(layout, s.layout)
@@ -53,4 +54,12 @@ run_ghost_snapshot_capture :: proc(s: ^ship.Ship, steps: int, zone: Zone, diffic
 		ship = snap_ship,
 		progress = Ghost_Progress{steps = steps, zone = zone, difficulty_rating = difficulty_rating},
 	}
+}
+
+// run_ghost_snapshot_destroy frees a Ghost_Snapshot's owned allocations
+// (today, just ship.layout — see run_ghost_snapshot_capture's ownership
+// contract). Callers holding a captured snapshot should call this instead of
+// freeing fields directly, so a future owned field only needs updating here.
+run_ghost_snapshot_destroy :: proc(snapshot: Ghost_Snapshot) {
+	delete(snapshot.ship.layout)
 }
