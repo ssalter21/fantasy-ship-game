@@ -4,6 +4,7 @@ import "../combat"
 import "../run"
 import "../ship"
 import "core:math/rand"
+import "core:mem"
 import "core:mem/virtual"
 
 // Phase is what kind of captain decision Sim is (or is about to be) awaiting
@@ -204,6 +205,14 @@ sim_create :: proc(seed: u64) -> Sim {
 // so there's nothing left to free by hand.
 sim_destroy :: proc(sim: ^Sim) {
 	virtual.arena_destroy(&sim.arena)
+}
+
+// sim_arena_allocator is the Sim's run-scoped allocator (issue #52), shared
+// by every sim_process_* call site that scopes context.allocator to it
+// around one arena-backed allocation (a Ghost_Snapshot capture, a
+// lazily-allocated jettisoned dynamic array).
+sim_arena_allocator :: proc(sim: ^Sim) -> mem.Allocator {
+	return virtual.arena_allocator(&sim.arena)
 }
 
 // sim_tick resolves one unit of work and batch-emits the resulting events.

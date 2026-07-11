@@ -2,7 +2,6 @@ package sim
 
 import "../combat"
 import "../run"
-import "core:mem/virtual"
 
 // sim_process_battle_round applies a submitted Command_Battle_Choice as the
 // player's (Side.A's) command for the current round, computes the scripted
@@ -26,7 +25,7 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		// (issue #52: run-lifetime, freed only by sim_destroy), so it must
 		// allocate from the Sim's own run-scoped arena rather than whatever
 		// transient allocator the caller happens to be using.
-		context.allocator = virtual.arena_allocator(&sim.arena)
+		context.allocator = sim_arena_allocator(sim)
 		combat.combat_resolve_round(&sim.battle, cmds, &combat_events)
 	}
 
@@ -48,7 +47,7 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		// The captured Ghost_Snapshot's layout must outlive this call
 		// (issue #52: it escapes via Event_Encounter_Resolved), so it's
 		// allocated from the Sim's own run-scoped arena.
-		context.allocator = virtual.arena_allocator(&sim.arena)
+		context.allocator = sim_arena_allocator(sim)
 		run.run_finish_ship_battle(&sim.battle, &sim.player, &sim.active_encounter, zone, sim.steps, &run_events)
 	}
 	sim_forward_encounter_resolved(run_events, events)
