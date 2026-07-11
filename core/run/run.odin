@@ -161,8 +161,10 @@ Map :: struct {
 // content is issue #23). hp and durability both scale by zone and
 // port_closeness, so difficulty isn't HP-pool-only.
 run_make_opponent_ship :: proc(zone: Zone, port_closeness: int) -> ship.Ship {
+	hp := run_ship_battle_difficulty(zone, port_closeness)
 	return ship.Ship{
-		hp         = run_ship_battle_difficulty(zone, port_closeness),
+		hp         = hp,
+		max_hp     = hp,
 		durability = run_ship_battle_opponent_durability(zone, port_closeness),
 		speed      = SHIP_BATTLE_OPPONENT_SPEED,
 	}
@@ -231,13 +233,49 @@ run_start_battle :: proc(s: ^ship.Ship, encounter: ^Encounter_Ship_Battle) -> co
 	return combat.combat_battle_create(s, &encounter.opponent)
 }
 
+// run_finish_ship_battle emits Event_Encounter_Resolved (ADR-0008) once a
+// Ship Battle's Battle has ended: the snapshot is of s, the player-side ship
+// handed to run_start_battle, not the opponent — an encounter is "resolved"
+// from the player's own run-progress perspective. difficulty_rating is
+// recomputed from zone/port_closeness rather than read off the opponent's
+// (now battle-worn) hp, since that would reflect remaining HP, not the
+// point's original tuned difficulty.
+run_finish_ship_battle :: proc(battle: ^combat.Battle, s: ^ship.Ship, encounter: ^Encounter_Ship_Battle, zone: Zone, steps: int, events: ^[dynamic]Event) {
+	assert(battle.ended, "run_finish_ship_battle called before the battle ended")
+
+	run_emit_encounter_resolved(s, steps, zone, run_ship_battle_difficulty(zone, encounter.port_closeness), events)
+}
+
+// run_apply_upgrade_offer triggers an Upgrade Offer encounter's resolution
+// (ADR-0008): grants nothing concrete yet since which upgrade the captain
+// picks among offer's options is real content for issue #23 — this proc only
+// captures the emission half of the pattern, using offer's zone-scaled
+// quality placeholder as the snapshot's difficulty_rating.
+run_apply_upgrade_offer :: proc(s: ^ship.Ship, offer: Encounter_Upgrade_Offer, zone: Zone, steps: int, events: ^[dynamic]Event) {
+	run_emit_encounter_resolved(s, steps, zone, offer.quality, events)
+}
+
 // run_apply_stat_trade triggers a Stat Trade encounter (ADR-0007): unlike
 // Upgrade Offer, a Stat Trade is a single fixed trade-off rather than a
 // choice among options, so it applies immediately and permanently on
-// arrival, matching "no decline" (ADR-0007's Triggering).
-run_apply_stat_trade :: proc(s: ^ship.Ship, trade: Encounter_Stat_Trade) {
+// arrival, matching "no decline" (ADR-0007's Triggering). Emits
+// Event_Encounter_Resolved (ADR-0008) with a post-trade snapshot; the
+// trade's own gain_durability is already this point's zone-scaled tuned
+// magnitude, so it doubles as the snapshot's difficulty_rating.
+run_apply_stat_trade :: proc(s: ^ship.Ship, trade: Encounter_Stat_Trade, zone: Zone, steps: int, events: ^[dynamic]Event) {
 	s.durability += trade.gain_durability
 	s.speed -= trade.cost_speed
+
+	run_emit_encounter_resolved(s, steps, zone, trade.gain_durability, events)
+}
+
+// run_emit_encounter_resolved captures a Ghost_Snapshot and appends its
+// Event_Encounter_Resolved (ADR-0008) — the shared tail of every
+// encounter-resolution proc above, which otherwise differ only in how they
+// arrive at difficulty_rating.
+run_emit_encounter_resolved :: proc(s: ^ship.Ship, steps: int, zone: Zone, difficulty_rating: int, events: ^[dynamic]Event) {
+	snap := run_ghost_snapshot_capture(s, steps, zone, difficulty_rating)
+	append(events, Event(Event_Encounter_Resolved{snapshot = snap}))
 }
 
 // Run_Status is the run's overall outcome so far (ADR-0007's Win/loss

@@ -224,7 +224,10 @@ run_apply_stat_trade_permanently_gains_durability_and_costs_speed :: proc(t: ^te
 	s := ship.Ship{hp = 20, durability = 2, speed = 5}
 	trade := Encounter_Stat_Trade{gain_durability = 3, cost_speed = 1}
 
-	run_apply_stat_trade(&s, trade)
+	events: [dynamic]Event
+	defer delete(events)
+	run_apply_stat_trade(&s, trade, .Coastal, 0, &events)
+	defer delete(events[0].(Event_Encounter_Resolved).snapshot.ship.layout)
 
 	testing.expect_value(t, s.durability, 5)
 	testing.expect_value(t, s.speed, 4)
