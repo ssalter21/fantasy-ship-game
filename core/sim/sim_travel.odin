@@ -57,8 +57,11 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	case run.Encounter_Stat_Trade:
 		zone, has_zone := point.zone.?
 		assert(has_zone, "an Encounter point must have a zone")
-		run_events: [dynamic]run.Event
-		defer delete(run_events)
+		// run_events is a per-call scratch buffer, forwarded into events
+		// below; allocated from context.temp_allocator (issue #53),
+		// reclaimed by run_session's free_all rather than a per-buffer
+		// delete.
+		run_events := make([dynamic]run.Event, context.temp_allocator)
 		{
 			// The captured Ghost_Snapshot's layout must outlive this call
 			// (issue #52: it escapes via Event_Encounter_Resolved), so it's

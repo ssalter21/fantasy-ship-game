@@ -23,30 +23,42 @@ Event_Sink :: struct {
 // run_session is the single driver loop shared by headless and UI modes
 // (see ADR-0002): tick, dispatch that round's events to the sink, and if the
 // Sim is awaiting a captain decision, ask the input source and submit it
-// before ticking again.
+// before ticking again. The per-tick Event buffer (and the combat/run
+// scratch buffers sim_tick's callees fill along the way) come from
+// context.temp_allocator (issue #53).
 run_session :: proc(sim: ^Sim, input: Input_Source, sink: Event_Sink) {
-	events: [dynamic]Event
-	defer delete(events)
-
 	for {
-		clear(&events)
+		events := make([dynamic]Event, context.temp_allocator)
 		sim_tick(sim, &events)
 
+		// Copy the batch out of temp memory before dispatching it: the UI
+		// Event_Sink's blocking play beats free_all(context.temp_allocator)
+		// once per rendered frame (see cmd/game/menu.odin's play_beat), which
+		// would otherwise invalidate this tick's not-yet-dispatched events
+		// mid-loop, since they'd share the same arena. free_all then reclaims
+		// events and every scratch buffer sim_tick's callees filled along the
+		// way in one shot, right after the copy and before any dispatch can
+		// touch the temp allocator again.
+		to_dispatch := make([]Event, len(events))
+		copy(to_dispatch, events[:])
+		free_all(context.temp_allocator)
+		defer delete(to_dispatch)
+
 		run_ended := false
-		for event in events {
+		for event in to_dispatch {
 			sink.dispatch(sink.data, event)
 			if _, ok := event.(Event_Run_Ended); ok {
 				run_ended = true
 			}
 		}
 
-		if run_ended {
-			return
-		}
-
 		if sim.awaiting_decision {
 			cmd := input.get_captain_choice(input.data, sim.phase)
 			sim_submit_captain_choice(sim, cmd)
+		}
+
+		if run_ended {
+			return
 		}
 	}
 }

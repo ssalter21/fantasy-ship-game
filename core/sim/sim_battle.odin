@@ -18,8 +18,11 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	opponent_command := combat.combat_scripted_command(&sim.battle, .B)
 	cmds := [combat.Side]Maybe(combat.Command){.A = cmd.combat_command, .B = opponent_command}
 
-	combat_events: [dynamic]combat.Event
-	defer delete(combat_events)
+	// combat_events is a per-round scratch buffer, drained into events (and
+	// the sim.battle.jettisoned side effect, which does escape) below; it's
+	// allocated from context.temp_allocator (issue #53), reclaimed by
+	// run_session's free_all rather than a per-buffer delete.
+	combat_events := make([dynamic]combat.Event, context.temp_allocator)
 	{
 		// A Jettison Cargo command records its fitting on sim.battle.jettisoned
 		// (issue #52: run-lifetime, freed only by sim_destroy), so it must
@@ -41,8 +44,10 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	zone, has_zone := sim.run_map.points[sim.current].zone.?
 	assert(has_zone, "a Ship Battle point must have a zone")
-	run_events: [dynamic]run.Event
-	defer delete(run_events)
+	// run_events is a per-call scratch buffer, forwarded into events below;
+	// allocated from context.temp_allocator (issue #53), reclaimed by
+	// run_session's free_all rather than a per-buffer delete.
+	run_events := make([dynamic]run.Event, context.temp_allocator)
 	{
 		// The captured Ghost_Snapshot's layout must outlive this call
 		// (issue #52: it escapes via Event_Encounter_Resolved), so it's
