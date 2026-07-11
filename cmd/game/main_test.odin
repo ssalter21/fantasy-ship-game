@@ -42,11 +42,14 @@ dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^t
 }
 
 @(test)
-dispatch_frees_the_encounter_resolved_snapshots_owned_layout :: proc(t: ^testing.T) {
+dispatch_does_not_crash_on_an_encounter_resolved_event :: proc(t: ^testing.T) {
 	state := Game_State{}
 	defer delete(state.visited)
 	defer delete(state.positions)
 
+	// The snapshot's layout is arena-owned by the Sim (issue #52) — dispatch
+	// takes no ownership of it, so this just confirms handling the variant
+	// doesn't crash.
 	dispatch(&state, sim.Event(sim.Event_Encounter_Resolved{snapshot = run.Ghost_Snapshot{}}))
 }
 

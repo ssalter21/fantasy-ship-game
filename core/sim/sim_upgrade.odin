@@ -12,7 +12,7 @@ sim_process_upgrade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	cmd, ok := pending.(Command_Pick_Upgrade)
 	assert(ok, "sim_process_upgrade_choice called without a pending Command_Pick_Upgrade")
 	sim.pending_command = nil
-	assert(cmd.option_index >= 0 && cmd.option_index < len(sim.upgrade_options), "Command_Pick_Upgrade option_index out of range")
+	assert(cmd.option_index >= 0 && int(cmd.option_index) < len(sim.upgrade_options), "Command_Pick_Upgrade option_index out of range")
 
 	fitting := sim.upgrade_options[cmd.option_index]
 
