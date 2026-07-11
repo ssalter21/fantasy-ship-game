@@ -155,6 +155,36 @@ ship_cargo_slot_contribution :: proc(size: Slot_Size) -> int {
 	return 0
 }
 
+// ship_slot_by_category finds the one layout slot currently holding a
+// non-cargo fitting of the given Category (issue #24: an Upgrade Offer pick
+// targets "the slot holding my current Top Crew/Captain's Quarters/Gun Deck",
+// not a literal slot name — unambiguous in this slice's fixed 3-fitting
+// loadout, since exactly one slot holds each of Buff/Defensive/Offensive).
+// Returns nil if no slot currently holds a matching fitting.
+ship_slot_by_category :: proc(s: ^Ship, category: Category) -> ^Layout_Slot {
+	for &layout_slot in s.layout {
+		fitting, has_fitting := layout_slot.fitting.?
+		if has_fitting && !fitting.is_cargo && fitting.category == category {
+			return &layout_slot
+		}
+	}
+	return nil
+}
+
+// ship_replace_fitting swaps out layout_slot's current fitting for a new one
+// (issue #24: applying an Upgrade Offer pick — ship_fit alone rejects an
+// already-occupied slot, so a bare clear-then-fit would be needed at every
+// call site without this). Still enforces the exact-size-match rule
+// (ADR-0004): checked before clearing, so a size-mismatched fitting is
+// rejected without disturbing what was already installed.
+ship_replace_fitting :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
+	if fitting.size != layout_slot.slot.size {
+		return false
+	}
+	layout_slot.fitting = nil
+	return ship_fit(layout_slot, fitting)
+}
+
 // Captain is structurally separate from the slot system: not a fitting,
 // consumes no slot. A run-start choice that can influence a ship's slot
 // limits/structure and grants additional manual per-round captain actions.

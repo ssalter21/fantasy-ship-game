@@ -196,3 +196,59 @@ ship_with_a_captain_assigned_carries_that_captains_name :: proc(t: ^testing.T) {
 	testing.expect(t, has_captain)
 	testing.expect_value(t, captain.name, "Blackheart")
 }
+
+@(test)
+slot_by_category_finds_the_slot_holding_a_fitting_of_that_category :: proc(t: ^testing.T) {
+	s := Ship{
+		layout = []Layout_Slot{
+			{slot = Slot{name = "top crew", size = .Medium, base_visibility = .Exposed}, fitting = Fitting{name = "Top Crew", size = .Medium, category = .Buff}},
+			{slot = Slot{name = "gun deck", size = .Large, base_visibility = .Exposed}, fitting = Fitting{name = "Gun Deck", size = .Large, category = .Offensive}},
+		},
+	}
+
+	found := ship_slot_by_category(&s, .Offensive)
+
+	testing.expect(t, found != nil)
+	installed, _ := found.fitting.?
+	testing.expect_value(t, installed.name, "Gun Deck")
+}
+
+@(test)
+slot_by_category_returns_nil_when_no_slot_holds_a_matching_fitting :: proc(t: ^testing.T) {
+	s := Ship{
+		layout = []Layout_Slot{
+			{slot = Slot{name = "hold 1", size = .Small, base_visibility = .Concealed}, fitting = Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 1}},
+		},
+	}
+
+	found := ship_slot_by_category(&s, .Offensive)
+
+	testing.expect(t, found == nil)
+}
+
+@(test)
+replace_fitting_swaps_an_occupied_slots_fitting_for_a_same_sized_one :: proc(t: ^testing.T) {
+	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
+	ok := ship_fit(&layout_slot, Fitting{name = "Gun Deck", size = .Large})
+	testing.expect(t, ok)
+
+	replaced := ship_replace_fitting(&layout_slot, Fitting{name = "Upgraded Gun Deck", size = .Large})
+
+	testing.expect(t, replaced)
+	installed, _ := layout_slot.fitting.?
+	testing.expect_value(t, installed.name, "Upgraded Gun Deck")
+}
+
+@(test)
+replace_fitting_rejects_a_size_mismatch_and_leaves_the_original_installed :: proc(t: ^testing.T) {
+	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
+	ok := ship_fit(&layout_slot, Fitting{name = "Gun Deck", size = .Large})
+	testing.expect(t, ok)
+
+	replaced := ship_replace_fitting(&layout_slot, Fitting{name = "Dagger", size = .Small})
+
+	testing.expect(t, !replaced)
+	installed, has_fitting := layout_slot.fitting.?
+	testing.expect(t, has_fitting)
+	testing.expect_value(t, installed.name, "Gun Deck")
+}

@@ -1,47 +1,125 @@
 package main
 
+import "core:fmt"
+import combat "../../core/combat"
+import run "../../core/run"
+import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
 
+WINDOW_WIDTH :: 1024
+WINDOW_HEIGHT :: 700
+
 main :: proc() {
-	rl.InitWindow(800, 450, "Fantasy Ship Game")
+	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game")
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
 	s := sim.sim_create(0)
-	input := sim.Input_Source{data = nil, get_captain_choice = rendered_captain_choice}
-	sink := sim.Event_Sink{data = nil, dispatch = rendered_dispatch}
+	defer sim.sim_destroy(&s)
+
+	state := Game_State{}
+	defer delete(state.visited)
+	defer delete(state.positions)
+
+	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
+	sink := sim.Event_Sink{data = &state, dispatch = dispatch}
+
 	sim.run_session(&s, input, sink)
 }
 
-// rendered_captain_choice is the game Input_Source: it draws a placeholder
-// frame before returning a fixed choice, so run_session (the outermost
-// driver loop per ADR-0002) ends up wrapping rendering rather than
-// preceding it. A raylib-backed decision menu that blocks across many
-// frames replaces the frame body once UI decision rendering lands.
-rendered_captain_choice :: proc(data: rawptr) -> sim.Command {
-	draw_placeholder_frame()
-	return sim.Command(sim.Command_Submit_Captain_Choice{choice = 0})
+// Game_State is the shared context both the Input_Source and Event_Sink
+// halves of the UI read/write (issue #24 — the same rawptr-sharing trick as
+// cmd/headless's Headless_State, since Odin gives each callback only its own
+// rawptr): dispatch records what the last event told us (current ship
+// state, sighted opponent, whether a battle/upgrade is pending, map layout)
+// and every blocking decision loop in menu.odin renders from this same
+// state.
+Game_State :: struct {
+	run_map:          run.Map,
+	positions:        []rl.Vector2, // parallel to run_map.points; screen position
+	visited:          []bool, // parallel to run_map.points
+	current_point_id: int,
+	player:           ship.Ship,
+	in_battle:        bool,
+	sighted_opponent: Maybe(ship.Ship),
+	may_leave:        bool,
+	upgrade_options:  Maybe([3]ship.Fitting),
+	status:           run.Run_Status,
 }
 
-// rendered_dispatch is the game Event_Sink: it draws a placeholder frame per
-// event. Animated event playback replaces the frame body once UI playback
-// lands.
-rendered_dispatch :: proc(data: rawptr, event: sim.Event) {
-	draw_placeholder_frame()
-}
-
-// draw_placeholder_frame is the render-loop body rendered_captain_choice and
-// rendered_dispatch nest (ADR-0002): draw one static frame. A no-op outside
-// a live window (e.g. under `odin test`), since raylib's draw calls require
-// InitWindow to have run first.
-draw_placeholder_frame :: proc() {
+// get_captain_choice is the game Input_Source: it picks which blocking
+// decision menu to render (ADR-0002 — each menu_loop runs its own nested
+// render+poll loop and blocks until the player picks) based on what the
+// most recently dispatched events told Game_State to expect.
+get_captain_choice :: proc(data: rawptr) -> sim.Command {
+	state := cast(^Game_State)data
 	if !rl.IsWindowReady() {
-		return
+		// No live window (e.g. under `odin test`): return a harmless
+		// default instead of entering a render loop that can never draw.
+		return sim.Command(sim.Command_Travel_To{point_id = 0})
 	}
 
-	rl.BeginDrawing()
-	rl.ClearBackground(rl.RAYWHITE)
-	rl.DrawText("Fantasy Ship Game", 190, 200, 20, rl.DARKGRAY)
-	rl.EndDrawing()
+	if _, has_options := state.upgrade_options.?; has_options {
+		return upgrade_menu_loop(state)
+	}
+	if state.in_battle {
+		return battle_menu_loop(state)
+	}
+	return travel_menu_loop(state)
+}
+
+// dispatch is the game Event_Sink: updates Game_State from every event and,
+// for the events that warrant it (a sighted opponent, a battle round, an
+// applied upgrade, the run ending), plays a blocking beat via play_beat/
+// play_battle_event_beat before returning control to run_session.
+dispatch :: proc(data: rawptr, event: sim.Event) {
+	state := cast(^Game_State)data
+
+	switch e in event {
+	case sim.Event_Run_Started:
+		state.run_map = e.run_map
+		state.player = e.ship
+		state.visited = make([]bool, len(e.run_map.points))
+		state.positions = compute_point_positions(e.run_map)
+
+	case sim.Event_Arrived_At_Point:
+		state.current_point_id = e.point.id
+		state.visited[e.point.id] = true
+
+	case sim.Event_Ship_Battle_Sighted:
+		state.in_battle = true
+		state.sighted_opponent = e.opponent
+		play_beat(state, fmt.tprintf("A ship approaches! (HP %d)", e.opponent.hp))
+
+	case sim.Event_Battle_Menu:
+		state.may_leave = e.may_leave
+
+	case sim.Event_Battle_Event:
+		play_battle_event_beat(state, e.inner)
+
+	case sim.Event_Ship_Updated:
+		state.player = e.ship
+
+	case sim.Event_Upgrade_Offer_Presented:
+		state.upgrade_options = e.options
+
+	case sim.Event_Upgrade_Applied:
+		state.upgrade_options = nil
+		play_beat(state, fmt.tprintf("Installed %s!", e.fitting.name))
+
+	case sim.Event_Encounter_Resolved:
+		// Ghost_Snapshot's layout is caller-owned (core/sim's
+		// Event_Encounter_Resolved doc comment) — the UI has no use for a
+		// ghost snapshot's own copy of the layout beyond this dispatch.
+		delete(e.snapshot.ship.layout)
+
+	case sim.Event_Run_Ended:
+		state.status = e.status
+		message := "Your ship has been lost."
+		if e.status == .Won {
+			message = "Victory! You reached the Goal."
+		}
+		play_beat(state, message)
+	}
 }
