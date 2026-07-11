@@ -181,6 +181,29 @@ variant-B fog caption, and the bottom switcher bar/status line were moved
 out to screen-fixed HUD calls in `main.odin` so they don't scroll off with
 the world. Variant C (no graph shown) is unaffected -- no camera applied.
 
+## Reversal: whole map visible, no camera -- and denser (issue #62 feedback, cont'd)
+
+Further feedback after trying the camera-pan version above: wrong direction.
+This is a ship charting a course, not a dungeon explored room by room --
+the whole space should be visible at once, not scrolled through. Separately,
+the graph read as too thin: only `LANES = 5` lanes in a ~280px band, with
+3-4 nodes per layer, left most of a 700px-tall window empty.
+
+Reverted `layout()` to divide the fixed `MAP_LEFT/RIGHT/TOP/BOTTOM` box by
+however many layers/lanes a given seed actually produced (the ratio-based
+formula from before the camera experiment), instead of fixed LAYER_DX/
+LANE_DY world-space steps -- guarantees the whole graph always fits inside
+the window, so `main.odin`'s camera/`BeginMode2D` wrapping came back out
+entirely. `next_lane_lo`'s contiguous-drifting-range guarantee (still in
+place) keeps edges close in length to each other regardless of how the box
+gets divided per seed.
+
+Density: `LANES` 5 → 9 and `layer_width_min/max` 3-4 → 5-7 (more parallel
+lanes, more branches filling them), window grown 1280×700 → 1500×860 to
+give the denser layout room without cramping. `nodes_per_zone` (17, ~50
+total) is untouched -- density comes from packing the same node count into
+more lanes per layer over fewer, wider layers, not from adding nodes.
+
 ## Status
 
 Not yet posted as the issue's `## Answer` — recommendation above is mine;

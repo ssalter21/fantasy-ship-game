@@ -64,12 +64,11 @@ Edge :: struct {
 }
 
 Graph :: struct {
-	nodes:      []Node,
-	edges:      []Edge,
-	layers:     [][]int, // node ids grouped by layer, in layer order
-	start_id:   int,
-	goal_id:    int,
-	world_right: f32, // rightmost node x -- world is much wider than any window, camera pans (main.odin)
+	nodes:    []Node,
+	edges:    []Edge,
+	layers:   [][]int, // node ids grouped by layer, in layer order
+	start_id: int,
+	goal_id:  int,
 }
 
 Gen_Config :: struct {
@@ -82,35 +81,30 @@ Gen_Config :: struct {
 // LANES caps both layer width and per-node degree: every node connects
 // only to an adjacent lane (±1) one layer over, which is what keeps edges
 // short and mostly non-crossing -- "stepping stones", not a dense mesh
-// (issue #62 feedback). layer_width is clamped to LANES. Widening LANES
-// (rather than shrinking nodes_per_zone) is how this stays at map #59's
-// actual ~50-node scale without piling nodes into too few lanes.
-LANES :: 5
+// (issue #62 feedback). layer_width is clamped to LANES. This is charting a
+// ship's course, not a dungeon crawl the player discovers room by room --
+// per later issue #62 feedback the *whole* map should be visible at once
+// (no camera/scroll), and it read as too thin/sparse at LANES=5 with only
+// 3-4 nodes occupying it per layer. Widened to 9 lanes with a wider 5-7
+// layer_width below so more of the vertical band actually has nodes in it.
+LANES :: 9
 
 default_gen_config := Gen_Config {
 	nodes_per_zone  = 17, // Coastal/Open_Sea/Deep * 17 ~= 50, matching #60's locked constant
 	layers_per_zone = 6,
-	layer_width_min = 3,
-	layer_width_max = 4,
+	layer_width_min = 5,
+	layer_width_max = 7,
 }
 
-// Fixed per-layer/per-lane world-space steps (not "total width / layer
-// count") -- two things follow directly from this: (1) the world grows
-// wider as more layers are generated instead of being squeezed into one
-// screen, which is what "much wider, Slay-the-Spire-like" (issue #62
-// feedback) needs -- main.odin pans a camera across it; (2) because
-// LAYER_DX is large relative to LANE_DY, a same-lane edge (dx only) and an
-// adjacent-lane edge (dx and one dy step) end up close in length instead of
-// wildly different -- combined with next_lane_lo's overlap guarantee below
-// (which keeps every edge within one lane step to begin with, never a long
-// diagonal), this is what makes edges "very similar lengths" rather than
-// variable.
-LAYER_DX :: 170
-LANE_DY :: 70
-
-MAP_LEFT :: 60
-MAP_TOP :: 140
-MAP_BOTTOM :: MAP_TOP + (LANES - 1) * LANE_DY
+// The whole graph must fit inside the window (no camera/pan -- issue #62
+// feedback: charting a course means seeing the whole space at once), so
+// x/y positions are ratios of the fixed MAP_LEFT/RIGHT/TOP/BOTTOM box, not
+// fixed per-layer/per-lane steps -- layout() divides the box by however
+// many layers/lanes this particular generated graph actually used.
+MAP_LEFT :: 70
+MAP_RIGHT :: WINDOW_WIDTH - 70
+MAP_TOP :: 90
+MAP_BOTTOM :: 680
 
 // generate builds one candidate ~50-node graph, laid out left (Start) to
 // right (Goal), grouped into per-zone layers -- same seed always produces
@@ -194,14 +188,14 @@ generate_graph :: proc(seed: u64) -> Graph {
 		}
 	}
 
-	world_right := layout(nodes[:], layer_ids[:])
+	layout(nodes[:], layer_ids[:])
 
 	layers := make([][]int, len(layer_ids))
 	for layer, i in layer_ids {
 		layers[i] = layer[:]
 	}
 
-	return Graph{nodes = nodes[:], edges = edges[:], layers = layers, start_id = start_id, goal_id = goal_id, world_right = world_right}
+	return Graph{nodes = nodes[:], edges = edges[:], layers = layers, start_id = start_id, goal_id = goal_id}
 }
 
 // next_lane_lo picks the starting lane of a `width`-wide contiguous block of
@@ -308,25 +302,26 @@ graph_destroy :: proc(g: ^Graph) {
 	delete(g.layers)
 }
 
-// layout positions every node by (layer, lane): x from its layer index at a
-// fixed LAYER_DX step, y from its lane at a fixed LANE_DY step -- fixed
-// (not "total width / layer count") steps are what make the world grow
-// wider as more layers are generated (issue #62: "much wider") instead of
-// squeezing into one screen, and what keep a same-lane edge (dx only) and
-// an adjacent-lane edge (dx + one dy step) close in length to each other
-// (issue #62: "edges should all be very similar lengths"). Returns the
-// rightmost node's x so callers (main.odin's camera, the zone-gradient
-// background) know the world's actual extent.
-layout :: proc(nodes: []Node, layer_ids: [][dynamic]int) -> f32 {
+// layout positions every node by (layer, lane): x from its layer index, y
+// from its lane -- both as a fraction of the fixed MAP_LEFT/RIGHT/TOP/BOTTOM
+// box, so the whole graph always fits inside the window regardless of how
+// many layers this particular seed generated (issue #62: the whole space
+// should be visible at once, no camera/pan). A fixed lane keeps a node's
+// vertical position stable relative to its neighbors layer to layer, and
+// next_lane_lo's contiguous-range guarantee (below) keeps every edge within
+// one lane step, which together are what keep edges close in length to
+// each other despite the box being divided a different number of ways per
+// generated graph.
+layout :: proc(nodes: []Node, layer_ids: [][dynamic]int) {
+	num_layers := len(layer_ids)
 	for layer, li in layer_ids {
-		x := MAP_LEFT + f32(li) * LAYER_DX
+		x := MAP_LEFT + f32(li) * (MAP_RIGHT - MAP_LEFT) / f32(num_layers - 1)
 		for id in layer {
 			lane := nodes[id].lane
-			y := MAP_TOP + f32(lane) * LANE_DY
+			y := MAP_TOP + f32(lane) * (MAP_BOTTOM - MAP_TOP) / f32(LANES - 1)
 			nodes[id].pos = rl.Vector2{x, y}
 		}
 	}
-	return MAP_LEFT + f32(len(layer_ids) - 1) * LAYER_DX
 }
 
 // travel_options returns every node the player may step to this turn:

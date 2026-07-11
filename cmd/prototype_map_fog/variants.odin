@@ -93,7 +93,7 @@ draw_zone_gradient_v :: proc(left, top, right, bottom: i32) {
 // full label, visited or not.
 
 draw_variant_a :: proc(g: Graph, visited: []bool, current_id: int, options: []int) {
-	draw_zone_gradient_h(i32(MAP_LEFT) - 10, i32(MAP_TOP) - 10, i32(g.world_right) + 10, i32(MAP_BOTTOM) + 10)
+	draw_zone_gradient_h(i32(MAP_LEFT) - 10, i32(MAP_TOP) - 10, i32(MAP_RIGHT) + 10, i32(MAP_BOTTOM) + 10)
 
 	for e in g.edges {
 		from := g.nodes[e.from].pos
@@ -138,7 +138,7 @@ draw_variant_a :: proc(g: Graph, visited: []bool, current_id: int, options: []in
 // it is.
 
 draw_variant_b :: proc(g: Graph, visited: []bool, current_id: int, options: []int) {
-	draw_zone_gradient_h(i32(MAP_LEFT) - 10, i32(MAP_TOP) - 10, i32(g.world_right) + 10, i32(MAP_BOTTOM) + 10)
+	draw_zone_gradient_h(i32(MAP_LEFT) - 10, i32(MAP_TOP) - 10, i32(MAP_RIGHT) + 10, i32(MAP_BOTTOM) + 10)
 
 	revealed := make([dynamic]int)
 	defer delete(revealed)

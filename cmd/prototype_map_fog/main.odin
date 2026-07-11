@@ -15,8 +15,10 @@ package prototype_map_fog
 import "core:fmt"
 import rl "vendor:raylib"
 
-WINDOW_WIDTH :: 1280
-WINDOW_HEIGHT :: 700
+// Sized to fit the whole ~50-node graph on screen at once, no camera/pan --
+// charting a course means seeing the whole space (issue #62 feedback).
+WINDOW_WIDTH :: 1500
+WINDOW_HEIGHT :: 860
 
 variant_names := [3]string{"A -- Full graph, kind hidden", "B -- Fog by distance (horizon)", "C -- Zone progress + choice fan"}
 
@@ -84,8 +86,6 @@ main :: proc() {
 			}
 		}
 
-		camera := follow_camera(state.g, state.current_id)
-
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RAYWHITE)
 
@@ -94,13 +94,9 @@ main :: proc() {
 
 		switch state.variant {
 		case 0:
-			rl.BeginMode2D(camera)
 			draw_variant_a(state.g, state.visited, state.current_id, options)
-			rl.EndMode2D()
 		case 1:
-			rl.BeginMode2D(camera)
 			draw_variant_b(state.g, state.visited, state.current_id, options)
-			rl.EndMode2D()
 			rl.DrawText("Fog: unrevealed graph beyond the horizon is not drawn at all", 20, 40, 14, rl.DARKGRAY)
 		case 2:
 			draw_variant_c(state.g, state.visited, state.current_id, options)
@@ -113,31 +109,6 @@ main :: proc() {
 		rl.EndDrawing()
 		delete(all_options)
 	}
-}
-
-// follow_camera scrolls the view horizontally to keep the current node
-// roughly centered, like Slay the Spire's vertical map scroll -- the graph's
-// world is now much wider than any window (issue #62: "much wider"), so
-// there's no fixed layout that fits the whole thing on screen at once.
-// Vertical position is left alone (target/offset.y stay 0) since lanes
-// already fit within the window. Clamped so the camera never shows past
-// either world edge, or shrinks to fit if the whole world happens to be
-// narrower than the window.
-follow_camera :: proc(g: Graph, current_id: int) -> rl.Camera2D {
-	half_w := f32(WINDOW_WIDTH) / 2
-	world_left := f32(MAP_LEFT) - 60
-	world_right := g.world_right + 60
-
-	target_x := g.nodes[current_id].pos.x
-	if world_right-world_left <= f32(WINDOW_WIDTH) {
-		target_x = (world_left + world_right) / 2
-	} else {
-		min_x := world_left + half_w
-		max_x := world_right - half_w
-		target_x = clamp(target_x, min_x, max_x)
-	}
-
-	return rl.Camera2D{target = rl.Vector2{target_x, 0}, offset = rl.Vector2{half_w, 0}, zoom = 1}
 }
 
 draw_status_line :: proc(state: Proto_State) {
