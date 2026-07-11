@@ -72,3 +72,19 @@ upgrade_menu_loop_falls_back_to_option_zero_without_a_live_window :: proc(t: ^te
 	testing.expect(t, ok)
 	testing.expect_value(t, pick.option_index, 0)
 }
+
+@(test)
+version_defaults_to_dev_without_the_git_sha_define :: proc(t: ^testing.T) {
+	// Built under `odin test` (no -define:GIT_SHA), the compile-time stamp
+	// falls back to its #config default. A build passing -define:GIT_SHA=...
+	// overrides this; issue #44.
+	testing.expect_value(t, VERSION, "dev")
+}
+
+@(test)
+draw_version_stamp_does_not_crash_without_a_live_window :: proc(t: ^testing.T) {
+	// Respects the same IsWindowReady() guard as the rest of the render
+	// layer (ADR-0003): a no-op under `odin test` rather than a raylib call
+	// with no live window.
+	draw_version_stamp()
+}

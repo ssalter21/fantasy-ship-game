@@ -10,6 +10,12 @@ import rl "vendor:raylib"
 WINDOW_WIDTH :: 1024
 WINDOW_HEIGHT :: 700
 
+// VERSION is the build's git-SHA stamp, drawn in a window corner so playtest
+// feedback can be tied to an exact commit (issue #44). `odin build cmd/game
+// -define:GIT_SHA=abc1234` stamps abc1234; building without the define falls
+// back to "dev".
+VERSION :: #config(GIT_SHA, "dev")
+
 main :: proc() {
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game")
 	defer rl.CloseWindow()
