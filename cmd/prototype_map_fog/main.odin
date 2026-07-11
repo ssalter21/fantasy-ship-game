@@ -4,7 +4,7 @@ package prototype_map_fog
 // question this answers. Run with: odin run cmd/prototype_map_fog
 //
 // Left/Right arrows switch between three variants of "what does the player
-// see" for the map's node-hiding mechanism. Press 1-6 to travel: forward
+// see" for the map's node-hiding mechanism. Press 1-8 to travel: forward
 // options are new territory, back options retrace an edge to an
 // already-visited node (movement is no longer forward-only -- reversed
 // from map #59's original chartering, see NOTES.md). Revisiting a node
@@ -72,14 +72,14 @@ main :: proc() {
 		}
 
 		all_options := travel_options(state.g, state.current_id, state.visited)
-		// Lane-adjacency (graph.odin) caps candidates at 3 either direction
-		// (same lane, ±1), so out-degree + in-degree-from-visited maxes out
-		// at 6 -- 6 number keys covers the true worst case (not just "well
-		// under it") now that connect_stepping's higher branch/converge
-		// factor (issue #62 feedback) makes hitting near that max common.
-		options := all_options[:min(len(all_options), 6)]
+		// Lane-adjacency (graph.odin) caps forward candidates at 3 either
+		// direction (same lane, ±1) -- out + in-from-visited maxes out at 6
+		// -- plus up to 2 lateral neighbors, always available regardless of
+		// visited state (issue #62: "sideways connections"). 8 number keys
+		// covers the true worst case, not just "well under it".
+		options := all_options[:min(len(all_options), 8)]
 
-		for key, i in ([6]rl.KeyboardKey{.ONE, .TWO, .THREE, .FOUR, .FIVE, .SIX}) {
+		for key, i in ([8]rl.KeyboardKey{.ONE, .TWO, .THREE, .FOUR, .FIVE, .SIX, .SEVEN, .EIGHT}) {
 			if rl.IsKeyPressed(key) && i < len(options) {
 				dest := options[i]
 				state.just_triggered = will_trigger(state.g, dest, state.visited)

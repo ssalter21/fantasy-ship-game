@@ -231,6 +231,35 @@ class the lane rework fixed earlier would have resurfaced at the old 4-key
 cap. `main.odin` now supports 6 travel keys (`1`-`6`) to match the true
 worst case rather than papering over it with a lower cap.
 
+## Sideways connections (issue #62 feedback, cont'd)
+
+Further feedback: still missing sideways connections, and to keep the same
+number of connections per node rather than just piling more on top.
+
+`Edge` gained a `lateral: bool` field. `connect_lateral` (`graph.odin`)
+wires same-layer, adjacent-lane pairs (nodes are already stored in
+ascending-lane order within a layer, so consecutive pairs are exactly one
+lane apart) with an independent `LATERAL_CHANCE` coin flip each -- no
+repair pass, since reachability start-to-goal is still guaranteed entirely
+by the forward graph; lateral edges are a bonus route, never load-bearing.
+
+To honor "same number of connections," `BRANCH_CHANCE` (the forward-edge
+coin flip) dropped 0.55 → 0.35 in the same commit that added
+`LATERAL_CHANCE` (also 0.35) -- adding a whole new candidate pool (same-
+layer neighbors, up to 2 per node) without giving something back would
+have made every node's total degree bigger than before, not just
+differently shaped. The two constants split one connection budget between
+forward and sideways instead of adding sideways on top of it.
+
+`travel_options` treats lateral edges as available from both ends
+regardless of visited state -- unlike a forward edge, neither end of a
+lateral edge is "ahead" of the other, so the forward-vs-retrace asymmetry
+doesn't apply; stepping either way for the first time still triggers an
+encounter normally. Worst-case reachable options per node is now 3 (forward
+out) + 3 (forward in, already visited) + 2 (lateral, either direction) = 8,
+so `main.odin`'s travel keys went from `1`-`6` to `1`-`8` to match, same
+reasoning as the last key-count bump.
+
 ## Status
 
 Not yet posted as the issue's `## Answer` — recommendation above is mine;

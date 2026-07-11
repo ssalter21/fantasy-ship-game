@@ -60,7 +60,8 @@ Node :: struct {
 }
 
 Edge :: struct {
-	from, to: int, // always *created* lower layer -> higher layer -- generation is still forward-only; travel_options may walk one in reverse to retrace a visited node (issue #62 reversed the traversal rule, not the generation shape)
+	from, to: int, // for a forward edge (lateral == false): always *created* lower layer -> higher layer -- generation is still forward-only; travel_options may walk one in reverse to retrace a visited node (issue #62 reversed the traversal rule, not the generation shape)
+	lateral:  bool, // same-layer, adjacent-lane -- undirected in effect: travel_options offers both ends regardless of visited state, since neither side is "ahead" of the other (issue #62 feedback: "sideways connections should also be possible")
 }
 
 Graph :: struct {
@@ -175,6 +176,9 @@ generate_graph :: proc(seed: u64) -> Graph {
 	for li in 0 ..< len(layer_ids) - 1 {
 		connect_stepping(nodes[:], layer_ids[li][:], layer_ids[li + 1][:], &edges, gen)
 	}
+	for li in 0 ..< len(layer_ids) {
+		connect_lateral(nodes[:], layer_ids[li][:], &edges, gen)
+	}
 
 	// mark two nodes per zone as ports -- never hidden (no encounter kind),
 	// just a flavor overlay; not this ticket's concern, included for realism.
@@ -231,7 +235,20 @@ abs_int :: proc(x: int) -> int {
 // more convergence and divergence." Bounded by lane-adjacency (never more
 // than 3 candidates either direction: same lane, ±1) so it stays short of
 // the dense-mesh look an earlier round of feedback rejected.
-BRANCH_CHANCE :: 0.55
+//
+// Lowered from 0.55 when LATERAL_CHANCE (below) was introduced -- issue #62
+// feedback: "sideways connections should also be possible, keep the same
+// number of connections per node." Adding a whole new candidate pool
+// (same-layer neighbors) without giving something back would have made
+// every node's total degree bigger than before, not just differently
+// shaped; this and LATERAL_CHANCE split the same per-node connection
+// budget between forward and sideways instead of adding sideways on top.
+BRANCH_CHANCE :: 0.35
+
+// LATERAL_CHANCE is the odds that two same-layer, adjacent-lane nodes get a
+// sideways edge (connect_lateral) -- see BRANCH_CHANCE's comment for why
+// it's split from, not additional to, the forward connection budget.
+LATERAL_CHANCE :: 0.35
 
 // connect_stepping wires from_layer -> to_layer, restricted to adjacent
 // lanes (|lane delta| <= 1, guaranteed non-empty by next_lane_lo's overlap
@@ -298,6 +315,22 @@ connect_stepping :: proc(nodes: []Node, from_layer, to_layer: []int, edges: ^[dy
 	}
 }
 
+// connect_lateral wires same-layer, adjacent-lane node pairs -- issue #62
+// feedback: "sideways connections should also be possible." `layer` is
+// already in ascending-lane order (add_layer assigns lanes lo..lo+width-1
+// in order), so each consecutive pair is exactly one lane apart; every pair
+// gets one independent LATERAL_CHANCE coin flip. No repair pass: unlike
+// connect_stepping's forward edges, lateral edges aren't load-bearing for
+// start-to-goal reachability (that guarantee lives entirely in the forward
+// graph), just an optional extra route sideways.
+connect_lateral :: proc(nodes: []Node, layer: []int, edges: ^[dynamic]Edge, gen: runtime.Random_Generator) {
+	for i in 0 ..< len(layer) - 1 {
+		if rand.float32(gen) < LATERAL_CHANCE {
+			append(edges, Edge{from = layer[i], to = layer[i + 1], lateral = true})
+		}
+	}
+}
+
 graph_destroy :: proc(g: ^Graph) {
 	delete(g.nodes)
 	delete(g.edges)
@@ -331,16 +364,26 @@ layout :: proc(nodes: []Node, layer_ids: [][dynamic]int) {
 
 // travel_options returns every node the player may step to this turn:
 // forward along any outgoing edge (new territory, or a re-converging
-// already-visited node), or backward along an incoming edge to a node
-// that's already been visited (retracing the graph -- not a teleport to
-// any arbitrary visited node, just the ones directly connected). Movement
-// is no longer forward-only (reversed from map #59's original chartering
-// per issue #62's discussion); revisiting a node never re-triggers its
-// encounter (is_landmark nodes never trigger one at all).
+// already-visited node), backward along an incoming edge to a node that's
+// already been visited (retracing the graph -- not a teleport to any
+// arbitrary visited node, just the ones directly connected), or sideways
+// along a lateral edge in either direction regardless of visited state --
+// neither end is "ahead" of the other, so there's no forward/retrace
+// asymmetry to apply (issue #62 feedback: "sideways connections should
+// also be possible"). Movement is no longer forward-only (reversed from
+// map #59's original chartering per issue #62's discussion); revisiting a
+// node never re-triggers its encounter (is_landmark nodes never trigger
+// one at all).
 travel_options :: proc(g: Graph, current_id: int, visited: []bool) -> [dynamic]int {
 	opts := make([dynamic]int)
 	for e in g.edges {
-		if e.from == current_id && !is_in(e.to, opts[:]) {
+		if e.lateral {
+			if e.from == current_id && !is_in(e.to, opts[:]) {
+				append(&opts, e.to)
+			} else if e.to == current_id && !is_in(e.from, opts[:]) {
+				append(&opts, e.from)
+			}
+		} else if e.from == current_id && !is_in(e.to, opts[:]) {
 			append(&opts, e.to)
 		} else if e.to == current_id && visited[e.from] && !is_in(e.from, opts[:]) {
 			append(&opts, e.from)
