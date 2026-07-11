@@ -40,33 +40,34 @@ ship_fitting_gun_deck :: proc() -> Fitting {
 	return Fitting{name = "Gun Deck", size = .Large, category = .Offensive, active = Effect{magnitude = GUN_DECK_OFFENSE_MAGNITUDE}}
 }
 
+// ship_fitting_upgraded is the shared shape behind ship_fitting_upgraded_top_crew,
+// _captains_quarters, and _gun_deck below: an upgraded variant keeps its
+// base's size/category and adds bonus on top of the base magnitude. bonus is
+// a caller-supplied scale (issue #23: an Upgrade Offer's quality rises by
+// zone, so a deeper point's upgrade should be worth more, and a PvE
+// opponent's gun deck scales the same way — see core/run's content.odin),
+// not a fixed constant.
+ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) -> Fitting {
+	f := base
+	f.name = upgraded_name
+	base_active, _ := base.active.?
+	f.active = Effect{magnitude = base_active.magnitude + bonus}
+	return f
+}
+
 // ship_fitting_upgraded_top_crew, _captains_quarters, and _gun_deck are the
 // only findable content this slice has (ADR-0004: "no fitting roster beyond
-// the 3 starting fittings plus their upgraded variants") — an upgraded
-// variant keeps its base's size/category and adds bonus on top of the base
-// magnitude. bonus is a caller-supplied scale (issue #23: an Upgrade Offer's
-// quality rises by zone, so a deeper point's upgrade should be worth more,
-// and a PvE opponent's gun deck scales the same way — see core/run's
-// content.odin), not a fixed constant.
+// the 3 starting fittings plus their upgraded variants").
 ship_fitting_upgraded_top_crew :: proc(bonus: int) -> Fitting {
-	f := ship_fitting_top_crew()
-	f.name = "Upgraded Top Crew"
-	f.active = Effect{magnitude = TOP_CREW_BUFF_MAGNITUDE + bonus}
-	return f
+	return ship_fitting_upgraded(ship_fitting_top_crew(), "Upgraded Top Crew", bonus)
 }
 
 ship_fitting_upgraded_captains_quarters :: proc(bonus: int) -> Fitting {
-	f := ship_fitting_captains_quarters()
-	f.name = "Upgraded Captain's Quarters"
-	f.active = Effect{magnitude = CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE + bonus}
-	return f
+	return ship_fitting_upgraded(ship_fitting_captains_quarters(), "Upgraded Captain's Quarters", bonus)
 }
 
 ship_fitting_upgraded_gun_deck :: proc(bonus: int) -> Fitting {
-	f := ship_fitting_gun_deck()
-	f.name = "Upgraded Gun Deck"
-	f.active = Effect{magnitude = GUN_DECK_OFFENSE_MAGNITUDE + bonus}
-	return f
+	return ship_fitting_upgraded(ship_fitting_gun_deck(), "Upgraded Gun Deck", bonus)
 }
 
 // ship_fitting_cargo builds one of the ship template's default cargo
