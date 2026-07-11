@@ -15,7 +15,7 @@ import sim "../../core/sim"
 @(test)
 get_captain_choice_returns_a_default_travel_choice_without_a_live_window :: proc(t: ^testing.T) {
 	state := Game_State{}
-	cmd := get_captain_choice(&state)
+	cmd := get_captain_choice(&state, .Awaiting_Travel_Choice)
 
 	_, ok := cmd.(sim.Command_Travel_To)
 	testing.expect(t, ok)

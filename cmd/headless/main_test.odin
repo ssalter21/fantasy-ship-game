@@ -5,11 +5,11 @@ import combat "../../core/combat"
 import sim "../../core/sim"
 
 @(test)
-get_captain_choice_travels_to_the_next_point_when_no_battle_or_upgrade_is_pending :: proc(t: ^testing.T) {
+get_captain_choice_travels_to_the_next_point_when_awaiting_a_travel_choice :: proc(t: ^testing.T) {
 	state := Headless_State{next_point = 1}
 	defer delete(state.events)
 
-	cmd := get_captain_choice(&state)
+	cmd := get_captain_choice(&state, .Awaiting_Travel_Choice)
 
 	travel, ok := cmd.(sim.Command_Travel_To)
 	testing.expect(t, ok)
@@ -21,8 +21,8 @@ get_captain_choice_advances_to_the_next_point_on_each_successive_call :: proc(t:
 	state := Headless_State{next_point = 1}
 	defer delete(state.events)
 
-	first := get_captain_choice(&state)
-	second := get_captain_choice(&state)
+	first := get_captain_choice(&state, .Awaiting_Travel_Choice)
+	second := get_captain_choice(&state, .Awaiting_Travel_Choice)
 
 	first_travel, _ := first.(sim.Command_Travel_To)
 	second_travel, _ := second.(sim.Command_Travel_To)
@@ -31,11 +31,11 @@ get_captain_choice_advances_to_the_next_point_on_each_successive_call :: proc(t:
 }
 
 @(test)
-get_captain_choice_holds_every_round_while_a_battle_is_in_progress :: proc(t: ^testing.T) {
-	state := Headless_State{next_point = 1, in_battle = true}
+get_captain_choice_holds_when_awaiting_a_battle_command :: proc(t: ^testing.T) {
+	state := Headless_State{next_point = 1}
 	defer delete(state.events)
 
-	cmd := get_captain_choice(&state)
+	cmd := get_captain_choice(&state, .Awaiting_Battle_Command)
 
 	choice, ok := cmd.(sim.Command_Battle_Choice)
 	testing.expect(t, ok)
@@ -44,39 +44,15 @@ get_captain_choice_holds_every_round_while_a_battle_is_in_progress :: proc(t: ^t
 }
 
 @(test)
-get_captain_choice_picks_upgrade_option_zero_while_an_upgrade_is_pending :: proc(t: ^testing.T) {
-	state := Headless_State{next_point = 1, upgrade_pending = true}
+get_captain_choice_picks_upgrade_option_zero_when_awaiting_an_upgrade_choice :: proc(t: ^testing.T) {
+	state := Headless_State{next_point = 1}
 	defer delete(state.events)
 
-	cmd := get_captain_choice(&state)
+	cmd := get_captain_choice(&state, .Awaiting_Upgrade_Choice)
 
 	pick, ok := cmd.(sim.Command_Pick_Upgrade)
 	testing.expect(t, ok)
 	testing.expect_value(t, pick.option_index, 0)
-}
-
-@(test)
-dispatch_enters_battle_mode_on_sighting_and_leaves_it_when_the_battle_ends :: proc(t: ^testing.T) {
-	state := Headless_State{next_point = 1}
-	defer delete(state.events)
-
-	dispatch(&state, sim.Event(sim.Event_Ship_Battle_Sighted{}))
-	testing.expect(t, state.in_battle)
-
-	dispatch(&state, sim.Event(sim.Event_Battle_Event{inner = combat.Event(combat.Event_Battle_Ended{reason = .Destroyed})}))
-	testing.expect(t, !state.in_battle)
-}
-
-@(test)
-dispatch_tracks_an_upgrade_offer_from_presentation_to_application :: proc(t: ^testing.T) {
-	state := Headless_State{next_point = 1}
-	defer delete(state.events)
-
-	dispatch(&state, sim.Event(sim.Event_Upgrade_Offer_Presented{}))
-	testing.expect(t, state.upgrade_pending)
-
-	dispatch(&state, sim.Event(sim.Event_Upgrade_Applied{}))
-	testing.expect(t, !state.upgrade_pending)
 }
 
 @(test)
