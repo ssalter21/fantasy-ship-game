@@ -38,14 +38,13 @@ Event_Encounter_Resolved :: struct {
 
 // run_ghost_snapshot_capture builds a decoupled Ghost_Snapshot from a real,
 // in-progress ship (ADR-0008): hp is always reset to s.max_hp regardless of
-// the ship's current run-persistent hp, and the layout is cloned (via the
-// ambient context.allocator) so later mutation to the source ship (e.g.
-// Jettison Cargo) can't leak into the snapshot. Ownership of the returned
-// snapshot's layout follows whatever allocator was ambient at the call site
-// (issue #52: core/sim calls this with its own run arena ambient, so a
-// Sim-sourced snapshot needs no destroy call of its own — it lives as long
-// as the Sim does); a caller on the default heap allocator remains
-// responsible for its own delete(snapshot.ship.layout).
+// the ship's current run-persistent hp, and the layout is cloned (via
+// context.allocator) so later mutation to the source ship (e.g. Jettison
+// Cargo) can't leak into the snapshot. core/sim's Sim calls this with its own
+// run-scoped arena active (issue #52), so the returned snapshot's layout
+// lives as long as the Sim and is reclaimed wholesale by sim_destroy — a
+// caller outside that context gets a snapshot allocated from whatever
+// context.allocator is active at the call site, and owns it as normal.
 run_ghost_snapshot_capture :: proc(s: ^ship.Ship, steps: int, zone: Zone, difficulty_rating: int) -> Ghost_Snapshot {
 	layout := make([]ship.Layout_Slot, len(s.layout))
 	copy(layout, s.layout)

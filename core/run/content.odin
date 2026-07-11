@@ -22,25 +22,25 @@ run_pve_opponent_offense_bonus :: proc(zone: Zone, port_closeness: int) -> int {
 // formulas rather than duplicating them. Carries no captain — a captain is a
 // player-side, run-start choice (CONTEXT.md), not opponent content. Caller
 // owns the returned Ship's layout slice.
+// run_fit_pve_opponent_loadout fits every slot of run_pve_opponent's fixed
+// loadout (issue #54: an or_return chain replacing 6 hand-threaded
+// ok/assert pairs, mirroring core/ship's ship_fit_starting_loadout — a false
+// return means the template and this roster have drifted out of sync).
+run_fit_pve_opponent_loadout :: proc(layout: []ship.Layout_Slot, bonus: int) -> bool {
+	ship.ship_fit(&layout[0], ship.ship_fitting_captains_quarters()) or_return
+	ship.ship_fit(&layout[1], ship.ship_fitting_top_crew()) or_return
+	ship.ship_fit(&layout[2], ship.ship_fitting_upgraded_gun_deck(bonus)) or_return
+	ship.ship_fit(&layout[3], ship.ship_fitting_cargo("Spoils")) or_return
+	ship.ship_fit(&layout[4], ship.ship_fitting_cargo("Spoils")) or_return
+	return ship.ship_fit(&layout[5], ship.ship_fitting_cargo("Spoils"))
+}
+
 run_pve_opponent :: proc(zone: Zone, port_closeness: int) -> ship.Ship {
 	s := run_make_opponent_ship(zone, port_closeness)
 
 	layout := ship.ship_template_layout()
 	bonus := run_pve_opponent_offense_bonus(zone, port_closeness)
-
-	ok: bool
-	ok = ship.ship_fit(&layout[0], ship.ship_fitting_captains_quarters())
-	assert(ok)
-	ok = ship.ship_fit(&layout[1], ship.ship_fitting_top_crew())
-	assert(ok)
-	ok = ship.ship_fit(&layout[2], ship.ship_fitting_upgraded_gun_deck(bonus))
-	assert(ok)
-	ok = ship.ship_fit(&layout[3], ship.ship_fitting_cargo("Spoils"))
-	assert(ok)
-	ok = ship.ship_fit(&layout[4], ship.ship_fitting_cargo("Spoils"))
-	assert(ok)
-	ok = ship.ship_fit(&layout[5], ship.ship_fitting_cargo("Spoils"))
-	assert(ok)
+	assert(run_fit_pve_opponent_loadout(layout, bonus), "PvE opponent loadout: a fitting failed to fit its template slot")
 
 	s.layout = layout
 	return s

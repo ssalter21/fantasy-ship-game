@@ -1,7 +1,9 @@
 # Playtest distribution (itch.io private)
 
 How a Windows `game.exe` gets from this repo into a friend's hands, and how to
-prove the whole path works. Background and decisions: GitHub issues #43 and #46.
+prove the whole path works. Decision record and rationale (including why
+web/WASM was rejected): [ADR-0009](adr/0009-playtest-distribution.md).
+Background: GitHub issues #43 and #46.
 
 The delivery model: one local command (`scripts/release.ps1`) builds a
 release, SHA-stamped `game.exe` and `butler push`es it to a **private** itch.io

@@ -244,9 +244,10 @@ recording_sink_dispatch :: proc(data: rawptr, event: Event) {
 }
 
 // recording_sink_destroy frees the recorded events slice itself.
-// Event_Encounter_Resolved.snapshot needs no destroy call (issue #52): it's
-// valid for the Sim's own lifetime, and this runs (LIFO defer order) before
-// the test's own deferred sim_destroy.
+// Event_Encounter_Resolved.snapshot needs no per-event cleanup: it lives in
+// the Sim's own run-scoped arena, still alive here since every test defers
+// this call before its own defer sim_destroy(&sim) (issue #52) — the arena
+// itself is only reclaimed once that later-registered defer runs.
 recording_sink_destroy :: proc(state: ^Recording_Sink_State) {
 	delete(state.events)
 }

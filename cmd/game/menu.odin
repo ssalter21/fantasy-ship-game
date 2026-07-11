@@ -122,7 +122,7 @@ button_menu_loop :: proc(state: ^Game_State, prompt: string, buttons: []Button) 
 // returns a Command_Travel_To (ADR-0002).
 travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
-		return sim.Command(sim.Command_Travel_To{point_id = state.current_point_id})
+		return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.current_point_id)})
 	}
 	for !rl.WindowShouldClose() {
 		draw_scene(state, "Click a point to travel there.")
@@ -131,12 +131,12 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			mouse := rl.GetMousePosition()
 			for pos, i in state.positions {
 				if rl.CheckCollisionPointCircle(mouse, pos, POINT_RADIUS) {
-					return sim.Command(sim.Command_Travel_To{point_id = state.run_map.points[i].id})
+					return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.run_map.points[i].id)})
 				}
 			}
 		}
 	}
-	return sim.Command(sim.Command_Travel_To{point_id = state.current_point_id})
+	return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.current_point_id)})
 }
 
 // battle_menu_loop blocks until the player picks a battle action (Boost one
@@ -180,7 +180,7 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			continue
 		}
 		append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Jettison %s", fitting.name)})
-		append(&combat_commands, combat.Command(combat.Command_Jettison_Cargo{slot_index = i}))
+		append(&combat_commands, combat.Command(combat.Command_Jettison_Cargo{slot_index = ship.Slot_Index(i)}))
 		y += 34
 	}
 
@@ -215,7 +215,7 @@ upgrade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	for option, i in options {
 		magnitude := 0
 		if active, has_active := option.active.?; has_active {
-			magnitude = active.magnitude
+			magnitude = int(active.magnitude)
 		}
 		buttons[i] = Button{
 			rect  = rl.Rectangle{x = SHIP_PANEL_X, y = f32(460 + i * 60), width = 260, height = 48},
@@ -225,7 +225,7 @@ upgrade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 
 	picked := button_menu_loop(state, "Choose an upgrade.", buttons[:])
 	if picked >= 0 {
-		return sim.Command(sim.Command_Pick_Upgrade{option_index = picked})
+		return sim.Command(sim.Command_Pick_Upgrade{option_index = sim.Option_Index(picked)})
 	}
 	return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})
 }

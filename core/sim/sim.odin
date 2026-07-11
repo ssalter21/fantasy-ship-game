@@ -4,6 +4,7 @@ import "../combat"
 import "../run"
 import "../ship"
 import "core:math/rand"
+import "core:mem"
 import "core:mem/virtual"
 
 // Phase is what kind of captain decision Sim is (or is about to be) awaiting
@@ -19,6 +20,16 @@ Phase :: enum {
 	Ended,
 }
 
+// Point_ID identifies a point in run_map.points by position (issue #54:
+// distinct from a plain int so a point id can't be passed where a slot index
+// or upgrade option index belongs, e.g. via Command_Travel_To).
+Point_ID :: distinct int
+
+// Option_Index identifies one of Command_Pick_Upgrade's 3 fixed Upgrade
+// Offer options by position (issue #54: distinct from a plain int for the
+// same reason as Point_ID).
+Option_Index :: distinct int
+
 Sim :: struct {
 	// rng is kept per ADR-0001 ("Sim owns its own seeded RNG... for
 	// deterministic replay"); nothing in this vertical slice's domain logic
@@ -26,16 +37,17 @@ Sim :: struct {
 	// fully deterministic), but the field/seed stays since ADR-0001 commits
 	// to it as Sim's shape, not something this ticket revisits.
 	rng:               rand.Default_Random_State,
-	// arena backs every run-lifetime allocation that never escapes the Sim
-	// (the map, the player's layout, resolved, jettisoned cargo records) and
-	// the Ghost_Snapshot payloads handed to the Event_Sink (see
-	// Event_Encounter_Resolved's doc comment below). sim_destroy tears all of
-	// it down in one call instead of hand-written per-field deletes.
-	arena:             virtual.Arena,
 	run_map:           run.Map,
 	player:            ship.Ship,
-	current:           int, // index into run_map.points; Start is always 0
-	resolved:          []bool, // parallel to run_map.points; true once an Encounter point has fired
+	current:           Point_ID, // index into run_map.points; Start is always 0
+	// resolved is parallel to run_map.points; true once an Encounter point
+	// has fired. Evaluated for bit_set (issue #54) and deliberately left as
+	// []bool: bit_set needs a compile-time-bounded index (an enum, or a
+	// fixed integer range), but resolved is indexed by Point_ID, sized at
+	// runtime off run_map_create's point count — today a fixed 17 by
+	// construction, but that's an implementation detail of run_map_create,
+	// not a contract Sim should hard-code its own storage size against.
+	resolved:          []bool,
 	steps:             int, // Ghost_Snapshot progress counter, +1 per travel
 	status:            run.Run_Status,
 	phase:             Phase,
@@ -44,6 +56,14 @@ Sim :: struct {
 	battle:            combat.Battle,
 	active_encounter:  run.Encounter_Ship_Battle,
 	upgrade_options:   [3]ship.Fitting,
+	// arena is the Sim's run-scoped allocator (issue #52): every allocation
+	// that lives no longer than the Sim itself — the map's Points and each
+	// Ship Battle opponent's layout, the player's own layout, resolved, the
+	// current battle's jettisoned records, and every Ghost_Snapshot handed
+	// out via Event_Encounter_Resolved — comes from here, so sim_destroy can
+	// reclaim all of it in one call instead of a hand-written per-field
+	// delete list.
+	arena:             virtual.Arena,
 }
 
 // Command is the only way presentation may mutate the Sim (ADR-0001). Which
@@ -56,7 +76,7 @@ Command :: union {
 }
 
 Command_Travel_To :: struct {
-	point_id: int,
+	point_id: Point_ID,
 }
 
 Command_Battle_Choice :: struct {
@@ -69,7 +89,7 @@ Command_Battle_Choice :: struct {
 // The picked option's own Fitting.category says which starting slot it
 // replaces — no separate index-to-category table needed.
 Command_Pick_Upgrade :: struct {
-	option_index: int,
+	option_index: Option_Index,
 }
 
 // Event is the only way presentation learns what happened inside the Sim
@@ -150,12 +170,11 @@ Event_Upgrade_Applied :: struct {
 }
 
 // Event_Encounter_Resolved forwards run.Event_Encounter_Resolved's
-// Ghost_Snapshot (ADR-0008) through Sim's own Event boundary. snapshot is
-// allocated from Sim's own arena (issue #52), so it stays valid for the
-// Sim's own lifetime — a sink may read it, or retain a copy of the struct
-// itself, for as long as the Sim it came from is alive, with no destroy call
-// of its own to make. A sink that needs the snapshot to outlive the Sim must
-// copy its owned layout slice out explicitly.
+// Ghost_Snapshot (ADR-0008) through Sim's own Event boundary. The snapshot
+// (including its cloned layout) is allocated from the Sim's own run-scoped
+// arena (issue #52): valid for as long as the Sim itself and reclaimed in
+// one shot by sim_destroy, not owned or freed per-recipient. A sink that
+// needs a snapshot to outlive the Sim must copy it out explicitly.
 Event_Encounter_Resolved :: struct {
 	snapshot: run.Ghost_Snapshot,
 }
@@ -166,29 +185,34 @@ Event_Run_Ended :: struct {
 
 sim_create :: proc(seed: u64) -> Sim {
 	s: Sim
-	s.rng = rand.create_u64(seed)
-
 	arena_err := virtual.arena_init_growing(&s.arena)
-	assert(arena_err == nil, "Sim's run arena failed to initialize")
+	assert(arena_err == nil, "failed to initialize the Sim's run-scoped arena")
 	context.allocator = virtual.arena_allocator(&s.arena)
 
+	s.rng = rand.create_u64(seed)
 	s.run_map = run.run_map_create()
 	s.player = ship.ship_starting_ship()
 	s.resolved = make([]bool, len(s.run_map.points))
-
 	s.status = .In_Progress
 	s.phase = .Awaiting_Travel_Choice
 	return s
 }
 
-// sim_destroy tears down the Sim's run arena in one call: the map (and its
-// Ship Battle opponents' layouts), the player's own layout, resolved, every
-// Ghost_Snapshot dispatched over the Sim's lifetime, and the current
-// battle's jettisoned-cargo records (if a battle is in progress when
-// destroyed) all live there (issue #52) — no hand-written per-field delete
-// remains.
+// sim_destroy tears down the Sim's run-scoped arena in one call (issue #52):
+// every run-lifetime allocation — the map's Points and each Ship Battle
+// opponent's layout, the player's own layout, resolved, the current battle's
+// jettisoned-cargo records, and any outstanding Ghost_Snapshot — lives in it,
+// so there's nothing left to free by hand.
 sim_destroy :: proc(sim: ^Sim) {
 	virtual.arena_destroy(&sim.arena)
+}
+
+// sim_arena_allocator is the Sim's run-scoped allocator (issue #52), shared
+// by every sim_process_* call site that scopes context.allocator to it
+// around one arena-backed allocation (a Ghost_Snapshot capture, a
+// lazily-allocated jettisoned dynamic array).
+sim_arena_allocator :: proc(sim: ^Sim) -> mem.Allocator {
+	return virtual.arena_allocator(&sim.arena)
 }
 
 // sim_tick resolves one unit of work and batch-emits the resulting events.

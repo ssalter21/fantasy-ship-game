@@ -51,7 +51,7 @@ ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) 
 	f := base
 	f.name = upgraded_name
 	base_active, _ := base.active.?
-	f.active = Effect{magnitude = base_active.magnitude + bonus}
+	f.active = Effect{magnitude = base_active.magnitude + Magnitude(bonus)}
 	return f
 }
 
@@ -106,22 +106,23 @@ ship_starting_captain :: proc() -> Captain {
 // Crew into "top crew" is a flavor-only pairing (ADR-0004: slot names impose
 // no restriction on what fills them). Caller owns the returned Ship's
 // layout slice.
+// ship_fit_starting_loadout fits every slot of ship_starting_ship's fixed
+// loadout (issue #54: an or_return chain replacing 6 hand-threaded
+// ok/assert pairs — a false return here means the template and its starting
+// fittings have drifted out of sync, a content bug caught immediately by
+// this package's own tests, not a real runtime condition).
+ship_fit_starting_loadout :: proc(layout: []Layout_Slot) -> bool {
+	ship_fit(&layout[0], ship_fitting_captains_quarters()) or_return
+	ship_fit(&layout[1], ship_fitting_top_crew()) or_return
+	ship_fit(&layout[2], ship_fitting_gun_deck()) or_return
+	ship_fit(&layout[3], ship_fitting_cargo("Cargo")) or_return
+	ship_fit(&layout[4], ship_fitting_cargo("Cargo")) or_return
+	return ship_fit(&layout[5], ship_fitting_cargo("Cargo"))
+}
+
 ship_starting_ship :: proc() -> Ship {
 	layout := ship_template_layout()
-
-	ok: bool
-	ok = ship_fit(&layout[0], ship_fitting_captains_quarters())
-	assert(ok, "starting loadout: Captain's Quarters must fit \"top deck\"")
-	ok = ship_fit(&layout[1], ship_fitting_top_crew())
-	assert(ok, "starting loadout: Top Crew must fit \"top crew\"")
-	ok = ship_fit(&layout[2], ship_fitting_gun_deck())
-	assert(ok, "starting loadout: Gun Deck must fit \"gun deck\"")
-	ok = ship_fit(&layout[3], ship_fitting_cargo("Cargo"))
-	assert(ok, "starting loadout: default cargo must fit \"hold 1\"")
-	ok = ship_fit(&layout[4], ship_fitting_cargo("Cargo"))
-	assert(ok, "starting loadout: default cargo must fit \"hold 2\"")
-	ok = ship_fit(&layout[5], ship_fitting_cargo("Cargo"))
-	assert(ok, "starting loadout: default cargo must fit \"hold 3\"")
+	assert(ship_fit_starting_loadout(layout), "starting loadout: a fitting failed to fit its template slot")
 
 	return Ship{
 		hp                  = STARTING_HP,

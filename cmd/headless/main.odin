@@ -48,20 +48,17 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	case .Awaiting_Travel_Choice:
 		point_id := state.next_point
 		state.next_point += 1
-		return sim.Command(sim.Command_Travel_To{point_id = point_id})
+		return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(point_id)})
 	case .Ended:
 		panic("get_captain_choice called while the sim isn't awaiting a decision")
 	}
 	panic("unreachable")
 }
 
-// dispatch is the headless Event_Sink: log-record every event (instead of
-// animating it) and track just enough context for get_captain_choice above.
-// The exhaustive switch below has nothing left to do per variant since
-// Event_Encounter_Resolved.snapshot needs no destroy call here (issue #52:
-// it's valid for the Sim's own lifetime, which outlives this dispatch) — it
-// stays as a switch anyway so a future Event variant forces a compile-time
-// decision here, not a silently-ignored default.
+// dispatch is the headless Event_Sink: log-record every event instead of
+// animating it. Event_Encounter_Resolved.snapshot needs no cleanup here — it
+// lives in the Sim's own run-scoped arena and is reclaimed wholesale by
+// sim_destroy (issue #52), not owned per-recipient.
 dispatch :: proc(data: rawptr, event: sim.Event) {
 	state := cast(^Headless_State)data
 	append(&state.events, event)

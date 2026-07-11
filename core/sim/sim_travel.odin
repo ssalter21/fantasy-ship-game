@@ -2,7 +2,6 @@ package sim
 
 import "../combat"
 import "../run"
-import "core:mem/virtual"
 
 // sim_process_travel applies a submitted Command_Travel_To (issue #24):
 // arrives at the target point, and if it's an as-yet-unresolved Encounter,
@@ -27,7 +26,7 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	sim.pending_command = nil
 
 	assert(run.run_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
-	assert(cmd.point_id >= 0 && cmd.point_id < len(sim.run_map.points), "Command_Travel_To point_id out of range")
+	assert(cmd.point_id >= 0 && int(cmd.point_id) < len(sim.run_map.points), "Command_Travel_To point_id out of range")
 
 	already_resolved := sim.resolved[cmd.point_id]
 	point := sim.run_map.points[cmd.point_id]
@@ -59,13 +58,19 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		zone, has_zone := point.zone.?
 		assert(has_zone, "an Encounter point must have a zone")
 		// run_events is per-tick scratch (issue #53): explicitly locked to
-		// context.temp_allocator (regardless of the arena swap below, needed
-		// for the Ghost_Snapshot run_apply_stat_trade captures — issue #52) —
-		// run_session frees it via free_all(context.temp_allocator) once per
-		// driver iteration.
+		// context.temp_allocator regardless of the arena-scoped block below,
+		// needed for the Ghost_Snapshot run_apply_stat_trade captures (issue
+		// #52) — run_session frees it via free_all(context.temp_allocator)
+		// once per driver iteration.
 		run_events := make([dynamic]run.Event, 0, 0, context.temp_allocator)
-		context.allocator = virtual.arena_allocator(&sim.arena)
-		run.run_apply_stat_trade(&sim.player, enc, zone, sim.steps, &run_events)
+		{
+			// The captured Ghost_Snapshot's layout must outlive this call
+			// (issue #52: it escapes via Event_Encounter_Resolved), so it's
+			// allocated from the Sim's own run-scoped arena rather than
+			// whatever transient allocator the caller happens to be using.
+			context.allocator = sim_arena_allocator(sim)
+			run.run_apply_stat_trade(&sim.player, enc, zone, sim.steps, &run_events)
+		}
 		sim_forward_encounter_resolved(run_events, events)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		sim.resolved[cmd.point_id] = true
