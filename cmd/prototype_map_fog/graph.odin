@@ -181,15 +181,28 @@ generate_graph :: proc(seed: u64) -> Graph {
 	}
 
 	// mark two nodes per zone as ports -- never hidden (no encounter kind),
-	// just a flavor overlay; not this ticket's concern, included for realism.
+	// just a flavor overlay; not this ticket's concern, included for
+	// realism. Picked uniformly at random from anywhere in the zone (partial
+	// Fisher-Yates over that zone's candidate ids) rather than "the first
+	// two encountered" -- iteration order is node-id order, which is
+	// generation order, so the old approach always landed both ports in the
+	// zone's earliest layer, clustered together every single run (issue #62
+	// feedback: "something strange about port placement... needs to be
+	// random within the zone").
 	for zone in zones {
-		count := 0
-		for &n in nodes {
-			if n.zone == zone && !n.is_start && !n.is_goal && count < 2 {
-				n.is_port = true
-				count += 1
+		candidates := make([dynamic]int)
+		for n in nodes {
+			if n.zone == zone && !n.is_start && !n.is_goal {
+				append(&candidates, n.id)
 			}
 		}
+		port_count := min(2, len(candidates))
+		for i in 0 ..< port_count {
+			j := i + rand.int_max(len(candidates) - i, gen)
+			candidates[i], candidates[j] = candidates[j], candidates[i]
+			nodes[candidates[i]].is_port = true
+		}
+		delete(candidates)
 	}
 
 	layout(nodes[:], layer_ids[:])

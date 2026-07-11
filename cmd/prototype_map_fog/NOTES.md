@@ -260,6 +260,21 @@ out) + 3 (forward in, already visited) + 2 (lateral, either direction) = 8,
 so `main.odin`'s travel keys went from `1`-`6` to `1`-`8` to match, same
 reasoning as the last key-count bump.
 
+## Port placement was clustered, not random (issue #62 feedback, cont'd)
+
+Feedback: port placement looked strange, and should be random within the
+zone. It was a real bug, not a visual judgment call: the port-marking pass
+flagged the first two nodes *encountered* while iterating `nodes`, and
+iteration order is node-id order, which is generation order -- so both
+ports in a zone always landed in that zone's earliest layer, clustered
+right next to each other, every single run regardless of seed.
+
+Fixed by collecting that zone's candidate ids (every non-start/goal node in
+the zone) and picking 2 uniformly at random via a partial Fisher-Yates,
+same technique `next_lane_lo`'s predecessor (`pick_lanes`) used before this
+file's lane rework. Ports can now land anywhere in their zone, not just its
+first layer.
+
 ## Status
 
 Not yet posted as the issue's `## Answer` — recommendation above is mine;
