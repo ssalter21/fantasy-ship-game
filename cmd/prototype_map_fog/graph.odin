@@ -51,6 +51,7 @@ Node :: struct {
 	id:      int,
 	zone:    Zone, // Start borrows Coastal, Goal borrows Deep -- neither is a real encounter
 	layer:   int,
+	lane:    int, // 0..LANES-1, roughly-preserved vertical lane -- keeps edges short/local (issue #62 feedback: "stepping stones", not a dense mesh)
 	kind:    Kind, // meaningless for is_start/is_port/is_goal nodes
 	is_start: bool,
 	is_port:  bool,
@@ -59,7 +60,7 @@ Node :: struct {
 }
 
 Edge :: struct {
-	from, to: int, // always lower layer -> higher layer: forward-only, no backtracking
+	from, to: int, // always *created* lower layer -> higher layer -- generation is still forward-only; travel_options may walk one in reverse to retrace a visited node (issue #62 reversed the traversal rule, not the generation shape)
 }
 
 Graph :: struct {
@@ -75,21 +76,25 @@ Gen_Config :: struct {
 	layers_per_zone: int,
 	layer_width_min: int,
 	layer_width_max: int,
-	extra_edge_max:  int, // 0..this many extra forward edges per node beyond the guaranteed one
 }
 
+// LANES caps both layer width and per-node degree: every node connects
+// only to an adjacent lane (±1) one layer over, which is what keeps edges
+// short and mostly non-crossing -- "stepping stones", not a dense mesh
+// (issue #62 feedback). layer_width is clamped to LANES.
+LANES :: 3
+
 default_gen_config := Gen_Config {
-	nodes_per_zone  = 17,
+	nodes_per_zone  = 8,
 	layers_per_zone = 4,
-	layer_width_min = 3,
-	layer_width_max = 5,
-	extra_edge_max  = 2,
+	layer_width_min = 2,
+	layer_width_max = LANES,
 }
 
 MAP_LEFT :: 40
 MAP_RIGHT :: 1180
-MAP_TOP :: 90
-MAP_BOTTOM :: 560
+MAP_TOP :: 140
+MAP_BOTTOM :: 470
 
 // generate builds one candidate ~50-node graph, laid out left (Start) to
 // right (Goal), grouped into per-zone layers -- same seed always produces
@@ -101,8 +106,9 @@ generate_graph :: proc(seed: u64) -> Graph {
 	nodes := make([dynamic]Node)
 	layer_ids := make([dynamic][dynamic]int)
 
+	mid_lane := LANES / 2
 	start_id := 0
-	append(&nodes, Node{id = start_id, zone = .Coastal, layer = 0, is_start = true})
+	append(&nodes, Node{id = start_id, zone = .Coastal, layer = 0, lane = mid_lane, is_start = true})
 	l0 := make([dynamic]int)
 	append(&l0, start_id)
 	append(&layer_ids, l0)
@@ -111,6 +117,20 @@ generate_graph :: proc(seed: u64) -> Graph {
 	kinds_cycle := [3]Kind{.Ship_Battle, .Upgrade_Offer, .Stat_Trade}
 	kind_i := 0
 
+	add_layer :: proc(nodes: ^[dynamic]Node, layer_ids: ^[dynamic][dynamic]int, zone: Zone, width: int, kind_i: ^int, kinds_cycle: [3]Kind, gen: runtime.Random_Generator) {
+		lanes := pick_lanes(width, gen)
+		defer delete(lanes)
+		layer := make([dynamic]int)
+		for lane in lanes {
+			id := len(nodes)
+			kind := kinds_cycle[kind_i^ % len(kinds_cycle)]
+			kind_i^ += 1
+			append(nodes, Node{id = id, zone = zone, layer = len(layer_ids), lane = lane, kind = kind})
+			append(&layer, id)
+		}
+		append(layer_ids, layer)
+	}
+
 	for zone in zones {
 		remaining := default_gen_config.nodes_per_zone
 		for li in 0 ..< default_gen_config.layers_per_zone {
@@ -118,72 +138,29 @@ generate_graph :: proc(seed: u64) -> Graph {
 				break
 			}
 			width := default_gen_config.layer_width_min + rand.int_max(default_gen_config.layer_width_max - default_gen_config.layer_width_min + 1, gen)
-			width = min(width, remaining)
+			width = min(width, remaining, LANES)
 			remaining -= width
-
-			layer := make([dynamic]int)
-			for i in 0 ..< width {
-				id := len(nodes)
-				kind := kinds_cycle[kind_i % len(kinds_cycle)]
-				kind_i += 1
-				append(&nodes, Node{id = id, zone = zone, layer = len(layer_ids), kind = kind})
-				append(&layer, id)
-			}
-			append(&layer_ids, layer)
+			add_layer(&nodes, &layer_ids, zone, width, &kind_i, kinds_cycle, gen)
 		}
-		// leftover nodes (width capped below remaining) land in one final
-		// top-up layer so nodes_per_zone is always hit -- rough-mock only,
-		// not the real generator's guarantee logic.
-		if remaining > 0 {
-			layer := make([dynamic]int)
-			for i in 0 ..< remaining {
-				id := len(nodes)
-				kind := kinds_cycle[kind_i % len(kinds_cycle)]
-				kind_i += 1
-				append(&nodes, Node{id = id, zone = zone, layer = len(layer_ids), kind = kind})
-				append(&layer, id)
-			}
-			append(&layer_ids, layer)
+		// leftover nodes (nodes_per_zone bigger than layers_per_zone*LANES
+		// can fit) land in extra top-up layers -- rough-mock only, not the
+		// real generator's guarantee logic.
+		for remaining > 0 {
+			width := min(remaining, LANES)
+			remaining -= width
+			add_layer(&nodes, &layer_ids, zone, width, &kind_i, kinds_cycle, gen)
 		}
 	}
 
 	goal_id := len(nodes)
-	append(&nodes, Node{id = goal_id, zone = .Deep, layer = len(layer_ids), is_goal = true})
+	append(&nodes, Node{id = goal_id, zone = .Deep, layer = len(layer_ids), lane = mid_lane, is_goal = true})
 	lg := make([dynamic]int)
 	append(&lg, goal_id)
 	append(&layer_ids, lg)
 
 	edges := make([dynamic]Edge)
 	for li in 0 ..< len(layer_ids) - 1 {
-		from_layer := layer_ids[li][:]
-		to_layer := layer_ids[li + 1][:]
-
-		// guarantee every node in from_layer has >=1 forward edge
-		for from_id in from_layer {
-			to_id := to_layer[rand.int_max(len(to_layer), gen)]
-			append(&edges, Edge{from = from_id, to = to_id})
-			extra := rand.int_max(default_gen_config.extra_edge_max + 1, gen)
-			for i in 0 ..< extra {
-				candidate := to_layer[rand.int_max(len(to_layer), gen)]
-				if candidate != to_id {
-					append(&edges, Edge{from = from_id, to = candidate})
-				}
-			}
-		}
-		// guarantee every node in to_layer has >=1 incoming edge
-		for to_id in to_layer {
-			has_incoming := false
-			for e in edges {
-				if e.to == to_id && is_in(e.from, from_layer) {
-					has_incoming = true
-					break
-				}
-			}
-			if !has_incoming {
-				from_id := from_layer[rand.int_max(len(from_layer), gen)]
-				append(&edges, Edge{from = from_id, to = to_id})
-			}
-		}
+		connect_stepping(nodes[:], layer_ids[li][:], layer_ids[li + 1][:], &edges, gen)
 	}
 
 	// mark two nodes per zone as ports -- never hidden (no encounter kind),
@@ -208,6 +185,93 @@ generate_graph :: proc(seed: u64) -> Graph {
 	return Graph{nodes = nodes[:], edges = edges[:], layers = layers, start_id = start_id, goal_id = goal_id}
 }
 
+// pick_lanes returns `width` distinct lanes out of 0..LANES-1 (partial
+// Fisher-Yates over a fixed-size array, since LANES is tiny).
+pick_lanes :: proc(width: int, gen: runtime.Random_Generator) -> [dynamic]int {
+	pool: [LANES]int
+	for i in 0 ..< LANES {
+		pool[i] = i
+	}
+	n := LANES
+	for i in 0 ..< width {
+		j := i + rand.int_max(n - i, gen)
+		pool[i], pool[j] = pool[j], pool[i]
+	}
+	lanes := make([dynamic]int)
+	for i in 0 ..< width {
+		append(&lanes, pool[i])
+	}
+	return lanes
+}
+
+abs_int :: proc(x: int) -> int {
+	return -x if x < 0 else x
+}
+
+// connect_stepping wires from_layer -> to_layer with two passes, both
+// restricted to adjacent lanes (|lane delta| <= 1) so edges stay short and
+// mostly non-crossing -- "stepping stones", not a dense mesh (issue #62
+// feedback: fewer, closer-together, non-overlapping connections):
+//
+//  1. every to-node gets one guaranteed incoming edge from whichever
+//     adjacent-lane from-node currently has the fewest outgoing edges --
+//     load-balances degree instead of piling edges onto one node.
+//  2. any from-node still at zero outgoing after (1) gets one forced edge
+//     to its nearest-lane to-node -- guarantees no dead ends. Typical
+//     out-degree stays 1-2, occasionally producing real branching without
+//     the wide fan-out the original random-target version had.
+connect_stepping :: proc(nodes: []Node, from_layer, to_layer: []int, edges: ^[dynamic]Edge, gen: runtime.Random_Generator) {
+	out_degree := make(map[int]int)
+	defer delete(out_degree)
+
+	for to_id in to_layer {
+		to_lane := nodes[to_id].lane
+		best := -1
+		best_degree := 1_000_000
+		for from_id in from_layer {
+			if abs_int(nodes[from_id].lane - to_lane) > 1 {
+				continue
+			}
+			deg := out_degree[from_id]
+			if deg < best_degree {
+				best_degree = deg
+				best = from_id
+			}
+		}
+		if best == -1 {
+			// no adjacent-lane candidate (can happen with odd lane picks) --
+			// fall back to the least-loaded node in the whole layer.
+			for from_id in from_layer {
+				deg := out_degree[from_id]
+				if deg < best_degree {
+					best_degree = deg
+					best = from_id
+				}
+			}
+		}
+		append(edges, Edge{from = best, to = to_id})
+		out_degree[best] += 1
+	}
+
+	for from_id in from_layer {
+		if out_degree[from_id] > 0 {
+			continue
+		}
+		from_lane := nodes[from_id].lane
+		best := to_layer[0]
+		best_dist := abs_int(nodes[best].lane - from_lane)
+		for to_id in to_layer[1:] {
+			d := abs_int(nodes[to_id].lane - from_lane)
+			if d < best_dist {
+				best_dist = d
+				best = to_id
+			}
+		}
+		append(edges, Edge{from = from_id, to = best})
+		out_degree[from_id] += 1
+	}
+}
+
 graph_destroy :: proc(g: ^Graph) {
 	delete(g.nodes)
 	delete(g.edges)
@@ -217,18 +281,17 @@ graph_destroy :: proc(g: ^Graph) {
 	delete(g.layers)
 }
 
+// layout positions every node by (layer, lane): x from its layer index,
+// y from its lane -- a fixed lane keeps a node's vertical position stable
+// relative to its neighbors layer to layer, which is what keeps edges
+// short and mostly non-crossing (issue #62 feedback).
 layout :: proc(nodes: []Node, layer_ids: [][dynamic]int) {
 	num_layers := len(layer_ids)
 	for layer, li in layer_ids {
 		x := MAP_LEFT + f32(li) * (MAP_RIGHT - MAP_LEFT) / f32(num_layers - 1)
-		count := len(layer)
-		for id, row in layer {
-			y: f32
-			if count == 1 {
-				y = (MAP_TOP + MAP_BOTTOM) / 2
-			} else {
-				y = MAP_TOP + f32(row) * (MAP_BOTTOM - MAP_TOP) / f32(count - 1)
-			}
+		for id in layer {
+			lane := nodes[id].lane
+			y := MAP_TOP + f32(lane) * (MAP_BOTTOM - MAP_TOP) / f32(LANES - 1)
 			nodes[id].pos = rl.Vector2{x, y}
 		}
 	}

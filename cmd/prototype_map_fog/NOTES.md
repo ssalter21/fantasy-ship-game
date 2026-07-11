@@ -8,6 +8,39 @@ graph (map #59)?
 variant, `1`-`4` travel (forward into new territory or back along an edge
 to an already-visited node), `R` resets the walk, `G` rolls a new graph.
 
+## Layout: lanes, not free rows (fixes both a bug and a legibility problem)
+
+Two pieces of feedback, one fix: "not all connected nodes I seem to be able
+to travel to" (a real bug -- see below) and "make it look like stepping
+stones, not overlapping connections, closer together, fewer connections."
+
+The original generator picked each node's vertical position as an even
+spread within its own layer, independent of neighboring layers, and
+allowed edges to any random node in the next layer. That produced two
+problems: (1) node count/edge count could push a single node's travel
+options past 4, past what the `1`-`4` keys can select, while every edge in
+the graph was still drawn in Variant A regardless -- some visibly-connected
+nodes genuinely weren't reachable; (2) with row position uncorrelated
+between layers, edges crossed the whole vertical band constantly, reading
+as a dense tangle rather than a path.
+
+Fix: every node now gets a **lane** (0..`LANES`-1, `LANES` = 3) instead of
+a free row, and `connect_stepping` (`graph.odin`) only ever wires a node to
+an **adjacent lane** (±1) one layer over, picking whichever candidate has
+the fewest outgoing edges so far (load-balanced) rather than a random
+target. Typical out-degree is now 1-2, occasional 3 in edge cases. Layout
+positions y purely by lane, so a node's vertical position is stable
+relative to its neighbors layer to layer -- edges stay short and mostly
+non-crossing, closer to a stepping-stone path than a mesh. `nodes_per_zone`
+dropped 17 → 8 (24 encounters total instead of 51) so the sparser look
+reads clearly at this window size; the real count is #60/#63's call, not
+this ticket's.
+
+Belt-and-suspenders: `main.odin` now hard-caps drawn/selectable travel
+options at 4 (`all_options[:min(len(all_options), 4)]`) so a numbered node
+on screen is always actually travelable, regardless of what degree the
+generator produces.
+
 ## Movement is no longer forward-only (design change, not just visual)
 
 Map #59's Notes originally chartered "Movement is forward-only — no

@@ -69,7 +69,11 @@ main :: proc() {
 			state_regenerate(&state, state.seed + 1)
 		}
 
-		options := travel_options(state.g, state.current_id, state.visited)
+		all_options := travel_options(state.g, state.current_id, state.visited)
+		// Only 4 number keys exist -- cap what's drawn/selectable to match,
+		// so a numbered node on screen is always actually travelable
+		// (the generator keeps real degree well under this in practice).
+		options := all_options[:min(len(all_options), 4)]
 
 		for key, i in ([4]rl.KeyboardKey{.ONE, .TWO, .THREE, .FOUR}) {
 			if rl.IsKeyPressed(key) && i < len(options) {
@@ -88,18 +92,18 @@ main :: proc() {
 
 		switch state.variant {
 		case 0:
-			draw_variant_a(state.g, state.visited, state.current_id, options[:])
+			draw_variant_a(state.g, state.visited, state.current_id, options)
 		case 1:
-			draw_variant_b(state.g, state.visited, state.current_id, options[:])
+			draw_variant_b(state.g, state.visited, state.current_id, options)
 		case 2:
-			draw_variant_c(state.g, state.visited, state.current_id, options[:])
+			draw_variant_c(state.g, state.visited, state.current_id, options)
 		}
 
 		draw_switcher_bar(state.variant)
 		draw_status_line(state)
 
 		rl.EndDrawing()
-		delete(options)
+		delete(all_options)
 	}
 }
 
