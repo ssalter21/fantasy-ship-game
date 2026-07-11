@@ -31,10 +31,15 @@ the fewest outgoing edges so far (load-balanced) rather than a random
 target. Typical out-degree is now 1-2, occasional 3 in edge cases. Layout
 positions y purely by lane, so a node's vertical position is stable
 relative to its neighbors layer to layer -- edges stay short and mostly
-non-crossing, closer to a stepping-stone path than a mesh. `nodes_per_zone`
-dropped 17 → 8 (24 encounters total instead of 51) so the sparser look
-reads clearly at this window size; the real count is #60/#63's call, not
-this ticket's.
+non-crossing, closer to a stepping-stone path than a mesh.
+
+First pass at this also dropped `nodes_per_zone` 17 → 8 to make the sparser
+look land -- wrong lever: it undercut the actual "~50-node" question this
+ticket is about. Restored `nodes_per_zone` to 17 (matching #60's locked
+constant) and widened `LANES` 3 → 5 instead, so there's enough vertical
+room per layer to spread ~50 nodes across without piling onto too few
+lanes. Node count is back; the adjacent-lane-only connection rule still
+keeps degree low and edges non-crossing regardless of lane count.
 
 Belt-and-suspenders: `main.odin` now hard-caps drawn/selectable travel
 options at 4 (`all_options[:min(len(all_options), 4)]`) so a numbered node

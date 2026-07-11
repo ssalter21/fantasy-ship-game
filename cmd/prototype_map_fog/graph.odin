@@ -81,20 +81,22 @@ Gen_Config :: struct {
 // LANES caps both layer width and per-node degree: every node connects
 // only to an adjacent lane (±1) one layer over, which is what keeps edges
 // short and mostly non-crossing -- "stepping stones", not a dense mesh
-// (issue #62 feedback). layer_width is clamped to LANES.
-LANES :: 3
+// (issue #62 feedback). layer_width is clamped to LANES. Widening LANES
+// (rather than shrinking nodes_per_zone) is how this stays at map #59's
+// actual ~50-node scale without piling nodes into too few lanes.
+LANES :: 5
 
 default_gen_config := Gen_Config {
-	nodes_per_zone  = 8,
-	layers_per_zone = 4,
-	layer_width_min = 2,
-	layer_width_max = LANES,
+	nodes_per_zone  = 17, // Coastal/Open_Sea/Deep * 17 ~= 50, matching #60's locked constant
+	layers_per_zone = 6,
+	layer_width_min = 3,
+	layer_width_max = 4,
 }
 
 MAP_LEFT :: 40
 MAP_RIGHT :: 1180
-MAP_TOP :: 140
-MAP_BOTTOM :: 470
+MAP_TOP :: 110
+MAP_BOTTOM :: 500
 
 // generate builds one candidate ~50-node graph, laid out left (Start) to
 // right (Goal), grouped into per-zone layers -- same seed always produces
