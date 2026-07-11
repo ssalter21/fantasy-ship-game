@@ -8,6 +8,18 @@ graph (map #59)?
 variant, `1`-`4` travel to a numbered reachable node, `R` resets the walk,
 `G` rolls a new graph.
 
+## Landmark rule (added after initial pass)
+
+Start, Port, and Goal nodes are landmarks, not encounters — they carry no
+hidden kind, so there's nothing about them for a hiding mechanism to
+protect. All three variants now always reveal their position + label,
+regardless of visited/fog/horizon state. Only Encounter nodes (and, in B,
+the edges leading to a not-yet-revealed encounter) are subject to each
+variant's hiding rule. In B this means a far-off port's position is
+visible before the path to it is; in C it's a standing "route spine" above
+the zone progress bars showing every port's rough position alongside Start
+and Goal.
+
 ## Three variants
 
 - **A — Full graph, kind hidden.** Every node position and edge is drawn
@@ -18,11 +30,12 @@ variant, `1`-`4` travel to a numbered reachable node, `R` resets the walk,
 - **B — Fog by graph-distance (horizon).** Only visited nodes, the current
   node, and its direct neighbors are fully drawn and connected by edges.
   One more hop out is shown as faint, unconnected "horizon" dots; anything
-  further isn't drawn at all.
+  further isn't drawn at all. Landmarks are the exception (see above).
 - **C — Zone progress + local choice fan.** The graph is never drawn. A
   slim per-zone progress strip shows coarse completion; the main area is a
   decision fan of only the current node and its immediate reachable options
-  as picker cards — structurally a menu, not a map.
+  as picker cards — structurally a menu, not a map. Landmarks appear on a
+  route spine above the bars (see above).
 
 ## Recommendation: Variant A
 

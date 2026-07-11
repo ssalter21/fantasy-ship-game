@@ -51,6 +51,8 @@ draw_switcher_hint :: proc(reachable: []int) {
 // show only a small zone-tinted dot -- no kind color, no label. Visited
 // nodes flip to full kind color+label permanently (route history). Directly
 // reachable nodes get a numbered highlight ring regardless of visited state.
+// Start/Port/Goal are landmarks, not encounters -- always shown with their
+// full label, visited or not (node_resolved_color/node_label below).
 
 draw_variant_a :: proc(g: Graph, visited: []bool, current_id: int, reachable: []int) {
 	for e in g.edges {
@@ -95,7 +97,11 @@ draw_variant_a :: proc(g: Graph, visited: []bool, current_id: int, reachable: []
 // Only visited nodes, the current node, and its direct neighbors are fully
 // drawn and connected by edges. One more hop out ("the horizon") is shown as
 // faint unconnected dots -- enough to hint the graph continues, not enough
-// to reveal its shape. Anything further isn't drawn at all.
+// to reveal its shape. Anything further isn't drawn at all. Start/Port/Goal
+// are landmarks, not encounters -- they're always revealed regardless of
+// distance, though an edge to one still only draws once both its ends are
+// revealed, so a far-off port's *position* is visible before the path to
+// it is.
 
 draw_variant_b :: proc(g: Graph, visited: []bool, current_id: int, reachable: []int) {
 	revealed := make([dynamic]int)
@@ -104,7 +110,7 @@ draw_variant_b :: proc(g: Graph, visited: []bool, current_id: int, reachable: []
 	defer delete(horizon)
 
 	for n in g.nodes {
-		if visited[n.id] || n.id == current_id || is_in(n.id, reachable) {
+		if visited[n.id] || n.id == current_id || is_in(n.id, reachable) || n.is_start || n.is_port || n.is_goal {
 			append(&revealed, n.id)
 		}
 	}
@@ -167,11 +173,40 @@ draw_variant_b :: proc(g: Graph, visited: []bool, current_id: int, reachable: []
 // The full graph is never shown. A slim per-zone progress strip gives
 // coarse "how far am I / what have I found" feedback. The main area is a
 // decision fan: only the current node and its direct reachable options,
-// rendered as picker cards -- structurally a menu, not a map.
+// rendered as picker cards -- structurally a menu, not a map. Start/Port/
+// Goal are landmarks, not encounters, so a route spine above the progress
+// bars always shows Start, every port, and Goal -- the only positions
+// this variant ever draws outside the immediate choice fan.
 
 draw_variant_c :: proc(g: Graph, visited: []bool, current_id: int, reachable: []int) {
 	zones := [3]Zone{.Coastal, .Open_Sea, .Deep}
 	zone_names := [Zone]string{.Coastal = "Coastal", .Open_Sea = "Open Sea", .Deep = "Deep"}
+
+	spine_y := i32(MAP_TOP) - 34
+	spine_left := i32(MAP_LEFT) + 90
+	spine_right := spine_left + 500
+	rl.DrawLineEx(rl.Vector2{f32(spine_left), f32(spine_y)}, rl.Vector2{f32(spine_right), f32(spine_y)}, 2, rl.Fade(rl.GRAY, 0.5))
+	rl.DrawCircle(spine_left, spine_y, 7, rl.SKYBLUE)
+	rl.DrawText("Start", spine_left - 14, spine_y + 10, 12, rl.DARKGRAY)
+	rl.DrawCircle(spine_right, spine_y, 7, rl.GOLD)
+	rl.DrawText("Goal", spine_right - 12, spine_y + 10, 12, rl.DARKGRAY)
+	port_i := 0
+	port_total := 0
+	for n in g.nodes {
+		if n.is_port {
+			port_total += 1
+		}
+	}
+	for n in g.nodes {
+		if !n.is_port {
+			continue
+		}
+		port_i += 1
+		x := spine_left + i32(f32(spine_right - spine_left) * f32(port_i) / f32(port_total + 1))
+		rl.DrawCircle(x, spine_y, 5, rl.SKYBLUE)
+	}
+	rl.DrawText("Start / Port / Goal positions are landmarks -- always visible, never fogged", spine_left, spine_y - 20, 12, rl.DARKGRAY)
+
 	bar_y: i32 = i32(MAP_TOP)
 	for zone, zi in zones {
 		total := 0
