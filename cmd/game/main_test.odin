@@ -56,9 +56,9 @@ battle_menu_loop_falls_back_to_hold_without_a_live_window :: proc(t: ^testing.T)
 
 	cmd := battle_menu_loop(&state)
 
-	action, ok := cmd.(sim.Command_Battle_Action)
+	choice, ok := cmd.(sim.Command_Battle_Choice)
 	testing.expect(t, ok)
-	_, is_hold := action.action.(combat.Command_Hold)
+	_, is_hold := choice.combat_command.(combat.Command_Hold)
 	testing.expect(t, is_hold)
 }
 

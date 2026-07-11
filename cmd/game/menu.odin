@@ -97,6 +97,27 @@ draw_buttons :: proc(buttons: []Button) {
 	}
 }
 
+// button_menu_loop blocks, drawing prompt and buttons each frame, until the
+// player clicks one of buttons or the window closes. Returns the picked
+// index, or -1 if the window closed without a pick. Shared by
+// battle_menu_loop and upgrade_menu_loop, which differ only in how they map
+// the picked index to a sim.Command.
+button_menu_loop :: proc(state: ^Game_State, prompt: string, buttons: []Button) -> int {
+	for !rl.WindowShouldClose() {
+		rl.BeginDrawing()
+		draw_scene_contents(state, prompt)
+		draw_buttons(buttons)
+		rl.EndDrawing()
+		free_all(context.temp_allocator)
+
+		picked := clicked_button(buttons)
+		if picked >= 0 {
+			return picked
+		}
+	}
+	return -1
+}
+
 // travel_menu_loop blocks until the player clicks a point on the map, then
 // returns a Command_Travel_To (ADR-0002).
 travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
@@ -121,10 +142,10 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 // battle_menu_loop blocks until the player picks a battle action (Boost one
 // of the three phases, Man the Sails, Jettison a cargo slot, or Leave
 // Combat if may_leave — ADR-0006's one-decision-per-round menu), then
-// returns a Command_Battle_Action.
+// returns a Command_Battle_Choice.
 battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
-		return sim.Command(sim.Command_Battle_Action{action = combat.Command(combat.Command_Hold{})})
+		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
 	}
 	// Button labels are heap-allocated (fmt.aprintf, context.allocator) and
 	// explicitly freed below, not built with fmt.tprintf: this loop calls
@@ -139,18 +160,18 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		}
 		delete(buttons)
 	}
-	actions := make([dynamic]combat.Command)
-	defer delete(actions)
+	combat_commands := make([dynamic]combat.Command)
+	defer delete(combat_commands)
 
 	y : f32 = 440
 	for category in ship.Category {
 		append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Boost %v", category)})
-		append(&actions, combat.Command(combat.Command_Boost{phase = category}))
+		append(&combat_commands, combat.Command(combat.Command_Boost{phase = category}))
 		y += 34
 	}
 
 	append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Man the Sails")})
-	append(&actions, combat.Command(combat.Command_Man_The_Sails{}))
+	append(&combat_commands, combat.Command(combat.Command_Man_The_Sails{}))
 	y += 34
 
 	for layout_slot, i in state.player.layout {
@@ -159,29 +180,21 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			continue
 		}
 		append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Jettison %s", fitting.name)})
-		append(&actions, combat.Command(combat.Command_Jettison_Cargo{slot_index = i}))
+		append(&combat_commands, combat.Command(combat.Command_Jettison_Cargo{slot_index = i}))
 		y += 34
 	}
 
 	if state.may_leave {
 		append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Leave Combat")})
-		append(&actions, combat.Command(combat.Command_Leave_Combat{}))
+		append(&combat_commands, combat.Command(combat.Command_Leave_Combat{}))
 		y += 34
 	}
 
-	for !rl.WindowShouldClose() {
-		rl.BeginDrawing()
-		draw_scene_contents(state, "Choose your captain's command.")
-		draw_buttons(buttons[:])
-		rl.EndDrawing()
-		free_all(context.temp_allocator)
-
-		picked := clicked_button(buttons[:])
-		if picked >= 0 {
-			return sim.Command(sim.Command_Battle_Action{action = actions[picked]})
-		}
+	picked := button_menu_loop(state, "Choose your captain's command.", buttons[:])
+	if picked >= 0 {
+		return sim.Command(sim.Command_Battle_Choice{combat_command = combat_commands[picked]})
 	}
-	return sim.Command(sim.Command_Battle_Action{action = combat.Command(combat.Command_Hold{})})
+	return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
 }
 
 // upgrade_menu_loop blocks until the player picks one of the 3 fixed
@@ -210,17 +223,9 @@ upgrade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		}
 	}
 
-	for !rl.WindowShouldClose() {
-		rl.BeginDrawing()
-		draw_scene_contents(state, "Choose an upgrade.")
-		draw_buttons(buttons[:])
-		rl.EndDrawing()
-		free_all(context.temp_allocator)
-
-		picked := clicked_button(buttons[:])
-		if picked >= 0 {
-			return sim.Command(sim.Command_Pick_Upgrade{option_index = picked})
-		}
+	picked := button_menu_loop(state, "Choose an upgrade.", buttons[:])
+	if picked >= 0 {
+		return sim.Command(sim.Command_Pick_Upgrade{option_index = picked})
 	}
 	return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})
 }

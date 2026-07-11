@@ -50,52 +50,34 @@ compute_point_positions :: proc(run_map: run.Map) -> []rl.Vector2 {
 	return positions
 }
 
-// point_color picks a marker color by Point_Kind/Encounter_Kind, dimmed once
-// visited (issue #24).
-point_color :: proc(p: run.Point, visited: bool) -> rl.Color {
-	color: rl.Color
+// point_marker picks a marker color and label by Point_Kind/Encounter_Kind
+// in one pass, dimming the color once visited (issue #24). color and label
+// are always consumed together at draw_map's single call site, so one
+// switch replaces what was previously two parallel switches over the same
+// Point_Kind/Encounter_Kind shape.
+point_marker :: proc(p: run.Point, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
-	case .Start, .Port:
-		color = rl.SKYBLUE
+	case .Start:
+		color, label = rl.SKYBLUE, "Start"
+	case .Port:
+		color, label = rl.SKYBLUE, "Port"
 	case .Goal:
-		color = rl.GOLD
+		color, label = rl.GOLD, "Goal"
 	case .Encounter:
 		encounter, _ := p.encounter.?
 		switch enc in encounter {
 		case run.Encounter_Ship_Battle:
-			color = rl.MAROON
+			color, label = rl.MAROON, "Battle"
 		case run.Encounter_Upgrade_Offer:
-			color = rl.LIME
+			color, label = rl.LIME, "Upgrade"
 		case run.Encounter_Stat_Trade:
-			color = rl.ORANGE
+			color, label = rl.ORANGE, "Trade"
 		}
 	}
 	if visited {
-		return rl.Fade(color, 0.4)
+		color = rl.Fade(color, 0.4)
 	}
-	return color
-}
-
-point_label :: proc(p: run.Point) -> string {
-	switch p.kind {
-	case .Start:
-		return "Start"
-	case .Goal:
-		return "Goal"
-	case .Port:
-		return "Port"
-	case .Encounter:
-		encounter, _ := p.encounter.?
-		switch enc in encounter {
-		case run.Encounter_Ship_Battle:
-			return "Battle"
-		case run.Encounter_Upgrade_Offer:
-			return "Upgrade"
-		case run.Encounter_Stat_Trade:
-			return "Trade"
-		}
-	}
-	return ""
+	return
 }
 
 // draw_map draws every point at its cached position, highlighting the
@@ -104,12 +86,11 @@ draw_map :: proc(state: ^Game_State) {
 	rl.DrawRectangleLinesEx(MAP_AREA, 2, rl.GRAY)
 	for p, i in state.run_map.points {
 		pos := state.positions[i]
-		color := point_color(p, state.visited[i])
+		color, label := point_marker(p, state.visited[i])
 		rl.DrawCircleV(pos, POINT_RADIUS, color)
 		if p.id == state.current_point_id {
 			rl.DrawCircleLinesV(pos, POINT_RADIUS + 4, rl.BLACK)
 		}
-		label := point_label(p)
 		rl.DrawText(fmt.ctprintf("%s", label), i32(pos.x - 20), i32(pos.y + POINT_RADIUS + 2), 12, rl.BLACK)
 	}
 }

@@ -37,9 +37,9 @@ get_captain_choice_holds_every_round_while_a_battle_is_in_progress :: proc(t: ^t
 
 	cmd := get_captain_choice(&state)
 
-	action, ok := cmd.(sim.Command_Battle_Action)
+	choice, ok := cmd.(sim.Command_Battle_Choice)
 	testing.expect(t, ok)
-	_, is_hold := action.action.(combat.Command_Hold)
+	_, is_hold := choice.combat_command.(combat.Command_Hold)
 	testing.expect(t, is_hold)
 }
 

@@ -42,7 +42,7 @@ get_captain_choice :: proc(data: rawptr) -> sim.Command {
 	state := cast(^Headless_State)data
 
 	if state.in_battle {
-		return sim.Command(sim.Command_Battle_Action{action = combat.Command_Hold{}})
+		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command_Hold{}})
 	}
 	if state.upgrade_pending {
 		return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})

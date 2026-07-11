@@ -42,7 +42,7 @@ Sim :: struct {
 // asserts the submitted Command matches.
 Command :: union {
 	Command_Travel_To,
-	Command_Battle_Action,
+	Command_Battle_Choice,
 	Command_Pick_Upgrade,
 }
 
@@ -50,14 +50,15 @@ Command_Travel_To :: struct {
 	point_id: int,
 }
 
-Command_Battle_Action :: struct {
-	action: combat.Command,
+Command_Battle_Choice :: struct {
+	combat_command: combat.Command,
 }
 
 // Command_Pick_Upgrade picks one of the 3 fixed Upgrade Offer options
 // (option_index into the order run.run_upgrade_offer_options returns:
-// 0 = Top Crew/Buff, 1 = Captain's Quarters/Defensive, 2 = Gun Deck/Offensive
-// — see UPGRADE_OPTION_CATEGORY).
+// 0 = Top Crew/Buff, 1 = Captain's Quarters/Defensive, 2 = Gun Deck/Offensive).
+// The picked option's own Fitting.category says which starting slot it
+// replaces — no separate index-to-category table needed.
 Command_Pick_Upgrade :: struct {
 	option_index: int,
 }
@@ -152,11 +153,6 @@ Event_Run_Ended :: struct {
 	status: run.Run_Status,
 }
 
-// UPGRADE_OPTION_CATEGORY maps a Command_Pick_Upgrade.option_index to the
-// Category of the starting fitting it upgrades, matching the fixed order
-// run.run_upgrade_offer_options returns (issue #23's content.odin).
-UPGRADE_OPTION_CATEGORY := [3]ship.Category{.Buff, .Defensive, .Offensive}
-
 sim_create :: proc(seed: u64) -> Sim {
 	s: Sim
 	s.rng = rand.create_u64(seed)
@@ -224,8 +220,8 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 		_, ok := cmd.(Command_Travel_To)
 		assert(ok, "expected a Command_Travel_To while awaiting a travel choice")
 	case .Awaiting_Battle_Command:
-		_, ok := cmd.(Command_Battle_Action)
-		assert(ok, "expected a Command_Battle_Action while awaiting a battle command")
+		_, ok := cmd.(Command_Battle_Choice)
+		assert(ok, "expected a Command_Battle_Choice while awaiting a battle command")
 	case .Awaiting_Upgrade_Choice:
 		_, ok := cmd.(Command_Pick_Upgrade)
 		assert(ok, "expected a Command_Pick_Upgrade while awaiting an upgrade choice")

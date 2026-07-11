@@ -49,9 +49,9 @@ boosting_offensive_wins_the_first_coastal_ship_battle_and_the_run_continues_to_g
 	input_state := Scripted_Input_State{
 		choices = []Command{
 			Command(Command_Travel_To{point_id = 2}),
-			Command(Command_Battle_Action{action = combat.Command_Boost{phase = .Offensive}}),
-			Command(Command_Battle_Action{action = combat.Command_Boost{phase = .Offensive}}),
-			Command(Command_Battle_Action{action = combat.Command_Boost{phase = .Offensive}}),
+			Command(Command_Battle_Choice{combat_command = combat.Command_Boost{phase = .Offensive}}),
+			Command(Command_Battle_Choice{combat_command = combat.Command_Boost{phase = .Offensive}}),
+			Command(Command_Battle_Choice{combat_command = combat.Command_Boost{phase = .Offensive}}),
 			Command(Command_Travel_To{point_id = 16}),
 		},
 	}
@@ -184,10 +184,10 @@ holding_every_round_against_a_tough_opponent_can_lose_the_run :: proc(t: ^testin
 	input_state := Scripted_Input_State{
 		choices = []Command{
 			Command(Command_Travel_To{point_id = 2}),
-			Command(Command_Battle_Action{action = combat.Command_Hold{}}),
-			Command(Command_Battle_Action{action = combat.Command_Hold{}}),
-			Command(Command_Battle_Action{action = combat.Command_Hold{}}),
-			Command(Command_Battle_Action{action = combat.Command_Hold{}}),
+			Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}),
+			Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}),
+			Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}),
+			Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}),
 		},
 	}
 	input := Input_Source{data = &input_state, get_captain_choice = scripted_input_get_captain_choice}
