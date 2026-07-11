@@ -145,8 +145,9 @@ Event_Upgrade_Applied :: struct {
 // Event_Encounter_Resolved forwards run.Event_Encounter_Resolved's
 // Ghost_Snapshot (ADR-0008) through Sim's own Event boundary. Per
 // run_ghost_snapshot_capture's own ownership contract, the recipient
-// (Event_Sink) owns snapshot.ship.layout once dispatched and must
-// delete(...) it when done — Sim does not retain or free it itself.
+// (Event_Sink) owns the snapshot once dispatched and must call
+// run_ghost_snapshot_destroy on it when done — Sim does not retain or free
+// it itself.
 Event_Encounter_Resolved :: struct {
 	snapshot: run.Ghost_Snapshot,
 }

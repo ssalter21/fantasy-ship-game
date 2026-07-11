@@ -244,12 +244,12 @@ recording_sink_dispatch :: proc(data: rawptr, event: Event) {
 }
 
 // recording_sink_destroy frees every recorded event's owned allocations
-// (Event_Encounter_Resolved.snapshot.ship.layout — see that type's doc
-// comment) plus the events slice itself.
+// (Event_Encounter_Resolved.snapshot — see run_ghost_snapshot_destroy) plus
+// the events slice itself.
 recording_sink_destroy :: proc(state: ^Recording_Sink_State) {
 	for event in state.events {
 		if resolved, ok := event.(Event_Encounter_Resolved); ok {
-			delete(resolved.snapshot.ship.layout)
+			run.run_ghost_snapshot_destroy(resolved.snapshot)
 		}
 	}
 	delete(state.events)

@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import combat "../../core/combat"
+import run "../../core/run"
 import sim "../../core/sim"
 
 main :: proc() {
@@ -55,6 +56,10 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	panic("unreachable")
 }
 
+// dispatch is the headless Event_Sink: log-record every event (instead of
+// animating it) and track just enough context for get_captain_choice above.
+// Destroys Event_Encounter_Resolved.snapshot once logged, per that type's
+// caller-owns-it contract (core/sim/sim.odin).
 // dispatch is the headless Event_Sink: log-record every event instead of
 // animating it. Frees Event_Encounter_Resolved.snapshot.ship.layout once
 // logged, per that type's caller-owns-it contract (core/sim/sim.odin).
@@ -73,7 +78,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Upgrade_Offer_Presented:
 	case sim.Event_Upgrade_Applied:
 	case sim.Event_Encounter_Resolved:
-		delete(e.snapshot.ship.layout)
+		run.run_ghost_snapshot_destroy(e.snapshot)
 	case sim.Event_Run_Ended:
 	}
 }
