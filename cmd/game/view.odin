@@ -149,6 +149,24 @@ draw_scene_contents :: proc(state: ^Game_State, overlay: string) {
 		rl.DrawRectangle(0, WINDOW_HEIGHT - 60, WINDOW_WIDTH, 60, rl.Fade(rl.BLACK, 0.75))
 		rl.DrawText(fmt.ctprintf("%s", overlay), 20, WINDOW_HEIGHT - 44, 20, rl.RAYWHITE)
 	}
+
+	draw_version_stamp()
+}
+
+// draw_version_stamp draws the build's VERSION (issue #44) in the top-right
+// corner of every scene, right-aligned so a short "dev" and a full git SHA
+// both sit flush to the edge. Guards on IsWindowReady() like the rest of the
+// render layer (ADR-0003) so it's a no-op under `odin test`.
+draw_version_stamp :: proc() {
+	if !rl.IsWindowReady() {
+		return
+	}
+
+	FONT_SIZE :: 12
+	MARGIN :: 6
+	text := fmt.ctprintf("%s", VERSION)
+	width := rl.MeasureText(text, FONT_SIZE)
+	rl.DrawText(text, WINDOW_WIDTH - width - MARGIN, MARGIN, FONT_SIZE, rl.GRAY)
 }
 
 // draw_scene is draw_scene_contents wrapped in its own Begin/EndDrawing pair
