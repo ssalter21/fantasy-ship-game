@@ -4,6 +4,7 @@ import "../combat"
 import "../run"
 import "../ship"
 import "core:math/rand"
+import "core:mem/virtual"
 
 // Phase is what kind of captain decision Sim is (or is about to be) awaiting
 // (issue #24 — wiring core/run/core/combat under the shared run_session
@@ -25,6 +26,12 @@ Sim :: struct {
 	// fully deterministic), but the field/seed stays since ADR-0001 commits
 	// to it as Sim's shape, not something this ticket revisits.
 	rng:               rand.Default_Random_State,
+	// arena backs every run-lifetime allocation that never escapes the Sim
+	// (the map, the player's layout, resolved, jettisoned cargo records) and
+	// the Ghost_Snapshot payloads handed to the Event_Sink (see
+	// Event_Encounter_Resolved's doc comment below). sim_destroy tears all of
+	// it down in one call instead of hand-written per-field deletes.
+	arena:             virtual.Arena,
 	run_map:           run.Map,
 	player:            ship.Ship,
 	current:           int, // index into run_map.points; Start is always 0
@@ -143,11 +150,12 @@ Event_Upgrade_Applied :: struct {
 }
 
 // Event_Encounter_Resolved forwards run.Event_Encounter_Resolved's
-// Ghost_Snapshot (ADR-0008) through Sim's own Event boundary. Per
-// run_ghost_snapshot_capture's own ownership contract, the recipient
-// (Event_Sink) owns the snapshot once dispatched and must call
-// run_ghost_snapshot_destroy on it when done — Sim does not retain or free
-// it itself.
+// Ghost_Snapshot (ADR-0008) through Sim's own Event boundary. snapshot is
+// allocated from Sim's own arena (issue #52), so it stays valid for the
+// Sim's own lifetime — a sink may read it, or retain a copy of the struct
+// itself, for as long as the Sim it came from is alive, with no destroy call
+// of its own to make. A sink that needs the snapshot to outlive the Sim must
+// copy its owned layout slice out explicitly.
 Event_Encounter_Resolved :: struct {
 	snapshot: run.Ghost_Snapshot,
 }
@@ -159,24 +167,28 @@ Event_Run_Ended :: struct {
 sim_create :: proc(seed: u64) -> Sim {
 	s: Sim
 	s.rng = rand.create_u64(seed)
+
+	arena_err := virtual.arena_init_growing(&s.arena)
+	assert(arena_err == nil, "Sim's run arena failed to initialize")
+	context.allocator = virtual.arena_allocator(&s.arena)
+
 	s.run_map = run.run_map_create()
 	s.player = ship.ship_starting_ship()
 	s.resolved = make([]bool, len(s.run_map.points))
+
 	s.status = .In_Progress
 	s.phase = .Awaiting_Travel_Choice
 	return s
 }
 
-// sim_destroy frees every allocation sim_create made, plus whatever the run
-// accumulated along the way (the map's Ship Battle opponents' layouts, the
-// player's own layout, and the current battle's jettisoned-cargo records, if
-// a battle is in progress when destroyed).
+// sim_destroy tears down the Sim's run arena in one call: the map (and its
+// Ship Battle opponents' layouts), the player's own layout, resolved, every
+// Ghost_Snapshot dispatched over the Sim's lifetime, and the current
+// battle's jettisoned-cargo records (if a battle is in progress when
+// destroyed) all live there (issue #52) — no hand-written per-field delete
+// remains.
 sim_destroy :: proc(sim: ^Sim) {
-	delete(sim.battle.jettisoned[.A])
-	delete(sim.battle.jettisoned[.B])
-	delete(sim.player.layout)
-	delete(sim.resolved)
-	run.run_map_destroy(&sim.run_map)
+	virtual.arena_destroy(&sim.arena)
 }
 
 // sim_tick resolves one unit of work and batch-emits the resulting events.

@@ -23,13 +23,20 @@ Event_Sink :: struct {
 // run_session is the single driver loop shared by headless and UI modes
 // (see ADR-0002): tick, dispatch that round's events to the sink, and if the
 // Sim is awaiting a captain decision, ask the input source and submit it
-// before ticking again.
+// before ticking again. The tick's own Event buffer, and the combat/run
+// scratch buffers sim_tick allocates along the way, all live on
+// context.temp_allocator (issue #53) — freed in one free_all per iteration
+// below, the same per-frame-scratch discipline the UI already applies to its
+// own draw calls. Nothing a sink retains past its own dispatch call may live
+// there: Event's payloads are plain values copied into dispatch, and the one
+// exception with its own owned memory (Event_Encounter_Resolved's
+// Ghost_Snapshot) is allocated from the Sim's own run arena instead (issue
+// #52), not this temp buffer.
 run_session :: proc(sim: ^Sim, input: Input_Source, sink: Event_Sink) {
-	events: [dynamic]Event
-	defer delete(events)
-
 	for {
-		clear(&events)
+		defer free_all(context.temp_allocator)
+
+		events := make([dynamic]Event, 0, 0, context.temp_allocator)
 		sim_tick(sim, &events)
 
 		run_ended := false

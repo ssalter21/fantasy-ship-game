@@ -2,6 +2,7 @@ package sim
 
 import "../combat"
 import "../run"
+import "core:mem/virtual"
 
 // sim_process_battle_round applies a submitted Command_Battle_Choice as the
 // player's (Side.A's) command for the current round, computes the scripted
@@ -18,8 +19,12 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	opponent_command := combat.combat_scripted_command(&sim.battle, .B)
 	cmds := [combat.Side]Maybe(combat.Command){.A = cmd.combat_command, .B = opponent_command}
 
-	combat_events: [dynamic]combat.Event
-	defer delete(combat_events)
+	// combat_events is per-tick scratch (issue #53): explicitly locked to
+	// context.temp_allocator so the arena swap below (needed for
+	// battle.jettisoned, issue #52) can't reach it — run_session frees it via
+	// free_all(context.temp_allocator) once per driver iteration.
+	combat_events := make([dynamic]combat.Event, 0, 0, context.temp_allocator)
+	context.allocator = virtual.arena_allocator(&sim.arena)
 	combat.combat_resolve_round(&sim.battle, cmds, &combat_events)
 
 	for e in combat_events {
@@ -34,13 +39,10 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	zone, has_zone := sim.run_map.points[sim.current].zone.?
 	assert(has_zone, "a Ship Battle point must have a zone")
-	run_events: [dynamic]run.Event
-	defer delete(run_events)
+	run_events := make([dynamic]run.Event, 0, 0, context.temp_allocator)
 	run.run_finish_ship_battle(&sim.battle, &sim.player, &sim.active_encounter, zone, sim.steps, &run_events)
 	sim_forward_encounter_resolved(run_events, events)
 
-	delete(sim.battle.jettisoned[.A])
-	delete(sim.battle.jettisoned[.B])
 	sim.resolved[sim.current] = true
 	sim.phase = .Awaiting_Travel_Choice
 }

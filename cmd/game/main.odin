@@ -119,10 +119,9 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		play_beat(state, fmt.tprintf("Installed %s!", e.fitting.name))
 
 	case sim.Event_Encounter_Resolved:
-		// Ghost_Snapshot is caller-owned (core/sim's Event_Encounter_Resolved
-		// doc comment) — the UI has no use for a ghost snapshot beyond this
-		// dispatch.
-		run.run_ghost_snapshot_destroy(e.snapshot)
+		// snapshot needs no destroy call here (issue #52): it's valid for the
+		// Sim's own lifetime, which outlives this dispatch, and the UI has no
+		// use for a ghost snapshot beyond it anyway.
 
 	case sim.Event_Run_Ended:
 		state.status = e.status
