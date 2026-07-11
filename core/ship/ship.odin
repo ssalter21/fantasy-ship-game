@@ -31,13 +31,19 @@ Slot :: struct {
 	base_visibility: Visibility,
 }
 
+// Magnitude is an Effect's strength (issue #54: distinct from a plain int so
+// it can't be confused at a call site with an index or other bare-int
+// domain value). Callers that fold it into a raw combat total cast it back
+// to int explicitly (see core/combat's combat_phase_output).
+Magnitude :: distinct int
+
 // Effect is the numeric strength of a fitting's passive/active combat
 // contribution. What magnitude means is decided by the combat resolver
 // (ADR-0006, core/combat) from the owning fitting's Category; the concrete
 // fitting roster and its balance values belong to the vertical-slice content
 // ticket (issue #23), not this data model.
 Effect :: struct {
-	magnitude: int,
+	magnitude: Magnitude,
 }
 
 Fitting :: struct {
@@ -65,6 +71,12 @@ Layout_Slot :: struct {
 	slot:    Slot,
 	fitting: Maybe(Fitting),
 }
+
+// Slot_Index identifies a Layout_Slot by position in a Ship's layout (issue
+// #54: distinct from a plain int so a slot position can't be passed where a
+// point id or upgrade option index belongs, e.g. Command_Jettison_Cargo's
+// slot_index in core/combat).
+Slot_Index :: distinct int
 
 // Ship holds the run-persistent top-level stats (HP, Durability, Speed,
 // starting treasure) plus the fixed layout of slots that carries its combat

@@ -39,7 +39,7 @@ Command_Man_The_Sails :: struct {}
 // Command_Jettison_Cargo empties the cargo fitting at slot_index for a
 // permanent (rest-of-battle) Speed boost, tracked for post-battle settlement.
 Command_Jettison_Cargo :: struct {
-	slot_index: int,
+	slot_index: ship.Slot_Index,
 }
 
 // Command_Leave_Combat ends the battle immediately for both ships. Only
@@ -60,7 +60,10 @@ Battle :: struct {
 	temp_speed: [Side]int,
 	perm_speed: [Side]int,
 	jettisoned: [Side][dynamic]ship.Fitting,
-	escaped:    [Side]bool,
+	// escaped is which side(s) have taken Command_Leave_Combat this battle
+	// (issue #54: a genuine set-of-enum over Side, so bit_set replaces the
+	// [Side]bool membership array).
+	escaped:    bit_set[Side],
 	ended:      bool,
 }
 
@@ -136,9 +139,9 @@ combat_effective_speed :: proc(battle: ^Battle, side: Side) -> int {
 // combat_apply_jettison empties the cargo fitting at slot_index on side's
 // ship for a permanent Speed boost, recording the fitting for post-battle
 // settlement (ADR-0006).
-combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: int, events: ^[dynamic]Event) {
+combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot_Index, events: ^[dynamic]Event) {
 	s := battle.ships[side]
-	assert(slot_index >= 0 && slot_index < len(s.layout), "Command_Jettison_Cargo slot_index out of range")
+	assert(slot_index >= 0 && int(slot_index) < len(s.layout), "Command_Jettison_Cargo slot_index out of range")
 	layout_slot := &s.layout[slot_index]
 	fitting, has_fitting := layout_slot.fitting.?
 	assert(has_fitting && fitting.is_cargo, "Command_Jettison_Cargo slot_index does not hold a cargo fitting")
@@ -162,7 +165,7 @@ combat_phase_output :: proc(s: ^ship.Ship, phase: ship.Category) -> int {
 		if !has_active {
 			continue
 		}
-		total += active.magnitude
+		total += int(active.magnitude)
 	}
 	return total
 }
@@ -194,7 +197,7 @@ combat_scripted_command :: proc(battle: ^Battle, side: Side) -> Command {
 // stalemate — settlement doesn't distinguish between those two).
 combat_settle_jettisoned_cargo :: proc(battle: ^Battle, side: Side) -> (spoils: []ship.Fitting, lost: bool) {
 	assert(battle.ended, "combat_settle_jettisoned_cargo called before the battle ended")
-	if battle.escaped[side] {
+	if side in battle.escaped {
 		return nil, true
 	}
 	return battle.jettisoned[side][:], false
@@ -226,7 +229,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 			combat_apply_jettison(battle, side, c.slot_index, events)
 		case Command_Leave_Combat:
 			assert(combat_may_leave(battle, side), "Command_Leave_Combat submitted while not escape-eligible")
-			battle.escaped[side] = true
+			battle.escaped += {side}
 		case Command_Hold:
 		// no-op (ADR-0008): contributes no Boost/Man the Sails/Jettison side effect.
 		}
@@ -234,7 +237,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 
 	// Leave Combat ends the encounter immediately for both ships (ADR-0006):
 	// no phase resolves the round a ship leaves.
-	if battle.escaped[.A] || battle.escaped[.B] {
+	if battle.escaped != {} {
 		battle.ended = true
 		append(events, Event(Event_Battle_Ended{round = battle.round, reason = .Left_Combat, winner = nil}))
 		return

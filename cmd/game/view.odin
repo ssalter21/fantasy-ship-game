@@ -118,7 +118,7 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 		case:
 			magnitude := 0
 			if active, has_active := fitting.active.?; has_active {
-				magnitude = active.magnitude
+				magnitude = int(active.magnitude)
 			}
 			label = fmt.tprintf("%s: %s (%d)", layout_slot.slot.name, fitting.name, magnitude)
 		}

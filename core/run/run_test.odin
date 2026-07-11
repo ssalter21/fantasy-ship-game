@@ -130,8 +130,10 @@ each_zone_has_exactly_one_port_and_a_mix_of_encounter_kinds_not_one_kind_dominat
 
 	for zone in Zone {
 		port_count := 0
-		kinds_seen: map[Encounter_Kind]bool
-		defer delete(kinds_seen)
+		// kinds_seen is a genuine set-of-enum over Encounter_Kind (issue #54):
+		// bit_set instead of a map[Encounter_Kind]bool, so there's no
+		// allocation to defer-delete either.
+		kinds_seen: bit_set[Encounter_Kind]
 
 		for point in m.points {
 			point_zone, in_a_zone := point.zone.?
@@ -142,12 +144,12 @@ each_zone_has_exactly_one_port_and_a_mix_of_encounter_kinds_not_one_kind_dominat
 				port_count += 1
 			}
 			if encounter, has_encounter := point.encounter.?; has_encounter {
-				kinds_seen[encounter_kind_of(encounter)] = true
+				kinds_seen += {encounter_kind_of(encounter)}
 			}
 		}
 
 		testing.expect_value(t, port_count, 1)
-		testing.expect(t, len(kinds_seen) > 1)
+		testing.expect(t, card(kinds_seen) > 1)
 	}
 }
 

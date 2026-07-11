@@ -243,15 +243,12 @@ recording_sink_dispatch :: proc(data: rawptr, event: Event) {
 	append(&state.events, event)
 }
 
-// recording_sink_destroy frees every recorded event's owned allocations
-// (Event_Encounter_Resolved.snapshot — see run_ghost_snapshot_destroy) plus
-// the events slice itself.
+// recording_sink_destroy frees the recorded events slice itself.
+// Event_Encounter_Resolved.snapshot needs no per-event cleanup: it lives in
+// the Sim's own run-scoped arena, still alive here since every test defers
+// this call before its own defer sim_destroy(&sim) (issue #52) — the arena
+// itself is only reclaimed once that later-registered defer runs.
 recording_sink_destroy :: proc(state: ^Recording_Sink_State) {
-	for event in state.events {
-		if resolved, ok := event.(Event_Encounter_Resolved); ok {
-			run.run_ghost_snapshot_destroy(resolved.snapshot)
-		}
-	}
 	delete(state.events)
 }
 
