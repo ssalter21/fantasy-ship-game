@@ -234,12 +234,32 @@ layout :: proc(nodes: []Node, layer_ids: [][dynamic]int) {
 	}
 }
 
-reachable_next :: proc(g: Graph, from_id: int) -> [dynamic]int {
-	next := make([dynamic]int)
+// travel_options returns every node the player may step to this turn:
+// forward along any outgoing edge (new territory, or a re-converging
+// already-visited node), or backward along an incoming edge to a node
+// that's already been visited (retracing the graph -- not a teleport to
+// any arbitrary visited node, just the ones directly connected). Movement
+// is no longer forward-only (reversed from map #59's original chartering
+// per issue #62's discussion); revisiting a node never re-triggers its
+// encounter (is_landmark nodes never trigger one at all).
+travel_options :: proc(g: Graph, current_id: int, visited: []bool) -> [dynamic]int {
+	opts := make([dynamic]int)
 	for e in g.edges {
-		if e.from == from_id {
-			append(&next, e.to)
+		if e.from == current_id && !is_in(e.to, opts[:]) {
+			append(&opts, e.to)
+		} else if e.to == current_id && visited[e.from] && !is_in(e.from, opts[:]) {
+			append(&opts, e.from)
 		}
 	}
-	return next
+	return opts
+}
+
+is_landmark :: proc(n: Node) -> bool {
+	return n.is_start || n.is_port || n.is_goal
+}
+
+// will_trigger reports whether stepping to id would fire a fresh encounter
+// (never visited, and not a landmark, which carries no encounter kind).
+will_trigger :: proc(g: Graph, id: int, visited: []bool) -> bool {
+	return !is_landmark(g.nodes[id]) && !visited[id]
 }

@@ -5,8 +5,41 @@ arrival, given hidden/randomized encounter kinds and a connected ~50-node
 graph (map #59)?
 
 **Run it:** `odin run cmd/prototype_map_fog` — Left/Right arrows switch
-variant, `1`-`4` travel to a numbered reachable node, `R` resets the walk,
-`G` rolls a new graph.
+variant, `1`-`4` travel (forward into new territory or back along an edge
+to an already-visited node), `R` resets the walk, `G` rolls a new graph.
+
+## Movement is no longer forward-only (design change, not just visual)
+
+Map #59's Notes originally chartered "Movement is forward-only — no
+backtracking to a previously-visited node" as a standing decision, and #60
+(closed) picked its generation algorithm assuming that. Per direction
+during this prototype's review, that's now reversed: the player can travel
+back along an edge to any node they've already visited, not just forward
+into new territory. Revisiting a node **never re-triggers its encounter**
+— only the first arrival fires one (`will_trigger` in `graph.odin`).
+
+This doesn't change #60's generated graph shape at all — edges are still
+only ever *created* forward, layer `i` → `i+1` (that's about generation,
+not traversal). What changes is which destinations are legal to travel to
+at runtime: previously only outgoing edges from the current node, now also
+incoming edges from already-visited neighbors. That's a `core/run`/`sim`
+travel-legality rule, not a graph-generation concern, so #60 doesn't need
+re-opening — flagged on it for visibility only. Posted to #59 (Notes
+correction) and #60 (flag) as comments per the wayfinder convention of
+appending decisions rather than editing map bodies.
+
+All three variants now color-code travel options: **yellow** ring/card =
+stepping there fires a fresh encounter, **skyblue** = it won't (revisit or
+landmark). A status line at the bottom of the window reports the same for
+wherever you currently are.
+
+## Zone-progression background (visual, issue #62 scope)
+
+All three variants now paint a Coastal→Open_Sea→Deep background gradient
+(`draw_zone_gradient_h`/`_v` in `variants.odin`) behind their content —
+horizontal for A/B (matching left-to-right Start→Goal node layout),
+vertical for C (matching its stacked zone-progress rows) — so zone
+progression reads as an ambient background cue, not just per-node color.
 
 ## Landmark rule (added after initial pass)
 

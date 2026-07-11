@@ -4,10 +4,13 @@ package prototype_map_fog
 // question this answers. Run with: odin run cmd/prototype_map_fog
 //
 // Left/Right arrows switch between three variants of "what does the player
-// see" for the map's node-hiding mechanism. Press 1-4 to travel to a
-// numbered reachable node and watch it resolve; R resets the walk; G rolls
-// a new graph. Delete this whole directory (or fold the validated approach
-// into cmd/game/view.odin) once #62 closes.
+// see" for the map's node-hiding mechanism. Press 1-4 to travel: forward
+// options are new territory, back options retrace an edge to an
+// already-visited node (movement is no longer forward-only -- reversed
+// from map #59's original chartering, see NOTES.md). Revisiting a node
+// never re-triggers its encounter. R resets the walk; G rolls a new graph.
+// Delete this whole directory (or fold the validated approach into
+// cmd/game/view.odin) once #62 closes.
 
 import "core:fmt"
 import rl "vendor:raylib"
@@ -18,11 +21,12 @@ WINDOW_HEIGHT :: 700
 variant_names := [3]string{"A -- Full graph, kind hidden", "B -- Fog by distance (horizon)", "C -- Zone progress + choice fan"}
 
 Proto_State :: struct {
-	g:          Graph,
-	visited:    []bool,
-	current_id: int,
-	variant:    int,
-	seed:       u64,
+	g:             Graph,
+	visited:       []bool,
+	current_id:    int,
+	variant:       int,
+	seed:          u64,
+	just_triggered: bool, // did the most recent step fire a fresh encounter?
 }
 
 state_reset_walk :: proc(s: ^Proto_State) {
@@ -30,6 +34,7 @@ state_reset_walk :: proc(s: ^Proto_State) {
 	s.visited = make([]bool, len(s.g.nodes))
 	s.visited[s.g.start_id] = true
 	s.current_id = s.g.start_id
+	s.just_triggered = false
 }
 
 state_regenerate :: proc(s: ^Proto_State, seed: u64) {
@@ -64,12 +69,14 @@ main :: proc() {
 			state_regenerate(&state, state.seed + 1)
 		}
 
-		reachable := reachable_next(state.g, state.current_id)
+		options := travel_options(state.g, state.current_id, state.visited)
 
 		for key, i in ([4]rl.KeyboardKey{.ONE, .TWO, .THREE, .FOUR}) {
-			if rl.IsKeyPressed(key) && i < len(reachable) {
-				state.current_id = reachable[i]
-				state.visited[state.current_id] = true
+			if rl.IsKeyPressed(key) && i < len(options) {
+				dest := options[i]
+				state.just_triggered = will_trigger(state.g, dest, state.visited)
+				state.current_id = dest
+				state.visited[dest] = true
 			}
 		}
 
@@ -81,22 +88,35 @@ main :: proc() {
 
 		switch state.variant {
 		case 0:
-			draw_variant_a(state.g, state.visited, state.current_id, reachable[:])
+			draw_variant_a(state.g, state.visited, state.current_id, options[:])
 		case 1:
-			draw_variant_b(state.g, state.visited, state.current_id, reachable[:])
+			draw_variant_b(state.g, state.visited, state.current_id, options[:])
 		case 2:
-			draw_variant_c(state.g, state.visited, state.current_id, reachable[:])
+			draw_variant_c(state.g, state.visited, state.current_id, options[:])
 		}
 
 		draw_switcher_bar(state.variant)
-
-		if len(reachable) == 0 {
-			rl.DrawText("Run complete -- press R to walk again.", WINDOW_WIDTH / 2 - 140, WINDOW_HEIGHT - 90, 18, rl.MAROON)
-		}
+		draw_status_line(state)
 
 		rl.EndDrawing()
-		delete(reachable)
+		delete(options)
 	}
+}
+
+draw_status_line :: proc(state: Proto_State) {
+	msg: cstring
+	color := rl.DARKGRAY
+	switch {
+	case is_landmark(state.g.nodes[state.current_id]):
+		msg = "At a landmark -- no encounter here"
+	case state.just_triggered:
+		msg = "Encounter triggers!"
+		color = rl.MAROON
+	case:
+		msg = "Revisiting -- encounter does not re-trigger"
+		color = rl.DARKBLUE
+	}
+	rl.DrawText(msg, WINDOW_WIDTH / 2 - 140, WINDOW_HEIGHT - 90, 18, color)
 }
 
 draw_switcher_bar :: proc(variant: int) {
