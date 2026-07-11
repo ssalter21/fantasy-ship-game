@@ -220,6 +220,30 @@ boost_defensive_amplifies_the_phase_output_and_this_rounds_buff_output_together 
 }
 
 @(test)
+hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
+	a := ship.Ship{
+		hp = 20, durability = 0, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
+	}
+	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Hold{})
+	combat_resolve_round(&battle, cmds, &events)
+
+	// Same outcome as the no-command baseline round (cannon(10) unboosted,
+	// no Man the Sails/Jettison/Leave side effects): Hold contributes nothing.
+	testing.expect_value(t, b.hp, 20-10)
+	testing.expect_value(t, a.hp, 20)
+	testing.expect_value(t, combat_effective_speed(&battle, .A), 5)
+	testing.expect(t, !battle.ended)
+}
+
+@(test)
 man_the_sails_grants_a_speed_boost_for_this_round_only :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 20, speed = 5}
 	b := ship.Ship{hp = 20, speed = 5}
@@ -330,6 +354,26 @@ may_leave_is_true_after_baseline_for_the_strictly_faster_side :: proc(t: ^testin
 	battle.round = BASELINE_ROUND_COUNT
 
 	testing.expect(t, combat_may_leave(&battle, .A))
+}
+
+@(test)
+scripted_command_holds_when_not_escape_eligible :: proc(t: ^testing.T) {
+	a := ship.Ship{hp = 20, speed = 10}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	battle.round = BASELINE_ROUND_COUNT - 1
+
+	testing.expect_value(t, combat_scripted_command(&battle, .A), Command(Command_Hold{}))
+}
+
+@(test)
+scripted_command_leaves_once_escape_eligible :: proc(t: ^testing.T) {
+	a := ship.Ship{hp = 20, speed = 10}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	battle.round = BASELINE_ROUND_COUNT
+
+	testing.expect_value(t, combat_scripted_command(&battle, .A), Command(Command_Leave_Combat{}))
 }
 
 @(test)

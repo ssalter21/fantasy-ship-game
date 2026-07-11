@@ -24,6 +24,7 @@ Command :: union {
 	Command_Man_The_Sails,
 	Command_Jettison_Cargo,
 	Command_Leave_Combat,
+	Command_Hold,
 }
 
 // Command_Boost multiplies the named phase's total output for the
@@ -44,6 +45,11 @@ Command_Jettison_Cargo :: struct {
 // Command_Leave_Combat ends the battle immediately for both ships. Only
 // valid once the submitting side is escape-eligible (combat_may_leave).
 Command_Leave_Combat :: struct {}
+
+// Command_Hold is a formal no-op (ADR-0008): a scripted (non-player-
+// controlled) ship's decision every round it isn't automatically taking
+// Leave Combat. Contributes no Boost/Man the Sails/Jettison side effect.
+Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
 // fought (their run-persistent HP/Durability/Speed live on *ship.Ship and
@@ -171,6 +177,17 @@ combat_may_leave :: proc(battle: ^Battle, side: Side) -> bool {
 	return combat_effective_speed(battle, side) > combat_effective_speed(battle, combat_opposite_side(side))
 }
 
+// combat_scripted_command decides a non-player-controlled side's Command for
+// the round about to be resolved (ADR-0008): Leave Combat once escape-
+// eligible (combat_may_leave), Hold every other round. A scripted ship never
+// chooses Boost, Man the Sails, or Jettison Cargo in this slice.
+combat_scripted_command :: proc(battle: ^Battle, side: Side) -> Command {
+	if combat_may_leave(battle, side) {
+		return Command_Leave_Combat{}
+	}
+	return Command_Hold{}
+}
+
 // combat_settle_jettisoned_cargo resolves side's jettisoned cargo once the
 // battle has ended (ADR-0006): lost if side is the one that left combat,
 // otherwise claimed by the opponent as spoils (destroyed or round-cap
@@ -210,6 +227,8 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		case Command_Leave_Combat:
 			assert(combat_may_leave(battle, side), "Command_Leave_Combat submitted while not escape-eligible")
 			battle.escaped[side] = true
+		case Command_Hold:
+		// no-op (ADR-0008): contributes no Boost/Man the Sails/Jettison side effect.
 		}
 	}
 

@@ -71,6 +71,10 @@ Layout_Slot :: struct {
 // power. See CONTEXT.md's Ship & crew model glossary and ADR-0004.
 Ship :: struct {
 	hp:                  int,
+	// max_hp is the ship's undamaged HP ceiling (ADR-0008): hp is the
+	// run-persistent value combat depletes, max_hp never changes during a
+	// run and is what a Ghost_Snapshot resets hp to on capture.
+	max_hp:              int,
 	durability:          int,
 	speed:               int,
 	starting_treasure:   int,
