@@ -1,6 +1,7 @@
 package combat
 
 import "../ship"
+import "../testutil"
 import "core:testing"
 
 @(test)
@@ -280,6 +281,10 @@ jettison_cargo_empties_the_slot_and_grants_a_permanent_speed_boost :: proc(t: ^t
 
 @(test)
 jettison_cargo_on_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
 	a := ship.Ship{
 		hp = 20, speed = 5,
