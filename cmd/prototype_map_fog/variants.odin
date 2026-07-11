@@ -43,7 +43,7 @@ is_in :: proc(id: int, ids: []int) -> bool {
 draw_switcher_hint :: proc(options: []int) {
 	x := i32(MAP_LEFT)
 	y := i32(MAP_BOTTOM) + 30
-	rl.DrawText("1-4: travel (forward = new, back = retrace)   R: reset walk   G: new graph", x, y, 16, rl.DARKGRAY)
+	rl.DrawText("1-6: travel (forward = new, back = retrace)   R: reset walk   G: new graph", x, y, 16, rl.DARKGRAY)
 }
 
 // draw_option_rings numbers every travel option 1..n, ringed yellow if

@@ -223,59 +223,63 @@ abs_int :: proc(x: int) -> int {
 	return -x if x < 0 else x
 }
 
-// connect_stepping wires from_layer -> to_layer with two passes, both
-// restricted to adjacent lanes (|lane delta| <= 1) so edges stay short and
-// mostly non-crossing -- "stepping stones", not a dense mesh (issue #62
-// feedback: fewer, closer-together, non-overlapping connections):
-//
-//  1. every to-node gets one guaranteed incoming edge from whichever
-//     adjacent-lane from-node currently has the fewest outgoing edges --
-//     load-balances degree instead of piling edges onto one node.
-//  2. any from-node still at zero outgoing after (1) gets one forced edge
-//     to its nearest-lane to-node -- guarantees no dead ends. Typical
-//     out-degree stays 1-2, occasionally producing real branching without
-//     the wide fan-out the original random-target version had.
-connect_stepping :: proc(nodes: []Node, from_layer, to_layer: []int, edges: ^[dynamic]Edge, gen: runtime.Random_Generator) {
-	out_degree := make(map[int]int)
-	defer delete(out_degree)
+// BRANCH_CHANCE is the odds that any given adjacent-lane (from, to) pair
+// gets wired. Independent per-pair coin flips (rather than "exactly one
+// incoming edge per to-node") is what produces real convergence (a to-node
+// picked by more than one from-node) and divergence (a from-node picked for
+// more than one to-node) -- issue #62 feedback: "paths too linear...need
+// more convergence and divergence." Bounded by lane-adjacency (never more
+// than 3 candidates either direction: same lane, ±1) so it stays short of
+// the dense-mesh look an earlier round of feedback rejected.
+BRANCH_CHANCE :: 0.55
 
-	for to_id in to_layer {
-		to_lane := nodes[to_id].lane
-		best := -1
-		best_degree := 1_000_000
-		for from_id in from_layer {
-			if abs_int(nodes[from_id].lane - to_lane) > 1 {
+// connect_stepping wires from_layer -> to_layer, restricted to adjacent
+// lanes (|lane delta| <= 1, guaranteed non-empty by next_lane_lo's overlap
+// invariant) so edges stay short and lengths similar. Every candidate pair
+// gets an independent BRANCH_CHANCE coin flip; a repair pass then gives any
+// node left with zero edges (rare, given the adjacency guarantee) a forced
+// nearest-lane edge so nothing dead-ends or goes unreachable.
+connect_stepping :: proc(nodes: []Node, from_layer, to_layer: []int, edges: ^[dynamic]Edge, gen: runtime.Random_Generator) {
+	out_count := make(map[int]int)
+	defer delete(out_count)
+	in_count := make(map[int]int)
+	defer delete(in_count)
+
+	for from_id in from_layer {
+		from_lane := nodes[from_id].lane
+		for to_id in to_layer {
+			if abs_int(nodes[to_id].lane - from_lane) > 1 {
 				continue
 			}
-			deg := out_degree[from_id]
-			if deg < best_degree {
-				best_degree = deg
+			if rand.float32(gen) < BRANCH_CHANCE {
+				append(edges, Edge{from = from_id, to = to_id})
+				out_count[from_id] += 1
+				in_count[to_id] += 1
+			}
+		}
+	}
+
+	for to_id in to_layer {
+		if in_count[to_id] > 0 {
+			continue
+		}
+		to_lane := nodes[to_id].lane
+		best := from_layer[0]
+		best_dist := abs_int(nodes[best].lane - to_lane)
+		for from_id in from_layer[1:] {
+			d := abs_int(nodes[from_id].lane - to_lane)
+			if d < best_dist {
+				best_dist = d
 				best = from_id
 			}
 		}
-		if best == -1 {
-			// no adjacent-lane candidate -- next_lane_lo's overlap guarantee
-			// should make this rare. Fall back to the nearest lane (degree
-			// breaks ties) rather than pure least-loaded, so any edge that
-			// must break the ±1 rule is still as short as possible instead
-			// of an arbitrary long diagonal.
-			best_dist := 1_000_000
-			for from_id in from_layer {
-				d := abs_int(nodes[from_id].lane - to_lane)
-				deg := out_degree[from_id]
-				if d < best_dist || (d == best_dist && deg < best_degree) {
-					best_dist = d
-					best_degree = deg
-					best = from_id
-				}
-			}
-		}
 		append(edges, Edge{from = best, to = to_id})
-		out_degree[best] += 1
+		out_count[best] += 1
+		in_count[to_id] += 1
 	}
 
 	for from_id in from_layer {
-		if out_degree[from_id] > 0 {
+		if out_count[from_id] > 0 {
 			continue
 		}
 		from_lane := nodes[from_id].lane
@@ -289,7 +293,8 @@ connect_stepping :: proc(nodes: []Node, from_layer, to_layer: []int, edges: ^[dy
 			}
 		}
 		append(edges, Edge{from = from_id, to = best})
-		out_degree[from_id] += 1
+		out_count[from_id] += 1
+		in_count[best] += 1
 	}
 }
 

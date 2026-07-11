@@ -204,6 +204,33 @@ give the denser layout room without cramping. `nodes_per_zone` (17, ~50
 total) is untouched -- density comes from packing the same node count into
 more lanes per layer over fewer, wider layers, not from adding nodes.
 
+## More convergence and divergence, not just single-file paths (issue #62 feedback, cont'd)
+
+Further feedback: paths read as too linear. `connect_stepping`'s old
+design guaranteed exactly one incoming edge per to-node (picked from
+whichever adjacent-lane from-node had the fewest outgoing edges so far) --
+convergence (two from-nodes sharing a to-node) only happened incidentally
+via a secondary dead-end-repair pass, and divergence (one from-node with
+multiple out-edges) only happened when that same node kept winning the
+"fewest outgoing" pick. Net effect: mostly one-to-one chains, occasional
+accidental branching -- not the deliberate lattice of merges and splits
+Slay the Spire's map has.
+
+Replaced with independent coin flips (`BRANCH_CHANCE = 0.55`) on every
+adjacent-lane `(from, to)` pair, then a repair pass for any node that ended
+up with zero edges either direction (rare, given `next_lane_lo`'s overlap
+guarantee). Lane-adjacency still bounds candidates at 3 per direction
+(same lane, ±1), so this stops well short of the dense-mesh look an
+earlier round of feedback rejected, while routinely producing real
+convergence and divergence instead of accidental.
+
+Side effect: worst-case reachable options at a node is now out-degree (up
+to 3) + in-degree-from-already-visited (up to 3) = 6, not "well under 4"
+like the old design -- the same numbered-node-not-actually-selectable bug
+class the lane rework fixed earlier would have resurfaced at the old 4-key
+cap. `main.odin` now supports 6 travel keys (`1`-`6`) to match the true
+worst case rather than papering over it with a lower cap.
+
 ## Status
 
 Not yet posted as the issue's `## Answer` — recommendation above is mine;
