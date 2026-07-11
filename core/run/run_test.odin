@@ -98,7 +98,7 @@ run_point_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal :: 
 @(test)
 run_map_create_has_start_three_zones_of_a_port_and_four_encounters_and_a_goal :: proc(t: ^testing.T) {
 	m := run_map_create()
-	defer delete(m.points)
+	defer run_map_destroy(&m)
 
 	// 1 Start + 3 zones * (1 Port + 4 Encounter) + 1 Goal = 17.
 	testing.expect_value(t, len(m.points), 17)
@@ -107,7 +107,7 @@ run_map_create_has_start_three_zones_of_a_port_and_four_encounters_and_a_goal ::
 @(test)
 run_map_create_splits_the_twelve_encounter_points_evenly_across_the_three_kinds :: proc(t: ^testing.T) {
 	m := run_map_create()
-	defer delete(m.points)
+	defer run_map_destroy(&m)
 
 	counts: [Encounter_Kind]int
 	for point in m.points {
@@ -126,7 +126,7 @@ run_map_create_splits_the_twelve_encounter_points_evenly_across_the_three_kinds 
 @(test)
 each_zone_has_exactly_one_port_and_a_mix_of_encounter_kinds_not_one_kind_dominating :: proc(t: ^testing.T) {
 	m := run_map_create()
-	defer delete(m.points)
+	defer run_map_destroy(&m)
 
 	for zone in Zone {
 		port_count := 0
@@ -154,7 +154,7 @@ each_zone_has_exactly_one_port_and_a_mix_of_encounter_kinds_not_one_kind_dominat
 @(test)
 in_the_map_the_ship_battle_point_nearer_its_zones_port_has_the_harder_opponent :: proc(t: ^testing.T) {
 	m := run_map_create()
-	defer delete(m.points)
+	defer run_map_destroy(&m)
 
 	// Coastal is hand-placed with two Ship Battle points (zone_encounter_kinds);
 	// they appear in map order nearest-port-first, so the earlier one should
@@ -180,7 +180,7 @@ in_the_map_the_ship_battle_point_nearer_its_zones_port_has_the_harder_opponent :
 @(test)
 run_map_create_has_exactly_one_start_and_one_goal_neither_belonging_to_a_zone :: proc(t: ^testing.T) {
 	m := run_map_create()
-	defer delete(m.points)
+	defer run_map_destroy(&m)
 
 	start_count, goal_count := 0, 0
 	for point in m.points {

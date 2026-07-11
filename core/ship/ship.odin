@@ -82,8 +82,8 @@ Ship :: struct {
 	layout:              []Layout_Slot,
 	// captain is the run-start ship<->captain relationship (issue #18): a
 	// captain can influence a ship's slot limits/structure and grants
-	// additional manual per-round captain actions. The content of a concrete
-	// captain (what it actually does) is out of scope here — see issue #23.
+	// additional manual per-round captain actions. The vertical slice's one
+	// concrete captain (issue #23) is ship_starting_captain in content.odin.
 	captain:             Maybe(Captain),
 }
 
@@ -126,10 +126,15 @@ ship_effective_visibility :: proc(layout_slot: Layout_Slot) -> Visibility {
 }
 
 // ship_cargo_capacity adjusts the ship's baseline cargo stat by the slots
-// currently allocated to cargo. Per-size contribution values are an
-// arbitrary placeholder balancing choice, not backed by any ADR yet.
+// currently allocated to cargo and by the ship's captain, if any
+// (Captain.cargo_capacity_bonus — issue #23). Per-size slot contribution
+// values are an arbitrary placeholder balancing choice, not backed by any
+// ADR yet.
 ship_cargo_capacity :: proc(s: Ship) -> int {
 	capacity := s.base_cargo_capacity
+	if captain, has_captain := s.captain.?; has_captain {
+		capacity += captain.cargo_capacity_bonus
+	}
 	for layout_slot in s.layout {
 		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
 			capacity += ship_cargo_slot_contribution(layout_slot.slot.size)
@@ -152,9 +157,18 @@ ship_cargo_slot_contribution :: proc(size: Slot_Size) -> int {
 
 // Captain is structurally separate from the slot system: not a fitting,
 // consumes no slot. A run-start choice that can influence a ship's slot
-// limits/structure and grants additional manual per-round captain actions —
-// that behavior is content for a specific captain (issue #23) and isn't
-// modeled yet.
+// limits/structure and grants additional manual per-round captain actions.
+// cargo_capacity_bonus is the vertical slice's one captain's concrete
+// slot-limit/structure influence (issue #23): added to the ship's cargo
+// capacity (ship_cargo_capacity) alongside base_cargo_capacity and any
+// cargo-filled slots — the closest existing "slot limit" stat for a captain
+// to move (CONTEXT.md: cargo capacity is "a baseline ship stat, adjusted...
+// by which slots get allocated to cargo"). This captain grants no
+// additional per-round action beyond the standard Command set: ADR-0006
+// already notes this slice's one captain uses the full
+// Boost/Man-the-Sails/Jettison-Cargo/Leave-Combat menu as its action set, so
+// there is nothing further to define here.
 Captain :: struct {
-	name: string,
+	name:                 string,
+	cargo_capacity_bonus: int,
 }

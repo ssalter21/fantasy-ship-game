@@ -1,0 +1,67 @@
+package run
+
+import "../ship"
+
+// PVE_OPPONENT_OFFENSE_BONUS_PER_TIER scales a PvE opponent's Gun Deck
+// output by zone and port_closeness (issue #23), reusing the same zone_tier
+// ladder as every other zone-scaled placeholder in run.odin — so a deeper,
+// more-contested Ship Battle point hits harder, not just soaks more HP and
+// Durability (already covered by run_ship_battle_difficulty and
+// run_ship_battle_opponent_durability).
+PVE_OPPONENT_OFFENSE_BONUS_PER_TIER :: 2
+
+run_pve_opponent_offense_bonus :: proc(zone: Zone, port_closeness: int) -> int {
+	return run_zone_scaled(zone, PVE_OPPONENT_OFFENSE_BONUS_PER_TIER) + port_closeness
+}
+
+// run_pve_opponent builds a full Ship Battle opponent (issue #23): the one
+// ship template (ADR-0004), filled with the same starting-fitting roster
+// used everywhere else in this slice — base Captain's Quarters and Top
+// Crew, and an Upgraded Gun Deck scaled by this point's zone/port-closeness.
+// hp and durability reuse run_make_opponent_ship's existing zone-scaled
+// formulas rather than duplicating them. Carries no captain — a captain is a
+// player-side, run-start choice (CONTEXT.md), not opponent content. Caller
+// owns the returned Ship's layout slice.
+run_pve_opponent :: proc(zone: Zone, port_closeness: int) -> ship.Ship {
+	s := run_make_opponent_ship(zone, port_closeness)
+
+	layout := ship.ship_template_layout()
+	bonus := run_pve_opponent_offense_bonus(zone, port_closeness)
+
+	ok: bool
+	ok = ship.ship_fit(&layout[0], ship.ship_fitting_captains_quarters())
+	assert(ok)
+	ok = ship.ship_fit(&layout[1], ship.ship_fitting_top_crew())
+	assert(ok)
+	ok = ship.ship_fit(&layout[2], ship.ship_fitting_upgraded_gun_deck(bonus))
+	assert(ok)
+	ok = ship.ship_fit(&layout[3], ship.ship_fitting_cargo("Spoils"))
+	assert(ok)
+	ok = ship.ship_fit(&layout[4], ship.ship_fitting_cargo("Spoils"))
+	assert(ok)
+	ok = ship.ship_fit(&layout[5], ship.ship_fitting_cargo("Spoils"))
+	assert(ok)
+
+	s.layout = layout
+	return s
+}
+
+// UPGRADE_OFFER_QUALITY_DIVISOR converts a point's zone-scaled quality
+// placeholder (run_upgrade_offer_quality) into a flat magnitude bonus for
+// whichever of the three starting fittings the captain picks (issue #23): a
+// smaller, more legible number than raw quality while still scaling with it.
+UPGRADE_OFFER_QUALITY_DIVISOR :: 5
+
+// run_upgrade_offer_options is the fixed menu presented at every Upgrade
+// Offer point (issue #23; ADR-0004: findable content is limited to upgraded
+// variants of the three starting fittings — no separate fitting roster, so
+// the menu itself never varies). Only the magnitude scales per point, driven
+// by that point's own zone-scaled quality.
+run_upgrade_offer_options :: proc(offer: Encounter_Upgrade_Offer) -> [3]ship.Fitting {
+	bonus := offer.quality / UPGRADE_OFFER_QUALITY_DIVISOR
+	return [3]ship.Fitting{
+		ship.ship_fitting_upgraded_top_crew(bonus),
+		ship.ship_fitting_upgraded_captains_quarters(bonus),
+		ship.ship_fitting_upgraded_gun_deck(bonus),
+	}
+}
