@@ -11,3 +11,7 @@ Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `read
 ### Domain docs
 
 Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Coding standards
+
+Odin house style — memory-lifetime rules, `distinct` identifiers, idioms. `/code-review`'s Standards axis checks diffs against it. See `docs/agents/odin-standards.md`.
