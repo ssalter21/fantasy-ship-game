@@ -39,6 +39,10 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	zone, has_zone := sim.run_map.points[sim.current].zone.?
 	assert(has_zone, "a Ship Battle point must have a zone")
+	// run_events is per-tick scratch too (issue #53): explicitly locked to
+	// context.temp_allocator despite context.allocator still being the arena
+	// set above — needed since run_finish_ship_battle's Ghost_Snapshot
+	// capture (issue #52) must land on the arena, not here.
 	run_events := make([dynamic]run.Event, 0, 0, context.temp_allocator)
 	run.run_finish_ship_battle(&sim.battle, &sim.player, &sim.active_encounter, zone, sim.steps, &run_events)
 	sim_forward_encounter_resolved(run_events, events)

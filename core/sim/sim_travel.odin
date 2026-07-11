@@ -58,10 +58,11 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	case run.Encounter_Stat_Trade:
 		zone, has_zone := point.zone.?
 		assert(has_zone, "an Encounter point must have a zone")
-		// run_events is per-tick scratch (issue #53): built before the arena
-		// swap below (needed for the Ghost_Snapshot run_apply_stat_trade
-		// captures, issue #52) so its explicit context.temp_allocator can't be
-		// clobbered by it.
+		// run_events is per-tick scratch (issue #53): explicitly locked to
+		// context.temp_allocator (regardless of the arena swap below, needed
+		// for the Ghost_Snapshot run_apply_stat_trade captures — issue #52) —
+		// run_session frees it via free_all(context.temp_allocator) once per
+		// driver iteration.
 		run_events := make([dynamic]run.Event, 0, 0, context.temp_allocator)
 		context.allocator = virtual.arena_allocator(&sim.arena)
 		run.run_apply_stat_trade(&sim.player, enc, zone, sim.steps, &run_events)

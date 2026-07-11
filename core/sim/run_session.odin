@@ -23,20 +23,31 @@ Event_Sink :: struct {
 // run_session is the single driver loop shared by headless and UI modes
 // (see ADR-0002): tick, dispatch that round's events to the sink, and if the
 // Sim is awaiting a captain decision, ask the input source and submit it
-// before ticking again. The tick's own Event buffer, and the combat/run
-// scratch buffers sim_tick allocates along the way, all live on
-// context.temp_allocator (issue #53) — freed in one free_all per iteration
-// below, the same per-frame-scratch discipline the UI already applies to its
-// own draw calls. Nothing a sink retains past its own dispatch call may live
-// there: Event's payloads are plain values copied into dispatch, and the one
-// exception with its own owned memory (Event_Encounter_Resolved's
-// Ghost_Snapshot) is allocated from the Sim's own run arena instead (issue
-// #52), not this temp buffer.
+// before ticking again. The combat/run scratch buffers sim_tick allocates
+// along the way live on context.temp_allocator (issue #53), freed in one
+// free_all per iteration below — the same per-frame-scratch discipline the
+// UI already applies to its own draw calls. They're fully drained into
+// events, below, before sim_tick returns, so nothing about them survives
+// into the dispatch loop.
+//
+// events itself stays off context.temp_allocator, deliberately: it has to
+// survive across every sink.dispatch call in the loop below, and
+// context.temp_allocator is Odin's single global default temp arena — the
+// UI sink's dispatch (cmd/game) can itself trigger a nested
+// free_all(context.temp_allocator) mid-batch (play_beat's blocking
+// per-frame render loop, which draw_scene already resets once per frame),
+// which would zero out events still waiting to be dispatched later in the
+// same tick's batch. Event_Encounter_Resolved's one owned payload
+// (Ghost_Snapshot) is allocated from the Sim's own run arena instead (issue
+// #52), so it's unaffected either way.
 run_session :: proc(sim: ^Sim, input: Input_Source, sink: Event_Sink) {
+	events: [dynamic]Event
+	defer delete(events)
+
 	for {
 		defer free_all(context.temp_allocator)
 
-		events := make([dynamic]Event, 0, 0, context.temp_allocator)
+		clear(&events)
 		sim_tick(sim, &events)
 
 		run_ended := false

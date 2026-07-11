@@ -57,10 +57,26 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 
 // dispatch is the headless Event_Sink: log-record every event (instead of
 // animating it) and track just enough context for get_captain_choice above.
-// Event_Encounter_Resolved.snapshot needs no destroy call here (issue #52):
-// it's valid for the Sim's own lifetime, which outlives this dispatch.
+// The exhaustive switch below has nothing left to do per variant since
+// Event_Encounter_Resolved.snapshot needs no destroy call here (issue #52:
+// it's valid for the Sim's own lifetime, which outlives this dispatch) — it
+// stays as a switch anyway so a future Event variant forces a compile-time
+// decision here, not a silently-ignored default.
 dispatch :: proc(data: rawptr, event: sim.Event) {
 	state := cast(^Headless_State)data
 	append(&state.events, event)
 	fmt.printfln("%v", event)
+
+	switch e in event {
+	case sim.Event_Run_Started:
+	case sim.Event_Arrived_At_Point:
+	case sim.Event_Ship_Battle_Sighted:
+	case sim.Event_Battle_Menu:
+	case sim.Event_Battle_Event:
+	case sim.Event_Ship_Updated:
+	case sim.Event_Upgrade_Offer_Presented:
+	case sim.Event_Upgrade_Applied:
+	case sim.Event_Encounter_Resolved:
+	case sim.Event_Run_Ended:
+	}
 }
