@@ -307,18 +307,13 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 // encounter's Ghost_Snapshot onto its run-scoped arena and emits it (issue
 // #82, ADR-0008). The run-side resolution procs (run_apply_stat_trade,
 // run_finish_ship_battle, run_apply_upgrade_offer) return a borrowed-layout
-// snapshot whose progress/difficulty_rating this proc reads back; capturing
-// from sim.player under the arena clones the layout so it outlives the tick
-// (issue #52) and lives as long as the Sim. Concentrating the
-// arena/temp-allocator ritual here is why the per-encounter make-scratch /
-// scope-arena / forward dance no longer repeats at each resolution site.
+// snapshot; run_ghost_snapshot_capture clones that snapshot's layout under the
+// arena so it outlives the tick (issue #52) and lives as long as the Sim.
+// Concentrating the arena/temp-allocator ritual here is why the per-encounter
+// make-scratch / scope-arena / forward dance no longer repeats at each
+// resolution site.
 sim_emit_encounter_resolved :: proc(sim: ^Sim, snap: run.Ghost_Snapshot, events: ^[dynamic]Event) {
 	context.allocator = sim_arena_allocator(sim)
-	captured := run.run_ghost_snapshot_capture(
-		&sim.player,
-		snap.progress.steps,
-		snap.progress.zone,
-		snap.progress.difficulty_rating,
-	)
+	captured := run.run_ghost_snapshot_capture(snap)
 	append(events, Event(Event_Encounter_Resolved{snapshot = captured}))
 }

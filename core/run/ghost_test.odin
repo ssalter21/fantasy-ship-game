@@ -8,7 +8,7 @@ import "core:testing"
 capture_resets_hp_to_max_hp_regardless_of_current_hp :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 3, max_hp = 20}
 
-	snap := run_ghost_snapshot_capture(&s, 0, .Coastal, 0)
+	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, .Coastal, 0))
 	defer delete(snap.ship.layout)
 
 	testing.expect_value(t, snap.ship.hp, 20)
@@ -22,7 +22,7 @@ capture_clones_the_layout_so_later_mutation_to_the_source_ship_does_not_leak_int
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
 	}
 
-	snap := run_ghost_snapshot_capture(&s, 0, .Coastal, 0)
+	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, .Coastal, 0))
 	defer delete(snap.ship.layout)
 
 	// Jettison Cargo empties the source ship's slot after capture (ADR-0006).
@@ -36,7 +36,7 @@ capture_clones_the_layout_so_later_mutation_to_the_source_ship_does_not_leak_int
 capture_carries_the_given_progress_fields_through_unchanged :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20, max_hp = 20}
 
-	snap := run_ghost_snapshot_capture(&s, 7, Zone.Open_Sea, 42)
+	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 7, Zone.Open_Sea, 42))
 	defer delete(snap.ship.layout)
 
 	testing.expect_value(t, snap.progress.steps, 7)
@@ -52,7 +52,7 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 		starting_treasure = 100, base_cargo_capacity = 4, captain = captain,
 	}
 
-	snap := run_ghost_snapshot_capture(&s, 0, .Coastal, 0)
+	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, .Coastal, 0))
 	defer delete(snap.ship.layout)
 
 	testing.expect_value(t, snap.ship.durability, 3)
