@@ -65,21 +65,8 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	case run.Encounter_Stat_Trade:
 		zone, has_zone := node.zone.?
 		assert(has_zone, "an Encounter node must have a zone")
-		// run_events is per-tick scratch (issue #53): explicitly locked to
-		// context.temp_allocator regardless of the arena-scoped block below,
-		// needed for the Ghost_Snapshot run_apply_stat_trade captures (issue
-		// #52) — run_session frees it via free_all(context.temp_allocator)
-		// once per driver iteration.
-		run_events := make([dynamic]run.Event, 0, 0, context.temp_allocator)
-		{
-			// The captured Ghost_Snapshot's layout must outlive this call
-			// (issue #52: it escapes via Event_Encounter_Resolved), so it's
-			// allocated from the Sim's own run-scoped arena rather than
-			// whatever transient allocator the caller happens to be using.
-			context.allocator = sim_arena_allocator(sim)
-			run.run_apply_stat_trade(&sim.player, enc, zone, sim.steps, &run_events)
-		}
-		sim_forward_encounter_resolved(run_events, events)
+		snap := run.run_apply_stat_trade(&sim.player, enc, zone, sim.steps)
+		sim_emit_encounter_resolved(sim, snap, events)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		sim.resolved[cmd.node_id] = true
 	}

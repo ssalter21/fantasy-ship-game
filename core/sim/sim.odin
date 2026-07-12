@@ -180,12 +180,12 @@ Event_Upgrade_Applied :: struct {
 	fitting: ship.Fitting,
 }
 
-// Event_Encounter_Resolved forwards run.Event_Encounter_Resolved's
-// Ghost_Snapshot (ADR-0008) through Sim's own Event boundary. The snapshot
-// (including its cloned layout) is allocated from the Sim's own run-scoped
-// arena (issue #52): valid for as long as the Sim itself and reclaimed in
-// one shot by sim_destroy, not owned or freed per-recipient. A sink that
-// needs a snapshot to outlive the Sim must copy it out explicitly.
+// Event_Encounter_Resolved carries a resolved encounter's Ghost_Snapshot
+// (ADR-0008) out through Sim's own Event boundary. The snapshot (including its
+// cloned layout) is allocated from the Sim's own run-scoped arena (issue #52):
+// valid for as long as the Sim itself and reclaimed in one shot by
+// sim_destroy, not owned or freed per-recipient. A sink that needs a snapshot
+// to outlive the Sim must copy it out explicitly.
 Event_Encounter_Resolved :: struct {
 	snapshot: run.Ghost_Snapshot,
 }
@@ -303,13 +303,17 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	sim.awaiting_decision = false
 }
 
-// sim_forward_encounter_resolved forwards every run.Event_Encounter_Resolved
-// found in run_events (the only variant run.Event currently has) into sim's
-// own Event stream.
-sim_forward_encounter_resolved :: proc(run_events: [dynamic]run.Event, events: ^[dynamic]Event) {
-	for e in run_events {
-		if resolved, ok := e.(run.Event_Encounter_Resolved); ok {
-			append(events, Event(Event_Encounter_Resolved{snapshot = resolved.snapshot}))
-		}
-	}
+// sim_emit_encounter_resolved is the single place the Sim captures a resolved
+// encounter's Ghost_Snapshot onto its run-scoped arena and emits it (issue
+// #82, ADR-0008). The run-side resolution procs (run_apply_stat_trade,
+// run_finish_ship_battle, run_apply_upgrade_offer) return a borrowed-layout
+// snapshot; run_ghost_snapshot_capture clones that snapshot's layout under the
+// arena so it outlives the tick (issue #52) and lives as long as the Sim.
+// Concentrating the arena/temp-allocator ritual here is why the per-encounter
+// make-scratch / scope-arena / forward dance no longer repeats at each
+// resolution site.
+sim_emit_encounter_resolved :: proc(sim: ^Sim, snap: run.Ghost_Snapshot, events: ^[dynamic]Event) {
+	context.allocator = sim_arena_allocator(sim)
+	captured := run.run_ghost_snapshot_capture(snap)
+	append(events, Event(Event_Encounter_Resolved{snapshot = captured}))
 }
