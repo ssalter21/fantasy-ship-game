@@ -1,0 +1,55 @@
+name: CI
+
+# Build every executable and run the full test suite on each push to main and
+# every pull request. This exists because the Point->Node rename (#76, #80) left
+# a stale reference in a _test.odin file that broke both `odin test` and the
+# game build, and nothing re-ran either after it merged. Odin compiles
+# _test.odin files as part of their package, so `odin build cmd/game` here
+# catches a broken test file just like `odin test` does.
+#
+# Runs on windows-latest to match what actually ships (a self-contained Windows
+# game.exe with statically-linked vendor:raylib -- see scripts/release.ps1),
+# which also avoids raylib's Linux system-library link dependencies.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One in-flight run per ref; a newer push cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Odin
+        uses: laytan/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Match the nightly toolchain the game is developed against.
+          release: nightly
+
+      - name: Build executables
+        shell: pwsh
+        run: |
+          odin build cmd/game -out:game.exe
+          if ($LASTEXITCODE -ne 0) { throw "odin build cmd/game failed ($LASTEXITCODE)" }
+          odin build cmd/headless -out:headless.exe
+          if ($LASTEXITCODE -ne 0) { throw "odin build cmd/headless failed ($LASTEXITCODE)" }
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          # Each odin test invocation must be checked individually: a later
+          # passing package would otherwise reset $LASTEXITCODE and mask an
+          # earlier failure.
+          foreach ($pkg in 'core/combat', 'core/run', 'core/ship', 'core/sim') {
+            Write-Host "== odin test $pkg =="
+            odin test $pkg
+            if ($LASTEXITCODE -ne 0) { throw "odin test $pkg failed ($LASTEXITCODE)" }
+          }
