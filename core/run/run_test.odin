@@ -221,6 +221,14 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
+		// A zone's entrance layer is the lowest layer index its nodes occupy.
+		zone_entrance := [Zone]int{.Coastal = max(int), .Open_Sea = max(int), .Deep = max(int)}
+		for p in m.points {
+			if zone, ok := p.zone.?; ok {
+				zone_entrance[zone] = min(zone_entrance[zone], p.layer)
+			}
+		}
+
 		port_counts: [Zone]int
 		for p in m.points {
 			if p.kind != .Port {
@@ -230,6 +238,15 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 			testing.expectf(t, ok, "seed %d: a port carries no zone", seed)
 			if ok {
 				port_counts[zone] += 1
+				testing.expectf(
+					t,
+					p.layer != zone_entrance[zone],
+					"seed %d: zone %v port at point %d sits on the entrance layer %d",
+					seed,
+					zone,
+					p.id,
+					zone_entrance[zone],
+				)
 			}
 		}
 		for zone in Zone {

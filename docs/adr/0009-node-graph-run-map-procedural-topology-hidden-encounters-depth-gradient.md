@@ -28,7 +28,7 @@ Revisiting a node **never re-triggers its encounter**. An encounter fires exactl
 
 ### Ports — procedural, consume node slots (was: fixed 4, one per zone; #61)
 
-`PORTS_PER_ZONE = 2` → **6 ports** across the three zones, plus the Start/home port (7 port-like locations total). Each port is placed in a random layer *within its zone's phase* (not pinned to the zone entrance), and is wired as an ordinary graph node with no special-casing — reachable or avoidable by route choice like any other node, gone-once-passed by the forward DAG's construction. Two ports landing in the same layer within a zone is allowed.
+`PORTS_PER_ZONE = 2` → **6 ports** across the three zones, plus the Start/home port (7 port-like locations total). Each port is placed in a random layer *within its zone's phase* but never on the zone's entrance layer (reaching a port is a routing choice, not a guaranteed first stop), and is wired as an ordinary graph node with no special-casing — reachable or avoidable by route choice like any other node, gone-once-passed by the forward DAG's construction. Two ports landing in the same layer within a zone is allowed.
 
 A port **consumes** one of its zone's node slots (converts an Encounter node into a Port) rather than adding on top. So a zone's `nodes_per_zone` budget (**17 / 17 / 16**, ~50 total) is its total *point* budget — encounters **plus** ports — and the real encounter count is **44** (15 / 15 / 14), not 50. (The #59 charter's "50 encounter points" figure predates this; 50 is the point budget, 44 is the encounter count.)
 
