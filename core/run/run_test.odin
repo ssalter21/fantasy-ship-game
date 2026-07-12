@@ -223,7 +223,7 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 
 		// A zone's entrance layer is the lowest layer index its nodes occupy.
 		zone_entrance := [Zone]int{.Coastal = max(int), .Open_Sea = max(int), .Deep = max(int)}
-		for p in m.points {
+		for p in m.nodes {
 			if zone, ok := p.zone.?; ok {
 				zone_entrance[zone] = min(zone_entrance[zone], p.layer)
 			}
