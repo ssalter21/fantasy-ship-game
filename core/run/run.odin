@@ -206,7 +206,8 @@ Map :: struct {
 nodes_per_zone := [Zone]int{.Coastal = 17, .Open_Sea = 17, .Deep = 16}
 
 // PORTS_PER_ZONE scattered ports per zone (6 total, plus the Start home
-// port), each placed in a uniformly random layer within its zone's phase.
+// port), each placed in a uniformly random layer within its zone's phase but
+// never on the zone's entrance layer.
 PORTS_PER_ZONE :: 2
 
 // LAYER_WIDTH_MIN/MAX bound how many nodes sit in one layer of the forward
@@ -289,15 +290,21 @@ run_map_create :: proc(seed: u64) -> Map {
 	n := len(points)
 
 	// --- 3. Place ports: PORTS_PER_ZONE per zone, each in a uniformly random
-	// layer within that zone's phase (two ports may share a layer). A port
-	// consumes an Encounter slot rather than adding a node.
+	// layer within that zone's phase but never its entrance layer (reaching a
+	// port is a routing choice, not a guaranteed first stop). Two ports may
+	// share a layer. A port consumes an Encounter slot rather than adding a
+	// node.
 	for zone in Zone {
 		zl0 := zone_first_layer[zone]
 		zl1 := zl0 + zone_layer_count[zone]
+		// Draw from [port_l0, zl1), excluding the entrance layer zl0. Fall back
+		// to the entrance only for a single-layer zone (never at the real node
+		// budget), where it is the sole option.
+		port_l0 := zl0 + 1
 		placed: [PORTS_PER_ZONE]int
 		count := 0
 		for count < PORTS_PER_ZONE {
-			l := zl0 if zl1 - zl0 <= 1 else rand.int_range(zl0, zl1, gen)
+			l := zl0 if port_l0 >= zl1 else rand.int_range(port_l0, zl1, gen)
 			lane := rand.int_max(layer_width[l], gen)
 			id := layer_start_id[l] + lane
 

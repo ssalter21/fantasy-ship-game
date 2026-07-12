@@ -221,13 +221,14 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 @(test)
 routing_through_every_battle_can_lose_the_run :: proc(t: ^testing.T) {
 	// A battle-maximizing course walks into fight after fight; a starting ship
-	// bleeds out before Goal — permadeath at 0 HP, unchanged.
-	m := run.run_map_create(0)
+	// bleeds out before Goal — permadeath at 0 HP, unchanged. Seed 1's map has
+	// a battle-max route long enough to be lethal (seed 0's is survivable).
+	m := run.run_map_create(1)
 	defer run.run_map_destroy(&m)
 	route := forward_route(m, 0, true)
 	defer delete(route)
 
-	res := drive_route(0, route, combat.Command(HOLD), 0)
+	res := drive_route(1, route, combat.Command(HOLD), 0)
 	testing.expect_value(t, res.status, run.Run_Status.Lost)
 	testing.expect_value(t, res.hp, 0)
 }
