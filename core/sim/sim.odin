@@ -20,14 +20,14 @@ Phase :: enum {
 	Ended,
 }
 
-// Point_ID identifies a point in run_map.points by position (issue #54:
-// distinct from a plain int so a point id can't be passed where a slot index
+// Node_ID identifies a node in run_map.nodes by position (issue #54:
+// distinct from a plain int so a node id can't be passed where a slot index
 // or upgrade option index belongs, e.g. via Command_Travel_To).
-Point_ID :: distinct int
+Node_ID :: distinct int
 
 // Option_Index identifies one of Command_Pick_Upgrade's 3 fixed Upgrade
 // Offer options by position (issue #54: distinct from a plain int for the
-// same reason as Point_ID).
+// same reason as Node_ID).
 Option_Index :: distinct int
 
 Sim :: struct {
@@ -38,23 +38,23 @@ Sim :: struct {
 	// to it as Sim's shape, not something this ticket revisits.
 	rng:               rand.Default_Random_State,
 	run_map:           run.Map,
-	// public_points is the encounter-kind-masked view of run_map.points the
+	// public_nodes is the encounter-kind-masked view of run_map.nodes the
 	// Sim broadcasts at run start (the hiding contract): a copy that nils every
 	// Encounter's kind while preserving graph shape and landmarks, so
 	// presentation cannot leak what kind of encounter a node holds before the
 	// ship arrives. Kind is revealed per-node on arrival via
-	// Event_Arrived_At_Point, which carries the full Point. The edges it pairs
+	// Event_Arrived_At_Node, which carries the full Node. The edges it pairs
 	// with are shared (borrowed) from run_map.
-	public_points:     []run.Point,
+	public_nodes:      []run.Node,
 	player:            ship.Ship,
-	current:           Point_ID, // index into run_map.points; Start is always 0
-	// resolved is parallel to run_map.points; true once an Encounter point
+	current:           Node_ID, // index into run_map.nodes; Start is always 0
+	// resolved is parallel to run_map.nodes; true once an Encounter node
 	// has fired. Deliberately []bool rather than bit_set (issue #54): bit_set
-	// needs a compile-time-bounded index, but resolved is indexed by Point_ID,
-	// sized at runtime off run_map_create's generated point count.
+	// needs a compile-time-bounded index, but resolved is indexed by Node_ID,
+	// sized at runtime off run_map_create's generated node count.
 	resolved:          []bool,
-	// visited is parallel to run_map.points; true once the ship has been at a
-	// point (Start counts as visited from the outset). Distinct from resolved —
+	// visited is parallel to run_map.nodes; true once the ship has been at a
+	// node (Start counts as visited from the outset). Distinct from resolved —
 	// landmarks get visited but never resolved — and it is what
 	// run_travel_options consults to decide which backward-retrace moves are
 	// legal, so the Sim's travel gate reads it every travel choice.
@@ -68,7 +68,7 @@ Sim :: struct {
 	active_encounter:  run.Encounter_Ship_Battle,
 	upgrade_options:   [3]ship.Fitting,
 	// arena is the Sim's run-scoped allocator (issue #52): every allocation
-	// that lives no longer than the Sim itself — the map's Points and each
+	// that lives no longer than the Sim itself — the map's Nodes and each
 	// Ship Battle opponent's layout, the player's own layout, resolved, the
 	// current battle's jettisoned records, and every Ghost_Snapshot handed
 	// out via Event_Encounter_Resolved — comes from here, so sim_destroy can
@@ -87,7 +87,7 @@ Command :: union {
 }
 
 Command_Travel_To :: struct {
-	point_id: Point_ID,
+	node_id: Node_ID,
 }
 
 Command_Battle_Choice :: struct {
@@ -107,7 +107,7 @@ Command_Pick_Upgrade :: struct {
 // (ADR-0001).
 Event :: union {
 	Event_Run_Started,
-	Event_Arrived_At_Point,
+	Event_Arrived_At_Node,
 	Event_Ship_Battle_Sighted,
 	Event_Battle_Menu,
 	Event_Battle_Event,
@@ -121,19 +121,19 @@ Event :: union {
 // Event_Run_Started is dispatched exactly once, on the very first sim_tick
 // call. run_map carries the full graph shape (nodes, edges, zones, layer/lane
 // layout) and the always-visible landmarks (Start/Port/Goal), but its
-// Encounter nodes have their *kind* withheld — run_map.points is the Sim's
-// masked public_points, not its private run_map. This is the hiding contract
+// Encounter nodes have their *kind* withheld — run_map.nodes is the Sim's
+// masked public_nodes, not its private run_map. This is the hiding contract
 // (ADR-0009): what kind of encounter
 // a node holds is a surprise revealed only on arrival, via
-// Event_Arrived_At_Point carrying that node's full Point. Withholding is a
+// Event_Arrived_At_Node carrying that node's full Node. Withholding is a
 // guaranteed data property of the emitted event, not a presentation courtesy.
 Event_Run_Started :: struct {
 	run_map: run.Map,
 	ship:    ship.Ship,
 }
 
-Event_Arrived_At_Point :: struct {
-	point: run.Point,
+Event_Arrived_At_Node :: struct {
+	node: run.Node,
 }
 
 // Event_Ship_Battle_Sighted is dispatched once, when a Ship Battle starts:
@@ -202,25 +202,25 @@ sim_create :: proc(seed: u64) -> Sim {
 
 	s.rng = rand.create_u64(seed)
 	s.run_map = run.run_map_create(seed)
-	s.public_points = sim_mask_encounter_kinds(s.run_map.points)
+	s.public_nodes = sim_mask_encounter_kinds(s.run_map.nodes)
 	s.player = ship.ship_starting_ship()
-	s.resolved = make([]bool, len(s.run_map.points))
-	s.visited = make([]bool, len(s.run_map.points))
+	s.resolved = make([]bool, len(s.run_map.nodes))
+	s.visited = make([]bool, len(s.run_map.nodes))
 	s.visited[0] = true // the ship starts at Start (id 0), so retrace to it is legal from the outset.
 	s.status = .In_Progress
 	s.phase = .Awaiting_Travel_Choice
 	return s
 }
 
-// sim_mask_encounter_kinds builds the encounter-kind-masked view of points
+// sim_mask_encounter_kinds builds the encounter-kind-masked view of nodes
 // (the hiding contract): a fresh copy in which every Encounter node's kind is
 // withheld (encounter = nil), while Start/Port/Goal landmarks — which carry
 // no hidden kind — pass through fully described. Graph shape (zone, layer,
 // lane, id) is preserved on every node. Allocated from whatever allocator is
 // in scope (the Sim's run-scoped arena at sim_create time).
-sim_mask_encounter_kinds :: proc(points: []run.Point) -> []run.Point {
-	masked := make([]run.Point, len(points))
-	for p, i in points {
+sim_mask_encounter_kinds :: proc(nodes: []run.Node) -> []run.Node {
+	masked := make([]run.Node, len(nodes))
+	for p, i in nodes {
 		masked[i] = p
 		if p.kind == .Encounter {
 			masked[i].encounter = nil
@@ -230,7 +230,7 @@ sim_mask_encounter_kinds :: proc(points: []run.Point) -> []run.Point {
 }
 
 // sim_destroy tears down the Sim's run-scoped arena in one call (issue #52):
-// every run-lifetime allocation — the map's Points and each Ship Battle
+// every run-lifetime allocation — the map's Nodes and each Ship Battle
 // opponent's layout, the player's own layout, resolved, the current battle's
 // jettisoned-cargo records, and any outstanding Ghost_Snapshot — lives in it,
 // so there's nothing left to free by hand.
@@ -269,7 +269,7 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	sim.status = run.run_status(&sim.player, sim.run_map.points[sim.current])
+	sim.status = run.run_status(&sim.player, sim.run_map.nodes[sim.current])
 	if sim.status != .In_Progress {
 		sim.phase = .Ended
 		append(events, Event(Event_Run_Ended{status = sim.status}))

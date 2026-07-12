@@ -33,7 +33,7 @@ run_pve_opponent_carries_no_captain :: proc(t: ^testing.T) {
 }
 
 @(test)
-a_deeper_ship_battle_point_gives_the_opponent_a_harder_hitting_gun_deck :: proc(t: ^testing.T) {
+a_deeper_ship_battle_node_gives_the_opponent_a_harder_hitting_gun_deck :: proc(t: ^testing.T) {
 	coastal := run_pve_opponent(.Coastal, 0)
 	defer delete(coastal.layout)
 	deep := run_pve_opponent(.Deep, 0)
@@ -48,13 +48,13 @@ a_deeper_ship_battle_point_gives_the_opponent_a_harder_hitting_gun_deck :: proc(
 }
 
 @(test)
-run_map_create_wires_the_hand_authored_pve_opponent_content_into_ship_battle_points :: proc(t: ^testing.T) {
+run_map_create_wires_the_hand_authored_pve_opponent_content_into_ship_battle_nodes :: proc(t: ^testing.T) {
 	m := run_map_create(0)
 	defer run_map_destroy(&m)
 
 	found_a_ship_battle := false
-	for point in m.points {
-		encounter, has_encounter := point.encounter.?
+	for node in m.nodes {
+		encounter, has_encounter := node.encounter.?
 		if !has_encounter {
 			continue
 		}

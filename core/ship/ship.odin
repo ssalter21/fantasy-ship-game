@@ -74,7 +74,7 @@ Layout_Slot :: struct {
 
 // Slot_Index identifies a Layout_Slot by position in a Ship's layout (issue
 // #54: distinct from a plain int so a slot position can't be passed where a
-// point id or upgrade option index belongs, e.g. Command_Jettison_Cargo's
+// node id or upgrade option index belongs, e.g. Command_Jettison_Cargo's
 // slot_index in core/combat).
 Slot_Index :: distinct int
 

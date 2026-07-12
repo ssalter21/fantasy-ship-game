@@ -85,11 +85,11 @@ depth_normalization_maps_shallow_and_deep_to_stable_endpoints :: proc(t: ^testin
 }
 
 @(test)
-run_point_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal :: proc(t: ^testing.T) {
-	testing.expect(t, run_point_is_port(Point{kind = .Start}))
-	testing.expect(t, run_point_is_port(Point{kind = .Port}))
-	testing.expect(t, !run_point_is_port(Point{kind = .Encounter}))
-	testing.expect(t, !run_point_is_port(Point{kind = .Goal}))
+run_node_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal :: proc(t: ^testing.T) {
+	testing.expect(t, run_node_is_port(Node{kind = .Start}))
+	testing.expect(t, run_node_is_port(Node{kind = .Port}))
+	testing.expect(t, !run_node_is_port(Node{kind = .Encounter}))
+	testing.expect(t, !run_node_is_port(Node{kind = .Goal}))
 }
 
 // --- Generation structural invariants (swept over several seeds) -----------
@@ -99,7 +99,7 @@ run_point_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal :: 
 TEST_SEEDS := []u64{0, 1, 2, 7, 42, 1000, 123456}
 
 goal_id :: proc(m: Map) -> int {
-	for p in m.points {
+	for p in m.nodes {
 		if p.kind == .Goal {
 			return p.id
 		}
@@ -110,7 +110,7 @@ goal_id :: proc(m: Map) -> int {
 // forward_reaches_goal reports whether start can reach goal following only
 // forward edges (strictly-higher layer), verifying the forward DAG.
 forward_reaches_goal :: proc(m: Map, start, goal: int) -> bool {
-	visited := make([]bool, len(m.points))
+	visited := make([]bool, len(m.nodes))
 	defer delete(visited)
 	stack: [dynamic]int
 	defer delete(stack)
@@ -122,7 +122,7 @@ forward_reaches_goal :: proc(m: Map, start, goal: int) -> bool {
 			return true
 		}
 		for v in m.edges[u] {
-			if m.points[v].layer > m.points[u].layer && !visited[v] {
+			if m.nodes[v].layer > m.nodes[u].layer && !visited[v] {
 				visited[v] = true
 				append(&stack, v)
 			}
@@ -138,14 +138,14 @@ every_non_goal_node_has_a_forward_path_to_goal_and_no_dead_ends :: proc(t: ^test
 		defer run_map_destroy(&m)
 
 		goal := goal_id(m)
-		for p in m.points {
+		for p in m.nodes {
 			if p.kind == .Goal {
 				continue
 			}
 			// No dead ends: at least one forward (higher-layer) edge.
 			has_forward := false
 			for v in m.edges[p.id] {
-				if m.points[v].layer > p.layer {
+				if m.nodes[v].layer > p.layer {
 					has_forward = true
 					break
 				}
@@ -164,7 +164,7 @@ every_node_is_reachable_from_start :: proc(t: ^testing.T) {
 		defer run_map_destroy(&m)
 
 		// BFS forward from Start (id 0) must cover every node.
-		reached := make([]bool, len(m.points))
+		reached := make([]bool, len(m.nodes))
 		defer delete(reached)
 		stack: [dynamic]int
 		defer delete(stack)
@@ -173,7 +173,7 @@ every_node_is_reachable_from_start :: proc(t: ^testing.T) {
 		for len(stack) > 0 {
 			u := pop(&stack)
 			for v in m.edges[u] {
-				if m.points[v].layer > m.points[u].layer && !reached[v] {
+				if m.nodes[v].layer > m.nodes[u].layer && !reached[v] {
 					reached[v] = true
 					append(&stack, v)
 				}
@@ -186,31 +186,31 @@ every_node_is_reachable_from_start :: proc(t: ^testing.T) {
 }
 
 @(test)
-run_map_create_has_fifty_points_plus_start_and_goal :: proc(t: ^testing.T) {
+run_map_create_has_fifty_nodes_plus_start_and_goal :: proc(t: ^testing.T) {
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
-		// 1 Start + 50 zone points + 1 Goal = 52.
-		testing.expectf(t, len(m.points) == 52, "seed %d: expected 52 points, got %d", seed, len(m.points))
+		// 1 Start + 50 zone nodes + 1 Goal = 52.
+		testing.expectf(t, len(m.nodes) == 52, "seed %d: expected 52 nodes, got %d", seed, len(m.nodes))
 	}
 }
 
 @(test)
-per_zone_point_counts_are_17_17_16 :: proc(t: ^testing.T) {
+per_zone_node_counts_are_17_17_16 :: proc(t: ^testing.T) {
 	expected := [Zone]int{.Coastal = 17, .Open_Sea = 17, .Deep = 16}
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
 		counts: [Zone]int
-		for p in m.points {
+		for p in m.nodes {
 			if zone, ok := p.zone.?; ok {
 				counts[zone] += 1
 			}
 		}
 		for zone in Zone {
-			testing.expectf(t, counts[zone] == expected[zone], "seed %d: zone %v had %d points, want %d", seed, zone, counts[zone], expected[zone])
+			testing.expectf(t, counts[zone] == expected[zone], "seed %d: zone %v had %d nodes, want %d", seed, zone, counts[zone], expected[zone])
 		}
 	}
 }
@@ -230,7 +230,7 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 		}
 
 		port_counts: [Zone]int
-		for p in m.points {
+		for p in m.nodes {
 			if p.kind != .Port {
 				continue
 			}
@@ -263,7 +263,7 @@ encounter_kind_counts_per_zone_are_as_even_as_a_three_way_split_allows :: proc(t
 
 		for zone in Zone {
 			counts: [Encounter_Kind]int
-			for p in m.points {
+			for p in m.nodes {
 				pz, in_zone := p.zone.?
 				if !in_zone || pz != zone {
 					continue
@@ -285,9 +285,9 @@ edges_only_connect_the_same_or_an_adjacent_layer :: proc(t: ^testing.T) {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
-		for p in m.points {
+		for p in m.nodes {
 			for v in m.edges[p.id] {
-				diff := m.points[v].layer - p.layer
+				diff := m.nodes[v].layer - p.layer
 				if diff < 0 {
 					diff = -diff
 				}
@@ -303,13 +303,13 @@ forward_out_degree_stays_within_bounds_for_non_start_nodes :: proc(t: ^testing.T
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
-		for p in m.points {
+		for p in m.nodes {
 			if p.kind == .Start || p.kind == .Goal {
 				continue // Start fans out to the whole first layer; Goal has none.
 			}
 			forward := 0
 			for v in m.edges[p.id] {
-				if m.points[v].layer > p.layer {
+				if m.nodes[v].layer > p.layer {
 					forward += 1
 				}
 			}
@@ -324,15 +324,15 @@ run_map_create_has_exactly_one_start_and_one_goal_neither_belonging_to_a_zone ::
 	defer run_map_destroy(&m)
 
 	start_count, goal_count := 0, 0
-	for point in m.points {
-		if point.kind == .Start {
+	for node in m.nodes {
+		if node.kind == .Start {
 			start_count += 1
-			_, has_zone := point.zone.?
+			_, has_zone := node.zone.?
 			testing.expect(t, !has_zone)
 		}
-		if point.kind == .Goal {
+		if node.kind == .Goal {
 			goal_count += 1
-			_, has_zone := point.zone.?
+			_, has_zone := node.zone.?
 			testing.expect(t, !has_zone)
 		}
 	}
@@ -348,9 +348,9 @@ the_same_seed_reproduces_an_identical_map :: proc(t: ^testing.T) {
 	b := run_map_create(42)
 	defer run_map_destroy(&b)
 
-	testing.expect_value(t, len(a.points), len(b.points))
-	for pa, i in a.points {
-		pb := b.points[i]
+	testing.expect_value(t, len(a.nodes), len(b.nodes))
+	for pa, i in a.nodes {
+		pb := b.nodes[i]
 		testing.expect_value(t, pa.id, pb.id)
 		testing.expect_value(t, pa.kind, pb.kind)
 		testing.expect_value(t, pa.layer, pb.layer)
@@ -379,7 +379,7 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 
 		for zone in Zone {
 			shallow, deep := -1, -1
-			for p in m.points {
+			for p in m.nodes {
 				pz, in_zone := p.zone.?
 				if !in_zone || pz != zone {
 					continue
@@ -391,16 +391,16 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 				if _, is_battle := enc.(Encounter_Ship_Battle); !is_battle {
 					continue
 				}
-				if shallow < 0 || p.depth < m.points[shallow].depth {
+				if shallow < 0 || p.depth < m.nodes[shallow].depth {
 					shallow = p.id
 				}
-				if deep < 0 || p.depth > m.points[deep].depth {
+				if deep < 0 || p.depth > m.nodes[deep].depth {
 					deep = p.id
 				}
 			}
-			if shallow >= 0 && deep >= 0 && m.points[shallow].depth != m.points[deep].depth {
-				sb := m.points[shallow].encounter.?.(Encounter_Ship_Battle)
-				db := m.points[deep].encounter.?.(Encounter_Ship_Battle)
+			if shallow >= 0 && deep >= 0 && m.nodes[shallow].depth != m.nodes[deep].depth {
+				sb := m.nodes[shallow].encounter.?.(Encounter_Ship_Battle)
+				db := m.nodes[deep].encounter.?.(Encounter_Ship_Battle)
 				testing.expect(t, db.opponent.hp > sb.opponent.hp)
 				found = true
 			}
@@ -416,10 +416,10 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 //   layer 0: 0 (Start)
 //   layer 1: 1, 2   (1-2 is a lateral edge)
 //   layer 2: 3 (Goal)
-// Edges: 0-1, 0-2, 1-2 (lateral), 1-3, 2-3. Its points/edges are
+// Edges: 0-1, 0-2, 1-2 (lateral), 1-3, 2-3. Its nodes/edges are
 // package-level so their backing arrays outlive any single test call (a Map
 // returned from a proc with local composite-literal slices would dangle).
-legality_points := []Point{
+legality_nodes := []Node{
 	{id = 0, kind = .Start, layer = 0, lane = 0},
 	{id = 1, kind = .Encounter, layer = 1, lane = 0},
 	{id = 2, kind = .Encounter, layer = 1, lane = 1},
@@ -428,7 +428,7 @@ legality_points := []Point{
 legality_edges := [][]int{{1, 2}, {0, 2, 3}, {0, 1, 3}, {1, 2}}
 
 legality_fixture :: proc() -> Map {
-	return Map{points = legality_points, edges = legality_edges}
+	return Map{nodes = legality_nodes, edges = legality_edges}
 }
 
 set_eq :: proc(got: []int, want: []int) -> bool {
@@ -528,7 +528,7 @@ run_apply_stat_trade_permanently_gains_durability_and_costs_speed :: proc(t: ^te
 @(test)
 run_status_is_won_when_the_ship_reaches_goal_with_positive_hp :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 1}
-	goal := Point{kind = .Goal}
+	goal := Node{kind = .Goal}
 
 	testing.expect_value(t, run_status(&s, goal), Run_Status.Won)
 }
@@ -536,7 +536,7 @@ run_status_is_won_when_the_ship_reaches_goal_with_positive_hp :: proc(t: ^testin
 @(test)
 run_status_is_lost_when_hp_reaches_zero_even_at_the_goal :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 0}
-	goal := Point{kind = .Goal}
+	goal := Node{kind = .Goal}
 
 	testing.expect_value(t, run_status(&s, goal), Run_Status.Lost)
 }
@@ -544,9 +544,9 @@ run_status_is_lost_when_hp_reaches_zero_even_at_the_goal :: proc(t: ^testing.T) 
 @(test)
 run_status_is_in_progress_away_from_goal_with_positive_hp :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20}
-	encounter_point := Point{kind = .Encounter}
+	encounter_node := Node{kind = .Encounter}
 
-	testing.expect_value(t, run_status(&s, encounter_point), Run_Status.In_Progress)
+	testing.expect_value(t, run_status(&s, encounter_node), Run_Status.In_Progress)
 }
 
 @(test)

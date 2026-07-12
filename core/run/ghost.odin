@@ -28,7 +28,7 @@ Event :: union {
 	Event_Encounter_Resolved,
 }
 
-// Event_Encounter_Resolved is emitted after an encounter point resolves
+// Event_Encounter_Resolved is emitted after an encounter node resolves
 // (ADR-0008: Ship Battle, Upgrade Offer, or Stat Trade — not port visits,
 // which don't change ship state), carrying a fresh Ghost_Snapshot of the
 // ship's state at that point.

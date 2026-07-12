@@ -50,24 +50,24 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	case .Awaiting_Upgrade_Choice:
 		return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})
 	case .Awaiting_Travel_Choice:
-		return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(headless_next_point(state))})
+		return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(headless_next_node(state))})
 	case .Ended:
 		panic("get_captain_choice called while the sim isn't awaiting a decision")
 	}
 	panic("unreachable")
 }
 
-// headless_next_point picks the auto-player's next travel destination: a
+// headless_next_node picks the auto-player's next travel destination: a
 // forward neighbour (deeper layer) if one is legally reachable, else the first
 // legal option — always making progress toward Goal without depending on any
 // hidden encounter kind.
-headless_next_point :: proc(state: ^Headless_State) -> int {
+headless_next_node :: proc(state: ^Headless_State) -> int {
 	options := run.run_travel_options(state.run_map, state.current, state.visited)
 	defer delete(options)
 	assert(len(options) > 0, "no legal travel option from the current node")
 
 	for dest in options {
-		if state.run_map.points[dest].layer > state.run_map.points[state.current].layer {
+		if state.run_map.nodes[dest].layer > state.run_map.nodes[state.current].layer {
 			return dest
 		}
 	}
@@ -87,11 +87,11 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	switch e in event {
 	case sim.Event_Run_Started:
 		state.run_map = e.run_map
-		state.visited = make([]bool, len(e.run_map.points))
+		state.visited = make([]bool, len(e.run_map.nodes))
 		state.visited[0] = true // the ship starts at Start (id 0)
-	case sim.Event_Arrived_At_Point:
-		state.current = e.point.id
-		state.visited[e.point.id] = true
+	case sim.Event_Arrived_At_Node:
+		state.current = e.node.id
+		state.visited[e.node.id] = true
 	case sim.Event_Ship_Battle_Sighted:
 	case sim.Event_Battle_Menu:
 	case sim.Event_Battle_Event:

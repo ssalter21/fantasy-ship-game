@@ -44,7 +44,7 @@ ship_fitting_gun_deck :: proc() -> Fitting {
 // _captains_quarters, and _gun_deck below: an upgraded variant keeps its
 // base's size/category and adds bonus on top of the base magnitude. bonus is
 // a caller-supplied scale (issue #23: an Upgrade Offer's quality rises by
-// zone, so a deeper point's upgrade should be worth more, and a PvE
+// zone, so a deeper node's upgrade should be worth more, and a PvE
 // opponent's gun deck scales the same way — see core/run's content.odin),
 // not a fixed constant.
 ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) -> Fitting {

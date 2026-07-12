@@ -29,10 +29,10 @@ dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^t
 	state := Game_State{}
 	defer delete(state.visited)
 	defer delete(state.positions)
-	defer delete(state.run_map.points) // dispatch clones the map's points into UI-owned storage
+	defer delete(state.run_map.nodes) // dispatch clones the map's nodes into UI-owned storage
 
 	dispatch(&state, sim.Event(sim.Event_Run_Started{run_map = run_map, ship = state.player}))
-	dispatch(&state, sim.Event(sim.Event_Arrived_At_Point{point = run_map.points[0]}))
+	dispatch(&state, sim.Event(sim.Event_Arrived_At_Node{node = run_map.nodes[0]}))
 	dispatch(&state, sim.Event(sim.Event_Ship_Battle_Sighted{opponent = state.player}))
 	dispatch(&state, sim.Event(sim.Event_Battle_Menu{may_leave = true}))
 	dispatch(&state, sim.Event(sim.Event_Battle_Event{inner = combat.Event(combat.Event_Battle_Ended{reason = .Destroyed})}))
