@@ -6,10 +6,11 @@ import "../testutil"
 import "core:testing"
 
 // The map is procedurally generated per seed now, so these end-to-end
-// scenarios can't hardcode node ids. Instead they build the same map the Sim
-// will (run_map_create is deterministic per seed), compute a legal forward
-// route through it with the path helpers below, and drive it with Auto_Pilot.
-// The chosen seeds are fixed so each scenario reproduces exactly.
+// scenarios can't hardcode node ids. Instead of a bespoke pathfinder, the
+// Auto_Pilot below drives run_session by choosing at each step from the legal
+// travel options the Sim emits on Event_Travel_Options (issue #83), steering by
+// a battle policy. The chosen seeds are fixed so each scenario reproduces
+// exactly.
 
 is_battle_node :: proc(m: run.Map, id: int) -> bool {
 	enc, ok := m.nodes[id].encounter.?
@@ -20,109 +21,40 @@ is_battle_node :: proc(m: run.Map, id: int) -> bool {
 	return is_battle
 }
 
-// forward_route returns the travel targets (excluding the starting node) of a
-// forward Start-to-Goal path from `from`, choosing at each step the forward
-// neighbor that minimizes (or, when maximize, maximizes) the number of Ship
-// Battle nodes stepped on. A battle-minimizing route from Start is battle-free
-// whenever the graph admits one; a battle-maximizing route deliberately walks
-// into every fight. Caller owns the returned slice.
-forward_route :: proc(m: run.Map, from: int, maximize: bool) -> []int {
-	n := len(m.nodes)
-	goal := -1
-	for p in m.nodes {
-		if p.kind == .Goal {
-			goal = p.id
-		}
-	}
-
-	best := make([]int, n)
-	next_node := make([]int, n)
-	defer delete(best)
-	defer delete(next_node)
-	for i in 0 ..< n {
-		next_node[i] = -1
-	}
-
-	// DP over layers, deepest first: best[u] = battles on the chosen route
-	// from u onward.
-	for layer := m.nodes[goal].layer; layer >= 0; layer -= 1 {
-		for p in m.nodes {
-			if p.layer != layer {
-				continue
-			}
-			if p.id == goal {
-				best[p.id] = 0
-				continue
-			}
-			chosen := -1
-			chosen_cost := 0
-			for v in m.edges[p.id] {
-				if m.nodes[v].layer <= p.layer {
-					continue // forward edges only
-				}
-				better := chosen < 0 || (maximize ? best[v] > chosen_cost : best[v] < chosen_cost)
-				if better {
-					chosen = v
-					chosen_cost = best[v]
-				}
-			}
-			best[p.id] = (is_battle_node(m, p.id) ? 1 : 0) + chosen_cost
-			next_node[p.id] = chosen
-		}
-	}
-
-	route: [dynamic]int
-	cur := from
-	for cur != goal {
-		cur = next_node[cur]
-		append(&route, cur)
-	}
-	return route[:]
+// Travel_Policy is how the Auto_Pilot chooses among the Sim's emitted forward
+// travel options each step: dodge Ship Battles, walk into every one, or fight
+// exactly the first one it reaches and then dodge the rest.
+Travel_Policy :: enum {
+	Avoid_Battles,
+	Seek_Battles,
+	First_Battle_Then_Avoid,
 }
 
-// route_through_first_coastal_battle steps first into a layer-1 (Coastal,
-// shallowest) Ship Battle neighbor of Start, then takes the battle-minimizing
-// route onward — a route that fights exactly one shallow battle and then
-// coasts to Goal. Returns nil if Start has no layer-1 battle neighbor for this
-// seed. Caller owns the returned slice.
-route_through_first_coastal_battle :: proc(m: run.Map) -> []int {
-	first := -1
-	for v in m.edges[0] {
-		if m.nodes[v].layer == 1 && is_battle_node(m, v) {
-			first = v
-			break
-		}
-	}
-	if first < 0 {
-		return nil
-	}
-	tail := forward_route(m, first, false)
-	defer delete(tail)
-	route := make([]int, 1 + len(tail))
-	route[0] = first
-	copy(route[1:], tail)
-	return route
-}
-
-// Auto_Pilot drives run_session from a precomputed travel route: it feeds the
-// route's node ids one per travel prompt, replies to every battle prompt with
-// battle_cmd, and picks upgrade_index at every Upgrade Offer. The route ends
-// at Goal, so run_session stops asking for travel exactly when the route runs
-// out.
+// Auto_Pilot drives run_session end to end by choosing from the options the
+// Sim emits on Event_Travel_Options (issue #83), rather than following a route
+// a bespoke DP pathfinder precomputed. It is both the Input_Source and the
+// Event_Sink: dispatch records the emitted legal moves (plus the arrivals and
+// events the scenarios assert on), and get_captain_choice picks among them per
+// policy. It reads node kinds/layers off m — a kind-visible copy of the same
+// seed's map (a test privilege; the Sim's own public map hides kinds) — only to
+// classify the already-legal options and prefer forward progress, never to
+// recompute legality.
 Auto_Pilot :: struct {
-	route:         []int,
-	index:         int,
+	m:             run.Map,
+	current:       int,
+	options:       []Node_ID,
+	policy:        Travel_Policy,
+	battles_taken: int,
 	battle_cmd:    combat.Command,
 	upgrade_index: Option_Index,
+	events:        [dynamic]Event,
 }
 
 auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 	pilot := cast(^Auto_Pilot)data
 	switch awaiting {
 	case .Awaiting_Travel_Choice:
-		target := pilot.route[pilot.index]
-		pilot.index += 1
-		return Command(Command_Travel_To{node_id = Node_ID(target)})
+		return Command(Command_Travel_To{node_id = auto_pilot_next(pilot)})
 	case .Awaiting_Battle_Command:
 		return Command(Command_Battle_Choice{combat_command = pilot.battle_cmd})
 	case .Awaiting_Upgrade_Choice:
@@ -131,6 +63,70 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 		panic("auto pilot asked for a choice after the run ended")
 	}
 	panic("unreachable")
+}
+
+// auto_pilot_next chooses the next travel destination from the Sim's emitted
+// options: among the forward (deeper-layer) options it prefers one whose kind
+// matches the policy's current battle preference, falling back to the first
+// forward option, and finally to the first option of any kind (never reached
+// before Goal, since every non-Goal node has a forward edge). Preferring
+// forward keeps the route progressing toward Goal instead of retracing.
+auto_pilot_next :: proc(pilot: ^Auto_Pilot) -> Node_ID {
+	assert(len(pilot.options) > 0, "no legal travel option from the current node")
+	cur_layer := pilot.m.nodes[pilot.current].layer
+
+	want_battle := false
+	switch pilot.policy {
+	case .Avoid_Battles:
+		want_battle = false
+	case .Seek_Battles:
+		want_battle = true
+	case .First_Battle_Then_Avoid:
+		want_battle = pilot.battles_taken == 0
+	}
+
+	first_forward: Maybe(Node_ID)
+	for dest in pilot.options {
+		if pilot.m.nodes[dest].layer <= cur_layer {
+			continue // forward steps only
+		}
+		if _, has := first_forward.?; !has {
+			first_forward = dest
+		}
+		if is_battle_node(pilot.m, int(dest)) == want_battle {
+			return auto_pilot_take(pilot, dest)
+		}
+	}
+	if dest, has := first_forward.?; has {
+		return auto_pilot_take(pilot, dest)
+	}
+	return auto_pilot_take(pilot, pilot.options[0])
+}
+
+// auto_pilot_take records that a Ship Battle is being stepped onto (so
+// First_Battle_Then_Avoid flips to dodging after the first fight) and returns
+// dest unchanged.
+auto_pilot_take :: proc(pilot: ^Auto_Pilot, dest: Node_ID) -> Node_ID {
+	if is_battle_node(pilot.m, int(dest)) {
+		pilot.battles_taken += 1
+	}
+	return dest
+}
+
+// auto_pilot_dispatch is the Auto_Pilot's Event_Sink half: it records every
+// event (the scenarios read battle outcomes back off pilot.events) and tracks
+// the two fields get_captain_choice plans from — the current node and the
+// Sim's latest emitted travel options. A #partial switch: a recording sink
+// only cares about those two variants and correctly ignores the rest.
+auto_pilot_dispatch :: proc(data: rawptr, event: Event) {
+	pilot := cast(^Auto_Pilot)data
+	append(&pilot.events, event)
+	#partial switch e in event {
+	case Event_Arrived_At_Node:
+		pilot.current = e.node.id
+	case Event_Travel_Options:
+		pilot.options = e.options
+	}
 }
 
 // Pilot_Result captures the outcome fields a scenario asserts on, read out
@@ -144,18 +140,22 @@ Pilot_Result :: struct {
 	battles_won:   int,
 }
 
-// drive_route runs a full session over a fixed seed with an Auto_Pilot on the
-// given route and returns the outcome.
-drive_route :: proc(seed: u64, route: []int, battle_cmd: combat.Command, upgrade_index: int) -> Pilot_Result {
+// drive_policy runs a full session over a fixed seed with an Auto_Pilot
+// steering by the given travel policy and returns the outcome.
+drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Command, upgrade_index: int) -> Pilot_Result {
 	sim := sim_create(seed)
 	defer sim_destroy(&sim)
 
-	pilot := Auto_Pilot{route = route, battle_cmd = battle_cmd, upgrade_index = Option_Index(upgrade_index)}
-	input := Input_Source{data = &pilot, get_captain_choice = auto_pilot_choice}
+	// A kind-visible twin of the Sim's map: run_map_create is deterministic per
+	// seed, so its node ids line up with the Sim's, but its encounter kinds are
+	// unmasked so the pilot can classify the options it is offered.
+	m := run.run_map_create(seed)
+	defer run.run_map_destroy(&m)
 
-	sink_state := Recording_Sink_State{}
-	defer recording_sink_destroy(&sink_state)
-	sink := Event_Sink{data = &sink_state, dispatch = recording_sink_dispatch}
+	pilot := Auto_Pilot{m = m, policy = policy, battle_cmd = battle_cmd, upgrade_index = Option_Index(upgrade_index)}
+	defer delete(pilot.events)
+	input := Input_Source{data = &pilot, get_captain_choice = auto_pilot_choice}
+	sink := Event_Sink{data = &pilot, dispatch = auto_pilot_dispatch}
 
 	run_session(&sim, input, sink)
 
@@ -168,7 +168,7 @@ drive_route :: proc(seed: u64, route: []int, battle_cmd: combat.Command, upgrade
 	if gun_deck, ok := sim.player.layout[2].fitting.?; ok {
 		res.gun_deck_name = gun_deck.name
 	}
-	for event in sink_state.events {
+	for event in pilot.events {
 		wrapped, is_battle_event := event.(Event_Battle_Event)
 		if !is_battle_event {
 			continue
@@ -189,30 +189,20 @@ HOLD :: combat.Command_Hold{}
 
 @(test)
 a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
-	// The graph forces a route through some node per layer, but a
-	// battle-minimizing course dodges every fight, so the ship reaches Goal
-	// unscathed — the redesign's "travel to Goal wins" over a real graph.
-	m := run.run_map_create(0)
-	defer run.run_map_destroy(&m)
-	route := forward_route(m, 0, false)
-	defer delete(route)
-
-	res := drive_route(0, route, combat.Command(BOOST_OFFENSIVE), 2)
+	// The graph forces a route through some node per layer, but dodging battles
+	// at every emitted option gets the ship to Goal unscathed — the redesign's
+	// "travel to Goal wins" over a real graph.
+	res := drive_policy(3, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE), 2)
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect_value(t, res.hp, 20) // untouched: no battle fought
 }
 
 @(test)
 fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
-	// Route into one shallow Coastal battle and boost Offensive: the fresh
-	// ship wins it and sails on to Goal, taking some damage along the way.
-	m := run.run_map_create(2)
-	defer run.run_map_destroy(&m)
-	route := route_through_first_coastal_battle(m)
-	testing.expect(t, route != nil)
-	defer delete(route)
-
-	res := drive_route(2, route, combat.Command(BOOST_OFFENSIVE), 2)
+	// Fight the first (shallow, Coastal) battle the pilot reaches and boost
+	// Offensive, then dodge the rest: the fresh ship wins it and sails on to
+	// Goal, taking some damage along the way.
+	res := drive_policy(23, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE), 2)
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
 	testing.expect(t, res.hp < 20) // a real fight cost some HP
@@ -220,44 +210,29 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 
 @(test)
 routing_through_every_battle_can_lose_the_run :: proc(t: ^testing.T) {
-	// A battle-maximizing course walks into fight after fight; a starting ship
-	// bleeds out before Goal — permadeath at 0 HP, unchanged. Seed 1's map has
-	// a battle-max route long enough to be lethal (seed 0's is survivable).
-	m := run.run_map_create(1)
-	defer run.run_map_destroy(&m)
-	route := forward_route(m, 0, true)
-	defer delete(route)
-
-	res := drive_route(1, route, combat.Command(HOLD), 0)
+	// Seeking every battle walks into fight after fight; a starting ship bleeds
+	// out before Goal — permadeath at 0 HP, unchanged. Seed 1's map has a
+	// battle-seeking course long enough to be lethal.
+	res := drive_policy(1, .Seek_Battles, combat.Command(HOLD), 0)
 	testing.expect_value(t, res.status, run.Run_Status.Lost)
 	testing.expect_value(t, res.hp, 0)
 }
 
 @(test)
 picking_the_gun_deck_upgrade_on_the_route_upgrades_the_gun_deck :: proc(t: ^testing.T) {
-	// The battle-free route passes through Upgrade Offers; picking option 2 at
+	// The battle-dodging route passes through Upgrade Offers; picking option 2 at
 	// each replaces the Gun Deck fitting with its upgraded variant.
-	m := run.run_map_create(0)
-	defer run.run_map_destroy(&m)
-	route := forward_route(m, 0, false)
-	defer delete(route)
-
-	res := drive_route(0, route, combat.Command(BOOST_OFFENSIVE), 2)
+	res := drive_policy(3, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE), 2)
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect_value(t, res.gun_deck_name, "Upgraded Gun Deck")
 }
 
 @(test)
 stat_trades_on_the_route_permanently_change_stats :: proc(t: ^testing.T) {
-	// The battle-free route passes through Stat Trades, each applied on arrival
-	// with no decision: Durability rises above its starting 2, Speed falls
-	// below its starting 4.
-	m := run.run_map_create(0)
-	defer run.run_map_destroy(&m)
-	route := forward_route(m, 0, false)
-	defer delete(route)
-
-	res := drive_route(0, route, combat.Command(BOOST_OFFENSIVE), 2)
+	// The battle-dodging route passes through Stat Trades, each applied on arrival
+	// with no decision: Durability rises above its starting 2, Speed falls below
+	// its starting 4.
+	res := drive_policy(3, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE), 2)
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect(t, res.durability > 2)
 	testing.expect(t, res.speed < 4)
@@ -265,53 +240,79 @@ stat_trades_on_the_route_permanently_change_stats :: proc(t: ^testing.T) {
 
 @(test)
 revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
-	// Retrace is a legal, free routing tool: arrive at a Stat Trade, retrace to
-	// the already-visited Start, then step forward onto that Stat Trade again.
-	// The second arrival must be a no-op, so the run ends in exactly the same
-	// ship state as one that never retraced.
-	m := run.run_map_create(0)
-	defer run.run_map_destroy(&m)
+	// Retrace is a legal, free routing tool driven straight off the emitted
+	// options: arrive at a Stat Trade, retrace to the already-visited Start (the
+	// Sim offers it as a backward option), then step forward onto that Stat Trade
+	// again. The second arrival must be a no-op, so durability is unchanged by
+	// the revisit.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
 
-	// A layer-1 Stat Trade is a Start neighbor, so retrace to Start (id 0) and
-	// back to it is legal.
-	trade := -1
-	for v in m.edges[0] {
-		if m.nodes[v].layer != 1 {
+	opts := tick_travel_options(&sim, &events) // run start
+
+	// A layer-1 Stat Trade is a Start neighbor, so it appears in the first
+	// emitted option set, and retrace to Start (id 0) and back to it is legal.
+	trade := Node_ID(-1)
+	for o in opts {
+		node := sim.run_map.nodes[o]
+		if node.layer != 1 {
 			continue
 		}
-		if enc, ok := m.nodes[v].encounter.?; ok {
+		if enc, ok := node.encounter.?; ok {
 			if _, is_trade := enc.(run.Encounter_Stat_Trade); is_trade {
-				trade = v
+				trade = o
 				break
 			}
 		}
 	}
 	testing.expect(t, trade >= 0)
 
-	tail := forward_route(m, trade, false)
-	defer delete(tail)
+	submit_travel(&sim, trade)
+	opts = tick_travel_options(&sim, &events) // arrive at the trade; it fires once
+	dur_after_trade := sim.player.durability
+	testing.expect(t, dur_after_trade > 2) // the trade did fire
+	testing.expect(t, node_id_in(opts, 0)) // Start offered as a backward retrace
 
-	straight := make([]int, 1 + len(tail))
-	straight[0] = trade
-	copy(straight[1:], tail)
-	defer delete(straight)
+	submit_travel(&sim, 0)
+	opts = tick_travel_options(&sim, &events) // retrace to Start
+	testing.expect(t, node_id_in(opts, trade)) // the trade offered again, forward
 
-	// Same route, but with a retrace to Start and back inserted before the tail.
-	retraced := make([]int, 3 + len(tail))
-	retraced[0] = trade
-	retraced[1] = 0
-	retraced[2] = trade
-	copy(retraced[3:], tail)
-	defer delete(retraced)
+	submit_travel(&sim, trade)
+	tick_travel_options(&sim, &events) // step onto the resolved trade again
 
-	baseline := drive_route(0, straight, combat.Command(BOOST_OFFENSIVE), 0)
-	revisited := drive_route(0, retraced, combat.Command(BOOST_OFFENSIVE), 0)
+	// Re-arriving over the resolved trade changed nothing.
+	testing.expect_value(t, sim.player.durability, dur_after_trade)
+}
 
-	testing.expect_value(t, revisited.status, run.Run_Status.Won)
-	testing.expect(t, revisited.durability > 2) // the trade did fire once
-	// Retracing over the resolved trade changed nothing.
-	testing.expect_value(t, revisited.durability, baseline.durability)
-	testing.expect_value(t, revisited.speed, baseline.speed)
+// tick_travel_options clears events, ticks the Sim once, and returns the travel
+// options emitted by that tick (nil if the tick didn't end awaiting a travel
+// choice). Clearing first keeps the returned slice pointing at the Sim's
+// travel_options buffer as filled this tick, before a later tick overwrites it.
+tick_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) -> []Node_ID {
+	clear(events)
+	sim_tick(sim, events)
+	opts: []Node_ID
+	for event in events {
+		if e, ok := event.(Event_Travel_Options); ok {
+			opts = e.options
+		}
+	}
+	return opts
+}
+
+submit_travel :: proc(sim: ^Sim, node: Node_ID) {
+	sim_submit_captain_choice(sim, Command(Command_Travel_To{node_id = node}))
+}
+
+node_id_in :: proc(opts: []Node_ID, id: Node_ID) -> bool {
+	for o in opts {
+		if o == id {
+			return true
+		}
+	}
+	return false
 }
 
 @(test)
@@ -420,22 +421,4 @@ tick_again_while_awaiting_decision_asserts :: proc(t: ^testing.T) {
 
 	testing.expect_assert(t, "sim_tick called while a captain decision is still outstanding")
 	sim_tick(&sim, &events)
-}
-
-Recording_Sink_State :: struct {
-	events: [dynamic]Event,
-}
-
-recording_sink_dispatch :: proc(data: rawptr, event: Event) {
-	state := cast(^Recording_Sink_State)data
-	append(&state.events, event)
-}
-
-// recording_sink_destroy frees the recorded events slice itself.
-// Event_Encounter_Resolved.snapshot needs no per-event cleanup: it lives in
-// the Sim's own run-scoped arena, still alive here since every test defers
-// this call before its own defer sim_destroy(&sim) (issue #52) — the arena
-// itself is only reclaimed once that later-registered defer runs.
-recording_sink_destroy :: proc(state: ^Recording_Sink_State) {
-	delete(state.events)
 }

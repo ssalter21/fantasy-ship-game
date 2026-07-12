@@ -147,6 +147,13 @@ draw_map :: proc(state: ^Game_State) {
 		}
 	}
 
+	// Rendering path (issue #83): draw_map recomputes the reachable set from the
+	// same predicate + visited the Sim uses, rather than borrowing the emitted
+	// state.travel_options. The two agree at a travel decision, but this map is
+	// also drawn mid-encounter (behind the upgrade menu, the end-of-run beat)
+	// when no travel options are current — the fresh recompute rings the nodes
+	// reachable from wherever the ship *is*. The decision path (travel_menu_loop)
+	// is what consumes the Sim's emitted options.
 	options := run.run_travel_options(state.run_map, state.current_node_id, state.visited)
 	defer delete(options)
 

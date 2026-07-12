@@ -3,7 +3,6 @@ package main
 import "core:fmt"
 import "core:strings"
 import combat "../../core/combat"
-import run "../../core/run"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
@@ -123,10 +122,17 @@ button_menu_loop :: proc(state: ^Game_State, prompt: string, buttons: []Button) 
 // destination nodes (the ones draw_map rings and numbers), then returns a
 // Command_Travel_To (ADR-0002). Clicks on non-reachable nodes are ignored, so
 // the graph's connectivity is the actual constraint on movement — the UI
-// offers exactly the moves run_travel_options allows, the same rule the Sim
-// gates travel on (issue #71).
+// offers exactly the moves the Sim emitted on Event_Travel_Options
+// (state.travel_options), the same set the Sim gates travel on (issues #71,
+// #83), no longer re-derived here.
 travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
+		// No live window (e.g. under `odin test`): the specific id isn't
+		// submitted to a real gated session, so any emitted option is a safe
+		// placeholder; fall back to option 0 when none were recorded.
+		if len(state.travel_options) > 0 {
+			return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
+		}
 		return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(state.current_node_id)})
 	}
 	for !rl.WindowShouldClose() {
@@ -134,25 +140,21 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 
 		if rl.IsMouseButtonPressed(.LEFT) {
 			mouse := rl.GetMousePosition()
-			options := run.run_travel_options(state.run_map, state.current_node_id, state.visited)
-			defer delete(options)
-			for dest in options {
+			for dest in state.travel_options {
 				if rl.CheckCollisionPointCircle(mouse, state.positions[dest], NODE_RADIUS) {
-					return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(dest)})
+					return sim.Command(sim.Command_Travel_To{node_id = dest})
 				}
 			}
 		}
 	}
-	// The window is closing without a pick. Travel is now gated, so the old
-	// "stay put" fallback (travel to the current node) is an illegal self-move
-	// the Sim would assert on — return a legal forward option instead so the
-	// run winds down cleanly rather than panicking on quit.
-	closing := run.run_travel_options(state.run_map, state.current_node_id, state.visited)
-	defer delete(closing)
-	if len(closing) > 0 {
-		return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(closing[0])})
-	}
-	return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(state.current_node_id)})
+	// The window is closing without a pick. state.travel_options is the Sim's
+	// emitted legal set for the current node — always non-empty at a travel
+	// decision (every non-Goal node has a forward edge) — so return its first
+	// entry: a legal move that winds the run down cleanly on quit, not the old
+	// illegal self-move. The assert makes that invariant load-bearing rather
+	// than risking an out-of-bounds index if it were ever violated.
+	assert(len(state.travel_options) > 0, "travel_menu_loop reached a travel decision with no emitted options")
+	return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
 }
 
 // battle_menu_loop blocks until the player picks a battle action (Boost one

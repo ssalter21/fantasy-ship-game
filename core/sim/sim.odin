@@ -59,6 +59,13 @@ Sim :: struct {
 	// run_travel_options consults to decide which backward-retrace moves are
 	// legal, so the Sim's travel gate reads it every travel choice.
 	visited:           []bool,
+	// travel_options stages the legal travel destinations the Sim broadcasts on
+	// Event_Travel_Options every time it begins awaiting a travel choice (issue
+	// #83): run-scoped arena storage (created under the arena in sim_create),
+	// cleared and refilled from run_travel_options once per travel decision and
+	// borrowed by the emitted event, so adapters and tests consume the moves the
+	// Sim already computed instead of re-deriving legality off a shadow map.
+	travel_options:    [dynamic]Node_ID,
 	steps:             int, // Ghost_Snapshot progress counter, +1 per travel
 	status:            run.Run_Status,
 	phase:             Phase,
@@ -107,6 +114,7 @@ Command_Pick_Upgrade :: struct {
 // (ADR-0001).
 Event :: union {
 	Event_Run_Started,
+	Event_Travel_Options,
 	Event_Arrived_At_Node,
 	Event_Ship_Battle_Sighted,
 	Event_Battle_Menu,
@@ -130,6 +138,21 @@ Event :: union {
 Event_Run_Started :: struct {
 	run_map: run.Map,
 	ship:    ship.Ship,
+}
+
+// Event_Travel_Options is dispatched every time the Sim begins awaiting a
+// travel choice (run start, and after each arrival/encounter that returns to
+// Awaiting_Travel_Choice): options carries the Node_IDs legally reachable from
+// the current position. This is the travel analogue of Event_Battle_Menu's
+// may_leave — the legal-move set is state the Sim already computes
+// (run_travel_options, once per travel decision) that presentation and tests
+// otherwise have to re-derive off a shadow map/visited set they maintain
+// themselves (issue #83, ADR-0001's "presentation learns only through Events").
+// The slice borrows the Sim's run-scoped travel_options buffer: valid across
+// this tick's whole dispatch batch, overwritten only at the next travel
+// decision, so a sink that needs it past then must copy it out.
+Event_Travel_Options :: struct {
+	options: []Node_ID,
 }
 
 Event_Arrived_At_Node :: struct {
@@ -207,6 +230,7 @@ sim_create :: proc(seed: u64) -> Sim {
 	s.resolved = make([]bool, len(s.run_map.nodes))
 	s.visited = make([]bool, len(s.run_map.nodes))
 	s.visited[0] = true // the ship starts at Start (id 0), so retrace to it is legal from the outset.
+	s.travel_options = make([dynamic]Node_ID, 0, 8) // arena-backed (context.allocator is the arena here); reused every travel decision.
 	s.status = .In_Progress
 	s.phase = .Awaiting_Travel_Choice
 	return s
@@ -276,7 +300,36 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
+	// Whatever unit of work just ran, if the Sim is now awaiting a travel choice
+	// (run start, or a battle/upgrade/trade that returned to it) broadcast the
+	// legal destinations so consumers pick from what the Sim computed, not a
+	// re-derivation (issue #83). Concentrating the emit here — rather than at
+	// each phase-transition site — is why every path back to a travel choice
+	// carries the options with no per-site repetition.
+	if sim.phase == .Awaiting_Travel_Choice {
+		sim_emit_travel_options(sim, events)
+	}
+
 	sim.awaiting_decision = true
+}
+
+// sim_emit_travel_options computes the legal destinations from the current
+// node — run_travel_options, the single legality predicate, called once per
+// travel decision (issue #83) — stages them (as Node_IDs) in the Sim's
+// run-scoped travel_options buffer, and emits them on Event_Travel_Options.
+// run_travel_options' own returned slice is short-lived scratch, freed here
+// immediately; the reused buffer is what the event borrows, so the emitted
+// payload survives the tick's whole dispatch batch yet isn't a fresh arena
+// allocation per decision (which would pile up unreclaimed until sim_destroy).
+sim_emit_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) {
+	options := run.run_travel_options(sim.run_map, int(sim.current), sim.visited)
+	defer delete(options)
+
+	clear(&sim.travel_options)
+	for id in options {
+		append(&sim.travel_options, Node_ID(id))
+	}
+	append(events, Event(Event_Travel_Options{options = sim.travel_options[:]}))
 }
 
 // sim_submit_captain_choice validates cmd against Sim's current Phase (the
