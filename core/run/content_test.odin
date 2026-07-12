@@ -15,7 +15,7 @@ run_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T
 }
 
 @(test)
-run_pve_opponent_stats_reuse_the_existing_zone_scaled_ship_battle_formulas :: proc(t: ^testing.T) {
+run_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_ship_battle_formulas :: proc(t: ^testing.T) {
 	opponent := run_pve_opponent(.Deep, 2)
 	defer delete(opponent.layout)
 
@@ -49,7 +49,7 @@ a_deeper_ship_battle_point_gives_the_opponent_a_harder_hitting_gun_deck :: proc(
 
 @(test)
 run_map_create_wires_the_hand_authored_pve_opponent_content_into_ship_battle_points :: proc(t: ^testing.T) {
-	m := run_map_create()
+	m := run_map_create(0)
 	defer run_map_destroy(&m)
 
 	found_a_ship_battle := false

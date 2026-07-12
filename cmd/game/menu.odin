@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import combat "../../core/combat"
+import run "../../core/run"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
@@ -118,23 +119,38 @@ button_menu_loop :: proc(state: ^Game_State, prompt: string, buttons: []Button) 
 	return -1
 }
 
-// travel_menu_loop blocks until the player clicks a point on the map, then
-// returns a Command_Travel_To (ADR-0002).
+// travel_menu_loop blocks until the player clicks one of the currently-legal
+// destination nodes (the ones draw_map rings and numbers), then returns a
+// Command_Travel_To (ADR-0002). Clicks on non-reachable nodes are ignored, so
+// the graph's connectivity is the actual constraint on movement — the UI
+// offers exactly the moves run_travel_options allows, the same rule the Sim
+// gates travel on (issue #71).
 travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.current_point_id)})
 	}
 	for !rl.WindowShouldClose() {
-		draw_scene(state, "Click a point to travel there.")
+		draw_scene(state, "Click a highlighted node to travel there.")
 
 		if rl.IsMouseButtonPressed(.LEFT) {
 			mouse := rl.GetMousePosition()
-			for pos, i in state.positions {
-				if rl.CheckCollisionPointCircle(mouse, pos, POINT_RADIUS) {
-					return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.run_map.points[i].id)})
+			options := run.run_travel_options(state.run_map, state.current_point_id, state.visited)
+			defer delete(options)
+			for dest in options {
+				if rl.CheckCollisionPointCircle(mouse, state.positions[dest], POINT_RADIUS) {
+					return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(dest)})
 				}
 			}
 		}
+	}
+	// The window is closing without a pick. Travel is now gated, so the old
+	// "stay put" fallback (travel to the current node) is an illegal self-move
+	// the Sim would assert on — return a legal forward option instead so the
+	// run winds down cleanly rather than panicking on quit.
+	closing := run.run_travel_options(state.run_map, state.current_point_id, state.visited)
+	defer delete(closing)
+	if len(closing) > 0 {
+		return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(closing[0])})
 	}
 	return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.current_point_id)})
 }

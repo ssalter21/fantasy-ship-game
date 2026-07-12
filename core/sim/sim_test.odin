@@ -5,57 +5,153 @@ import "../run"
 import "../testutil"
 import "core:testing"
 
-@(test)
-traveling_directly_to_goal_skips_every_encounter_and_wins :: proc(t: ^testing.T) {
-	sim := sim_create(0)
-	defer sim_destroy(&sim)
+// The map is procedurally generated per seed now, so these end-to-end
+// scenarios can't hardcode point ids. Instead they build the same map the Sim
+// will (run_map_create is deterministic per seed), compute a legal forward
+// route through it with the path helpers below, and drive it with Auto_Pilot.
+// The chosen seeds are fixed so each scenario reproduces exactly.
 
-	// Start=0, Coastal Port=1, Open_Sea Port=6, Deep Port=11, Goal=16 — free
-	// travel has no adjacency gating (ADR-0007), so this skips every
-	// Encounter point entirely.
-	input_state := Scripted_Input_State{
-		choices = []Command{
-			Command(Command_Travel_To{point_id = 1}),
-			Command(Command_Travel_To{point_id = 6}),
-			Command(Command_Travel_To{point_id = 11}),
-			Command(Command_Travel_To{point_id = 16}),
-		},
+is_battle_node :: proc(m: run.Map, id: int) -> bool {
+	enc, ok := m.points[id].encounter.?
+	if !ok {
+		return false
 	}
-	input := Input_Source{data = &input_state, get_captain_choice = scripted_input_get_captain_choice}
-
-	sink_state := Recording_Sink_State{}
-	defer recording_sink_destroy(&sink_state)
-	sink := Event_Sink{data = &sink_state, dispatch = recording_sink_dispatch}
-
-	run_session(&sim, input, sink)
-
-	testing.expect_value(t, sim.status, run.Run_Status.Won)
-	last := sink_state.events[len(sink_state.events)-1]
-	ended, ok := last.(Event_Run_Ended)
-	testing.expect(t, ok)
-	testing.expect_value(t, ended.status, run.Run_Status.Won)
+	_, is_battle := enc.(run.Encounter_Ship_Battle)
+	return is_battle
 }
 
-@(test)
-boosting_offensive_wins_the_first_coastal_ship_battle_and_the_run_continues_to_goal :: proc(t: ^testing.T) {
-	sim := sim_create(0)
+// forward_route returns the travel targets (excluding the starting node) of a
+// forward Start-to-Goal path from `from`, choosing at each step the forward
+// neighbor that minimizes (or, when maximize, maximizes) the number of Ship
+// Battle nodes stepped on. A battle-minimizing route from Start is battle-free
+// whenever the graph admits one; a battle-maximizing route deliberately walks
+// into every fight. Caller owns the returned slice.
+forward_route :: proc(m: run.Map, from: int, maximize: bool) -> []int {
+	n := len(m.points)
+	goal := -1
+	for p in m.points {
+		if p.kind == .Goal {
+			goal = p.id
+		}
+	}
+
+	best := make([]int, n)
+	next_node := make([]int, n)
+	defer delete(best)
+	defer delete(next_node)
+	for i in 0 ..< n {
+		next_node[i] = -1
+	}
+
+	// DP over layers, deepest first: best[u] = battles on the chosen route
+	// from u onward.
+	for layer := m.points[goal].layer; layer >= 0; layer -= 1 {
+		for p in m.points {
+			if p.layer != layer {
+				continue
+			}
+			if p.id == goal {
+				best[p.id] = 0
+				continue
+			}
+			chosen := -1
+			chosen_cost := 0
+			for v in m.edges[p.id] {
+				if m.points[v].layer <= p.layer {
+					continue // forward edges only
+				}
+				better := chosen < 0 || (maximize ? best[v] > chosen_cost : best[v] < chosen_cost)
+				if better {
+					chosen = v
+					chosen_cost = best[v]
+				}
+			}
+			best[p.id] = (is_battle_node(m, p.id) ? 1 : 0) + chosen_cost
+			next_node[p.id] = chosen
+		}
+	}
+
+	route: [dynamic]int
+	cur := from
+	for cur != goal {
+		cur = next_node[cur]
+		append(&route, cur)
+	}
+	return route[:]
+}
+
+// route_through_first_coastal_battle steps first into a layer-1 (Coastal,
+// shallowest) Ship Battle neighbor of Start, then takes the battle-minimizing
+// route onward — a route that fights exactly one shallow battle and then
+// coasts to Goal. Returns nil if Start has no layer-1 battle neighbor for this
+// seed. Caller owns the returned slice.
+route_through_first_coastal_battle :: proc(m: run.Map) -> []int {
+	first := -1
+	for v in m.edges[0] {
+		if m.points[v].layer == 1 && is_battle_node(m, v) {
+			first = v
+			break
+		}
+	}
+	if first < 0 {
+		return nil
+	}
+	tail := forward_route(m, first, false)
+	defer delete(tail)
+	route := make([]int, 1 + len(tail))
+	route[0] = first
+	copy(route[1:], tail)
+	return route
+}
+
+// Auto_Pilot drives run_session from a precomputed travel route: it feeds the
+// route's node ids one per travel prompt, replies to every battle prompt with
+// battle_cmd, and picks upgrade_index at every Upgrade Offer. The route ends
+// at Goal, so run_session stops asking for travel exactly when the route runs
+// out.
+Auto_Pilot :: struct {
+	route:         []int,
+	index:         int,
+	battle_cmd:    combat.Command,
+	upgrade_index: Option_Index,
+}
+
+auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
+	pilot := cast(^Auto_Pilot)data
+	switch awaiting {
+	case .Awaiting_Travel_Choice:
+		target := pilot.route[pilot.index]
+		pilot.index += 1
+		return Command(Command_Travel_To{point_id = Point_ID(target)})
+	case .Awaiting_Battle_Command:
+		return Command(Command_Battle_Choice{combat_command = pilot.battle_cmd})
+	case .Awaiting_Upgrade_Choice:
+		return Command(Command_Pick_Upgrade{option_index = pilot.upgrade_index})
+	case .Ended:
+		panic("auto pilot asked for a choice after the run ended")
+	}
+	panic("unreachable")
+}
+
+// Pilot_Result captures the outcome fields a scenario asserts on, read out
+// before the Sim's arena is torn down.
+Pilot_Result :: struct {
+	status:        run.Run_Status,
+	hp:            int,
+	durability:    int,
+	speed:         int,
+	gun_deck_name: string,
+	battles_won:   int,
+}
+
+// drive_route runs a full session over a fixed seed with an Auto_Pilot on the
+// given route and returns the outcome.
+drive_route :: proc(seed: u64, route: []int, battle_cmd: combat.Command, upgrade_index: int) -> Pilot_Result {
+	sim := sim_create(seed)
 	defer sim_destroy(&sim)
 
-	// Point 2 is the first Coastal Encounter (Ship_Battle, port_closeness=3
-	// per zone_encounter_kinds). Boosting Offensive 3 rounds straight sinks
-	// the opponent (hp 16 -> 9 -> 2 -> -5) while the player survives
-	// (hp 20 -> 14 -> 8 -> 2), hand-computed from run_pve_opponent/
-	// ship_starting_ship's fixed placeholder constants.
-	input_state := Scripted_Input_State{
-		choices = []Command{
-			Command(Command_Travel_To{point_id = 2}),
-			Command(Command_Battle_Choice{combat_command = combat.Command_Boost{phase = .Offensive}}),
-			Command(Command_Battle_Choice{combat_command = combat.Command_Boost{phase = .Offensive}}),
-			Command(Command_Battle_Choice{combat_command = combat.Command_Boost{phase = .Offensive}}),
-			Command(Command_Travel_To{point_id = 16}),
-		},
-	}
-	input := Input_Source{data = &input_state, get_captain_choice = scripted_input_get_captain_choice}
+	pilot := Auto_Pilot{route = route, battle_cmd = battle_cmd, upgrade_index = Option_Index(upgrade_index)}
+	input := Input_Source{data = &pilot, get_captain_choice = auto_pilot_choice}
 
 	sink_state := Recording_Sink_State{}
 	defer recording_sink_destroy(&sink_state)
@@ -63,10 +159,15 @@ boosting_offensive_wins_the_first_coastal_ship_battle_and_the_run_continues_to_g
 
 	run_session(&sim, input, sink)
 
-	testing.expect_value(t, sim.status, run.Run_Status.Won)
-	testing.expect_value(t, sim.player.hp, 2)
-
-	battle_ended_found := false
+	res := Pilot_Result {
+		status     = sim.status,
+		hp         = sim.player.hp,
+		durability = sim.player.durability,
+		speed      = sim.player.speed,
+	}
+	if gun_deck, ok := sim.player.layout[2].fitting.?; ok {
+		res.gun_deck_name = gun_deck.name
+	}
 	for event in sink_state.events {
 		wrapped, is_battle_event := event.(Event_Battle_Event)
 		if !is_battle_event {
@@ -76,130 +177,216 @@ boosting_offensive_wins_the_first_coastal_ship_battle_and_the_run_continues_to_g
 		if !is_ended {
 			continue
 		}
-		battle_ended_found = true
-		testing.expect_value(t, ended.reason, combat.End_Reason.Destroyed)
-		winner, has_winner := ended.winner.?
-		testing.expect(t, has_winner)
-		testing.expect_value(t, winner, combat.Side.A)
+		if winner, has_winner := ended.winner.?; has_winner && winner == .A {
+			res.battles_won += 1
+		}
 	}
-	testing.expect(t, battle_ended_found)
+	return res
+}
+
+BOOST_OFFENSIVE :: combat.Command_Boost{phase = .Offensive}
+HOLD :: combat.Command_Hold{}
+
+@(test)
+a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
+	// The graph forces a route through some node per layer, but a
+	// battle-minimizing course dodges every fight, so the ship reaches Goal
+	// unscathed — the redesign's "travel to Goal wins" over a real graph.
+	m := run.run_map_create(0)
+	defer run.run_map_destroy(&m)
+	route := forward_route(m, 0, false)
+	defer delete(route)
+
+	res := drive_route(0, route, combat.Command(BOOST_OFFENSIVE), 2)
+	testing.expect_value(t, res.status, run.Run_Status.Won)
+	testing.expect_value(t, res.hp, 20) // untouched: no battle fought
 }
 
 @(test)
-picking_the_gun_deck_upgrade_option_replaces_the_gun_deck_fitting :: proc(t: ^testing.T) {
-	sim := sim_create(0)
-	defer sim_destroy(&sim)
+fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
+	// Route into one shallow Coastal battle and boost Offensive: the fresh
+	// ship wins it and sails on to Goal, taking some damage along the way.
+	m := run.run_map_create(2)
+	defer run.run_map_destroy(&m)
+	route := route_through_first_coastal_battle(m)
+	testing.expect(t, route != nil)
+	defer delete(route)
 
-	// Point 4 is Coastal's Upgrade_Offer point (quality = 1*15 = 15, bonus =
-	// 15/5 = 3, so option 2's Gun Deck upgrade carries magnitude 5+3=8).
-	input_state := Scripted_Input_State{
-		choices = []Command{
-			Command(Command_Travel_To{point_id = 4}),
-			Command(Command_Pick_Upgrade{option_index = 2}),
-			Command(Command_Travel_To{point_id = 16}),
-		},
-	}
-	input := Input_Source{data = &input_state, get_captain_choice = scripted_input_get_captain_choice}
-
-	sink_state := Recording_Sink_State{}
-	defer recording_sink_destroy(&sink_state)
-	sink := Event_Sink{data = &sink_state, dispatch = recording_sink_dispatch}
-
-	run_session(&sim, input, sink)
-
-	testing.expect_value(t, sim.status, run.Run_Status.Won)
-	gun_deck, has_fitting := sim.player.layout[2].fitting.?
-	testing.expect(t, has_fitting)
-	testing.expect_value(t, gun_deck.name, "Upgraded Gun Deck")
-	active, has_active := gun_deck.active.?
-	testing.expect(t, has_active)
-	testing.expect_value(t, active.magnitude, 8)
+	res := drive_route(2, route, combat.Command(BOOST_OFFENSIVE), 2)
+	testing.expect_value(t, res.status, run.Run_Status.Won)
+	testing.expect(t, res.battles_won >= 1)
+	testing.expect(t, res.hp < 20) // a real fight cost some HP
 }
 
 @(test)
-arriving_at_a_stat_trade_point_applies_it_immediately_with_no_decision :: proc(t: ^testing.T) {
-	sim := sim_create(0)
-	defer sim_destroy(&sim)
+routing_through_every_battle_can_lose_the_run :: proc(t: ^testing.T) {
+	// A battle-maximizing course walks into fight after fight; a starting ship
+	// bleeds out before Goal — permadeath at 0 HP, unchanged.
+	m := run.run_map_create(0)
+	defer run.run_map_destroy(&m)
+	route := forward_route(m, 0, true)
+	defer delete(route)
 
-	// Point 5 is Coastal's Stat_Trade point (gain_durability = 1*8 = 8,
-	// cost_speed = 1*1 = 1) — applies on arrival, no captain decision.
-	input_state := Scripted_Input_State{
-		choices = []Command{
-			Command(Command_Travel_To{point_id = 5}),
-			Command(Command_Travel_To{point_id = 16}),
-		},
-	}
-	input := Input_Source{data = &input_state, get_captain_choice = scripted_input_get_captain_choice}
-
-	sink_state := Recording_Sink_State{}
-	defer recording_sink_destroy(&sink_state)
-	sink := Event_Sink{data = &sink_state, dispatch = recording_sink_dispatch}
-
-	run_session(&sim, input, sink)
-
-	testing.expect_value(t, sim.status, run.Run_Status.Won)
-	testing.expect_value(t, sim.player.durability, 2+8)
-	testing.expect_value(t, sim.player.speed, 4-1)
+	res := drive_route(0, route, combat.Command(HOLD), 0)
+	testing.expect_value(t, res.status, run.Run_Status.Lost)
+	testing.expect_value(t, res.hp, 0)
 }
 
 @(test)
-revisiting_a_resolved_encounter_point_does_not_retrigger_it :: proc(t: ^testing.T) {
-	sim := sim_create(0)
-	defer sim_destroy(&sim)
+picking_the_gun_deck_upgrade_on_the_route_upgrades_the_gun_deck :: proc(t: ^testing.T) {
+	// The battle-free route passes through Upgrade Offers; picking option 2 at
+	// each replaces the Gun Deck fitting with its upgraded variant.
+	m := run.run_map_create(0)
+	defer run.run_map_destroy(&m)
+	route := forward_route(m, 0, false)
+	defer delete(route)
 
-	// Free travel has no adjacency gating (ADR-0007), so nothing stops
-	// traveling back to point 5 (Stat_Trade) after already resolving it —
-	// but its effect must fire only once (issue #24 design decision).
-	input_state := Scripted_Input_State{
-		choices = []Command{
-			Command(Command_Travel_To{point_id = 5}),
-			Command(Command_Travel_To{point_id = 1}),
-			Command(Command_Travel_To{point_id = 5}),
-			Command(Command_Travel_To{point_id = 16}),
-		},
-	}
-	input := Input_Source{data = &input_state, get_captain_choice = scripted_input_get_captain_choice}
-
-	sink_state := Recording_Sink_State{}
-	defer recording_sink_destroy(&sink_state)
-	sink := Event_Sink{data = &sink_state, dispatch = recording_sink_dispatch}
-
-	run_session(&sim, input, sink)
-
-	testing.expect_value(t, sim.status, run.Run_Status.Won)
-	testing.expect_value(t, sim.player.durability, 2+8)
-	testing.expect_value(t, sim.player.speed, 4-1)
+	res := drive_route(0, route, combat.Command(BOOST_OFFENSIVE), 2)
+	testing.expect_value(t, res.status, run.Run_Status.Won)
+	testing.expect_value(t, res.gun_deck_name, "Upgraded Gun Deck")
 }
 
 @(test)
-holding_every_round_against_a_tough_opponent_can_lose_the_run :: proc(t: ^testing.T) {
+stat_trades_on_the_route_permanently_change_stats :: proc(t: ^testing.T) {
+	// The battle-free route passes through Stat Trades, each applied on arrival
+	// with no decision: Durability rises above its starting 2, Speed falls
+	// below its starting 4.
+	m := run.run_map_create(0)
+	defer run.run_map_destroy(&m)
+	route := forward_route(m, 0, false)
+	defer delete(route)
+
+	res := drive_route(0, route, combat.Command(BOOST_OFFENSIVE), 2)
+	testing.expect_value(t, res.status, run.Run_Status.Won)
+	testing.expect(t, res.durability > 2)
+	testing.expect(t, res.speed < 4)
+}
+
+@(test)
+revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
+	// Retrace is a legal, free routing tool: arrive at a Stat Trade, retrace to
+	// the already-visited Start, then step forward onto that Stat Trade again.
+	// The second arrival must be a no-op, so the run ends in exactly the same
+	// ship state as one that never retraced.
+	m := run.run_map_create(0)
+	defer run.run_map_destroy(&m)
+
+	// A layer-1 Stat Trade is a Start neighbor, so retrace to Start (id 0) and
+	// back to it is legal.
+	trade := -1
+	for v in m.edges[0] {
+		if m.points[v].layer != 1 {
+			continue
+		}
+		if enc, ok := m.points[v].encounter.?; ok {
+			if _, is_trade := enc.(run.Encounter_Stat_Trade); is_trade {
+				trade = v
+				break
+			}
+		}
+	}
+	testing.expect(t, trade >= 0)
+
+	tail := forward_route(m, trade, false)
+	defer delete(tail)
+
+	straight := make([]int, 1 + len(tail))
+	straight[0] = trade
+	copy(straight[1:], tail)
+	defer delete(straight)
+
+	// Same route, but with a retrace to Start and back inserted before the tail.
+	retraced := make([]int, 3 + len(tail))
+	retraced[0] = trade
+	retraced[1] = 0
+	retraced[2] = trade
+	copy(retraced[3:], tail)
+	defer delete(retraced)
+
+	baseline := drive_route(0, straight, combat.Command(BOOST_OFFENSIVE), 0)
+	revisited := drive_route(0, retraced, combat.Command(BOOST_OFFENSIVE), 0)
+
+	testing.expect_value(t, revisited.status, run.Run_Status.Won)
+	testing.expect(t, revisited.durability > 2) // the trade did fire once
+	// Retracing over the resolved trade changed nothing.
+	testing.expect_value(t, revisited.durability, baseline.durability)
+	testing.expect_value(t, revisited.speed, baseline.speed)
+}
+
+@(test)
+travel_to_a_non_neighbor_point_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+	sim_tick(&sim, &events) // run start: awaiting a travel choice
 
-	// Point 2 (first Coastal Ship_Battle, port_closeness=3) deals 6 dmg/round
-	// to a Holding player (raw 13 vs durability 2 + defense 5) while the
-	// player's own Hold deals 0 (raw 8 vs durability 4 + defense 5) — hand
-	// computed from run_pve_opponent/ship_starting_ship's fixed placeholder
-	// constants. Player hp 20 -> 14 -> 8 -> 2 -> -4 (0): sunk on round 4.
-	input_state := Scripted_Input_State{
-		choices = []Command{
-			Command(Command_Travel_To{point_id = 2}),
-			Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}),
-			Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}),
-			Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}),
-			Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}),
-		},
+	// Goal (the last, deepest point) is never adjacent to Start.
+	illegal := Point_ID(len(sim.run_map.points) - 1)
+	sim_submit_captain_choice(&sim, Command(Command_Travel_To{point_id = illegal}))
+
+	testing.expect_assert(t, "not a legal neighbor")
+	sim_tick(&sim, &events)
+}
+
+@(test)
+the_run_start_broadcast_hides_unvisited_encounter_kinds_and_reveals_on_arrival :: proc(t: ^testing.T) {
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_tick(&sim, &events) // run start
+
+	started: Event_Run_Started
+	found := false
+	for event in events {
+		if s, ok := event.(Event_Run_Started); ok {
+			started = s
+			found = true
+		}
 	}
-	input := Input_Source{data = &input_state, get_captain_choice = scripted_input_get_captain_choice}
+	testing.expect(t, found)
 
-	sink_state := Recording_Sink_State{}
-	defer recording_sink_destroy(&sink_state)
-	sink := Event_Sink{data = &sink_state, dispatch = recording_sink_dispatch}
+	// Graph shape is present: adjacency parallel to points.
+	testing.expect_value(t, len(started.run_map.edges), len(started.run_map.points))
+	// Every unvisited Encounter's kind is withheld; landmarks are unaffected.
+	for p in started.run_map.points {
+		_, has_encounter := p.encounter.?
+		if p.kind == .Encounter {
+			testing.expect(t, !has_encounter) // kind hidden pre-arrival
+		} else {
+			testing.expect(t, !has_encounter) // landmarks carry no encounter at all
+		}
+	}
 
-	run_session(&sim, input, sink)
+	// Arriving at an encounter reveals its kind in the emitted event.
+	target := -1
+	for v in sim.run_map.edges[0] {
+		if sim.run_map.points[v].kind == .Encounter {
+			target = v
+			break
+		}
+	}
+	testing.expect(t, target >= 0)
 
-	testing.expect_value(t, sim.status, run.Run_Status.Lost)
-	testing.expect_value(t, sim.player.hp, 0)
+	sim_submit_captain_choice(&sim, Command(Command_Travel_To{point_id = Point_ID(target)}))
+	clear(&events)
+	sim_tick(&sim, &events)
+
+	revealed := false
+	for event in events {
+		if arrived, ok := event.(Event_Arrived_At_Point); ok {
+			if _, has := arrived.point.encounter.?; has {
+				revealed = true
+			}
+		}
+	}
+	testing.expect(t, revealed)
 }
 
 @(test)
@@ -250,21 +437,4 @@ recording_sink_dispatch :: proc(data: rawptr, event: Event) {
 // itself is only reclaimed once that later-registered defer runs.
 recording_sink_destroy :: proc(state: ^Recording_Sink_State) {
 	delete(state.events)
-}
-
-Scripted_Input_State :: struct {
-	choices: []Command,
-	index:   int,
-}
-
-scripted_input_get_captain_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
-	state := cast(^Scripted_Input_State)data
-	assert(state.index < len(state.choices), "scripted input exhausted its scripted choices")
-	cmd := state.choices[state.index]
-	state.index += 1
-	return cmd
-}
-
-unreachable_get_captain_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
-	panic("input source should not be asked for a decision when the run ends without needing one")
 }

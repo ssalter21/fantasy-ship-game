@@ -5,20 +5,24 @@ import "../run"
 
 // sim_process_travel applies a submitted Command_Travel_To (issue #24):
 // arrives at the target point, and if it's an as-yet-unresolved Encounter,
-// triggers that encounter (ADR-0007: "auto-triggers, no decline"). The very
-// first call — before any travel choice has been submitted — has nothing to
-// apply yet and just announces the run's starting state.
+// triggers that encounter ("auto-triggers, no decline"). The very first call
+// — before any travel choice has been submitted — has nothing to apply yet
+// and just announces the run's starting state, broadcasting the masked
+// public map (graph shape + landmarks, encounter kinds withheld — the hiding
+// contract) rather than the private run_map.
 //
-// Travel itself is unrestricted to any point id (run_can_travel's only gate
-// is HP > 0; ADR-0007's Map carries no edges/adjacency), but an Encounter
-// point's effect fires only once: resolved[] tracks that, so re-arriving
-// later is a no-op, like a Port. Start/Port points have no shop system yet
-// (no ticket implements "spend treasure at a port"), so they're pure
-// pass-through waypoints in this slice's UI.
+// Travel is gated by run_travel_options' legality rule (forward and lateral
+// neighbors always, backward neighbors only by retrace to an already-visited
+// node): an illegal destination is a driver bug and asserts, matching the
+// assert-on-driver-bug style of the phase checks. An Encounter point's effect
+// still fires only once — resolved[] tracks that, so re-arriving after a
+// retrace is a no-op, like a Port. Start/Port points have no shop system yet,
+// so they're pure pass-through waypoints in this slice's UI.
 sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	if !has_pending {
-		append(events, Event(Event_Run_Started{run_map = sim.run_map, ship = sim.player}))
+		public_map := run.Map{points = sim.public_points, edges = sim.run_map.edges}
+		append(events, Event(Event_Run_Started{run_map = public_map, ship = sim.player}))
 		return
 	}
 	cmd, has_cmd := pending.(Command_Travel_To)
@@ -26,12 +30,16 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	sim.pending_command = nil
 
 	assert(run.run_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
-	assert(cmd.point_id >= 0 && int(cmd.point_id) < len(sim.run_map.points), "Command_Travel_To point_id out of range")
+	assert(
+		run.run_can_travel_to(sim.run_map, int(sim.current), sim.visited, int(cmd.point_id)),
+		"Command_Travel_To to a point that is not a legal neighbor of the current position",
+	)
 
 	already_resolved := sim.resolved[cmd.point_id]
 	point := sim.run_map.points[cmd.point_id]
 
 	sim.current = cmd.point_id
+	sim.visited[cmd.point_id] = true
 	sim.steps += 1
 	append(events, Event(Event_Arrived_At_Point{point = point}))
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
