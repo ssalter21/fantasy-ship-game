@@ -64,17 +64,21 @@ _Avoid_: Game mode, client mode
 - **Jettison Cargo** — a captain decision that empties a cargo-filled slot for a permanent Speed increase for the rest of the battle. Settled at battle end: lost if the jettisoning ship escapes, claimed by the opponent as spoils otherwise.
 - **Man the Sails** — a captain decision granting a temporary Speed increase, lasting that round only.
 
-### Map & run structure (see ADR-0007)
+### Map & run structure (see ADR-0009, superseding ADR-0007's topology/ports/gradient)
 
 - **Run** — one playable attempt from Start to Goal (or to permadeath). Not resumable/saved — save/resume and meta-progression between runs are not yet specified.
-- **Point** — a single hand-placed location on the run's map. Points carry no edges/adjacency to each other — from any visited point, the player may travel to any other point.
-  _Avoid_: node, tile.
-- **Zone** — one of three fixed difficulty bands a point belongs to, in a fixed linear order: Coastal (nearest Start, easiest) → Open Sea (mid) → The Deep (nearest Goal, hardest). Both encounter difficulty and reward quality scale with zone.
-- **Start** — the run's origin point; also doubles as the home port.
-- **Goal** — the run's destination point. Reaching it with HP > 0 wins the run. Carries no port and no encounter of its own.
-- **Port** — a safe, no-battle point where the player spends starting treasure. One per zone plus Start, four total.
-- **Encounter** — a non-port point assigned exactly one Encounter kind, which triggers automatically (no decline option) when the ship arrives there. The only way to avoid an encounter is to route around its point.
-- **Encounter kind** — the type of interaction an encounter presents: Ship Battle, Upgrade Offer, or Stat Trade.
+- **Node** — a single location in the run's map. The map is a procedurally-generated connected graph, regenerated fresh each run (seeded, reproducible); a node carries **edges** to other nodes and, if it's an encounter, a hidden-until-arrival Encounter kind.
+  _Avoid_: point, tile.
+- **Edge** — a directed connection between two nodes. Edges are only ever generated forward (layer *i* → *i+1*), but at runtime are walkable both ways: forward into new territory, or backward to an already-visited node.
+- **Layer** — nodes are generated in ordered layers (a few wide); edges connect adjacent layers. A node's position across layers within its zone is its **depth**.
+- **Zone** — one of three fixed difficulty bands, generated as three sequential phases in a fixed order: Coastal (nearest Start, easiest) → Open Sea (mid) → The Deep (nearest Goal, hardest). Difficulty and reward both rise with zone.
+- **Depth** — a node's layer index within its zone's phase, normalized to a fixed range. Difficulty and reward rise with depth, stacking on top of the per-zone gradient, across all three encounter kinds. Replaces ADR-0007's retired port-proximity ("contested waters") effect.
+- **Start** — the run's origin node; also the home port. A landmark.
+- **Goal** — the run's destination node. Reaching it with HP > 0 wins the run. Carries no port and no encounter. A landmark.
+- **Landmark** — Start, Port, or Goal: a node carrying no encounter (never triggers one) and always fully visible on the map, even when unvisited.
+- **Port** — a safe, no-battle landmark node where the player spends starting treasure. Placed procedurally — two per zone (six) plus Start — each **consuming** one of its zone's node slots rather than being added on top.
+- **Encounter** — a non-landmark node carrying exactly one hidden Encounter kind, revealed and triggered once on **first** arrival (no decline option); revisiting a node never re-triggers it. The only way to avoid an encounter is to route around its node.
+- **Encounter kind** — the type of interaction an encounter presents: Ship Battle, Upgrade Offer, or Stat Trade. Assigned per zone via a shuffled bag, split as evenly as the encounter count allows.
 - **Ship Battle** — an encounter kind: a full battle against a game-configured opponent ship, resolved via the phased-round combat system (ADR-0006). Mechanically identical to a future ghost-PvP battle; this slice's opponents are not real players' stored snapshots.
 - **Upgrade Offer** — an encounter kind: choose one of a few options to upgrade one of the ship's starting fittings.
 - **Stat Trade** — an encounter kind: a permanent stat-for-stat or stat-for-cargo trade-off (e.g. +Durability for −Speed).
@@ -94,4 +98,4 @@ A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time,
 - Fixed starting loadout: "Top Crew", "Captain's Quarters", "Gun Deck" fill the exposed slots; cargo fills the 3 concealed slots by default.
 - Findable content is limited to upgraded variants of those same three fittings (e.g. "Upgraded Gun Deck") — no separate fitting roster.
 - Exactly one captain.
-- Map: Start/home port → Coastal → Open Sea → The Deep (one port + 4 encounter points each) → Goal. 12 encounter points total, split evenly across Ship Battle / Upgrade Offer / Stat Trade. See ADR-0007.
+- Map: a procedurally-generated connected node graph, Start/home port → Coastal → Open Sea → The Deep → Goal, ~50 points (17/17/16 per zone) of which 44 are encounters (15/15/14) and 6 are ports (2 per zone). Encounter kinds split via a per-zone shuffled bag across Ship Battle / Upgrade Offer / Stat Trade. Supersedes the original 12-point open map. See ADR-0009.
