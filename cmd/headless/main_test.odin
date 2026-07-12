@@ -11,7 +11,7 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 	defer run.run_map_destroy(&m)
 
 	state := Headless_State{run_map = m, current = 0}
-	state.visited = make([]bool, len(m.points))
+	state.visited = make([]bool, len(m.nodes))
 	defer delete(state.visited)
 	state.visited[0] = true
 
@@ -21,8 +21,8 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 	testing.expect(t, ok)
 	// The chosen destination must be a real neighbour of Start and a forward
 	// step (a deeper layer) — progress toward Goal, never an illegal jump.
-	testing.expect(t, run.run_can_travel_to(m, 0, state.visited, int(travel.point_id)))
-	testing.expect(t, m.points[travel.point_id].layer > m.points[0].layer)
+	testing.expect(t, run.run_can_travel_to(m, 0, state.visited, int(travel.node_id)))
+	testing.expect(t, m.nodes[travel.node_id].layer > m.nodes[0].layer)
 }
 
 @(test)

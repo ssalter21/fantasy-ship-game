@@ -7,29 +7,29 @@ import rl "vendor:raylib"
 
 MAP_AREA := rl.Rectangle{x = 20, y = 20, width = 620, height = 640}
 SHIP_PANEL_X :: 670
-POINT_RADIUS :: 12
+NODE_RADIUS :: 12
 MAP_PAD :: 34
 
-// compute_point_positions places each node from the generator's layer/lane
+// compute_node_positions places each node from the generator's layer/lane
 // metadata (issue #71): layer is the column (Start at the left, Goal at the
 // right), lane the row within that column, evenly spread and centered so the
-// whole graph is visible at once with no camera or panning. Points still carry
+// whole graph is visible at once with no camera or panning. Nodes still carry
 // no screen coordinates — that stays a presentation concern. Caller owns the
 // returned slice.
-compute_point_positions :: proc(run_map: run.Map) -> []rl.Vector2 {
-	positions := make([]rl.Vector2, len(run_map.points))
+compute_node_positions :: proc(run_map: run.Map) -> []rl.Vector2 {
+	positions := make([]rl.Vector2, len(run_map.nodes))
 
 	max_layer := 0
 	layer_counts: map[int]int
 	defer delete(layer_counts)
-	for p in run_map.points {
+	for p in run_map.nodes {
 		max_layer = max(max_layer, p.layer)
 		layer_counts[p.layer] += 1
 	}
 
 	usable_w := MAP_AREA.width - 2 * MAP_PAD
 	usable_h := MAP_AREA.height - 2 * MAP_PAD
-	for p in run_map.points {
+	for p in run_map.nodes {
 		fx := max_layer > 0 ? f32(p.layer) / f32(max_layer) : 0
 		w := layer_counts[p.layer]
 		fy := f32(p.lane + 1) / f32(w + 1)
@@ -60,12 +60,12 @@ zone_tint :: proc(zone: Maybe(run.Zone)) -> rl.Color {
 	return rl.Color{90, 100, 120, 255}
 }
 
-// point_appearance picks the marker colour and label for a node (issue #71).
+// node_appearance picks the marker colour and label for a node (issue #71).
 // An unvisited Encounter is a generic zone-tinted marker with no kind label —
 // its kind is hidden until arrival (the Sim's hiding contract). Once visited,
 // an Encounter shows its revealed kind's colour and label; landmarks
 // (Start/Port/Goal) are always fully labelled.
-point_appearance :: proc(p: run.Point, visited: bool) -> (color: rl.Color, label: string) {
+node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:
 		return rl.SKYBLUE, "Start"
@@ -95,7 +95,7 @@ point_appearance :: proc(p: run.Point, visited: bool) -> (color: rl.Color, label
 // encounter: only an unvisited Encounter fires (a landmark never does, a
 // revisit never does). The UI uses this to colour-code offered moves without
 // needing to know the still-hidden kind (issue #71).
-move_fires :: proc(p: run.Point, visited: bool) -> bool {
+move_fires :: proc(p: run.Node, visited: bool) -> bool {
 	return p.kind == .Encounter && !visited
 }
 
@@ -106,7 +106,7 @@ draw_zone_background :: proc(state: ^Game_State) {
 	for zone in run.Zone {
 		lo, hi: f32 = 1e9, -1e9
 		found := false
-		for p, i in state.run_map.points {
+		for p, i in state.run_map.nodes {
 			pz, ok := p.zone.?
 			if !ok || pz != zone {
 				continue
@@ -138,7 +138,7 @@ draw_map :: proc(state: ^Game_State) {
 	rl.DrawRectangleLinesEx(MAP_AREA, 2, rl.GRAY)
 
 	// Edges (drawn under the nodes; each undirected pair once).
-	for p in state.run_map.points {
+	for p in state.run_map.nodes {
 		for v in state.run_map.edges[p.id] {
 			if v <= p.id {
 				continue
@@ -147,29 +147,29 @@ draw_map :: proc(state: ^Game_State) {
 		}
 	}
 
-	options := run.run_travel_options(state.run_map, state.current_point_id, state.visited)
+	options := run.run_travel_options(state.run_map, state.current_node_id, state.visited)
 	defer delete(options)
 
-	for p, i in state.run_map.points {
+	for p, i in state.run_map.nodes {
 		pos := state.positions[i]
-		color, label := point_appearance(p, state.visited[i])
-		rl.DrawCircleV(pos, POINT_RADIUS, color)
+		color, label := node_appearance(p, state.visited[i])
+		rl.DrawCircleV(pos, NODE_RADIUS, color)
 		if len(label) > 0 {
-			rl.DrawText(fmt.ctprintf("%s", label), i32(pos.x - 18), i32(pos.y + POINT_RADIUS + 2), 12, rl.BLACK)
+			rl.DrawText(fmt.ctprintf("%s", label), i32(pos.x - 18), i32(pos.y + NODE_RADIUS + 2), 12, rl.BLACK)
 		}
 	}
 
 	// Reachable-next highlights, numbered, over the base markers.
 	for dest, n in options {
 		pos := state.positions[dest]
-		ring := move_fires(state.run_map.points[dest], state.visited[dest]) ? rl.RED : rl.GREEN
-		rl.DrawCircleLinesV(pos, POINT_RADIUS + 4, ring)
+		ring := move_fires(state.run_map.nodes[dest], state.visited[dest]) ? rl.RED : rl.GREEN
+		rl.DrawCircleLinesV(pos, NODE_RADIUS + 4, ring)
 		rl.DrawText(fmt.ctprintf("%d", n + 1), i32(pos.x - 4), i32(pos.y - 7), 14, rl.WHITE)
 	}
 
 	// Current location outline, drawn last so it reads on top.
-	cur := state.positions[state.current_point_id]
-	rl.DrawCircleLinesV(cur, POINT_RADIUS + 7, rl.BLACK)
+	cur := state.positions[state.current_node_id]
+	rl.DrawCircleLinesV(cur, NODE_RADIUS + 7, rl.BLACK)
 }
 
 // draw_ship_panel renders a 6-slot ship readout at origin. When

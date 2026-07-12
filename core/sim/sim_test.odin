@@ -6,13 +6,13 @@ import "../testutil"
 import "core:testing"
 
 // The map is procedurally generated per seed now, so these end-to-end
-// scenarios can't hardcode point ids. Instead they build the same map the Sim
+// scenarios can't hardcode node ids. Instead they build the same map the Sim
 // will (run_map_create is deterministic per seed), compute a legal forward
 // route through it with the path helpers below, and drive it with Auto_Pilot.
 // The chosen seeds are fixed so each scenario reproduces exactly.
 
 is_battle_node :: proc(m: run.Map, id: int) -> bool {
-	enc, ok := m.points[id].encounter.?
+	enc, ok := m.nodes[id].encounter.?
 	if !ok {
 		return false
 	}
@@ -27,9 +27,9 @@ is_battle_node :: proc(m: run.Map, id: int) -> bool {
 // whenever the graph admits one; a battle-maximizing route deliberately walks
 // into every fight. Caller owns the returned slice.
 forward_route :: proc(m: run.Map, from: int, maximize: bool) -> []int {
-	n := len(m.points)
+	n := len(m.nodes)
 	goal := -1
-	for p in m.points {
+	for p in m.nodes {
 		if p.kind == .Goal {
 			goal = p.id
 		}
@@ -45,8 +45,8 @@ forward_route :: proc(m: run.Map, from: int, maximize: bool) -> []int {
 
 	// DP over layers, deepest first: best[u] = battles on the chosen route
 	// from u onward.
-	for layer := m.points[goal].layer; layer >= 0; layer -= 1 {
-		for p in m.points {
+	for layer := m.nodes[goal].layer; layer >= 0; layer -= 1 {
+		for p in m.nodes {
 			if p.layer != layer {
 				continue
 			}
@@ -57,7 +57,7 @@ forward_route :: proc(m: run.Map, from: int, maximize: bool) -> []int {
 			chosen := -1
 			chosen_cost := 0
 			for v in m.edges[p.id] {
-				if m.points[v].layer <= p.layer {
+				if m.nodes[v].layer <= p.layer {
 					continue // forward edges only
 				}
 				better := chosen < 0 || (maximize ? best[v] > chosen_cost : best[v] < chosen_cost)
@@ -88,7 +88,7 @@ forward_route :: proc(m: run.Map, from: int, maximize: bool) -> []int {
 route_through_first_coastal_battle :: proc(m: run.Map) -> []int {
 	first := -1
 	for v in m.edges[0] {
-		if m.points[v].layer == 1 && is_battle_node(m, v) {
+		if m.nodes[v].layer == 1 && is_battle_node(m, v) {
 			first = v
 			break
 		}
@@ -122,7 +122,7 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 	case .Awaiting_Travel_Choice:
 		target := pilot.route[pilot.index]
 		pilot.index += 1
-		return Command(Command_Travel_To{point_id = Point_ID(target)})
+		return Command(Command_Travel_To{node_id = Node_ID(target)})
 	case .Awaiting_Battle_Command:
 		return Command(Command_Battle_Choice{combat_command = pilot.battle_cmd})
 	case .Awaiting_Upgrade_Choice:
@@ -275,10 +275,10 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	// back to it is legal.
 	trade := -1
 	for v in m.edges[0] {
-		if m.points[v].layer != 1 {
+		if m.nodes[v].layer != 1 {
 			continue
 		}
-		if enc, ok := m.points[v].encounter.?; ok {
+		if enc, ok := m.nodes[v].encounter.?; ok {
 			if _, is_trade := enc.(run.Encounter_Stat_Trade); is_trade {
 				trade = v
 				break
@@ -314,7 +314,7 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 }
 
 @(test)
-travel_to_a_non_neighbor_point_asserts :: proc(t: ^testing.T) {
+travel_to_a_non_neighbor_node_asserts :: proc(t: ^testing.T) {
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
@@ -325,9 +325,9 @@ travel_to_a_non_neighbor_point_asserts :: proc(t: ^testing.T) {
 	defer delete(events)
 	sim_tick(&sim, &events) // run start: awaiting a travel choice
 
-	// Goal (the last, deepest point) is never adjacent to Start.
-	illegal := Point_ID(len(sim.run_map.points) - 1)
-	sim_submit_captain_choice(&sim, Command(Command_Travel_To{point_id = illegal}))
+	// Goal (the last, deepest node) is never adjacent to Start.
+	illegal := Node_ID(len(sim.run_map.nodes) - 1)
+	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = illegal}))
 
 	testing.expect_assert(t, "not a legal neighbor")
 	sim_tick(&sim, &events)
@@ -352,10 +352,10 @@ the_run_start_broadcast_hides_unvisited_encounter_kinds_and_reveals_on_arrival :
 	}
 	testing.expect(t, found)
 
-	// Graph shape is present: adjacency parallel to points.
-	testing.expect_value(t, len(started.run_map.edges), len(started.run_map.points))
+	// Graph shape is present: adjacency parallel to nodes.
+	testing.expect_value(t, len(started.run_map.edges), len(started.run_map.nodes))
 	// Every unvisited Encounter's kind is withheld; landmarks are unaffected.
-	for p in started.run_map.points {
+	for p in started.run_map.nodes {
 		_, has_encounter := p.encounter.?
 		if p.kind == .Encounter {
 			testing.expect(t, !has_encounter) // kind hidden pre-arrival
@@ -367,21 +367,21 @@ the_run_start_broadcast_hides_unvisited_encounter_kinds_and_reveals_on_arrival :
 	// Arriving at an encounter reveals its kind in the emitted event.
 	target := -1
 	for v in sim.run_map.edges[0] {
-		if sim.run_map.points[v].kind == .Encounter {
+		if sim.run_map.nodes[v].kind == .Encounter {
 			target = v
 			break
 		}
 	}
 	testing.expect(t, target >= 0)
 
-	sim_submit_captain_choice(&sim, Command(Command_Travel_To{point_id = Point_ID(target)}))
+	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = Node_ID(target)}))
 	clear(&events)
 	sim_tick(&sim, &events)
 
 	revealed := false
 	for event in events {
-		if arrived, ok := event.(Event_Arrived_At_Point); ok {
-			if _, has := arrived.point.encounter.?; has {
+		if arrived, ok := event.(Event_Arrived_At_Node); ok {
+			if _, has := arrived.node.encounter.?; has {
 				revealed = true
 			}
 		}

@@ -5,7 +5,7 @@ import "../ship"
 // PVE_OPPONENT_OFFENSE_BONUS_PER_TIER/PER_DEPTH scale a PvE opponent's Gun
 // Deck output by zone tier and depth-within-zone (issue #23), reusing the
 // same run_zone_depth_scaled shape as every other zone-and-depth-scaled placeholder in
-// run.odin — so a deeper Ship Battle point hits harder, not just soaks more
+// run.odin — so a deeper Ship Battle node hits harder, not just soaks more
 // HP and Durability (already covered by run_ship_battle_difficulty and
 // run_ship_battle_opponent_durability).
 PVE_OPPONENT_OFFENSE_BONUS_PER_TIER :: 2
@@ -18,7 +18,7 @@ run_pve_opponent_offense_bonus :: proc(zone: Zone, depth: int) -> int {
 // run_pve_opponent builds a full Ship Battle opponent (issue #23): the one
 // ship template (ADR-0004), filled with the same starting-fitting roster
 // used everywhere else in this slice — base Captain's Quarters and Top
-// Crew, and an Upgraded Gun Deck scaled by this point's zone/depth. hp and
+// Crew, and an Upgraded Gun Deck scaled by this node's zone/depth. hp and
 // durability reuse run_make_opponent_ship's existing zone-and-depth-scaled
 // formulas rather than duplicating them. Carries no captain — a captain is a
 // player-side, run-start choice (CONTEXT.md), not opponent content. Caller
@@ -47,17 +47,17 @@ run_pve_opponent :: proc(zone: Zone, depth: int) -> ship.Ship {
 	return s
 }
 
-// UPGRADE_OFFER_QUALITY_DIVISOR converts a point's zone-scaled quality
+// UPGRADE_OFFER_QUALITY_DIVISOR converts a node's zone-scaled quality
 // placeholder (run_upgrade_offer_quality) into a flat magnitude bonus for
 // whichever of the three starting fittings the captain picks (issue #23): a
 // smaller, more legible number than raw quality while still scaling with it.
 UPGRADE_OFFER_QUALITY_DIVISOR :: 5
 
 // run_upgrade_offer_options is the fixed menu presented at every Upgrade
-// Offer point (issue #23; ADR-0004: findable content is limited to upgraded
+// Offer node (issue #23; ADR-0004: findable content is limited to upgraded
 // variants of the three starting fittings — no separate fitting roster, so
-// the menu itself never varies). Only the magnitude scales per point, driven
-// by that point's own zone-scaled quality.
+// the menu itself never varies). Only the magnitude scales per node, driven
+// by that node's own zone-scaled quality.
 run_upgrade_offer_options :: proc(offer: Encounter_Upgrade_Offer) -> [3]ship.Fitting {
 	bonus := offer.quality / UPGRADE_OFFER_QUALITY_DIVISOR
 	return [3]ship.Fitting{

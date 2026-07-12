@@ -4,7 +4,7 @@ import "../combat"
 import "../run"
 
 // sim_process_travel applies a submitted Command_Travel_To (issue #24):
-// arrives at the target point, and if it's an as-yet-unresolved Encounter,
+// arrives at the target node, and if it's an as-yet-unresolved Encounter,
 // triggers that encounter ("auto-triggers, no decline"). The very first call
 // — before any travel choice has been submitted — has nothing to apply yet
 // and just announces the run's starting state, broadcasting the masked
@@ -14,14 +14,14 @@ import "../run"
 // Travel is gated by run_travel_options' legality rule (forward and lateral
 // neighbors always, backward neighbors only by retrace to an already-visited
 // node): an illegal destination is a driver bug and asserts, matching the
-// assert-on-driver-bug style of the phase checks. An Encounter point's effect
+// assert-on-driver-bug style of the phase checks. An Encounter node's effect
 // still fires only once — resolved[] tracks that, so re-arriving after a
-// retrace is a no-op, like a Port. Start/Port points have no shop system yet,
+// retrace is a no-op, like a Port. Start/Port nodes have no shop system yet,
 // so they're pure pass-through waypoints in this slice's UI.
 sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	if !has_pending {
-		public_map := run.Map{points = sim.public_points, edges = sim.run_map.edges}
+		public_map := run.Map{nodes = sim.public_nodes, edges = sim.run_map.edges}
 		append(events, Event(Event_Run_Started{run_map = public_map, ship = sim.player}))
 		return
 	}
@@ -31,24 +31,24 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	assert(run.run_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
 	assert(
-		run.run_can_travel_to(sim.run_map, int(sim.current), sim.visited, int(cmd.point_id)),
-		"Command_Travel_To to a point that is not a legal neighbor of the current position",
+		run.run_can_travel_to(sim.run_map, int(sim.current), sim.visited, int(cmd.node_id)),
+		"Command_Travel_To to a node that is not a legal neighbor of the current position",
 	)
 
-	already_resolved := sim.resolved[cmd.point_id]
-	point := sim.run_map.points[cmd.point_id]
+	already_resolved := sim.resolved[cmd.node_id]
+	node := sim.run_map.nodes[cmd.node_id]
 
-	sim.current = cmd.point_id
-	sim.visited[cmd.point_id] = true
+	sim.current = cmd.node_id
+	sim.visited[cmd.node_id] = true
 	sim.steps += 1
-	append(events, Event(Event_Arrived_At_Point{point = point}))
+	append(events, Event(Event_Arrived_At_Node{node = node}))
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 
-	if already_resolved || point.kind != .Encounter {
+	if already_resolved || node.kind != .Encounter {
 		return
 	}
 
-	encounter, _ := point.encounter.?
+	encounter, _ := node.encounter.?
 	switch enc in encounter {
 	case run.Encounter_Ship_Battle:
 		sim.active_encounter = enc
@@ -63,8 +63,8 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim.phase = .Awaiting_Upgrade_Choice
 
 	case run.Encounter_Stat_Trade:
-		zone, has_zone := point.zone.?
-		assert(has_zone, "an Encounter point must have a zone")
+		zone, has_zone := node.zone.?
+		assert(has_zone, "an Encounter node must have a zone")
 		// run_events is per-tick scratch (issue #53): explicitly locked to
 		// context.temp_allocator regardless of the arena-scoped block below,
 		// needed for the Ghost_Snapshot run_apply_stat_trade captures (issue
@@ -81,6 +81,6 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		}
 		sim_forward_encounter_resolved(run_events, events)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
-		sim.resolved[cmd.point_id] = true
+		sim.resolved[cmd.node_id] = true
 	}
 }

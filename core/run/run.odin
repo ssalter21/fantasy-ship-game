@@ -5,7 +5,7 @@ import "../ship"
 import "core:math"
 import "core:math/rand"
 
-// Zone is one of the three fixed difficulty bands a Point belongs to, in a
+// Zone is one of the three fixed difficulty bands a Node belongs to, in a
 // fixed linear order (CONTEXT.md): Coastal (nearest Start) -> Open_Sea ->
 // Deep (nearest Goal). Both encounter difficulty and reward quality scale
 // with zone. The zones survive the node-graph redesign (ADR-0009, which
@@ -70,13 +70,13 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 }
 
 // run_ship_battle_difficulty is the game-configured opponent's HP baseline
-// for a Ship Battle point: rises by zone tier and by depth-within-zone.
+// for a Ship Battle node: rises by zone tier and by depth-within-zone.
 run_ship_battle_difficulty :: proc(zone: Zone, depth: int) -> int {
 	return run_zone_depth_scaled(zone, depth, SHIP_BATTLE_HP_PER_TIER, SHIP_BATTLE_HP_PER_DEPTH)
 }
 
 // run_ship_battle_opponent_durability is the opponent's flat incoming-damage
-// reduction (core/combat's durability stat) for a Ship Battle point: like
+// reduction (core/combat's durability stat) for a Ship Battle node: like
 // run_ship_battle_difficulty, rises by zone tier and by depth, so a deeper
 // battle isn't HP-pool-only.
 run_ship_battle_opponent_durability :: proc(zone: Zone, depth: int) -> int {
@@ -103,25 +103,25 @@ run_stat_trade_cost_speed :: proc(zone: Zone, depth: int) -> int {
 	return run_zone_depth_scaled(zone, depth, STAT_TRADE_SPEED_COST_PER_TIER, STAT_TRADE_SPEED_COST_PER_DEPTH)
 }
 
-// Point_Kind is what a Point is: the Start/home port, a per-zone Port, an
-// Encounter, or the Goal. Points are now graph nodes with edges/adjacency
+// Node_Kind is what a Node is: the Start/home port, a per-zone Port, an
+// Encounter, or the Goal. Nodes are now graph nodes with edges/adjacency
 // (ADR-0009), but the kind vocabulary is
 // unchanged.
-Point_Kind :: enum {
+Node_Kind :: enum {
 	Start,
 	Port,
 	Encounter,
 	Goal,
 }
 
-// run_point_is_port reports whether p functions as a port — true for both
+// run_node_is_port reports whether p functions as a port — true for both
 // .Start (the home port) and .Port (each zone's ports), so a caller doesn't
-// need to special-case .Start itself just to ask "is this point a port".
-run_point_is_port :: proc(p: Point) -> bool {
+// need to special-case .Start itself just to ask "is this node a port".
+run_node_is_port :: proc(p: Node) -> bool {
 	return p.kind == .Start || p.kind == .Port
 }
 
-// Encounter_Kind is the type of interaction an Encounter point presents.
+// Encounter_Kind is the type of interaction an Encounter node presents.
 Encounter_Kind :: enum {
 	Ship_Battle,
 	Upgrade_Offer,
@@ -129,7 +129,7 @@ Encounter_Kind :: enum {
 }
 
 // Encounter is what happens automatically on the first arrival at an
-// Encounter point (no decline once arrived). Shaped as an open union,
+// Encounter node (no decline once arrived). Shaped as an open union,
 // mirroring core/combat's Command/Event pattern, so a future kind can be
 // added without restructuring callers.
 Encounter :: union {
@@ -145,7 +145,7 @@ Encounter :: union {
 // real PvE opponent content is issue #23.
 Encounter_Ship_Battle :: struct {
 	// depth is this node's normalized depth-within-zone (0..DEPTH_STEPS),
-	// retained so run_finish_ship_battle can recompute the point's original
+	// retained so run_finish_ship_battle can recompute the node's original
 	// tuned difficulty rating without reading it off the battle-worn opponent.
 	depth:    int,
 	opponent: ship.Ship,
@@ -168,38 +168,38 @@ Encounter_Stat_Trade :: struct {
 	cost_speed:      int,
 }
 
-// Point is a single node on the run's procedurally-generated map (ADR-0009).
+// Node is a single node on the run's procedurally-generated map (ADR-0009).
 // zone is nil for Start and Goal, which sit
 // outside the three difficulty bands. encounter is set only when
 // kind == .Encounter. layer/lane are the node's position in the layered
 // forward graph — layer is its column (Start = 0, rising toward Goal), lane
 // its row within that column; presentation derives screen coordinates from
-// them, so Points still carry no screen coordinates of their own. depth is
+// them, so Nodes still carry no screen coordinates of their own. depth is
 // the node's normalized depth-within-zone (0 for Start/Goal). Adjacency lives
-// on Map.edges, not on the Point.
-Point :: struct {
+// on Map.edges, not on the Node.
+Node :: struct {
 	id:        int,
 	zone:      Maybe(Zone),
-	kind:      Point_Kind,
+	kind:      Node_Kind,
 	encounter: Maybe(Encounter),
 	layer:     int,
 	lane:      int,
 	depth:     int,
 }
 
-// Map is the run's procedurally-generated node graph: the Points plus the
+// Map is the run's procedurally-generated node graph: the Nodes plus the
 // symmetric adjacency in edges (edges[i] lists the ids of every node sharing
-// an edge with point i). Travel legality is not "go anywhere" any more — it
+// an edge with node i). Travel legality is not "go anywhere" any more — it
 // is derived from this adjacency plus the visited set by run_travel_options.
 Map :: struct {
-	points: []Point,
-	edges:  [][]int,
+	nodes: []Node,
+	edges: [][]int,
 }
 
 // --- Generation constants (all tuning knobs live here, near the generator;
 // no config file, no settings UI) -------------------------------------------
 
-// nodes_per_zone is each zone's total *point* budget (50 total across the
+// nodes_per_zone is each zone's total *node* budget (50 total across the
 // three zones, plus Start and Goal). A port consumes a slot rather than
 // adding on top, so real encounter counts are these minus PORTS_PER_ZONE
 // (15 / 15 / 14 = 44 encounters).
@@ -262,15 +262,15 @@ run_map_create :: proc(seed: u64) -> Map {
 	n_layers := len(layer_width)
 
 	// --- 2. Materialize the nodes layer by layer (ids run in layer order).
-	points: [dynamic]Point
+	nodes: [dynamic]Node
 	layer_start_id := make([]int, n_layers)
 	defer delete(layer_start_id)
 
 	for l in 0 ..< n_layers {
-		layer_start_id[l] = len(points)
+		layer_start_id[l] = len(nodes)
 		zone_m := layer_zone[l]
 		for lane in 0 ..< layer_width[l] {
-			kind := Point_Kind.Encounter
+			kind := Node_Kind.Encounter
 			if l == 0 {
 				kind = .Start
 			} else if l == n_layers - 1 {
@@ -283,10 +283,10 @@ run_map_create :: proc(seed: u64) -> Map {
 				depth = run_normalize_depth(raw_depth, zone_layer_count[zone])
 			}
 
-			append(&points, Point{id = len(points), zone = zone_m, kind = kind, layer = l, lane = lane, depth = depth})
+			append(&nodes, Node{id = len(nodes), zone = zone_m, kind = kind, layer = l, lane = lane, depth = depth})
 		}
 	}
-	n := len(points)
+	n := len(nodes)
 
 	// --- 3. Place ports: PORTS_PER_ZONE per zone, each in a uniformly random
 	// layer within that zone's phase (two ports may share a layer). A port
@@ -313,7 +313,7 @@ run_map_create :: proc(seed: u64) -> Map {
 			}
 			placed[count] = id
 			count += 1
-			points[id].kind = .Port
+			nodes[id].kind = .Port
 		}
 	}
 
@@ -322,7 +322,7 @@ run_map_create :: proc(seed: u64) -> Map {
 	// each encounter's zone-and-depth-scaled content.
 	for zone in Zone {
 		enc_ids: [dynamic]int
-		for p in points {
+		for p in nodes {
 			pz, in_zone := p.zone.?
 			if in_zone && pz == zone && p.kind == .Encounter {
 				append(&enc_ids, p.id)
@@ -330,7 +330,7 @@ run_map_create :: proc(seed: u64) -> Map {
 		}
 		bag := run_make_kind_bag(len(enc_ids), gen)
 		for id, i in enc_ids {
-			points[id].encounter = run_make_encounter(bag[i], zone, points[id].depth)
+			nodes[id].encounter = run_make_encounter(bag[i], zone, nodes[id].depth)
 		}
 		delete(bag)
 		delete(enc_ids)
@@ -405,7 +405,7 @@ run_map_create :: proc(seed: u64) -> Map {
 	}
 	delete(adj)
 
-	return Map{points = points[:], edges = edges}
+	return Map{nodes = nodes[:], edges = edges}
 }
 
 // run_partition_layers splits a zone's node budget into a list of layer widths,
@@ -526,7 +526,7 @@ run_pick_source_with_capacity :: proc(a0, a1: int, forward_out: []int, gen: rand
 // or higher layer) is always legal; a backward neighbor (lower layer) is
 // legal only by retrace to an already-visited node.
 run_neighbor_is_legal :: proc(m: Map, current, neighbor: int, visited: []bool) -> bool {
-	if m.points[neighbor].layer >= m.points[current].layer {
+	if m.nodes[neighbor].layer >= m.nodes[current].layer {
 		return true
 	}
 	return visited[neighbor]
@@ -561,13 +561,13 @@ run_can_travel_to :: proc(m: Map, current: int, visited: []bool, dest: int) -> b
 }
 
 // run_map_destroy frees a Map's owned memory: each node's adjacency slice and
-// the edges array, m.points itself, plus each Ship Battle encounter's
+// the edges array, m.nodes itself, plus each Ship Battle encounter's
 // opponent.layout slice (issue #23; run_pve_opponent allocates a fresh layout
-// per point). Callers of run_map_create must use this instead of a bare
-// delete(m.points).
+// per node). Callers of run_map_create must use this instead of a bare
+// delete(m.nodes).
 run_map_destroy :: proc(m: ^Map) {
-	for point in m.points {
-		encounter, has_encounter := point.encounter.?
+	for node in m.nodes {
+		encounter, has_encounter := node.encounter.?
 		if !has_encounter {
 			continue
 		}
@@ -579,7 +579,7 @@ run_map_destroy :: proc(m: ^Map) {
 		delete(adj)
 	}
 	delete(m.edges)
-	delete(m.points)
+	delete(m.nodes)
 }
 
 // run_make_opponent_ship computes a Ship Battle opponent's baseline stats
@@ -609,7 +609,7 @@ run_start_battle :: proc(s: ^ship.Ship, encounter: ^Encounter_Ship_Battle) -> co
 // handed to run_start_battle, not the opponent — an encounter is "resolved"
 // from the player's own run-progress perspective. difficulty_rating is
 // recomputed from zone/depth rather than read off the opponent's (now
-// battle-worn) hp, since that would reflect remaining HP, not the point's
+// battle-worn) hp, since that would reflect remaining HP, not the node's
 // original tuned difficulty.
 run_finish_ship_battle :: proc(battle: ^combat.Battle, s: ^ship.Ship, encounter: ^Encounter_Ship_Battle, zone: Zone, steps: int, events: ^[dynamic]Event) {
 	assert(battle.ended, "run_finish_ship_battle called before the battle ended")
@@ -630,7 +630,7 @@ run_apply_upgrade_offer :: proc(s: ^ship.Ship, offer: Encounter_Upgrade_Offer, z
 // a Stat Trade is a single fixed trade-off rather than a choice among
 // options, so it applies immediately and permanently on arrival, matching "no
 // decline". Emits Event_Encounter_Resolved (ADR-0008) with a post-trade
-// snapshot; the trade's own gain_durability is already this point's
+// snapshot; the trade's own gain_durability is already this node's
 // zone-and-depth-scaled tuned magnitude, so it doubles as the snapshot's
 // difficulty_rating.
 run_apply_stat_trade :: proc(s: ^ship.Ship, trade: Encounter_Stat_Trade, zone: Zone, steps: int, events: ^[dynamic]Event) {
@@ -661,7 +661,7 @@ Run_Status :: enum {
 // of position, won by being at Goal with HP > 0, otherwise still in progress.
 // HP loss itself happens in core/combat/core/ship; this is just the run-level
 // read of that state.
-run_status :: proc(s: ^ship.Ship, current: Point) -> Run_Status {
+run_status :: proc(s: ^ship.Ship, current: Node) -> Run_Status {
 	if s.hp <= 0 {
 		return .Lost
 	}
@@ -671,7 +671,7 @@ run_status :: proc(s: ^ship.Ship, current: Point) -> Run_Status {
 	return .In_Progress
 }
 
-// run_can_travel reports whether the ship may still travel to another point:
+// run_can_travel reports whether the ship may still travel to another node:
 // false once HP has reached 0 — a sunk ship has already lost and makes no
 // further routing choice.
 run_can_travel :: proc(s: ^ship.Ship) -> bool {

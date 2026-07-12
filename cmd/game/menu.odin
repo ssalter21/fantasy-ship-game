@@ -127,18 +127,18 @@ button_menu_loop :: proc(state: ^Game_State, prompt: string, buttons: []Button) 
 // gates travel on (issue #71).
 travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
-		return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.current_point_id)})
+		return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(state.current_node_id)})
 	}
 	for !rl.WindowShouldClose() {
 		draw_scene(state, "Click a highlighted node to travel there.")
 
 		if rl.IsMouseButtonPressed(.LEFT) {
 			mouse := rl.GetMousePosition()
-			options := run.run_travel_options(state.run_map, state.current_point_id, state.visited)
+			options := run.run_travel_options(state.run_map, state.current_node_id, state.visited)
 			defer delete(options)
 			for dest in options {
-				if rl.CheckCollisionPointCircle(mouse, state.positions[dest], POINT_RADIUS) {
-					return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(dest)})
+				if rl.CheckCollisionPointCircle(mouse, state.positions[dest], NODE_RADIUS) {
+					return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(dest)})
 				}
 			}
 		}
@@ -147,12 +147,12 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	// "stay put" fallback (travel to the current node) is an illegal self-move
 	// the Sim would assert on — return a legal forward option instead so the
 	// run winds down cleanly rather than panicking on quit.
-	closing := run.run_travel_options(state.run_map, state.current_point_id, state.visited)
+	closing := run.run_travel_options(state.run_map, state.current_node_id, state.visited)
 	defer delete(closing)
 	if len(closing) > 0 {
-		return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(closing[0])})
+		return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(closing[0])})
 	}
-	return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.current_point_id)})
+	return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(state.current_node_id)})
 }
 
 // battle_menu_loop blocks until the player picks a battle action (Boost one

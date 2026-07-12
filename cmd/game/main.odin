@@ -28,7 +28,7 @@ main :: proc() {
 	state := Game_State{}
 	defer delete(state.visited)
 	defer delete(state.positions)
-	defer delete(state.run_map.points) // UI-owned clone of the masked map (edges are borrowed)
+	defer delete(state.run_map.nodes) // UI-owned clone of the masked map (edges are borrowed)
 
 	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
 	sink := sim.Event_Sink{data = &state, dispatch = dispatch}
@@ -46,9 +46,9 @@ main :: proc() {
 // — is what decides which decision menu to render.
 Game_State :: struct {
 	run_map:          run.Map,
-	positions:        []rl.Vector2, // parallel to run_map.points; screen position
-	visited:          []bool, // parallel to run_map.points
-	current_point_id: int,
+	positions:        []rl.Vector2, // parallel to run_map.nodes; screen position
+	visited:          []bool, // parallel to run_map.nodes
+	current_node_id:  int,
 	player:           ship.Ship,
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
@@ -68,7 +68,7 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 		// of entering a render loop that can never draw. This path only fires
 		// when there's no window to drive a real gated session, so the specific
 		// id isn't submitted to the Sim's travel gate.
-		return sim.Command(sim.Command_Travel_To{point_id = 0})
+		return sim.Command(sim.Command_Travel_To{node_id = 0})
 	}
 
 	switch awaiting {
@@ -94,21 +94,21 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	switch e in event {
 	case sim.Event_Run_Started:
 		// e.run_map is the Sim's masked public map (unvisited encounter kinds
-		// hidden). Its points are cloned into UI-owned storage so arrivals can
-		// reveal kinds into it (state.run_map.points[id] = revealed point); the
+		// hidden). Its nodes are cloned into UI-owned storage so arrivals can
+		// reveal kinds into it (state.run_map.nodes[id] = revealed node); the
 		// edges/adjacency are borrowed (they never change). Start (id 0) counts
 		// as visited from the outset, matching the Sim's own visited set.
-		state.run_map.points = slice.clone(e.run_map.points)
+		state.run_map.nodes = slice.clone(e.run_map.nodes)
 		state.run_map.edges = e.run_map.edges
 		state.player = e.ship
-		state.visited = make([]bool, len(e.run_map.points))
+		state.visited = make([]bool, len(e.run_map.nodes))
 		state.visited[0] = true
-		state.positions = compute_point_positions(e.run_map)
+		state.positions = compute_node_positions(e.run_map)
 
-	case sim.Event_Arrived_At_Point:
-		state.current_point_id = e.point.id
-		state.visited[e.point.id] = true
-		state.run_map.points[e.point.id] = e.point // reveal this node's now-known kind
+	case sim.Event_Arrived_At_Node:
+		state.current_node_id = e.node.id
+		state.visited[e.node.id] = true
+		state.run_map.nodes[e.node.id] = e.node // reveal this node's now-known kind
 
 	case sim.Event_Ship_Battle_Sighted:
 		state.in_battle = true
