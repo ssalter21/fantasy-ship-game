@@ -10,18 +10,29 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 	m := run.run_map_create(0)
 	defer run.run_map_destroy(&m)
 
-	state := Headless_State{run_map = m, current = 0}
-	state.visited = make([]bool, len(m.nodes))
-	defer delete(state.visited)
-	state.visited[0] = true
+	// Stand in for the Sim's Event_Travel_Options broadcast: the legal moves
+	// from Start (issue #83). get_captain_choice plans from these, not from a
+	// shadow visited set of its own.
+	visited := make([]bool, len(m.nodes))
+	defer delete(visited)
+	visited[0] = true
+	options := run.run_travel_options(m, 0, visited)
+	defer delete(options)
+	travel_options := make([]sim.Node_ID, len(options))
+	defer delete(travel_options)
+	for id, i in options {
+		travel_options[i] = sim.Node_ID(id)
+	}
+
+	state := Headless_State{run_map = m, current = 0, travel_options = travel_options}
 
 	cmd := get_captain_choice(&state, .Awaiting_Travel_Choice)
 
 	travel, ok := cmd.(sim.Command_Travel_To)
 	testing.expect(t, ok)
-	// The chosen destination must be a real neighbour of Start and a forward
+	// The chosen destination must be one of the emitted options and a forward
 	// step (a deeper layer) — progress toward Goal, never an illegal jump.
-	testing.expect(t, run.run_can_travel_to(m, 0, state.visited, int(travel.node_id)))
+	testing.expect(t, run.run_can_travel_to(m, 0, visited, int(travel.node_id)))
 	testing.expect(t, m.nodes[travel.node_id].layer > m.nodes[0].layer)
 }
 
@@ -57,7 +68,6 @@ the_auto_player_reaches_a_run_ended_event_navigating_the_graph :: proc(t: ^testi
 
 	state := Headless_State{}
 	defer delete(state.events)
-	defer delete(state.visited)
 	sink := sim.Event_Sink{data = &state, dispatch = dispatch}
 	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
 

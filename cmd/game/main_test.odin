@@ -32,6 +32,7 @@ dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^t
 	defer delete(state.run_map.nodes) // dispatch clones the map's nodes into UI-owned storage
 
 	dispatch(&state, sim.Event(sim.Event_Run_Started{run_map = run_map, ship = state.player}))
+	dispatch(&state, sim.Event(sim.Event_Travel_Options{options = []sim.Node_ID{1, 2}}))
 	dispatch(&state, sim.Event(sim.Event_Arrived_At_Node{node = run_map.nodes[0]}))
 	dispatch(&state, sim.Event(sim.Event_Ship_Battle_Sighted{opponent = state.player}))
 	dispatch(&state, sim.Event(sim.Event_Battle_Menu{may_leave = true}))

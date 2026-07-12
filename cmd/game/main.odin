@@ -47,7 +47,8 @@ main :: proc() {
 Game_State :: struct {
 	run_map:          run.Map,
 	positions:        []rl.Vector2, // parallel to run_map.nodes; screen position
-	visited:          []bool, // parallel to run_map.nodes
+	visited:          []bool, // parallel to run_map.nodes; kept for rendering (revealing kinds, colouring nodes)
+	travel_options:   []sim.Node_ID, // borrowed from the latest Event_Travel_Options; the Sim's legal moves for the decision path
 	current_node_id:  int,
 	player:           ship.Ship,
 	in_battle:        bool,
@@ -104,6 +105,11 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		state.visited = make([]bool, len(e.run_map.nodes))
 		state.visited[0] = true
 		state.positions = compute_node_positions(e.run_map)
+
+	case sim.Event_Travel_Options:
+		// The Sim's legal moves for the upcoming travel decision (issue #83);
+		// travel_menu_loop offers exactly these instead of re-deriving them.
+		state.travel_options = e.options
 
 	case sim.Event_Arrived_At_Node:
 		state.current_node_id = e.node.id
