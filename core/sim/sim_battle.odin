@@ -44,19 +44,8 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	zone, has_zone := sim.run_map.nodes[sim.current].zone.?
 	assert(has_zone, "a Ship Battle node must have a zone")
-	// run_events is per-tick scratch too (issue #53): explicitly locked to
-	// context.temp_allocator despite the arena-scoped block below — needed
-	// since run_finish_ship_battle's Ghost_Snapshot capture (issue #52) must
-	// land on the arena, not here.
-	run_events := make([dynamic]run.Event, 0, 0, context.temp_allocator)
-	{
-		// The captured Ghost_Snapshot's layout must outlive this call
-		// (issue #52: it escapes via Event_Encounter_Resolved), so it's
-		// allocated from the Sim's own run-scoped arena.
-		context.allocator = sim_arena_allocator(sim)
-		run.run_finish_ship_battle(&sim.battle, &sim.player, &sim.active_encounter, zone, sim.steps, &run_events)
-	}
-	sim_forward_encounter_resolved(run_events, events)
+	snap := run.run_finish_ship_battle(&sim.battle, &sim.player, &sim.active_encounter, zone, sim.steps)
+	sim_emit_encounter_resolved(sim, snap, events)
 
 	sim.resolved[sim.current] = true
 	sim.phase = .Awaiting_Travel_Choice

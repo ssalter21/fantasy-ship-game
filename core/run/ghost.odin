@@ -20,41 +20,40 @@ Ghost_Progress :: struct {
 	difficulty_rating: int,
 }
 
-// Event is the only way a caller learns a Ghost_Snapshot was captured
-// (mirrors ADR-0001's Command/Event boundary and core/combat's own Event
-// union). Shaped as an open union so a future kind can be added without
-// restructuring callers.
-Event :: union {
-	Event_Encounter_Resolved,
-}
-
-// Event_Encounter_Resolved is emitted after an encounter node resolves
-// (ADR-0008: Ship Battle, Upgrade Offer, or Stat Trade — not port visits,
-// which don't change ship state), carrying a fresh Ghost_Snapshot of the
-// ship's state at that point.
-Event_Encounter_Resolved :: struct {
-	snapshot: Ghost_Snapshot,
-}
-
-// run_ghost_snapshot_capture builds a decoupled Ghost_Snapshot from a real,
-// in-progress ship (ADR-0008): hp is always reset to s.max_hp regardless of
-// the ship's current run-persistent hp, and the layout is cloned (via
-// context.allocator) so later mutation to the source ship (e.g. Jettison
-// Cargo) can't leak into the snapshot. core/sim's Sim calls this with its own
-// run-scoped arena active (issue #52), so the returned snapshot's layout
-// lives as long as the Sim and is reclaimed wholesale by sim_destroy — a
-// caller outside that context gets a snapshot allocated from whatever
-// context.allocator is active at the call site, and owns it as normal.
-run_ghost_snapshot_capture :: proc(s: ^ship.Ship, steps: int, zone: Zone, difficulty_rating: int) -> Ghost_Snapshot {
-	layout := make([]ship.Layout_Slot, len(s.layout))
-	copy(layout, s.layout)
-
+// run_ghost_snapshot_of assembles a Ghost_Snapshot describing ship s at the
+// given run progress, without cloning: hp is reset to s.max_hp (ADR-0008: a
+// ghost always starts at full health), but the returned snapshot's layout
+// *aliases* s.layout rather than owning a copy. It is a borrowed description
+// valid only as long as s and its layout are — a caller that must hand the
+// snapshot out past s's lifetime (core/sim, via Event_Encounter_Resolved)
+// deep-copies it onto its own allocator with run_ghost_snapshot_capture. The
+// encounter-resolution procs return one of these so the Sim owns the single
+// arena-backed capture (issue #82).
+run_ghost_snapshot_of :: proc(s: ^ship.Ship, steps: int, zone: Zone, difficulty_rating: int) -> Ghost_Snapshot {
 	snap_ship := s^
 	snap_ship.hp = s.max_hp
-	snap_ship.layout = layout
 
 	return Ghost_Snapshot{
 		ship = snap_ship,
 		progress = Ghost_Progress{steps = steps, zone = zone, difficulty_rating = difficulty_rating},
 	}
+}
+
+// run_ghost_snapshot_capture builds a decoupled, owned Ghost_Snapshot from a
+// real, in-progress ship (ADR-0008): like run_ghost_snapshot_of it resets hp
+// to s.max_hp, but it also clones the layout (via context.allocator) so later
+// mutation to the source ship (e.g. Jettison Cargo) can't leak into the
+// snapshot. core/sim's Sim calls this with its own run-scoped arena active
+// (issue #52), so the returned snapshot's layout lives as long as the Sim and
+// is reclaimed wholesale by sim_destroy — a caller outside that context gets a
+// snapshot allocated from whatever context.allocator is active at the call
+// site, and owns it as normal.
+run_ghost_snapshot_capture :: proc(s: ^ship.Ship, steps: int, zone: Zone, difficulty_rating: int) -> Ghost_Snapshot {
+	snap := run_ghost_snapshot_of(s, steps, zone, difficulty_rating)
+
+	layout := make([]ship.Layout_Slot, len(s.layout))
+	copy(layout, s.layout)
+	snap.ship.layout = layout
+
+	return snap
 }
