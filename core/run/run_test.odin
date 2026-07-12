@@ -419,7 +419,7 @@ set_eq :: proc(got: []int, want: []int) -> bool {
 		return false
 	}
 	for w in want {
-		if !contains(got, w) {
+		if !run_contains(got, w) {
 			return false
 		}
 	}
@@ -457,11 +457,11 @@ travel_options_offers_a_lateral_edge_in_both_directions :: proc(t: ^testing.T) {
 
 	from1 := run_travel_options(m, 1, visited)
 	defer delete(from1)
-	testing.expect(t, contains(from1, 2)) // 1 -> 2 lateral
+	testing.expect(t, run_contains(from1, 2)) // 1 -> 2 lateral
 
 	from2 := run_travel_options(m, 2, visited)
 	defer delete(from2)
-	testing.expect(t, contains(from2, 1)) // 2 -> 1 lateral
+	testing.expect(t, run_contains(from2, 1)) // 2 -> 1 lateral
 }
 
 @(test)

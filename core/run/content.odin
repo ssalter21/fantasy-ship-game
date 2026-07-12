@@ -4,7 +4,7 @@ import "../ship"
 
 // PVE_OPPONENT_OFFENSE_BONUS_PER_TIER/PER_DEPTH scale a PvE opponent's Gun
 // Deck output by zone tier and depth-within-zone (issue #23), reusing the
-// same run_scaled shape as every other zone-and-depth-scaled placeholder in
+// same run_zone_depth_scaled shape as every other zone-and-depth-scaled placeholder in
 // run.odin — so a deeper Ship Battle point hits harder, not just soaks more
 // HP and Durability (already covered by run_ship_battle_difficulty and
 // run_ship_battle_opponent_durability).
@@ -12,7 +12,7 @@ PVE_OPPONENT_OFFENSE_BONUS_PER_TIER :: 2
 PVE_OPPONENT_OFFENSE_BONUS_PER_DEPTH :: 1
 
 run_pve_opponent_offense_bonus :: proc(zone: Zone, depth: int) -> int {
-	return run_scaled(zone, depth, PVE_OPPONENT_OFFENSE_BONUS_PER_TIER, PVE_OPPONENT_OFFENSE_BONUS_PER_DEPTH)
+	return run_zone_depth_scaled(zone, depth, PVE_OPPONENT_OFFENSE_BONUS_PER_TIER, PVE_OPPONENT_OFFENSE_BONUS_PER_DEPTH)
 }
 
 // run_pve_opponent builds a full Ship Battle opponent (issue #23): the one

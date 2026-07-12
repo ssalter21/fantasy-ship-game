@@ -8,8 +8,8 @@ import "core:math/rand"
 // Zone is one of the three fixed difficulty bands a Point belongs to, in a
 // fixed linear order (CONTEXT.md): Coastal (nearest Start) -> Open_Sea ->
 // Deep (nearest Goal). Both encounter difficulty and reward quality scale
-// with zone. The zones survive the node-graph redesign (ADR superseding
-// ADR-0007's topology/fog sections) — only the map's shape and the
+// with zone. The zones survive the node-graph redesign (ADR-0010, which
+// supersedes ADR-0007's topology/fog) — only the map's shape and the
 // within-zone gradient axis changed.
 Zone :: enum {
 	Coastal,
@@ -29,7 +29,7 @@ zone_tier := [Zone]int{.Coastal = 1, .Open_Sea = 2, .Deep = 3}
 // ladder above, and depth-within-zone — how deep into a zone's phase a node
 // sits, normalized to a fixed range (DEPTH_STEPS) so the spread is consistent
 // regardless of how many layers a seed happened to roll. Both feed every
-// zone-scaled formula below via run_scaled. Depth replaces the retired
+// zone-scaled formula below via run_zone_depth_scaled. Depth replaces the retired
 // Ship-Battle-only "port proximity / contested waters" input, and now applies
 // to all three encounter kinds.
 DEPTH_STEPS :: 3
@@ -46,12 +46,12 @@ STAT_TRADE_DURABILITY_PER_DEPTH :: 2
 STAT_TRADE_SPEED_COST_PER_TIER :: 1
 STAT_TRADE_SPEED_COST_PER_DEPTH :: 1
 
-// run_scaled is the shared accessor behind every zone-and-depth-scaled
+// run_zone_depth_scaled is the shared accessor behind every zone-and-depth-scaled
 // placeholder below: a kind's per_tier constant times the zone's position on
 // zone_tier, plus its per_depth constant times the node's normalized
 // depth-within-zone. The two axes stack, so a deep node in a zone outscales a
 // shallow one, and a Deep-zone node still outscales a Coastal one.
-run_scaled :: proc(zone: Zone, depth: int, per_tier: int, per_depth: int) -> int {
+run_zone_depth_scaled :: proc(zone: Zone, depth: int, per_tier: int, per_depth: int) -> int {
 	return zone_tier[zone] * per_tier + depth * per_depth
 }
 
@@ -72,7 +72,7 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 // run_ship_battle_difficulty is the game-configured opponent's HP baseline
 // for a Ship Battle point: rises by zone tier and by depth-within-zone.
 run_ship_battle_difficulty :: proc(zone: Zone, depth: int) -> int {
-	return run_scaled(zone, depth, SHIP_BATTLE_HP_PER_TIER, SHIP_BATTLE_HP_PER_DEPTH)
+	return run_zone_depth_scaled(zone, depth, SHIP_BATTLE_HP_PER_TIER, SHIP_BATTLE_HP_PER_DEPTH)
 }
 
 // run_ship_battle_opponent_durability is the opponent's flat incoming-damage
@@ -80,7 +80,7 @@ run_ship_battle_difficulty :: proc(zone: Zone, depth: int) -> int {
 // run_ship_battle_difficulty, rises by zone tier and by depth, so a deeper
 // battle isn't HP-pool-only.
 run_ship_battle_opponent_durability :: proc(zone: Zone, depth: int) -> int {
-	return run_scaled(zone, depth, SHIP_BATTLE_DURABILITY_PER_TIER, SHIP_BATTLE_DURABILITY_PER_DEPTH)
+	return run_zone_depth_scaled(zone, depth, SHIP_BATTLE_DURABILITY_PER_TIER, SHIP_BATTLE_DURABILITY_PER_DEPTH)
 }
 
 // run_upgrade_offer_quality is a zone-and-depth-scaled reward-quality
@@ -88,7 +88,7 @@ run_ship_battle_opponent_durability :: proc(zone: Zone, depth: int) -> int {
 // one in the same zone. Concrete meaning (what an Upgrade Offer actually
 // grants) is issue #23's content.
 run_upgrade_offer_quality :: proc(zone: Zone, depth: int) -> int {
-	return run_scaled(zone, depth, UPGRADE_OFFER_QUALITY_PER_TIER, UPGRADE_OFFER_QUALITY_PER_DEPTH)
+	return run_zone_depth_scaled(zone, depth, UPGRADE_OFFER_QUALITY_PER_TIER, UPGRADE_OFFER_QUALITY_PER_DEPTH)
 }
 
 // run_stat_trade_gain_durability and run_stat_trade_cost_speed are the
@@ -96,16 +96,16 @@ run_upgrade_offer_quality :: proc(zone: Zone, depth: int) -> int {
 // trade is a bigger swing (more Durability gained, more Speed spent) than a
 // shallow one in the same zone.
 run_stat_trade_gain_durability :: proc(zone: Zone, depth: int) -> int {
-	return run_scaled(zone, depth, STAT_TRADE_DURABILITY_PER_TIER, STAT_TRADE_DURABILITY_PER_DEPTH)
+	return run_zone_depth_scaled(zone, depth, STAT_TRADE_DURABILITY_PER_TIER, STAT_TRADE_DURABILITY_PER_DEPTH)
 }
 
 run_stat_trade_cost_speed :: proc(zone: Zone, depth: int) -> int {
-	return run_scaled(zone, depth, STAT_TRADE_SPEED_COST_PER_TIER, STAT_TRADE_SPEED_COST_PER_DEPTH)
+	return run_zone_depth_scaled(zone, depth, STAT_TRADE_SPEED_COST_PER_TIER, STAT_TRADE_SPEED_COST_PER_DEPTH)
 }
 
 // Point_Kind is what a Point is: the Start/home port, a per-zone Port, an
 // Encounter, or the Goal. Points are now graph nodes with edges/adjacency
-// (ADR superseding ADR-0007's topology), but the kind vocabulary is
+// (ADR-0010), but the kind vocabulary is
 // unchanged.
 Point_Kind :: enum {
 	Start,
@@ -168,8 +168,8 @@ Encounter_Stat_Trade :: struct {
 	cost_speed:      int,
 }
 
-// Point is a single node on the run's procedurally-generated map (ADR
-// superseding ADR-0007's topology). zone is nil for Start and Goal, which sit
+// Point is a single node on the run's procedurally-generated map (ADR-0010).
+// zone is nil for Start and Goal, which sit
 // outside the three difficulty bands. encounter is set only when
 // kind == .Encounter. layer/lane are the node's position in the layered
 // forward graph — layer is its column (Start = 0, rising toward Goal), lane
@@ -247,7 +247,7 @@ run_map_create :: proc(seed: u64) -> Map {
 	zone_layer_count: [Zone]int
 	for zone in Zone {
 		zone_first_layer[zone] = len(layer_width)
-		widths := partition_layers(nodes_per_zone[zone], gen)
+		widths := run_partition_layers(nodes_per_zone[zone], gen)
 		zone_layer_count[zone] = len(widths)
 		for w in widths {
 			append(&layer_zone, Maybe(Zone)(zone))
@@ -328,7 +328,7 @@ run_map_create :: proc(seed: u64) -> Map {
 				append(&enc_ids, p.id)
 			}
 		}
-		bag := make_kind_bag(len(enc_ids), gen)
+		bag := run_make_kind_bag(len(enc_ids), gen)
 		for id, i in enc_ids {
 			points[id].encounter = run_make_encounter(bag[i], zone, points[id].depth)
 		}
@@ -353,7 +353,7 @@ run_map_create :: proc(seed: u64) -> Map {
 		// step forward toward Goal.
 		for u in a0 ..< a1 {
 			v := b0 + rand.int_max(b1 - b0, gen)
-			add_edge(adj, u, v)
+			run_add_edge(adj, u, v)
 			forward_out[u] += 1
 		}
 
@@ -361,11 +361,11 @@ run_map_create :: proc(seed: u64) -> Map {
 		// edge gets one from a layer-l source with spare out-degree — so no
 		// node is unreachable from Start.
 		for v in b0 ..< b1 {
-			if has_incoming(adj[:], v, a0, a1) {
+			if run_has_incoming(adj[:], v, a0, a1) {
 				continue
 			}
-			u := pick_source_with_capacity(a0, a1, forward_out, gen)
-			add_edge(adj, u, v)
+			u := run_pick_source_with_capacity(a0, a1, forward_out, gen)
+			run_add_edge(adj, u, v)
 			forward_out[u] += 1
 		}
 
@@ -378,8 +378,8 @@ run_map_create :: proc(seed: u64) -> Map {
 					break
 				}
 				v := b0 + rand.int_max(b1 - b0, gen)
-				if !contains(adj[u][:], v) {
-					add_edge(adj, u, v)
+				if !run_contains(adj[u][:], v) {
+					run_add_edge(adj, u, v)
 					forward_out[u] += 1
 				}
 			}
@@ -393,7 +393,7 @@ run_map_create :: proc(seed: u64) -> Map {
 		for i in 0 ..< w {
 			for j in i + 1 ..< w {
 				if rand.float64(gen) < LATERAL_EDGE_CHANCE {
-					add_edge(adj, a0 + i, a0 + j)
+					run_add_edge(adj, a0 + i, a0 + j)
 				}
 			}
 		}
@@ -408,12 +408,12 @@ run_map_create :: proc(seed: u64) -> Map {
 	return Map{points = points[:], edges = edges}
 }
 
-// partition_layers splits a zone's node budget into a list of layer widths,
+// run_partition_layers splits a zone's node budget into a list of layer widths,
 // each within [LAYER_WIDTH_MIN, LAYER_WIDTH_MAX], summing exactly to total.
 // The layer count is chosen randomly among those that admit a valid split,
 // then the surplus over the minimum is scattered across layers. Caller owns
 // the returned slice.
-partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
+run_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 	min_layers := (total + LAYER_WIDTH_MAX - 1) / LAYER_WIDTH_MAX
 	max_layers := total / LAYER_WIDTH_MIN
 	k := min_layers if max_layers <= min_layers else rand.int_range(min_layers, max_layers + 1, gen)
@@ -433,11 +433,11 @@ partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 	return widths
 }
 
-// make_kind_bag builds count encounter kinds split as evenly across the three
+// run_make_kind_bag builds count encounter kinds split as evenly across the three
 // kinds as a three-way division allows (e.g. 15 -> 5/5/5, 14 -> 5/5/4), then
 // shuffles them. Guarantees the zone-wide pool is even; makes no attempt to
 // balance kinds along any individual route. Caller owns the returned slice.
-make_kind_bag :: proc(count: int, gen: rand.Generator) -> []Encounter_Kind {
+run_make_kind_bag :: proc(count: int, gen: rand.Generator) -> []Encounter_Kind {
 	bag := make([]Encounter_Kind, count)
 	base := count / 3
 	rem := count % 3
@@ -472,19 +472,19 @@ run_make_encounter :: proc(kind: Encounter_Kind, zone: Zone, depth: int) -> Enco
 	unreachable()
 }
 
-// add_edge records a symmetric edge between u and v (each appears in the
+// run_add_edge records a symmetric edge between u and v (each appears in the
 // other's adjacency), skipping duplicates.
-add_edge :: proc(adj: [][dynamic]int, u, v: int) {
-	if contains(adj[u][:], v) {
+run_add_edge :: proc(adj: [][dynamic]int, u, v: int) {
+	if run_contains(adj[u][:], v) {
 		return
 	}
 	append(&adj[u], v)
 	append(&adj[v], u)
 }
 
-// contains reports whether xs holds x — a linear scan, fine for the tiny
+// run_contains reports whether xs holds x — a linear scan, fine for the tiny
 // per-node adjacency lists.
-contains :: proc(xs: []int, x: int) -> bool {
+run_contains :: proc(xs: []int, x: int) -> bool {
 	for e in xs {
 		if e == x {
 			return true
@@ -493,9 +493,9 @@ contains :: proc(xs: []int, x: int) -> bool {
 	return false
 }
 
-// has_incoming reports whether v already has an edge from any node in the
+// run_has_incoming reports whether v already has an edge from any node in the
 // layer spanning [a0, a1).
-has_incoming :: proc(adj: [][dynamic]int, v, a0, a1: int) -> bool {
+run_has_incoming :: proc(adj: [][dynamic]int, v, a0, a1: int) -> bool {
 	for u in adj[v] {
 		if u >= a0 && u < a1 {
 			return true
@@ -504,10 +504,10 @@ has_incoming :: proc(adj: [][dynamic]int, v, a0, a1: int) -> bool {
 	return false
 }
 
-// pick_source_with_capacity chooses a node in [a0, a1) whose forward
+// run_pick_source_with_capacity chooses a node in [a0, a1) whose forward
 // out-degree is still below OUT_DEGREE_MAX; falls back to any node in range if
 // somehow all are saturated (layer widths make that unreachable in practice).
-pick_source_with_capacity :: proc(a0, a1: int, forward_out: []int, gen: rand.Generator) -> int {
+run_pick_source_with_capacity :: proc(a0, a1: int, forward_out: []int, gen: rand.Generator) -> int {
 	candidates: [dynamic]int
 	defer delete(candidates)
 	for u in a0 ..< a1 {

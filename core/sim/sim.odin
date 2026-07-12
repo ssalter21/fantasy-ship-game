@@ -123,7 +123,7 @@ Event :: union {
 // layout) and the always-visible landmarks (Start/Port/Goal), but its
 // Encounter nodes have their *kind* withheld — run_map.points is the Sim's
 // masked public_points, not its private run_map. This is the hiding contract
-// (the ADR superseding ADR-0007's fog-of-war section): what kind of encounter
+// (ADR-0010): what kind of encounter
 // a node holds is a surprise revealed only on arrival, via
 // Event_Arrived_At_Point carrying that node's full Point. Withholding is a
 // guaranteed data property of the emitted event, not a presentation courtesy.

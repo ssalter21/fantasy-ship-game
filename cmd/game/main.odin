@@ -64,8 +64,10 @@ Game_State :: struct {
 get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Game_State)data
 	if !rl.IsWindowReady() {
-		// No live window (e.g. under `odin test`): return a harmless
-		// default instead of entering a render loop that can never draw.
+		// No live window (e.g. under `odin test`): return a placeholder instead
+		// of entering a render loop that can never draw. This path only fires
+		// when there's no window to drive a real gated session, so the specific
+		// id isn't submitted to the Sim's travel gate.
 		return sim.Command(sim.Command_Travel_To{point_id = 0})
 	}
 

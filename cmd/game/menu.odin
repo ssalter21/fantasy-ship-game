@@ -143,6 +143,15 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			}
 		}
 	}
+	// The window is closing without a pick. Travel is now gated, so the old
+	// "stay put" fallback (travel to the current node) is an illegal self-move
+	// the Sim would assert on — return a legal forward option instead so the
+	// run winds down cleanly rather than panicking on quit.
+	closing := run.run_travel_options(state.run_map, state.current_point_id, state.visited)
+	defer delete(closing)
+	if len(closing) > 0 {
+		return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(closing[0])})
+	}
 	return sim.Command(sim.Command_Travel_To{point_id = sim.Point_ID(state.current_point_id)})
 }
 
