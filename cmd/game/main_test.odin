@@ -23,12 +23,13 @@ get_captain_choice_returns_a_default_travel_choice_without_a_live_window :: proc
 
 @(test)
 dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^testing.T) {
-	run_map := run.run_map_create()
+	run_map := run.run_map_create(0)
 	defer run.run_map_destroy(&run_map)
 
 	state := Game_State{}
 	defer delete(state.visited)
 	defer delete(state.positions)
+	defer delete(state.run_map.points) // dispatch clones the map's points into UI-owned storage
 
 	dispatch(&state, sim.Event(sim.Event_Run_Started{run_map = run_map, ship = state.player}))
 	dispatch(&state, sim.Event(sim.Event_Arrived_At_Point{point = run_map.points[0]}))

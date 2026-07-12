@@ -2,13 +2,13 @@ package run
 
 import "../combat"
 import "../ship"
+import "core:slice"
 import "core:testing"
 
 // encounter_kind_of classifies e as its Encounter_Kind so the assertions
 // below don't each repeat a type-switch over Encounter's variants. Kept
 // local to tests rather than exported from run.odin: nothing in production
-// code needs the reverse Encounter -> Encounter_Kind mapping yet (run_map_create
-// only ever builds Encounter values forward from a known Encounter_Kind).
+// code needs the reverse Encounter -> Encounter_Kind mapping.
 encounter_kind_of :: proc(e: Encounter) -> Encounter_Kind {
 	switch _ in e {
 	case Encounter_Ship_Battle:
@@ -21,44 +21,42 @@ encounter_kind_of :: proc(e: Encounter) -> Encounter_Kind {
 	unreachable()
 }
 
-// expect_harder_in_deeper_zone and expect_harder_nearer_port share the
-// assertion body behind every "rises with zone/port_closeness" test below,
-// which otherwise differ only in which zone-scaled proc is under test.
-expect_harder_in_deeper_zone :: proc(t: ^testing.T, f: proc(Zone, int) -> int) {
+// --- Gradient formulas: zone tier x depth ----------------------------------
+
+expect_rises_by_zone_and_depth :: proc(t: ^testing.T, f: proc(Zone, int) -> int) {
+	// A deeper zone at the same depth is harder/more rewarding...
 	testing.expect(t, f(.Deep, 0) > f(.Coastal, 0))
-}
-
-expect_harder_nearer_port :: proc(t: ^testing.T, f: proc(Zone, int) -> int) {
-	testing.expect(t, f(.Open_Sea, 3) > f(.Open_Sea, 0))
-}
-
-expect_rises_by_zone :: proc(t: ^testing.T, f: proc(Zone) -> int) {
-	testing.expect(t, f(.Open_Sea) > f(.Coastal))
-	testing.expect(t, f(.Deep) > f(.Open_Sea))
+	// ...and within a zone, a deeper node outscales a shallow one.
+	testing.expect(t, f(.Open_Sea, DEPTH_STEPS) > f(.Open_Sea, 0))
 }
 
 @(test)
-same_port_closeness_is_harder_in_a_deeper_zone :: proc(t: ^testing.T) {
-	expect_harder_in_deeper_zone(t, run_ship_battle_difficulty)
+ship_battle_difficulty_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_ship_battle_difficulty)
 }
 
 @(test)
-a_ship_battle_point_nearer_its_zones_port_is_harder_than_one_farther_away :: proc(t: ^testing.T) {
-	expect_harder_nearer_port(t, run_ship_battle_difficulty)
+ship_battle_opponent_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_ship_battle_opponent_durability)
 }
 
 @(test)
-opponent_durability_is_higher_in_a_deeper_zone_at_the_same_port_closeness :: proc(t: ^testing.T) {
-	expect_harder_in_deeper_zone(t, run_ship_battle_opponent_durability)
+upgrade_offer_quality_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_upgrade_offer_quality)
 }
 
 @(test)
-opponent_durability_is_higher_nearer_the_zones_port :: proc(t: ^testing.T) {
-	expect_harder_nearer_port(t, run_ship_battle_opponent_durability)
+stat_trade_gain_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_stat_trade_gain_durability)
 }
 
 @(test)
-run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_port_closeness :: proc(t: ^testing.T) {
+stat_trade_cost_speed_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_stat_trade_cost_speed)
+}
+
+@(test)
+run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t: ^testing.T) {
 	opponent := run_make_opponent_ship(.Deep, 2)
 
 	testing.expect_value(t, opponent.hp, run_ship_battle_difficulty(.Deep, 2))
@@ -66,25 +64,24 @@ run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_port_closeness 
 }
 
 @(test)
-upgrade_offer_quality_rises_by_zone :: proc(t: ^testing.T) {
-	expect_rises_by_zone(t, run_upgrade_offer_quality)
-}
-
-@(test)
-stat_trade_gain_durability_rises_by_zone :: proc(t: ^testing.T) {
-	expect_rises_by_zone(t, run_stat_trade_gain_durability)
-}
-
-@(test)
-stat_trade_cost_speed_rises_by_zone :: proc(t: ^testing.T) {
-	expect_rises_by_zone(t, run_stat_trade_cost_speed)
-}
-
-@(test)
 the_three_zone_scaled_encounter_kinds_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
-	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_upgrade_offer_quality(.Coastal))
-	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_stat_trade_gain_durability(.Coastal))
-	testing.expect(t, run_upgrade_offer_quality(.Coastal) != run_stat_trade_gain_durability(.Coastal))
+	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_upgrade_offer_quality(.Coastal, 0))
+	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_stat_trade_gain_durability(.Coastal, 0))
+	testing.expect(t, run_upgrade_offer_quality(.Coastal, 0) != run_stat_trade_gain_durability(.Coastal, 0))
+}
+
+// --- Depth normalization: stable endpoints regardless of layer count -------
+
+@(test)
+depth_normalization_maps_shallow_and_deep_to_stable_endpoints :: proc(t: ^testing.T) {
+	// The shallowest layer always normalizes to 0 and the deepest to
+	// DEPTH_STEPS, whether the zone rolled 3 layers or 5.
+	testing.expect_value(t, run_normalize_depth(0, 3), 0)
+	testing.expect_value(t, run_normalize_depth(2, 3), DEPTH_STEPS)
+	testing.expect_value(t, run_normalize_depth(0, 5), 0)
+	testing.expect_value(t, run_normalize_depth(4, 5), DEPTH_STEPS)
+	// A single-layer zone collapses to 0 (no division by zero).
+	testing.expect_value(t, run_normalize_depth(0, 1), 0)
 }
 
 @(test)
@@ -95,93 +92,218 @@ run_point_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal :: 
 	testing.expect(t, !run_point_is_port(Point{kind = .Goal}))
 }
 
-@(test)
-run_map_create_has_start_three_zones_of_a_port_and_four_encounters_and_a_goal :: proc(t: ^testing.T) {
-	m := run_map_create()
-	defer run_map_destroy(&m)
+// --- Generation structural invariants (swept over several seeds) -----------
 
-	// 1 Start + 3 zones * (1 Port + 4 Encounter) + 1 Goal = 17.
-	testing.expect_value(t, len(m.points), 17)
-}
+// TEST_SEEDS is a spread of seeds the structural-invariant tests sweep, so a
+// single lucky/unlucky seed can't mask a generation bug.
+TEST_SEEDS := []u64{0, 1, 2, 7, 42, 1000, 123456}
 
-@(test)
-run_map_create_splits_the_twelve_encounter_points_evenly_across_the_three_kinds :: proc(t: ^testing.T) {
-	m := run_map_create()
-	defer run_map_destroy(&m)
-
-	counts: [Encounter_Kind]int
-	for point in m.points {
-		encounter, has_encounter := point.encounter.?
-		if !has_encounter {
-			continue
+goal_id :: proc(m: Map) -> int {
+	for p in m.points {
+		if p.kind == .Goal {
+			return p.id
 		}
-		counts[encounter_kind_of(encounter)] += 1
 	}
+	return -1
+}
 
-	testing.expect_value(t, counts[.Ship_Battle], 4)
-	testing.expect_value(t, counts[.Upgrade_Offer], 4)
-	testing.expect_value(t, counts[.Stat_Trade], 4)
+// forward_reaches_goal reports whether start can reach goal following only
+// forward edges (strictly-higher layer), verifying the forward DAG.
+forward_reaches_goal :: proc(m: Map, start, goal: int) -> bool {
+	visited := make([]bool, len(m.points))
+	defer delete(visited)
+	stack: [dynamic]int
+	defer delete(stack)
+	append(&stack, start)
+	visited[start] = true
+	for len(stack) > 0 {
+		u := pop(&stack)
+		if u == goal {
+			return true
+		}
+		for v in m.edges[u] {
+			if m.points[v].layer > m.points[u].layer && !visited[v] {
+				visited[v] = true
+				append(&stack, v)
+			}
+		}
+	}
+	return false
 }
 
 @(test)
-each_zone_has_exactly_one_port_and_a_mix_of_encounter_kinds_not_one_kind_dominating :: proc(t: ^testing.T) {
-	m := run_map_create()
-	defer run_map_destroy(&m)
+every_non_goal_node_has_a_forward_path_to_goal_and_no_dead_ends :: proc(t: ^testing.T) {
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
 
-	for zone in Zone {
-		port_count := 0
-		// kinds_seen is a genuine set-of-enum over Encounter_Kind (issue #54):
-		// bit_set instead of a map[Encounter_Kind]bool, so there's no
-		// allocation to defer-delete either.
-		kinds_seen: bit_set[Encounter_Kind]
-
-		for point in m.points {
-			point_zone, in_a_zone := point.zone.?
-			if !in_a_zone || point_zone != zone {
+		goal := goal_id(m)
+		for p in m.points {
+			if p.kind == .Goal {
 				continue
 			}
-			if point.kind == .Port {
-				port_count += 1
+			// No dead ends: at least one forward (higher-layer) edge.
+			has_forward := false
+			for v in m.edges[p.id] {
+				if m.points[v].layer > p.layer {
+					has_forward = true
+					break
+				}
 			}
-			if encounter, has_encounter := point.encounter.?; has_encounter {
-				kinds_seen += {encounter_kind_of(encounter)}
-			}
+			testing.expectf(t, has_forward, "seed %d: node %d is a dead end", seed, p.id)
+			// Reachability: a forward path to Goal exists.
+			testing.expectf(t, forward_reaches_goal(m, p.id, goal), "seed %d: node %d cannot reach Goal", seed, p.id)
 		}
-
-		testing.expect_value(t, port_count, 1)
-		testing.expect(t, card(kinds_seen) > 1)
 	}
 }
 
 @(test)
-in_the_map_the_ship_battle_point_nearer_its_zones_port_has_the_harder_opponent :: proc(t: ^testing.T) {
-	m := run_map_create()
-	defer run_map_destroy(&m)
+every_node_is_reachable_from_start :: proc(t: ^testing.T) {
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
 
-	// Coastal is hand-placed with two Ship Battle points (zone_encounter_kinds);
-	// they appear in map order nearest-port-first, so the earlier one should
-	// be tuned harder.
-	battles: [dynamic]Encounter_Ship_Battle
-	defer delete(battles)
-	for point in m.points {
-		zone, in_a_zone := point.zone.?
-		if !in_a_zone || zone != .Coastal {
-			continue
+		// BFS forward from Start (id 0) must cover every node.
+		reached := make([]bool, len(m.points))
+		defer delete(reached)
+		stack: [dynamic]int
+		defer delete(stack)
+		append(&stack, 0)
+		reached[0] = true
+		for len(stack) > 0 {
+			u := pop(&stack)
+			for v in m.edges[u] {
+				if m.points[v].layer > m.points[u].layer && !reached[v] {
+					reached[v] = true
+					append(&stack, v)
+				}
+			}
 		}
-		if encounter, has_encounter := point.encounter.?; has_encounter {
-			if battle, ok := encounter.(Encounter_Ship_Battle); ok {
-				append(&battles, battle)
+		for r, i in reached {
+			testing.expectf(t, r, "seed %d: node %d unreachable from Start", seed, i)
+		}
+	}
+}
+
+@(test)
+run_map_create_has_fifty_points_plus_start_and_goal :: proc(t: ^testing.T) {
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		// 1 Start + 50 zone points + 1 Goal = 52.
+		testing.expectf(t, len(m.points) == 52, "seed %d: expected 52 points, got %d", seed, len(m.points))
+	}
+}
+
+@(test)
+per_zone_point_counts_are_17_17_16 :: proc(t: ^testing.T) {
+	expected := [Zone]int{.Coastal = 17, .Open_Sea = 17, .Deep = 16}
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		counts: [Zone]int
+		for p in m.points {
+			if zone, ok := p.zone.?; ok {
+				counts[zone] += 1
+			}
+		}
+		for zone in Zone {
+			testing.expectf(t, counts[zone] == expected[zone], "seed %d: zone %v had %d points, want %d", seed, zone, counts[zone], expected[zone])
+		}
+	}
+}
+
+@(test)
+each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		port_counts: [Zone]int
+		for p in m.points {
+			if p.kind != .Port {
+				continue
+			}
+			zone, ok := p.zone.?
+			testing.expectf(t, ok, "seed %d: a port carries no zone", seed)
+			if ok {
+				port_counts[zone] += 1
+			}
+		}
+		for zone in Zone {
+			testing.expectf(t, port_counts[zone] == PORTS_PER_ZONE, "seed %d: zone %v had %d ports, want %d", seed, zone, port_counts[zone], PORTS_PER_ZONE)
+		}
+	}
+}
+
+@(test)
+encounter_kind_counts_per_zone_are_as_even_as_a_three_way_split_allows :: proc(t: ^testing.T) {
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		for zone in Zone {
+			counts: [Encounter_Kind]int
+			for p in m.points {
+				pz, in_zone := p.zone.?
+				if !in_zone || pz != zone {
+					continue
+				}
+				if enc, ok := p.encounter.?; ok {
+					counts[encounter_kind_of(enc)] += 1
+				}
+			}
+			lo := min(counts[.Ship_Battle], counts[.Upgrade_Offer], counts[.Stat_Trade])
+			hi := max(counts[.Ship_Battle], counts[.Upgrade_Offer], counts[.Stat_Trade])
+			testing.expectf(t, hi - lo <= 1, "seed %d: zone %v kind spread %d..%d not even", seed, zone, lo, hi)
+		}
+	}
+}
+
+@(test)
+edges_only_connect_the_same_or_an_adjacent_layer :: proc(t: ^testing.T) {
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		for p in m.points {
+			for v in m.edges[p.id] {
+				diff := m.points[v].layer - p.layer
+				if diff < 0 {
+					diff = -diff
+				}
+				testing.expectf(t, diff <= 1, "seed %d: edge %d-%d spans %d layers", seed, p.id, v, diff)
 			}
 		}
 	}
+}
 
-	testing.expect_value(t, len(battles), 2)
-	testing.expect(t, battles[0].opponent.hp > battles[1].opponent.hp)
+@(test)
+forward_out_degree_stays_within_bounds_for_non_start_nodes :: proc(t: ^testing.T) {
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		for p in m.points {
+			if p.kind == .Start || p.kind == .Goal {
+				continue // Start fans out to the whole first layer; Goal has none.
+			}
+			forward := 0
+			for v in m.edges[p.id] {
+				if m.points[v].layer > p.layer {
+					forward += 1
+				}
+			}
+			testing.expectf(t, forward >= 1 && forward <= OUT_DEGREE_MAX, "seed %d: node %d forward out-degree %d out of bounds", seed, p.id, forward)
+		}
+	}
 }
 
 @(test)
 run_map_create_has_exactly_one_start_and_one_goal_neither_belonging_to_a_zone :: proc(t: ^testing.T) {
-	m := run_map_create()
+	m := run_map_create(0)
 	defer run_map_destroy(&m)
 
 	start_count, goal_count := 0, 0
@@ -203,6 +325,159 @@ run_map_create_has_exactly_one_start_and_one_goal_neither_belonging_to_a_zone ::
 }
 
 @(test)
+the_same_seed_reproduces_an_identical_map :: proc(t: ^testing.T) {
+	a := run_map_create(42)
+	defer run_map_destroy(&a)
+	b := run_map_create(42)
+	defer run_map_destroy(&b)
+
+	testing.expect_value(t, len(a.points), len(b.points))
+	for pa, i in a.points {
+		pb := b.points[i]
+		testing.expect_value(t, pa.id, pb.id)
+		testing.expect_value(t, pa.kind, pb.kind)
+		testing.expect_value(t, pa.layer, pb.layer)
+		testing.expect_value(t, pa.lane, pb.lane)
+		testing.expect_value(t, pa.depth, pb.depth)
+		testing.expect_value(t, pa.zone, pb.zone)
+		ea, has_a := pa.encounter.?
+		eb, has_b := pb.encounter.?
+		testing.expect_value(t, has_a, has_b)
+		if has_a && has_b {
+			testing.expect_value(t, encounter_kind_of(ea), encounter_kind_of(eb))
+		}
+		testing.expect(t, slice.equal(a.edges[i], b.edges[i]))
+	}
+}
+
+@(test)
+a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone :: proc(t: ^testing.T) {
+	// Sweep seeds until we find a zone holding two Ship Battles at different
+	// depths, then confirm the deeper one has the tougher opponent — the
+	// spatial danger gradient the depth axis expresses.
+	found := false
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		for zone in Zone {
+			shallow, deep := -1, -1
+			for p in m.points {
+				pz, in_zone := p.zone.?
+				if !in_zone || pz != zone {
+					continue
+				}
+				enc, ok := p.encounter.?
+				if !ok {
+					continue
+				}
+				if _, is_battle := enc.(Encounter_Ship_Battle); !is_battle {
+					continue
+				}
+				if shallow < 0 || p.depth < m.points[shallow].depth {
+					shallow = p.id
+				}
+				if deep < 0 || p.depth > m.points[deep].depth {
+					deep = p.id
+				}
+			}
+			if shallow >= 0 && deep >= 0 && m.points[shallow].depth != m.points[deep].depth {
+				sb := m.points[shallow].encounter.?.(Encounter_Ship_Battle)
+				db := m.points[deep].encounter.?.(Encounter_Ship_Battle)
+				testing.expect(t, db.opponent.hp > sb.opponent.hp)
+				found = true
+			}
+		}
+	}
+	testing.expect(t, found)
+}
+
+// --- Traversal legality (run_travel_options) --------------------------------
+
+// legality_fixture is a tiny hand-wired graph the legality assertions can
+// reason about exactly, independent of the generator's randomness:
+//   layer 0: 0 (Start)
+//   layer 1: 1, 2   (1-2 is a lateral edge)
+//   layer 2: 3 (Goal)
+// Edges: 0-1, 0-2, 1-2 (lateral), 1-3, 2-3. Its points/edges are
+// package-level so their backing arrays outlive any single test call (a Map
+// returned from a proc with local composite-literal slices would dangle).
+legality_points := []Point{
+	{id = 0, kind = .Start, layer = 0, lane = 0},
+	{id = 1, kind = .Encounter, layer = 1, lane = 0},
+	{id = 2, kind = .Encounter, layer = 1, lane = 1},
+	{id = 3, kind = .Goal, layer = 2, lane = 0},
+}
+legality_edges := [][]int{{1, 2}, {0, 2, 3}, {0, 1, 3}, {1, 2}}
+
+legality_fixture :: proc() -> Map {
+	return Map{points = legality_points, edges = legality_edges}
+}
+
+set_eq :: proc(got: []int, want: []int) -> bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for w in want {
+		if !contains(got, w) {
+			return false
+		}
+	}
+	return true
+}
+
+@(test)
+travel_options_offers_forward_and_lateral_always_and_visited_backward :: proc(t: ^testing.T) {
+	m := legality_fixture()
+	visited := []bool{true, true, false, false} // Start and node 1 visited.
+
+	// From node 1: node 0 (backward, visited) retrace-legal, node 2 (lateral)
+	// legal, node 3 (forward) legal.
+	opts := run_travel_options(m, 1, visited)
+	defer delete(opts)
+	testing.expect(t, set_eq(opts, []int{0, 2, 3}))
+}
+
+@(test)
+travel_options_excludes_an_unvisited_backward_neighbor :: proc(t: ^testing.T) {
+	m := legality_fixture()
+	visited := []bool{false, true, false, false} // Start not yet visited.
+
+	// From node 1: node 0 is backward and unvisited -> excluded; node 2
+	// (lateral) and node 3 (forward) remain.
+	opts := run_travel_options(m, 1, visited)
+	defer delete(opts)
+	testing.expect(t, set_eq(opts, []int{2, 3}))
+}
+
+@(test)
+travel_options_offers_a_lateral_edge_in_both_directions :: proc(t: ^testing.T) {
+	m := legality_fixture()
+	visited := []bool{false, false, false, false}
+
+	from1 := run_travel_options(m, 1, visited)
+	defer delete(from1)
+	testing.expect(t, contains(from1, 2)) // 1 -> 2 lateral
+
+	from2 := run_travel_options(m, 2, visited)
+	defer delete(from2)
+	testing.expect(t, contains(from2, 1)) // 2 -> 1 lateral
+}
+
+@(test)
+can_travel_to_rejects_a_non_adjacent_destination :: proc(t: ^testing.T) {
+	m := legality_fixture()
+	visited := []bool{true, false, false, false}
+
+	// From Start (0) node 3 is not a neighbor -> never legal, whatever visited.
+	testing.expect(t, !run_can_travel_to(m, 0, visited, 3))
+	// A real neighbor is legal.
+	testing.expect(t, run_can_travel_to(m, 0, visited, 1))
+}
+
+// --- Encounter resolution + status (unchanged contracts) --------------------
+
+@(test)
 run_start_battle_hands_off_to_combat_with_the_ship_and_the_encounters_opponent :: proc(t: ^testing.T) {
 	player := ship.Ship{hp = 20, speed = 5}
 	encounter := Encounter_Ship_Battle{opponent = ship.Ship{hp = 10, speed = 3}}
@@ -212,8 +487,6 @@ run_start_battle_hands_off_to_combat_with_the_ship_and_the_encounters_opponent :
 	testing.expect_value(t, battle.ships[.A], &player)
 	testing.expect_value(t, battle.ships[.B], &encounter.opponent)
 
-	// Confirm the returned Battle is a real, playable combat.Battle by
-	// resolving a round through core/combat's own resolver.
 	events: [dynamic]combat.Event
 	defer delete(events)
 	cmds: [combat.Side]Maybe(combat.Command)

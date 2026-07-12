@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. **Topology** and **fog-of-war** superseded by [ADR-0010](0010-procedural-node-graph-run-map.md): the map became a procedurally-generated, seeded, connected node graph with retrace-legal traversal and Sim-enforced hiding of encounter kind until arrival, and the within-zone gradient moved from Ship-Battle-only port-proximity to a depth-within-zone axis applied to all three kinds. The zones, encounter kinds, win/loss conditions, and the danger/reward-gradient *concept* below remain in force (adapted to graph scale).
 
 ## Context
 

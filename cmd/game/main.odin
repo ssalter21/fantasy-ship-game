@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:slice"
 import combat "../../core/combat"
 import run "../../core/run"
 import ship "../../core/ship"
@@ -27,6 +28,7 @@ main :: proc() {
 	state := Game_State{}
 	defer delete(state.visited)
 	defer delete(state.positions)
+	defer delete(state.run_map.points) // UI-owned clone of the masked map (edges are borrowed)
 
 	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
 	sink := sim.Event_Sink{data = &state, dispatch = dispatch}
@@ -89,14 +91,22 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	switch e in event {
 	case sim.Event_Run_Started:
-		state.run_map = e.run_map
+		// e.run_map is the Sim's masked public map (unvisited encounter kinds
+		// hidden). Its points are cloned into UI-owned storage so arrivals can
+		// reveal kinds into it (state.run_map.points[id] = revealed point); the
+		// edges/adjacency are borrowed (they never change). Start (id 0) counts
+		// as visited from the outset, matching the Sim's own visited set.
+		state.run_map.points = slice.clone(e.run_map.points)
+		state.run_map.edges = e.run_map.edges
 		state.player = e.ship
 		state.visited = make([]bool, len(e.run_map.points))
+		state.visited[0] = true
 		state.positions = compute_point_positions(e.run_map)
 
 	case sim.Event_Arrived_At_Point:
 		state.current_point_id = e.point.id
 		state.visited[e.point.id] = true
+		state.run_map.points[e.point.id] = e.point // reveal this node's now-known kind
 
 	case sim.Event_Ship_Battle_Sighted:
 		state.in_battle = true

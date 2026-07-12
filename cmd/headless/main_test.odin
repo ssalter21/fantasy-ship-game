@@ -2,37 +2,32 @@ package main
 
 import "core:testing"
 import combat "../../core/combat"
+import run "../../core/run"
 import sim "../../core/sim"
 
 @(test)
-get_captain_choice_travels_to_the_next_point_when_awaiting_a_travel_choice :: proc(t: ^testing.T) {
-	state := Headless_State{next_point = 1}
-	defer delete(state.events)
+get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: proc(t: ^testing.T) {
+	m := run.run_map_create(0)
+	defer run.run_map_destroy(&m)
+
+	state := Headless_State{run_map = m, current = 0}
+	state.visited = make([]bool, len(m.points))
+	defer delete(state.visited)
+	state.visited[0] = true
 
 	cmd := get_captain_choice(&state, .Awaiting_Travel_Choice)
 
 	travel, ok := cmd.(sim.Command_Travel_To)
 	testing.expect(t, ok)
-	testing.expect_value(t, travel.point_id, 1)
-}
-
-@(test)
-get_captain_choice_advances_to_the_next_point_on_each_successive_call :: proc(t: ^testing.T) {
-	state := Headless_State{next_point = 1}
-	defer delete(state.events)
-
-	first := get_captain_choice(&state, .Awaiting_Travel_Choice)
-	second := get_captain_choice(&state, .Awaiting_Travel_Choice)
-
-	first_travel, _ := first.(sim.Command_Travel_To)
-	second_travel, _ := second.(sim.Command_Travel_To)
-	testing.expect_value(t, first_travel.point_id, 1)
-	testing.expect_value(t, second_travel.point_id, 2)
+	// The chosen destination must be a real neighbour of Start and a forward
+	// step (a deeper layer) — progress toward Goal, never an illegal jump.
+	testing.expect(t, run.run_can_travel_to(m, 0, state.visited, int(travel.point_id)))
+	testing.expect(t, m.points[travel.point_id].layer > m.points[0].layer)
 }
 
 @(test)
 get_captain_choice_holds_when_awaiting_a_battle_command :: proc(t: ^testing.T) {
-	state := Headless_State{next_point = 1}
+	state := Headless_State{}
 	defer delete(state.events)
 
 	cmd := get_captain_choice(&state, .Awaiting_Battle_Command)
@@ -45,7 +40,7 @@ get_captain_choice_holds_when_awaiting_a_battle_command :: proc(t: ^testing.T) {
 
 @(test)
 get_captain_choice_picks_upgrade_option_zero_when_awaiting_an_upgrade_choice :: proc(t: ^testing.T) {
-	state := Headless_State{next_point = 1}
+	state := Headless_State{}
 	defer delete(state.events)
 
 	cmd := get_captain_choice(&state, .Awaiting_Upgrade_Choice)
@@ -56,12 +51,13 @@ get_captain_choice_picks_upgrade_option_zero_when_awaiting_an_upgrade_choice :: 
 }
 
 @(test)
-the_auto_player_reaches_a_run_ended_event_traveling_the_whole_map :: proc(t: ^testing.T) {
+the_auto_player_reaches_a_run_ended_event_navigating_the_graph :: proc(t: ^testing.T) {
 	s := sim.sim_create(0)
 	defer sim.sim_destroy(&s)
 
-	state := Headless_State{next_point = 1}
+	state := Headless_State{}
 	defer delete(state.events)
+	defer delete(state.visited)
 	sink := sim.Event_Sink{data = &state, dispatch = dispatch}
 	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
 

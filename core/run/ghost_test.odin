@@ -107,7 +107,7 @@ resolving_an_upgrade_offer_emits_an_encounter_resolved_event_with_the_offers_qua
 @(test)
 finishing_a_ship_battle_emits_an_encounter_resolved_event_with_a_snapshot_of_the_players_ship :: proc(t: ^testing.T) {
 	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
-	encounter := Encounter_Ship_Battle{port_closeness = 2, opponent = ship.Ship{hp = 10, speed = 3}}
+	encounter := Encounter_Ship_Battle{depth = 2, opponent = ship.Ship{hp = 10, speed = 3}}
 	battle := run_start_battle(&player, &encounter)
 	battle.ended = true // stand in for a battle actually resolving to completion
 

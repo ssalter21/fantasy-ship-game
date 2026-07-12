@@ -38,16 +38,27 @@ Sim :: struct {
 	// to it as Sim's shape, not something this ticket revisits.
 	rng:               rand.Default_Random_State,
 	run_map:           run.Map,
+	// public_points is the encounter-kind-masked view of run_map.points the
+	// Sim broadcasts at run start (the hiding contract): a copy that nils every
+	// Encounter's kind while preserving graph shape and landmarks, so
+	// presentation cannot leak what kind of encounter a node holds before the
+	// ship arrives. Kind is revealed per-node on arrival via
+	// Event_Arrived_At_Point, which carries the full Point. The edges it pairs
+	// with are shared (borrowed) from run_map.
+	public_points:     []run.Point,
 	player:            ship.Ship,
 	current:           Point_ID, // index into run_map.points; Start is always 0
 	// resolved is parallel to run_map.points; true once an Encounter point
-	// has fired. Evaluated for bit_set (issue #54) and deliberately left as
-	// []bool: bit_set needs a compile-time-bounded index (an enum, or a
-	// fixed integer range), but resolved is indexed by Point_ID, sized at
-	// runtime off run_map_create's point count — today a fixed 17 by
-	// construction, but that's an implementation detail of run_map_create,
-	// not a contract Sim should hard-code its own storage size against.
+	// has fired. Deliberately []bool rather than bit_set (issue #54): bit_set
+	// needs a compile-time-bounded index, but resolved is indexed by Point_ID,
+	// sized at runtime off run_map_create's generated point count.
 	resolved:          []bool,
+	// visited is parallel to run_map.points; true once the ship has been at a
+	// point (Start counts as visited from the outset). Distinct from resolved —
+	// landmarks get visited but never resolved — and it is what
+	// run_travel_options consults to decide which backward-retrace moves are
+	// legal, so the Sim's travel gate reads it every travel choice.
+	visited:           []bool,
 	steps:             int, // Ghost_Snapshot progress counter, +1 per travel
 	status:            run.Run_Status,
 	phase:             Phase,
@@ -108,14 +119,14 @@ Event :: union {
 }
 
 // Event_Run_Started is dispatched exactly once, on the very first sim_tick
-// call. map carries every Point's full data (including each Ship Battle's
-// opponent ship) so the UI can draw the static map ahead of time — this
-// slice's map has "no fog of war" (ADR-0007) and a hand-authored PvE
-// opponent has no privacy stakeholder to protect from its own renderer, so
-// there's no data-hiding contract being broken here. ADR-0005's effective
-// visibility is a presentation convention applied at the point of scouting
-// (Event_Ship_Battle_Sighted), not a guarantee that data is withheld before
-// then.
+// call. run_map carries the full graph shape (nodes, edges, zones, layer/lane
+// layout) and the always-visible landmarks (Start/Port/Goal), but its
+// Encounter nodes have their *kind* withheld — run_map.points is the Sim's
+// masked public_points, not its private run_map. This is the hiding contract
+// (the ADR superseding ADR-0007's fog-of-war section): what kind of encounter
+// a node holds is a surprise revealed only on arrival, via
+// Event_Arrived_At_Point carrying that node's full Point. Withholding is a
+// guaranteed data property of the emitted event, not a presentation courtesy.
 Event_Run_Started :: struct {
 	run_map: run.Map,
 	ship:    ship.Ship,
@@ -190,12 +201,32 @@ sim_create :: proc(seed: u64) -> Sim {
 	context.allocator = virtual.arena_allocator(&s.arena)
 
 	s.rng = rand.create_u64(seed)
-	s.run_map = run.run_map_create()
+	s.run_map = run.run_map_create(seed)
+	s.public_points = sim_mask_encounter_kinds(s.run_map.points)
 	s.player = ship.ship_starting_ship()
 	s.resolved = make([]bool, len(s.run_map.points))
+	s.visited = make([]bool, len(s.run_map.points))
+	s.visited[0] = true // the ship starts at Start (id 0), so retrace to it is legal from the outset.
 	s.status = .In_Progress
 	s.phase = .Awaiting_Travel_Choice
 	return s
+}
+
+// sim_mask_encounter_kinds builds the encounter-kind-masked view of points
+// (the hiding contract): a fresh copy in which every Encounter node's kind is
+// withheld (encounter = nil), while Start/Port/Goal landmarks — which carry
+// no hidden kind — pass through fully described. Graph shape (zone, layer,
+// lane, id) is preserved on every node. Allocated from whatever allocator is
+// in scope (the Sim's run-scoped arena at sim_create time).
+sim_mask_encounter_kinds :: proc(points: []run.Point) -> []run.Point {
+	masked := make([]run.Point, len(points))
+	for p, i in points {
+		masked[i] = p
+		if p.kind == .Encounter {
+			masked[i].encounter = nil
+		}
+	}
+	return masked
 }
 
 // sim_destroy tears down the Sim's run-scoped arena in one call (issue #52):
