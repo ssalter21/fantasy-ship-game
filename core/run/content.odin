@@ -2,6 +2,21 @@ package run
 
 import "../ship"
 
+// run_make_opponent_ship computes a Ship Battle opponent's baseline stats
+// (hp, durability, speed) from zone/depth — the numeric half of a
+// hand-authored PvE opponent (issue #23). run_pve_opponent layers a
+// hand-authored layout on top of these same stats; this proc has no
+// layout/captain of its own and is not itself a complete opponent.
+run_make_opponent_ship :: proc(zone: Zone, depth: int) -> ship.Ship {
+	hp := run_ship_battle_difficulty(zone, depth)
+	return ship.Ship{
+		hp         = hp,
+		max_hp     = hp,
+		durability = run_ship_battle_opponent_durability(zone, depth),
+		speed      = SHIP_BATTLE_OPPONENT_SPEED,
+	}
+}
+
 // PVE_OPPONENT_OFFENSE_BONUS_PER_TIER/PER_DEPTH scale a PvE opponent's Gun
 // Deck output by zone tier and depth-within-zone (issue #23), reusing the
 // same run_zone_depth_scaled shape as every other zone-and-depth-scaled placeholder in
