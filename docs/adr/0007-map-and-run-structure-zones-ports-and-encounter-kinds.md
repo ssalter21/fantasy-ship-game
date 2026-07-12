@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted, partially superseded by ADR-0009. The **Topology**, **Layout**, **Ports**, and **Danger and reward gradient** sections below are superseded — the map is now a procedurally-generated connected node graph (not an open travel-anywhere point set), with hidden encounter kinds, 6 procedural ports, ~50 points / 44 encounters, and a depth-within-zone gradient. The zones, the three encounter kinds, the win/loss conditions, and encounter-on-arrival survive (the last refined: revisiting never re-triggers). See ADR-0009.
 
 ## Context
 
