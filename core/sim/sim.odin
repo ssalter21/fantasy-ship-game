@@ -145,12 +145,14 @@ Command_Refit :: struct {
 }
 
 // Refit_Command is the closed set of loadout operations a Refit accepts (issue
-// #95). Install places the refit's pending incoming fitting; Move and Remove
-// act on already-installed fittings; Finish ends the refit. Every operation
-// enforces ADR-0004's exact-size fit rule and is rejected without disturbing
-// the layout (Event_Refit_Rejected) when it cannot apply.
+// #95). Install places the refit's pending incoming fitting into an empty slot
+// and Replace swaps it into a filled one; Move and Remove act on already-
+// installed fittings; Finish ends the refit. Every operation enforces ADR-0004's
+// exact-size fit rule and is rejected without disturbing the layout
+// (Event_Refit_Rejected) when it cannot apply.
 Refit_Command :: union {
 	Refit_Install,
+	Refit_Replace,
 	Refit_Move,
 	Refit_Remove,
 	Refit_Finish,
@@ -160,6 +162,16 @@ Refit_Command :: union {
 // #95). Rejected if there is no pending fitting, the slot is occupied, or the
 // sizes differ (ADR-0004).
 Refit_Install :: struct {
+	slot: ship.Slot_Index,
+}
+
+// Refit_Replace swaps the refit's pending incoming fitting into `slot`,
+// discarding whatever occupied it (no inventory — ADR-0012). It is the
+// place-or-swap counterpart to Refit_Install: Install targets an empty slot,
+// Replace a filled one, so presentation names the operation by the slot's state
+// without re-checking the fit itself (issue #111). Rejected — layout untouched —
+// if there is no pending fitting or the sizes differ (ADR-0004).
+Refit_Replace :: struct {
 	slot: ship.Slot_Index,
 }
 

@@ -111,19 +111,26 @@ refit_click_maps_clicks_to_loadout_operations :: proc(t: ^testing.T) {
 	_, is_finish := refit.command.(sim.Refit_Finish)
 	testing.expect(t, is_finish)
 
-	// Placing a Medium item: a filled same-size slot (0 holds Captain's Quarters,
-	// Medium) clears first.
+	// Placing a Medium item: clicking any filled slot emits Refit_Replace and lets
+	// the Sim decide the fit — the menu no longer predicts the size match (issue
+	// #111). Slot 0 holds Captain's Quarters (Medium).
 	state.refit_incoming = ship.ship_fitting_top_crew() // Medium
 	cmd, ready = refit_click(&state, 0, finish)
 	testing.expect(t, ready)
 	refit, _ = cmd.(sim.Command_Refit)
-	_, is_remove := refit.command.(sim.Refit_Remove)
-	testing.expect(t, is_remove)
+	replace, is_replace := refit.command.(sim.Refit_Replace)
+	testing.expect(t, is_replace)
+	testing.expect_value(t, replace.slot, ship.Slot_Index(0))
 
-	// A filled slot of a different size (2 is a Large Gun Deck) is ignored — no
-	// accidental discard of a fitting the item can't replace.
-	_, ready = refit_click(&state, 2, finish)
-	testing.expect(t, !ready)
+	// A filled slot of a different size (2 is a Large Gun Deck) is no longer
+	// ignored: the menu emits the same Refit_Replace and the Sim rejects the size
+	// mismatch (Event_Refit_Rejected), rather than the menu re-checking the rule.
+	cmd, ready = refit_click(&state, 2, finish)
+	testing.expect(t, ready)
+	refit, _ = cmd.(sim.Command_Refit)
+	replace, is_replace = refit.command.(sim.Refit_Replace)
+	testing.expect(t, is_replace)
+	testing.expect_value(t, replace.slot, ship.Slot_Index(2))
 
 	// An empty same-size slot installs the pending item.
 	state.player.layout[4].fitting = nil // hold 1, Medium

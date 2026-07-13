@@ -20,9 +20,9 @@ sim_open_refit :: proc(sim: ^Sim, incoming: Maybe(ship.Fitting), events: ^[dynam
 
 // sim_process_refit applies one submitted loadout operation (issue #95). It
 // consumes the pending Command_Refit and dispatches on the inner Refit_Command:
-// Install / Move / Remove each apply the change and emit its event (plus a
-// fresh Event_Ship_Updated) or, when ADR-0004's fit rule refuses it, emit
-// Event_Refit_Rejected and leave the layout untouched; all three keep Sim in
+// Install / Replace / Move / Remove each apply the change and emit its event
+// (plus a fresh Event_Ship_Updated) or, when ADR-0004's fit rule refuses it,
+// emit Event_Refit_Rejected and leave the layout untouched; all four keep Sim in
 // Awaiting_Refit so a sequence of edits runs without re-opening. Finish returns
 // Sim to awaiting a travel choice, discarding any still-pending incoming
 // fitting (no inventory — ADR-0012).
@@ -36,6 +36,8 @@ sim_process_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	switch op in cmd.command {
 	case Refit_Install:
 		sim_refit_install(sim, op, events)
+	case Refit_Replace:
+		sim_refit_replace(sim, op, events)
 	case Refit_Move:
 		sim_refit_move(sim, op, events)
 	case Refit_Remove:
@@ -62,6 +64,30 @@ sim_refit_install :: proc(sim: ^Sim, op: Refit_Install, events: ^[dynamic]Event)
 		return
 	}
 	sim.refit_pending = nil
+	append(events, Event(Event_Fitting_Installed{slot = op.slot, fitting = incoming}))
+	sim_refit_ship_updated(sim, events)
+}
+
+// sim_refit_replace swaps the refit's pending incoming fitting into op.slot,
+// discarding whatever occupied it (no inventory — ADR-0012). Like install it
+// routes the placement through the ship layer — here ship_replace_fitting, which
+// checks ADR-0004's exact-size rule before clearing, so a size-mismatched
+// incoming (or nothing pending) is refused with Event_Refit_Rejected and leaves
+// both the layout and the pending fitting untouched. On success the displaced
+// fitting is announced removed and the incoming installed in its place (the
+// place-or-swap counterpart to sim_refit_install), then the whole updated ship.
+sim_refit_replace :: proc(sim: ^Sim, op: Refit_Replace, events: ^[dynamic]Event) {
+	sim_refit_assert_slot(sim, op.slot)
+	incoming, has_incoming := sim.refit_pending.?
+	displaced, occupied := sim.player.layout[op.slot].fitting.?
+	if !has_incoming || !ship.ship_replace_fitting(&sim.player.layout[op.slot], incoming) {
+		sim_refit_reject(Refit_Command(op), events)
+		return
+	}
+	sim.refit_pending = nil
+	if occupied {
+		append(events, Event(Event_Fitting_Removed{slot = op.slot, fitting = displaced}))
+	}
 	append(events, Event(Event_Fitting_Installed{slot = op.slot, fitting = incoming}))
 	sim_refit_ship_updated(sim, events)
 }
