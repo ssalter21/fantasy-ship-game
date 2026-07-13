@@ -98,7 +98,7 @@ run_node_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal :: p
 // single lucky/unlucky seed can't mask a generation bug.
 TEST_SEEDS := []u64{0, 1, 2, 7, 42, 1000, 123456}
 
-goal_id :: proc(m: Map) -> int {
+goal_id :: proc(m: Map) -> Node_ID {
 	for p in m.nodes {
 		if p.kind == .Goal {
 			return p.id
@@ -109,10 +109,10 @@ goal_id :: proc(m: Map) -> int {
 
 // forward_reaches_goal reports whether start can reach goal following only
 // forward edges (strictly-higher layer), verifying the forward DAG.
-forward_reaches_goal :: proc(m: Map, start, goal: int) -> bool {
+forward_reaches_goal :: proc(m: Map, start, goal: Node_ID) -> bool {
 	visited := make([]bool, len(m.nodes))
 	defer delete(visited)
-	stack: [dynamic]int
+	stack: [dynamic]Node_ID
 	defer delete(stack)
 	append(&stack, start)
 	visited[start] = true
@@ -166,7 +166,7 @@ every_node_is_reachable_from_start :: proc(t: ^testing.T) {
 		// BFS forward from Start (id 0) must cover every node.
 		reached := make([]bool, len(m.nodes))
 		defer delete(reached)
-		stack: [dynamic]int
+		stack: [dynamic]Node_ID
 		defer delete(stack)
 		append(&stack, 0)
 		reached[0] = true
@@ -378,7 +378,7 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 		defer run_map_destroy(&m)
 
 		for zone in Zone {
-			shallow, deep := -1, -1
+			shallow, deep := Node_ID(-1), Node_ID(-1)
 			for p in m.nodes {
 				pz, in_zone := p.zone.?
 				if !in_zone || pz != zone {
@@ -425,18 +425,30 @@ legality_nodes := []Node{
 	{id = 2, kind = .Encounter, layer = 1, lane = 1},
 	{id = 3, kind = .Goal, layer = 2, lane = 0},
 }
-legality_edges := [][]int{{1, 2}, {0, 2, 3}, {0, 1, 3}, {1, 2}}
+legality_edges := [][]Node_ID{{1, 2}, {0, 2, 3}, {0, 1, 3}, {1, 2}}
 
 legality_fixture :: proc() -> Map {
 	return Map{nodes = legality_nodes, edges = legality_edges}
 }
 
-set_eq :: proc(got: []int, want: []int) -> bool {
+// contains_id is the Node_ID counterpart of the generator's int-based
+// run_contains, used to assert membership in a run_travel_options result now
+// that those results are []Node_ID (issue #112).
+contains_id :: proc(xs: []Node_ID, x: Node_ID) -> bool {
+	for e in xs {
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+
+set_eq :: proc(got: []Node_ID, want: []Node_ID) -> bool {
 	if len(got) != len(want) {
 		return false
 	}
 	for w in want {
-		if !run_contains(got, w) {
+		if !contains_id(got, w) {
 			return false
 		}
 	}
@@ -452,7 +464,7 @@ travel_options_offers_forward_and_lateral_always_and_visited_backward :: proc(t:
 	// legal, node 3 (forward) legal.
 	opts := run_travel_options(m, 1, visited)
 	defer delete(opts)
-	testing.expect(t, set_eq(opts, []int{0, 2, 3}))
+	testing.expect(t, set_eq(opts, []Node_ID{0, 2, 3}))
 }
 
 @(test)
@@ -464,7 +476,7 @@ travel_options_excludes_an_unvisited_backward_neighbor :: proc(t: ^testing.T) {
 	// (lateral) and node 3 (forward) remain.
 	opts := run_travel_options(m, 1, visited)
 	defer delete(opts)
-	testing.expect(t, set_eq(opts, []int{2, 3}))
+	testing.expect(t, set_eq(opts, []Node_ID{2, 3}))
 }
 
 @(test)
@@ -474,11 +486,11 @@ travel_options_offers_a_lateral_edge_in_both_directions :: proc(t: ^testing.T) {
 
 	from1 := run_travel_options(m, 1, visited)
 	defer delete(from1)
-	testing.expect(t, run_contains(from1, 2)) // 1 -> 2 lateral
+	testing.expect(t, contains_id(from1, 2)) // 1 -> 2 lateral
 
 	from2 := run_travel_options(m, 2, visited)
 	defer delete(from2)
-	testing.expect(t, run_contains(from2, 1)) // 2 -> 1 lateral
+	testing.expect(t, contains_id(from2, 1)) // 2 -> 1 lateral
 }
 
 @(test)

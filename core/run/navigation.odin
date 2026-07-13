@@ -11,7 +11,7 @@ package run
 // allowed (assuming they share an edge): a forward or lateral neighbor (same
 // or higher layer) is always legal; a backward neighbor (lower layer) is
 // legal only by retrace to an already-visited node.
-run_neighbor_is_legal :: proc(m: Map, current, neighbor: int, visited: []bool) -> bool {
+run_neighbor_is_legal :: proc(m: Map, current, neighbor: Node_ID, visited: []bool) -> bool {
 	if m.nodes[neighbor].layer >= m.nodes[current].layer {
 		return true
 	}
@@ -23,8 +23,8 @@ run_neighbor_is_legal :: proc(m: Map, current, neighbor: int, visited: []bool) -
 // legally reachable from current given visited — forward and lateral
 // neighbors always, backward neighbors only if already visited. Caller owns
 // the returned slice.
-run_travel_options :: proc(m: Map, current: int, visited: []bool) -> []int {
-	options: [dynamic]int
+run_travel_options :: proc(m: Map, current: Node_ID, visited: []bool) -> []Node_ID {
+	options: [dynamic]Node_ID
 	for neighbor in m.edges[current] {
 		if run_neighbor_is_legal(m, current, neighbor, visited) {
 			append(&options, neighbor)
@@ -37,7 +37,7 @@ run_travel_options :: proc(m: Map, current: int, visited: []bool) -> []int {
 // run_travel_options for a single destination — dest must both share an edge
 // with current and satisfy the legality rule. The Sim's travel gate uses this
 // to assert against illegal (non-neighbor or backward-unvisited) destinations.
-run_can_travel_to :: proc(m: Map, current: int, visited: []bool, dest: int) -> bool {
+run_can_travel_to :: proc(m: Map, current: Node_ID, visited: []bool, dest: Node_ID) -> bool {
 	for neighbor in m.edges[current] {
 		if neighbor == dest {
 			return run_neighbor_is_legal(m, current, dest, visited)

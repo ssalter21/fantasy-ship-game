@@ -21,7 +21,7 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 	travel_options := make([]sim.Node_ID, len(options))
 	defer delete(travel_options)
 	for id, i in options {
-		travel_options[i] = sim.Node_ID(id)
+		travel_options[i] = id
 	}
 
 	state := Headless_State{run_map = m, current = 0, travel_options = travel_options}
@@ -32,7 +32,7 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 	testing.expect(t, ok)
 	// The chosen destination must be one of the emitted options and a forward
 	// step (a deeper layer) — progress toward Goal, never an illegal jump.
-	testing.expect(t, run.run_can_travel_to(m, 0, visited, int(travel.node_id)))
+	testing.expect(t, run.run_can_travel_to(m, 0, visited, travel.node_id))
 	testing.expect(t, m.nodes[travel.node_id].layer > m.nodes[0].layer)
 }
 

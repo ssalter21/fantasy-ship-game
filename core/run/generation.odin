@@ -98,7 +98,7 @@ run_map_create :: proc(seed: u64) -> Map {
 				depth = run_normalize_depth(raw_depth, zone_layer_count[zone])
 			}
 
-			append(&nodes, Node{id = len(nodes), zone = zone_m, kind = kind, layer = l, lane = lane, depth = depth})
+			append(&nodes, Node{id = Node_ID(len(nodes)), zone = zone_m, kind = kind, layer = l, lane = lane, depth = depth})
 		}
 	}
 	n := len(nodes)
@@ -142,11 +142,15 @@ run_map_create :: proc(seed: u64) -> Map {
 	// evenly across the three kinds as a three-way division allows, then build
 	// each encounter's zone-and-depth-scaled content.
 	for zone in Zone {
+		// enc_ids collects the plain int indices of this zone's encounter nodes;
+		// the generator works in raw indices internally and only Node.id is the
+		// distinct Node_ID, so convert here rather than threading Node_ID through
+		// the index arithmetic (ADR-0011 boundary note, issue #112).
 		enc_ids: [dynamic]int
 		for p in nodes {
 			pz, in_zone := p.zone.?
 			if in_zone && pz == zone && p.kind == .Encounter {
-				append(&enc_ids, p.id)
+				append(&enc_ids, int(p.id))
 			}
 		}
 		bag := run_make_kind_bag(len(enc_ids), gen)
@@ -220,9 +224,20 @@ run_map_create :: proc(seed: u64) -> Map {
 		}
 	}
 
-	edges := make([][]int, n)
+	// Materialize the finished adjacency as Node_ID edges. The generator built
+	// adjacency in plain int — the whole layer/lane index arithmetic above is int
+	// — so this is the single boundary where a node id becomes a distinct Node_ID
+	// for the returned Map (ADR-0011, issue #112). Fresh Node_ID slices are copied
+	// out and the [dynamic]int backings freed here, since a [dynamic]int backing
+	// can't be handed to a [][]Node_ID directly; run_map_destroy frees the Node_ID
+	// slices in turn.
+	edges := make([][]Node_ID, n)
 	for i in 0 ..< n {
-		edges[i] = adj[i][:]
+		edges[i] = make([]Node_ID, len(adj[i]))
+		for id, j in adj[i] {
+			edges[i][j] = Node_ID(id)
+		}
+		delete(adj[i])
 	}
 	delete(adj)
 
