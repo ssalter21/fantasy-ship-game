@@ -512,6 +512,45 @@ ship_replace_fitting :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> boo
 	return ship_fit(layout_slot, fitting)
 }
 
+// ship_remove takes the fitting out of layout_slot, leaving the slot empty,
+// and returns it (issue #95, ADR-0012's manual loadout). There is no inventory:
+// the returned fitting is the caller's to discard — a refit remove drops it on
+// the floor (Event_Fitting_Removed) and nothing holds it afterward. Returns
+// false (and a zero Fitting) when the slot was already empty, so a remove of
+// nothing is a caller-visible rejection rather than a silent no-op.
+ship_remove :: proc(layout_slot: ^Layout_Slot) -> (Fitting, bool) {
+	fitting, occupied := layout_slot.fitting.?
+	if !occupied {
+		return {}, false
+	}
+	layout_slot.fitting = nil
+	return fitting, true
+}
+
+// ship_move relocates the fitting in `from` into the empty `to` under
+// ADR-0004's exact-size fit rule (issue #95): the source must hold a fitting,
+// the destination must be empty, and the two slots must be the same size. Any
+// of those unmet leaves both slots untouched and returns false — a rejected
+// move never disturbs the layout. On success the moved fitting is returned (for
+// the emitted Event_Fitting_Moved) and the source is left empty. Takes the two
+// slots by pointer, like ship_fit / ship_remove, so a refit's caller resolves
+// (and bounds-checks) the indices itself rather than passing bare ints through.
+ship_move :: proc(from, to: ^Layout_Slot) -> (Fitting, bool) {
+	fitting, occupied := from.fitting.?
+	if !occupied {
+		return {}, false
+	}
+	if _, dest_occupied := to.fitting.?; dest_occupied {
+		return {}, false
+	}
+	if fitting.size != to.slot.size {
+		return {}, false
+	}
+	from.fitting = nil
+	to.fitting = fitting
+	return fitting, true
+}
+
 // Captain is structurally separate from the slot system: not a fitting,
 // consumes no slot. A run-start choice that can influence a ship's slot
 // limits/structure and grants additional manual per-round captain actions.

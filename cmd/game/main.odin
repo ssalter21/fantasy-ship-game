@@ -79,6 +79,11 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 		return battle_menu_loop(state)
 	case .Awaiting_Travel_Choice:
 		return travel_menu_loop(state)
+	case .Awaiting_Refit:
+		// No refit menu yet — the loadout-editing UI arrives with the Item Offer /
+		// Port shop entries that open a refit (#96/#98). Finish immediately so a
+		// refit (were one somehow opened) can't stall the session.
+		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
 	case .Ended:
 		panic("get_captain_choice called while the sim isn't awaiting a decision")
 	}
@@ -135,6 +140,17 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Upgrade_Applied:
 		play_beat(state, fmt.tprintf("Installed %s!", e.fitting.name))
+
+	case sim.Event_Refit_Started,
+	     sim.Event_Fitting_Installed,
+	     sim.Event_Fitting_Moved,
+	     sim.Event_Fitting_Removed,
+	     sim.Event_Refit_Rejected,
+	     sim.Event_Refit_Finished:
+		// The manual-loadout Refit engine (issue #95) has no acquisition channel
+		// opening it in the game yet — the Item Offer / Port shop entries and the
+		// refit menu that reacts to these events land with #96/#98. Ignored here
+		// until then so the exhaustive switch stays complete.
 
 	case sim.Event_Encounter_Resolved:
 		// No cleanup needed: the snapshot lives in the Sim's own run-scoped

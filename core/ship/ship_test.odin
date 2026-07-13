@@ -258,6 +258,97 @@ replace_fitting_swaps_an_occupied_slots_fitting_for_a_same_sized_one :: proc(t: 
 }
 
 @(test)
+remove_takes_the_fitting_out_and_leaves_the_slot_empty :: proc(t: ^testing.T) {
+	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
+	ok := ship_fit(&layout_slot, Fitting{name = "Gun Deck", size = .Large})
+	testing.expect(t, ok)
+
+	removed, was_there := ship_remove(&layout_slot)
+
+	testing.expect(t, was_there)
+	testing.expect_value(t, removed.name, "Gun Deck")
+	_, still_there := layout_slot.fitting.?
+	testing.expect(t, !still_there) // discarded: nothing holds it now
+}
+
+@(test)
+remove_of_an_empty_slot_is_a_rejected_no_op :: proc(t: ^testing.T) {
+	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
+
+	_, was_there := ship_remove(&layout_slot)
+
+	testing.expect(t, !was_there)
+}
+
+@(test)
+move_relocates_a_fitting_into_an_empty_same_size_slot :: proc(t: ^testing.T) {
+	layout := []Layout_Slot{
+		make_layout_slot("gun deck", .Large, .Exposed),
+		make_layout_slot("forecastle", .Large, .Exposed),
+	}
+	ok := ship_fit(&layout[0], Fitting{name = "Gun Deck", size = .Large})
+	testing.expect(t, ok)
+
+	moved, did_move := ship_move(&layout[0], &layout[1])
+
+	testing.expect(t, did_move)
+	testing.expect_value(t, moved.name, "Gun Deck")
+	_, source_empty := layout[0].fitting.?
+	testing.expect(t, !source_empty)
+	dest, dest_full := layout[1].fitting.?
+	testing.expect(t, dest_full)
+	testing.expect_value(t, dest.name, "Gun Deck")
+}
+
+@(test)
+move_into_an_occupied_slot_is_rejected_without_disturbing_either_slot :: proc(t: ^testing.T) {
+	layout := []Layout_Slot{
+		make_layout_slot("gun deck", .Large, .Exposed),
+		make_layout_slot("forecastle", .Large, .Exposed),
+	}
+	testing.expect(t, ship_fit(&layout[0], Fitting{name = "Gun Deck", size = .Large}))
+	testing.expect(t, ship_fit(&layout[1], Fitting{name = "Ballista", size = .Large}))
+
+	_, did_move := ship_move(&layout[0], &layout[1])
+
+	testing.expect(t, !did_move)
+	source, _ := layout[0].fitting.?
+	dest, _ := layout[1].fitting.?
+	testing.expect_value(t, source.name, "Gun Deck") // untouched
+	testing.expect_value(t, dest.name, "Ballista") // untouched
+}
+
+@(test)
+move_into_a_different_size_slot_is_rejected_by_the_fit_rule :: proc(t: ^testing.T) {
+	layout := []Layout_Slot{
+		make_layout_slot("top deck", .Medium, .Exposed),
+		make_layout_slot("gun deck", .Large, .Exposed),
+	}
+	testing.expect(t, ship_fit(&layout[0], Fitting{name = "Top Crew", size = .Medium}))
+
+	_, did_move := ship_move(&layout[0], &layout[1])
+
+	testing.expect(t, !did_move)
+	source, source_full := layout[0].fitting.?
+	testing.expect(t, source_full) // the medium fitting stayed put
+	testing.expect_value(t, source.name, "Top Crew")
+	_, dest_full := layout[1].fitting.?
+	testing.expect(t, !dest_full) // the large slot never received it
+}
+
+@(test)
+move_from_an_empty_slot_is_rejected :: proc(t: ^testing.T) {
+	layout := []Layout_Slot{
+		make_layout_slot("gun deck", .Large, .Exposed),
+		make_layout_slot("forecastle", .Large, .Exposed),
+	}
+
+	_, did_move := ship_move(&layout[0], &layout[1])
+
+	testing.expect(t, !did_move)
+}
+
+@(test)
 effect_magnitude_resolves_a_flat_effect_to_its_stored_constant :: proc(t: ^testing.T) {
 	s := Ship{}
 	ctx := Effect_Context{owner = &s}

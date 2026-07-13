@@ -17,6 +17,11 @@ Phase :: enum {
 	Awaiting_Travel_Choice,
 	Awaiting_Battle_Command,
 	Awaiting_Upgrade_Choice,
+	// Awaiting_Refit is the manual-loadout mode (issue #95, ADR-0012): the ship
+	// is rearranged through install / move / remove commands, ended by a finish
+	// command. Opened by sim_open_refit — which the acquisition channels (#96
+	// Item Offer, #98 Port shop) will call once they pick/buy an item.
+	Awaiting_Refit,
 	Ended,
 }
 
@@ -74,6 +79,12 @@ Sim :: struct {
 	battle:            combat.Battle,
 	active_encounter:  run.Encounter_Ship_Battle,
 	upgrade_options:   [3]ship.Fitting,
+	// refit_pending is the incoming fitting an open Refit (Awaiting_Refit) was
+	// opened to place (issue #95): set by sim_open_refit, consumed when a
+	// Refit_Install lands it in a slot, and discarded (nil) when the refit
+	// finishes without installing it — there is no inventory to hold it
+	// (ADR-0012). nil for a rearrange-only refit or once the item is placed.
+	refit_pending:     Maybe(ship.Fitting),
 	// arena is the Sim's run-scoped allocator (issue #52): every allocation
 	// that lives no longer than the Sim itself — the map's Nodes and each
 	// Ship Battle opponent's layout, the player's own layout, resolved, the
@@ -91,6 +102,7 @@ Command :: union {
 	Command_Travel_To,
 	Command_Battle_Choice,
 	Command_Pick_Upgrade,
+	Command_Refit,
 }
 
 Command_Travel_To :: struct {
@@ -110,6 +122,54 @@ Command_Pick_Upgrade :: struct {
 	option_index: Option_Index,
 }
 
+// Command_Refit carries one loadout operation during a Refit (issue #95,
+// ADR-0012), valid only while Sim is in the Awaiting_Refit phase. The inner
+// Refit_Command says which operation. Wrapped as a single Command variant
+// (rather than four) so the Sim's Command/Phase vocabulary — and every
+// exhaustive switch over it — gains one case, not four, mirroring
+// Command_Battle_Choice, which likewise carries an inner (combat) union.
+Command_Refit :: struct {
+	command: Refit_Command,
+}
+
+// Refit_Command is the closed set of loadout operations a Refit accepts (issue
+// #95). Install places the refit's pending incoming fitting; Move and Remove
+// act on already-installed fittings; Finish ends the refit. Every operation
+// enforces ADR-0004's exact-size fit rule and is rejected without disturbing
+// the layout (Event_Refit_Rejected) when it cannot apply.
+Refit_Command :: union {
+	Refit_Install,
+	Refit_Move,
+	Refit_Remove,
+	Refit_Finish,
+}
+
+// Refit_Install places the refit's pending incoming fitting into `slot` (issue
+// #95). Rejected if there is no pending fitting, the slot is occupied, or the
+// sizes differ (ADR-0004).
+Refit_Install :: struct {
+	slot: ship.Slot_Index,
+}
+
+// Refit_Move relocates the fitting in `from` into the empty, same-size `to`
+// (issue #95, ADR-0004's fit rule). Rejected without disturbing the layout
+// when the source is empty, the destination is occupied, or the sizes differ.
+Refit_Move :: struct {
+	from: ship.Slot_Index,
+	to:   ship.Slot_Index,
+}
+
+// Refit_Remove discards the fitting in `slot` (issue #95) — there is no
+// inventory, so a removed fitting is gone (ADR-0012). Rejected if the slot is
+// already empty.
+Refit_Remove :: struct {
+	slot: ship.Slot_Index,
+}
+
+// Refit_Finish ends the refit and returns Sim to awaiting a travel choice
+// (issue #95). Any pending incoming fitting still unplaced is discarded.
+Refit_Finish :: struct {}
+
 // Event is the only way presentation learns what happened inside the Sim
 // (ADR-0001).
 Event :: union {
@@ -122,6 +182,12 @@ Event :: union {
 	Event_Ship_Updated,
 	Event_Upgrade_Offer_Presented,
 	Event_Upgrade_Applied,
+	Event_Refit_Started,
+	Event_Fitting_Installed,
+	Event_Fitting_Moved,
+	Event_Fitting_Removed,
+	Event_Refit_Rejected,
+	Event_Refit_Finished,
 	Event_Encounter_Resolved,
 	Event_Run_Ended,
 }
@@ -202,6 +268,47 @@ Event_Upgrade_Offer_Presented :: struct {
 Event_Upgrade_Applied :: struct {
 	fitting: ship.Fitting,
 }
+
+// Event_Refit_Started brackets the opening of a Refit (issue #95): `incoming`
+// is the fitting the refit was opened to place (from an Item Offer or Port
+// shop — #96/#98), or nil for a rearrange-only refit. Presentation opens its
+// loadout-editing menu on this and closes it on Event_Refit_Finished.
+Event_Refit_Started :: struct {
+	incoming: Maybe(ship.Fitting),
+}
+
+// Event_Fitting_Installed / _Moved / _Removed each describe one applied loadout
+// change during a Refit (issue #95). _Removed's fitting is discarded (no
+// inventory — ADR-0012); it is carried here only so presentation can name what
+// was dropped, not because anything still holds it.
+Event_Fitting_Installed :: struct {
+	slot:    ship.Slot_Index,
+	fitting: ship.Fitting,
+}
+
+Event_Fitting_Moved :: struct {
+	from:    ship.Slot_Index,
+	to:      ship.Slot_Index,
+	fitting: ship.Fitting,
+}
+
+Event_Fitting_Removed :: struct {
+	slot:    ship.Slot_Index,
+	fitting: ship.Fitting,
+}
+
+// Event_Refit_Rejected reports a loadout command that violated the fit rule
+// (ADR-0004) and was refused without disturbing the layout (issue #95): a size
+// mismatch, an occupied or empty target, or an install with nothing pending.
+// `command` echoes the refused operation so presentation can explain it.
+Event_Refit_Rejected :: struct {
+	command: Refit_Command,
+}
+
+// Event_Refit_Finished brackets the close of a Refit (issue #95): Sim returns
+// to awaiting a travel choice and any still-unplaced incoming fitting is
+// discarded.
+Event_Refit_Finished :: struct {}
 
 // Event_Encounter_Resolved carries a resolved encounter's Ghost_Snapshot
 // (ADR-0008) out through Sim's own Event boundary. The snapshot (including its
@@ -285,6 +392,8 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim_process_battle_round(sim, events)
 	case .Awaiting_Upgrade_Choice:
 		sim_process_upgrade_choice(sim, events)
+	case .Awaiting_Refit:
+		sim_process_refit(sim, events)
 	case .Ended:
 		assert(false, "sim_tick called after the run already ended")
 	}
@@ -348,6 +457,9 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	case .Awaiting_Upgrade_Choice:
 		_, ok := cmd.(Command_Pick_Upgrade)
 		assert(ok, "expected a Command_Pick_Upgrade while awaiting an upgrade choice")
+	case .Awaiting_Refit:
+		_, ok := cmd.(Command_Refit)
+		assert(ok, "expected a Command_Refit while awaiting a refit command")
 	case .Ended:
 		assert(false, "submitted a captain choice after the run ended")
 	}
