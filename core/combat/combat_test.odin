@@ -280,10 +280,12 @@ the_three_starting_fittings_phase_output_matches_their_magnitude_constants :: pr
 	// exactly their magnitude constants, one per phase.
 	s := ship.ship_starting_ship()
 	defer delete(s.layout)
+	opponent := ship.Ship{}
+	battle := combat_battle_create(&s, &opponent)
 
-	testing.expect_value(t, combat_phase_output(&s, .Buff), ship.TOP_CREW_BUFF_MAGNITUDE)
-	testing.expect_value(t, combat_phase_output(&s, .Defensive), ship.CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE)
-	testing.expect_value(t, combat_phase_output(&s, .Offensive), ship.GUN_DECK_OFFENSE_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Buff), ship.TOP_CREW_BUFF_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Defensive), ship.CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), ship.GUN_DECK_OFFENSE_MAGNITUDE)
 }
 
 @(test)
@@ -805,19 +807,87 @@ synergy_offense_rises_and_falls_with_the_weapon_count_aboard :: proc(t: ^testing
 			{slot = ship.Slot{size = .Small, base_visibility = .Concealed}},
 		},
 	}
+	// combat_phase_output resolves against a battle (issue #94); the synergy
+	// count only depends on s's own layout, so the opponent is a bare ship.
+	opponent := ship.Ship{}
+	battle := combat_battle_create(&s, &opponent)
 
 	// No Weapons aboard yet: for-each-Weapon output is zero.
-	testing.expect_value(t, combat_phase_output(&s, .Offensive), 0)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), 0)
 
 	// Add one Weapon: output rises to one Weapon's worth.
 	s.layout[1].fitting = cannon
-	testing.expect_value(t, combat_phase_output(&s, .Offensive), OFFENSE_PER_WEAPON)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), OFFENSE_PER_WEAPON)
 
 	// Add a second Weapon: output rises again.
 	s.layout[2].fitting = ballista
-	testing.expect_value(t, combat_phase_output(&s, .Offensive), 2 * OFFENSE_PER_WEAPON)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), 2 * OFFENSE_PER_WEAPON)
 
 	// Remove a Weapon: output falls back.
 	s.layout[1].fitting = nil
-	testing.expect_value(t, combat_phase_output(&s, .Offensive), OFFENSE_PER_WEAPON)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), OFFENSE_PER_WEAPON)
+}
+
+@(test)
+a_below_half_hp_conditional_offense_fitting_contributes_only_below_the_threshold :: proc(t: ^testing.T) {
+	// Demo for issue #94: a "below half HP, +Offense" fitting resolves its
+	// Offensive phase output through the conditional seam, so it adds nothing
+	// while the ship is above half HP and its full magnitude once below.
+	desperado := ship.Fitting{
+		name = "Desperado Cannon", size = .Large, category = .Offensive,
+		active = ship.Effect{magnitude = 10, conditional = ship.Condition_HP_Below{percent = 50}},
+	}
+
+	// Same fitting fired against the same bare target, differing only in the
+	// attacker's current HP relative to its half-HP threshold.
+	damage_dealt_at_hp :: proc(attacker: ship.Fitting, attacker_hp: int) -> int {
+		a := ship.Ship{
+			hp = attacker_hp, max_hp = 20, durability = 0, speed = 5,
+			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = attacker}},
+		}
+		b := ship.Ship{hp = 20, max_hp = 20, durability = 0, speed = 5}
+		battle := combat_battle_create(&a, &b)
+		events: [dynamic]Event
+		defer delete(events)
+		cmds: [Side]Maybe(Command)
+		combat_resolve_round(&battle, cmds, &events)
+		return 20 - b.hp
+	}
+
+	above := damage_dealt_at_hp(desperado, 20) // full HP: above the threshold
+	below := damage_dealt_at_hp(desperado, 9) // below half of 20
+
+	testing.expect_value(t, above, 0) // contributes nothing above the threshold
+	testing.expect_value(t, below, 10) // its full bonus below it
+	testing.expect(t, below > above)
+}
+
+@(test)
+a_while_concealed_conditional_offense_fitting_reads_its_own_slot_visibility :: proc(t: ^testing.T) {
+	// The own-concealment trigger resolves against the slot the fitting sits in
+	// (combat_phase_output fills self_slot per fitting): the same fitting in a
+	// concealed slot contributes, in an exposed slot does not.
+	ambush := ship.Fitting{
+		name = "Ambush Cannon", size = .Large, category = .Offensive,
+		active = ship.Effect{magnitude = 8, conditional = ship.Condition_Self_Visibility{visibility = .Concealed}},
+	}
+
+	damage_from_slot :: proc(attacker: ship.Fitting, base_visibility: ship.Visibility) -> int {
+		a := ship.Ship{
+			hp = 20, max_hp = 20, durability = 0, speed = 5,
+			layout = []ship.Layout_Slot{
+				{slot = ship.Slot{size = .Large, base_visibility = base_visibility}, fitting = attacker},
+			},
+		}
+		b := ship.Ship{hp = 20, max_hp = 20, durability = 0, speed = 5}
+		battle := combat_battle_create(&a, &b)
+		events: [dynamic]Event
+		defer delete(events)
+		cmds: [Side]Maybe(Command)
+		combat_resolve_round(&battle, cmds, &events)
+		return 20 - b.hp
+	}
+
+	testing.expect_value(t, damage_from_slot(ambush, .Exposed), 0)
+	testing.expect_value(t, damage_from_slot(ambush, .Concealed), 8)
 }

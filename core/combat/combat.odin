@@ -153,16 +153,23 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 }
 
 // combat_phase_output sums the active-effect magnitude of every fitting of
-// `phase`'s Category in s's fixed slot order (ADR-0006): every fitting with an
-// active Phase_Contribution effect triggers exactly once per round, no
-// per-fitting cooldown. Active effects of a Modify_* kind (stat modifiers,
-// issue #92) never contribute here — they act through the effective-stat
-// readers, not the phase totals. Magnitude is resolved against the owning
-// ship (ship.effect_magnitude) so a later context-sensitive source (#88)
-// needs no change here.
-combat_phase_output :: proc(s: ^ship.Ship, phase: ship.Category) -> int {
+// `phase`'s Category on `side`'s ship in fixed slot order (ADR-0006): every
+// fitting with an active Phase_Contribution effect triggers exactly once per
+// round, no per-fitting cooldown. Active effects of a Modify_* kind (stat
+// modifiers, issue #92) never contribute here — they act through the effective-
+// stat readers, not the phase totals. Takes the whole battle rather than a bare
+// ship (issue #94) so a conditional effect resolves against live battle state:
+// the round and both sides' live effective speeds are captured into the context
+// once, and self_slot is set per fitting so an own-concealment trigger reads the
+// slot the effect actually sits in.
+combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category) -> int {
+	s := battle.ships[side]
 	total := 0
-	ctx := ship.ship_effect_context(s)
+	ctx := ship.ship_effect_context_in_battle(s, ship.Battle_State{
+		round          = battle.round,
+		own_speed      = combat_effective_speed(battle, side),
+		opponent_speed = combat_effective_speed(battle, combat_opposite_side(side)),
+	})
 	for layout_slot in s.layout {
 		fitting, has_fitting := layout_slot.fitting.?
 		if !has_fitting || fitting.category != phase {
@@ -172,6 +179,7 @@ combat_phase_output :: proc(s: ^ship.Ship, phase: ship.Category) -> int {
 		if !has_active || active.kind != .Phase_Contribution {
 			continue
 		}
+		ctx.self_slot = layout_slot
 		total += int(ship.effect_magnitude(active, ctx))
 	}
 	return total
@@ -260,7 +268,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// Buff resolves first so its output is available to fold into this same
 	// round's Defensive and Offensive totals below (ADR-0006).
 	for side in Side {
-		round_state[side].buff_output = boosted(combat_phase_output(battle.ships[side], .Buff), .Buff, round_state[side].boost_phase)
+		round_state[side].buff_output = boosted(combat_phase_output(battle, side, .Buff), .Buff, round_state[side].boost_phase)
 	}
 
 	// Defensive and Offensive share the same shape (phase output + this
@@ -268,8 +276,8 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	for side in Side {
 		buff := round_state[side].buff_output
 		boost_phase := round_state[side].boost_phase
-		round_state[side].defense_bonus = boosted(combat_phase_output(battle.ships[side], .Defensive)+buff, .Defensive, boost_phase)
-		round_state[side].raw_damage = boosted(combat_phase_output(battle.ships[side], .Offensive)+buff, .Offensive, boost_phase)
+		round_state[side].defense_bonus = boosted(combat_phase_output(battle, side, .Defensive)+buff, .Defensive, boost_phase)
+		round_state[side].raw_damage = boosted(combat_phase_output(battle, side, .Offensive)+buff, .Offensive, boost_phase)
 	}
 
 	for side in Side {
