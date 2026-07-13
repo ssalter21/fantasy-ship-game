@@ -465,7 +465,6 @@ travel_options_offers_forward_and_lateral_always_and_visited_backward :: proc(t:
 	// From node 1: node 0 (backward, visited) retrace-legal, node 2 (lateral)
 	// legal, node 3 (forward) legal.
 	opts := run_travel_options(m, 1, visited)
-	defer delete(opts)
 	testing.expect(t, set_eq(opts, []Node_ID{0, 2, 3}))
 }
 
@@ -477,7 +476,6 @@ travel_options_excludes_an_unvisited_backward_neighbor :: proc(t: ^testing.T) {
 	// From node 1: node 0 is backward and unvisited -> excluded; node 2
 	// (lateral) and node 3 (forward) remain.
 	opts := run_travel_options(m, 1, visited)
-	defer delete(opts)
 	testing.expect(t, set_eq(opts, []Node_ID{2, 3}))
 }
 
@@ -487,11 +485,9 @@ travel_options_offers_a_lateral_edge_in_both_directions :: proc(t: ^testing.T) {
 	visited := []bool{false, false, false, false}
 
 	from1 := run_travel_options(m, 1, visited)
-	defer delete(from1)
 	testing.expect(t, contains_id(from1, 2)) // 1 -> 2 lateral
 
 	from2 := run_travel_options(m, 2, visited)
-	defer delete(from2)
 	testing.expect(t, contains_id(from2, 1)) // 2 -> 1 lateral
 }
 

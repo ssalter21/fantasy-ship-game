@@ -154,8 +154,9 @@ draw_map :: proc(state: ^Game_State) {
 	// when no travel options are current — the fresh recompute rings the nodes
 	// reachable from wherever the ship *is*. The decision path (travel_menu_loop)
 	// is what consumes the Sim's emitted options.
+	// options is run_travel_options' temp_allocator scratch (see its contract),
+	// reclaimed by the per-frame free_all in draw_scene — no hand-free here.
 	options := run.run_travel_options(state.run_map, state.current_node_id, state.visited)
-	defer delete(options)
 
 	for p, i in state.run_map.nodes {
 		pos := state.positions[i]
