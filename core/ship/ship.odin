@@ -64,8 +64,11 @@ Magnitude :: distinct int
 // variants; the enum encodes both "it's a stat modifier" and "which stat" in
 // one field, avoiding a conditionally-meaningful parallel `stat` field. The
 // synergy / conditional kinds of #93/#94 carry their own payload (a selector,
-// a trigger); if they extend this set rather than attaching to the magnitude
-// seam (effect_magnitude), revisit whether a tagged union fits better then.
+// a trigger): rather than extend this enum they attach to the magnitude seam
+// (effect_magnitude) as their own Effect fields — synergy is the Maybe(Selector)
+// added by #93, conditional the Maybe(Condition) added by #94 — so this set
+// stays "what the magnitude does" and the context-sensitivity of how it is
+// computed lives beside it, not inside it.
 Effect_Kind :: enum {
 	Phase_Contribution,
 	Modify_Durability,
@@ -89,47 +92,129 @@ Selector :: union {
 	Category,
 }
 
+// Condition gates a conditional effect's magnitude on a battle- or ship-state
+// trigger (issue #94, ADR-0012): a conditional effect contributes its full
+// magnitude the rounds its Condition holds and nothing the rounds it does not,
+// re-evaluated every round against live state (effect_magnitude / condition_met).
+// Modeled as a tagged union of the trigger variants — the house idiom for a
+// closed variant set whose members carry their own payload (see Effect_Kind's
+// comment, which anticipated this exact case: a conditional "carries its own
+// payload, a trigger") — so the trigger *is* its parameters and its type is the
+// discriminant. Plain data, so it round-trips through a Ghost_Snapshot
+// (ADR-0008) like the rest of an Effect. The four axes required by #94:
+//   - HP threshold        -> Condition_HP_Below      (a ship-state trigger)
+//   - round number        -> Condition_Round_At_Least (a battle-state trigger)
+//   - own concealment     -> Condition_Self_Visibility (a ship-state trigger)
+//   - opponent faster/slower -> Condition_Opponent_Faster / _Slower (battle-state)
+// The two battle-state triggers read Effect_Context.battle, which is nil outside
+// combat, so they are simply unmet when an effect resolves off the battlefield
+// (e.g. an effective-stat read between encounters).
+Condition :: union {
+	Condition_HP_Below,
+	Condition_Round_At_Least,
+	Condition_Self_Visibility,
+	Condition_Opponent_Faster,
+	Condition_Opponent_Slower,
+}
+
+// Condition_HP_Below holds while the owner's current HP is strictly below
+// `percent` percent of its max HP — "below half HP" is `percent = 50`. Compared
+// against the raw Ship.max_hp field, not ship_effective_max_hp: an effective
+// read would recurse (a Modify_Max_HP effect that is itself HP-conditional would
+// re-enter this check), and the run-persistent HP ceiling a threshold means is
+// the base field anyway (ADR-0008).
+Condition_HP_Below :: struct {
+	percent: int,
+}
+
+// Condition_Round_At_Least holds from battle `round` onward (1-based, matching
+// Battle.round). A battle-state trigger: unmet when resolved outside combat.
+Condition_Round_At_Least :: struct {
+	round: int,
+}
+
+// Condition_Self_Visibility holds while the fitting carrying the effect has the
+// given effective visibility (ship_effective_visibility) — "own concealment" is
+// `visibility = .Concealed`. Reads Effect_Context.self_slot, the slot the effect
+// is being resolved for, so it is unmet when resolved without a self slot.
+Condition_Self_Visibility :: struct {
+	visibility: Visibility,
+}
+
+// Condition_Opponent_Faster / _Slower hold while the opponent's effective Speed
+// is strictly greater / less than the owner's, compared against the live speeds
+// combat captures into Effect_Context.battle (own_speed / opponent_speed, which
+// already fold in this round's Man the Sails and any Jettison bonuses). Battle-
+// state triggers: unmet outside combat.
+Condition_Opponent_Faster :: struct {}
+Condition_Opponent_Slower :: struct {}
+
 // Effect is a fitting's data-driven passive/active contribution, resolved
 // against an Effect_Context at the point of use rather than baked in as a bare
 // constant (issue #92, #88). It stays plain data — no function pointers — so a
 // Ghost_Snapshot (ADR-0008) can carry it. `kind` decides what the resolved
-// magnitude does; `magnitude` is the per-unit strength. `synergy`, when set,
-// makes the effect a synergy effect (issue #93): effect_magnitude multiplies
-// `magnitude` by the count of installed fittings the Selector matches, so the
-// resolved magnitude tracks the owning ship's current build. synergy is
-// orthogonal to `kind` — a synergy may feed a combat phase ("for each Weapon,
-// +Offense") or modify a stat — so it attaches to the magnitude seam
-// (effect_magnitude) rather than being a fourth Effect_Kind. The concrete
-// fitting roster and its balance values belong to the content tickets (issue
-// #23), not this data model.
+// magnitude does; `magnitude` is the effect's per-unit strength. `synergy` and
+// `conditional`, when set, make the resolved magnitude context-sensitive at the
+// magnitude seam (effect_magnitude), each orthogonal to `kind` — either may feed
+// a combat phase or modify a stat — rather than being further Effect_Kinds:
+//   - synergy (issue #93) scales `magnitude` by the count of installed fittings
+//     the Selector matches, so it tracks the owning ship's current build ("for
+//     each Weapon, +Offense").
+//   - conditional (issue #94) gates the whole magnitude on a battle-/ship-state
+//     trigger, yielding it the rounds the Condition holds and 0 otherwise
+//     ("below half HP, +Offense").
+// The two compose (a gated synergy resolves to 0 while its Condition is unmet,
+// its build-scaled count otherwise). The concrete fitting roster and its balance
+// values belong to the content tickets (issue #23), not this data model.
 Effect :: struct {
-	kind:      Effect_Kind,
-	magnitude: Magnitude,
-	synergy:   Maybe(Selector),
+	kind:        Effect_Kind,
+	magnitude:   Magnitude,
+	synergy:     Maybe(Selector),
+	conditional: Maybe(Condition),
 }
 
-// Effect_Context is everything an Effect may resolve its magnitude against
-// (issue #92): the owning ship today. The combat battle/opponent state that
-// synergy and conditional effects (issue #88) will read is the documented
-// extension point — added by those tickets, not a field here yet — mirroring
-// how the third visibility layer (ship_effective_visibility) is documented
-// ahead of implementation.
+// Effect_Context is everything an Effect may resolve its magnitude against: the
+// owning ship (issue #92); the slot the effect is being resolved for, for self-
+// referential triggers like own concealment (issue #94); and the live battle
+// state, present only during combat (issue #94). `battle` is the extension point
+// #92 documented ahead of implementation — a conditional's round-number and
+// opponent-speed triggers read it, and it is nil for any resolve outside a
+// battle (the effective-stat readers between encounters), where those triggers
+// are simply unmet. `self_slot` is set per-slot by every resolve site that
+// iterates a layout (ship_effective_stat, combat_phase_output).
 Effect_Context :: struct {
-	owner: ^Ship,
+	owner:     ^Ship,
+	self_slot: Maybe(Layout_Slot),
+	battle:    Maybe(Battle_State),
 }
 
-// effect_magnitude resolves `effect`'s magnitude against `ctx` (issue #92, #93).
-// A flat effect returns its stored constant and ignores ctx; a synergy effect
-// (effect.synergy set) scales that constant by the count of ctx.owner's
-// installed fittings its Selector matches, so the resolved magnitude tracks the
-// current build (issue #93). Every magnitude read (combat phase output, the
-// effective-stat readers) goes through here, so those call sites stay untouched
-// as later tickets (#88) add further context-sensitive kinds (conditionals).
+// Battle_State is the slice of live combat state a conditional effect may read
+// (issue #94), built by core/combat and carried on Effect_Context.battle. Speeds
+// are captured by combat (combat_effective_speed) rather than recomputed here so
+// this stays plain data and the comparison can't re-enter effect resolution.
+Battle_State :: struct {
+	round:          int,
+	own_speed:      int,
+	opponent_speed: int,
+}
+
+// effect_magnitude resolves `effect`'s magnitude against `ctx` (issue #92, #94).
+// A flat effect returns its stored constant and ignores ctx; a conditional
+// effect (effect.conditional set) returns that constant the rounds its Condition
+// holds against ctx and 0 otherwise (condition_met). Every magnitude read
+// (combat phase output, the effective-stat readers) goes through here, so those
+// call sites stay untouched as this seam gains context-sensitive kinds (#88).
 effect_magnitude :: proc(effect: Effect, ctx: Effect_Context) -> Magnitude {
-	if selector, is_synergy := effect.synergy.?; is_synergy {
-		return effect.magnitude * Magnitude(ship_count_matching(ctx.owner, selector))
+	if condition, is_conditional := effect.conditional.?; is_conditional {
+		if !condition_met(condition, ctx) {
+			return 0
+		}
 	}
-	return effect.magnitude
+	magnitude := effect.magnitude
+	if selector, is_synergy := effect.synergy.?; is_synergy {
+		magnitude *= Magnitude(ship_count_matching(ctx.owner, selector))
+	}
+	return magnitude
 }
 
 // selector_matches reports whether layout_slot's installed fitting satisfies
@@ -159,6 +244,31 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 	return false
 }
 
+// condition_met reports whether `condition` holds against `ctx` (issue #94),
+// re-evaluated at every magnitude read so a conditional tracks live state round
+// to round. The two battle-state triggers read ctx.battle and are unmet when it
+// is nil (resolved outside combat); the self-visibility trigger reads
+// ctx.self_slot and is unmet without one.
+condition_met :: proc(condition: Condition, ctx: Effect_Context) -> bool {
+	switch c in condition {
+	case Condition_HP_Below:
+		return ctx.owner.hp * 100 < ctx.owner.max_hp * c.percent
+	case Condition_Round_At_Least:
+		battle, in_battle := ctx.battle.?
+		return in_battle && battle.round >= c.round
+	case Condition_Self_Visibility:
+		self_slot, has_self := ctx.self_slot.?
+		return has_self && ship_effective_visibility(self_slot) == c.visibility
+	case Condition_Opponent_Faster:
+		battle, in_battle := ctx.battle.?
+		return in_battle && battle.opponent_speed > battle.own_speed
+	case Condition_Opponent_Slower:
+		battle, in_battle := ctx.battle.?
+		return in_battle && battle.opponent_speed < battle.own_speed
+	}
+	return false
+}
+
 // ship_count_matching counts s's installed fittings that satisfy `selector`
 // (issue #93): the synergy magnitude scales with this. Cargo is not special-
 // cased out — it carries a real Tag / size / visibility, so a "for each Cargo"
@@ -176,13 +286,24 @@ ship_count_matching :: proc(s: ^Ship, selector: Selector) -> int {
 	return count
 }
 
-// ship_effect_context builds the Effect_Context an effect resolves against for
-// ship s (issue #92). The single place that shape is constructed — combat's
-// phase output and the effective-stat readers both call it — so the
-// battle/opponent fields the synergy/conditional tickets (#93/#94) add land
-// here, not at every resolve site.
+// ship_effect_context builds the off-battle Effect_Context for ship s (issue
+// #92): owner only, no battle state, no self slot. The effective-stat readers
+// use it (they fill self_slot per iteration). Combat builds the in-battle shape
+// with ship_effect_context_in_battle instead.
 ship_effect_context :: proc(s: ^Ship) -> Effect_Context {
 	return Effect_Context{owner = s}
+}
+
+// ship_effect_context_in_battle builds the Effect_Context a conditional effect
+// resolves against during combat (issue #94): the owning ship plus the live
+// `battle` state its round-number and opponent-speed triggers read. Callers
+// still fill self_slot per slot before resolving each fitting's effect. Takes
+// the whole Battle_State (round and the live effective speeds combat has already
+// computed via combat_effective_speed) rather than its fields loose, so the
+// caller names each at the construction site — two positional speeds would be
+// silently swappable.
+ship_effect_context_in_battle :: proc(s: ^Ship, battle: Battle_State) -> Effect_Context {
+	return Effect_Context{owner = s, battle = battle}
 }
 
 Fitting :: struct {
@@ -297,12 +418,17 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx:
 // ship_effective_stat is the shared shape behind ship_effective_durability /
 // _speed / _max_hp (issue #92): the raw base stat plus every installed
 // fitting's matching Stat_Modifier contribution. `base` is the ship's own
-// field and `kind` the Modify_* kind that targets it.
+// field and `kind` the Modify_* kind that targets it. self_slot is set per
+// iteration (issue #94) so a conditional stat modifier gated on its own
+// concealment resolves against the slot it actually sits in. The context here
+// carries no battle state, so a conditional stat modifier gated on a battle-
+// state trigger (round / opponent speed) is unmet through this off-battle path.
 ship_effective_stat :: proc(s: ^Ship, base: int, kind: Effect_Kind) -> int {
 	total := base
 	ctx := ship_effect_context(s)
 	for layout_slot in s.layout {
 		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+			ctx.self_slot = layout_slot
 			total += ship_fitting_stat_contribution(fitting, kind, ctx)
 		}
 	}

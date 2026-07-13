@@ -433,3 +433,89 @@ replace_fitting_rejects_a_size_mismatch_and_leaves_the_original_installed :: pro
 	testing.expect(t, has_fitting)
 	testing.expect_value(t, installed.name, "Gun Deck")
 }
+
+@(test)
+hp_below_conditional_resolves_to_zero_above_the_threshold_and_full_below :: proc(t: ^testing.T) {
+	effect := Effect{magnitude = 6, conditional = Condition_HP_Below{percent = 50}}
+	s := Ship{max_hp = 20}
+
+	s.hp = 20 // full: above the half-HP threshold
+	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
+
+	s.hp = 10 // exactly half: strictly-below means still unmet
+	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
+
+	s.hp = 9 // below half: full magnitude
+	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(6))
+}
+
+@(test)
+round_at_least_conditional_is_unmet_before_the_round_and_off_the_battlefield :: proc(t: ^testing.T) {
+	effect := Effect{magnitude = 5, conditional = Condition_Round_At_Least{round = 3}}
+	s := Ship{}
+
+	// No battle state: a battle-state trigger is simply unmet off the battlefield.
+	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
+
+	testing.expect_value(t, effect_magnitude(effect, ship_effect_context_in_battle(&s, Battle_State{round = 2})), Magnitude(0))
+	testing.expect_value(t, effect_magnitude(effect, ship_effect_context_in_battle(&s, Battle_State{round = 3})), Magnitude(5))
+	testing.expect_value(t, effect_magnitude(effect, ship_effect_context_in_battle(&s, Battle_State{round = 9})), Magnitude(5))
+}
+
+@(test)
+self_visibility_conditional_reads_the_slot_the_effect_is_resolved_for :: proc(t: ^testing.T) {
+	effect := Effect{magnitude = 4, conditional = Condition_Self_Visibility{visibility = .Concealed}}
+	s := Ship{}
+
+	ctx := ship_effect_context(&s)
+	// No self slot: unmet.
+	testing.expect_value(t, effect_magnitude(effect, ctx), Magnitude(0))
+
+	ctx.self_slot = Layout_Slot{slot = Slot{base_visibility = .Exposed}}
+	testing.expect_value(t, effect_magnitude(effect, ctx), Magnitude(0))
+
+	ctx.self_slot = Layout_Slot{slot = Slot{base_visibility = .Concealed}}
+	testing.expect_value(t, effect_magnitude(effect, ctx), Magnitude(4))
+}
+
+@(test)
+opponent_speed_conditionals_compare_the_live_battle_speeds :: proc(t: ^testing.T) {
+	s := Ship{}
+	faster := Effect{magnitude = 3, conditional = Condition_Opponent_Faster{}}
+	slower := Effect{magnitude = 3, conditional = Condition_Opponent_Slower{}}
+
+	// own_speed 5, opponent_speed 8: opponent is the faster side.
+	quick_foe := ship_effect_context_in_battle(&s, Battle_State{round = 1, own_speed = 5, opponent_speed = 8})
+	testing.expect_value(t, effect_magnitude(faster, quick_foe), Magnitude(3))
+	testing.expect_value(t, effect_magnitude(slower, quick_foe), Magnitude(0))
+
+	// own_speed 8, opponent_speed 5: opponent is the slower side.
+	slow_foe := ship_effect_context_in_battle(&s, Battle_State{round = 1, own_speed = 8, opponent_speed = 5})
+	testing.expect_value(t, effect_magnitude(faster, slow_foe), Magnitude(0))
+	testing.expect_value(t, effect_magnitude(slower, slow_foe), Magnitude(3))
+
+	// Equal speed: neither strict comparison holds.
+	tie := ship_effect_context_in_battle(&s, Battle_State{round = 1, own_speed = 6, opponent_speed = 6})
+	testing.expect_value(t, effect_magnitude(faster, tie), Magnitude(0))
+	testing.expect_value(t, effect_magnitude(slower, tie), Magnitude(0))
+}
+
+@(test)
+a_conditional_stat_modifier_applies_only_while_its_condition_holds :: proc(t: ^testing.T) {
+	// A "below half HP, +Durability" plating: the effective-stat readers gate it
+	// through the same conditional seam, self_slot filled per slot.
+	plating := Fitting{
+		name = "Panic Plating", size = .Small,
+		passive = Effect{kind = .Modify_Durability, magnitude = 5, conditional = Condition_HP_Below{percent = 50}},
+	}
+	s := Ship{
+		durability = 2, max_hp = 20,
+		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = plating}},
+	}
+
+	s.hp = 20 // above the threshold: raw durability only
+	testing.expect_value(t, ship_effective_durability(&s), 2)
+
+	s.hp = 8 // below the threshold: the +Durability kicks in
+	testing.expect_value(t, ship_effective_durability(&s), 2 + 5)
+}
