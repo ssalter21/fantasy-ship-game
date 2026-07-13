@@ -1,5 +1,7 @@
 package run
 
+import "../ship"
+import "core:math/rand"
 import "core:testing"
 
 @(test)
@@ -69,20 +71,54 @@ run_map_create_wires_the_hand_authored_pve_opponent_content_into_ship_battle_nod
 }
 
 @(test)
-run_upgrade_offer_options_returns_the_three_upgraded_starting_fittings :: proc(t: ^testing.T) {
-	options := run_upgrade_offer_options(Encounter_Upgrade_Offer{quality = 15})
+run_item_offer_options_presents_distinct_roster_items :: proc(t: ^testing.T) {
+	state := rand.create(0)
+	gen := rand.default_random_generator(&state)
+	options := run_item_offer_options(.Coastal, 0, gen)
 
-	testing.expect_value(t, options[0].name, "Upgraded Top Crew")
-	testing.expect_value(t, options[1].name, "Upgraded Captain's Quarters")
-	testing.expect_value(t, options[2].name, "Upgraded Gun Deck")
+	// Every offered option is a distinct roster item (no repeats), and each is a
+	// real fitting the player could place — not a cargo filler.
+	testing.expect_value(t, len(options), ITEM_OFFER_OPTION_COUNT)
+	for a, i in options {
+		testing.expect(t, !a.is_cargo)
+		testing.expect(t, len(a.name) > 0)
+		for b, j in options {
+			if i != j {
+				testing.expect(t, a.name != b.name)
+			}
+		}
+	}
 }
 
 @(test)
-run_upgrade_offer_options_scale_up_with_a_higher_quality_offer :: proc(t: ^testing.T) {
-	low := run_upgrade_offer_options(Encounter_Upgrade_Offer{quality = 5})
-	high := run_upgrade_offer_options(Encounter_Upgrade_Offer{quality = 50})
+run_item_offer_options_scale_up_with_a_deeper_node :: proc(t: ^testing.T) {
+	// A deeper node's quality bonus lifts the offered items' magnitudes. Drawing
+	// both offers from the same seed makes them sample the same items in the same
+	// order, so the only difference is the zone/depth scaling.
+	low_state := rand.create(7)
+	high_state := rand.create(7)
+	low := run_item_offer_options(.Coastal, 0, rand.default_random_generator(&low_state))
+	high := run_item_offer_options(.Deep, 3, rand.default_random_generator(&high_state))
 
-	low_active, _ := low[2].active.?
-	high_active, _ := high[2].active.?
-	testing.expect(t, high_active.magnitude > low_active.magnitude)
+	found_scaled := false
+	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
+		testing.expect_value(t, low[i].name, high[i].name) // same items, same order
+		if effect_strength(high[i]) > effect_strength(low[i]) {
+			found_scaled = true
+		}
+	}
+	testing.expect(t, found_scaled)
+}
+
+// effect_strength reads the magnitude of whichever effect a roster item carries,
+// so a test can assert the quality scaling lifted it without caring which slot
+// (passive/active) the item's one effect sits in.
+effect_strength :: proc(f: ship.Fitting) -> int {
+	if active, ok := f.active.?; ok {
+		return int(active.magnitude)
+	}
+	if passive, ok := f.passive.?; ok {
+		return int(passive.magnitude)
+	}
+	return 0
 }

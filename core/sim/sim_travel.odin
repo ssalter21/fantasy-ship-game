@@ -57,10 +57,10 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		append(events, Event(Event_Battle_Menu{may_leave = combat.combat_may_leave(&sim.battle, .A)}))
 		sim.phase = .Awaiting_Battle_Command
 
-	case run.Encounter_Upgrade_Offer:
-		sim.upgrade_options = run.run_upgrade_offer_options(enc)
-		append(events, Event(Event_Upgrade_Offer_Presented{options = sim.upgrade_options}))
-		sim.phase = .Awaiting_Upgrade_Choice
+	case run.Encounter_Item_Offer:
+		sim.item_offer_options = enc.options
+		append(events, Event(Event_Item_Offer_Presented{options = sim.item_offer_options}))
+		sim.phase = .Awaiting_Item_Choice
 
 	case run.Encounter_Stat_Trade:
 		zone, has_zone := node.zone.?

@@ -36,25 +36,27 @@ Headless_State :: struct {
 
 // get_captain_choice is the headless Input_Source: no real player, so it
 // always resolves the current decision deterministically — Hold every battle
-// round, always pick upgrade option 0, and for travel pick a legal move that
-// makes forward progress toward Goal (any forward neighbour; the first
-// emitted option otherwise). The travel options come from the Sim (issue #83),
-// and kinds are hidden, so the plan never depends on what an unvisited node
-// holds — only on the graph shape.
+// round, skip every Item Offer, and for travel pick a legal move that makes
+// forward progress toward Goal (any forward neighbour; the first emitted option
+// otherwise). The travel options come from the Sim (issue #83), and kinds are
+// hidden, so the plan never depends on what an unvisited node holds — only on
+// the graph shape.
 get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Headless_State)data
 
 	switch awaiting {
 	case .Awaiting_Battle_Command:
 		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command_Hold{}})
-	case .Awaiting_Upgrade_Choice:
-		return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})
+	case .Awaiting_Item_Choice:
+		// Skip the Item Offer (issue #96): a nil selection takes no item and opens
+		// no refit, so the auto-player never has to drive a loadout edit.
+		return sim.Command(sim.Command_Pick_Item{selection = nil})
 	case .Awaiting_Travel_Choice:
 		return sim.Command(sim.Command_Travel_To{node_id = headless_next_node(state)})
 	case .Awaiting_Refit:
-		// No acquisition channel opens a refit in the driven session yet
-		// (#96/#98); if one ever does, this scripted driver just finishes it
-		// rather than editing the loadout.
+		// A skipped Item Offer never opens a refit; if some other channel (#98 Port
+		// shop) ever does, this scripted driver just finishes it rather than
+		// editing the loadout.
 		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
 	case .Ended:
 		panic("get_captain_choice called while the sim isn't awaiting a decision")
@@ -99,8 +101,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Battle_Menu:
 	case sim.Event_Battle_Event:
 	case sim.Event_Ship_Updated:
-	case sim.Event_Upgrade_Offer_Presented:
-	case sim.Event_Upgrade_Applied:
+	case sim.Event_Item_Offer_Presented:
 	case sim.Event_Refit_Started:
 	case sim.Event_Fitting_Installed:
 	case sim.Event_Fitting_Moved:

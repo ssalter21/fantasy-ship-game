@@ -50,15 +50,16 @@ get_captain_choice_holds_when_awaiting_a_battle_command :: proc(t: ^testing.T) {
 }
 
 @(test)
-get_captain_choice_picks_upgrade_option_zero_when_awaiting_an_upgrade_choice :: proc(t: ^testing.T) {
+get_captain_choice_skips_the_offer_when_awaiting_an_item_choice :: proc(t: ^testing.T) {
 	state := Headless_State{}
 	defer delete(state.events)
 
-	cmd := get_captain_choice(&state, .Awaiting_Upgrade_Choice)
+	cmd := get_captain_choice(&state, .Awaiting_Item_Choice)
 
-	pick, ok := cmd.(sim.Command_Pick_Upgrade)
+	pick, ok := cmd.(sim.Command_Pick_Item)
 	testing.expect(t, ok)
-	testing.expect_value(t, pick.option_index, 0)
+	_, has_selection := pick.selection.?
+	testing.expect(t, !has_selection) // nil selection == skip
 }
 
 @(test)

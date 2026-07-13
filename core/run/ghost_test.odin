@@ -95,22 +95,6 @@ applying_a_stat_trade_returns_a_post_trade_snapshot :: proc(t: ^testing.T) {
 }
 
 @(test)
-resolving_an_upgrade_offer_returns_a_snapshot_with_the_offers_quality_as_difficulty_rating :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 5}
-	offer := Encounter_Upgrade_Offer{quality = 30}
-
-	snapshot := run_apply_upgrade_offer(&s, offer, .Open_Sea, 6)
-
-	// No concrete upgrade grant yet (real content is issue #23) — s is unchanged.
-	testing.expect_value(t, snapshot.ship.durability, 2)
-	testing.expect_value(t, snapshot.ship.speed, 5)
-	testing.expect_value(t, snapshot.ship.hp, 20)
-	testing.expect_value(t, snapshot.progress.steps, 6)
-	testing.expect_value(t, snapshot.progress.zone, Zone.Open_Sea)
-	testing.expect_value(t, snapshot.progress.difficulty_rating, 30)
-}
-
-@(test)
 finishing_a_ship_battle_returns_a_snapshot_of_the_players_ship :: proc(t: ^testing.T) {
 	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
 	encounter := Encounter_Ship_Battle{depth = 2, opponent = ship.Ship{hp = 10, speed = 3}}

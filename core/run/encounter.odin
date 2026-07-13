@@ -32,16 +32,14 @@ run_finish_ship_battle :: proc(battle: ^combat.Battle, s: ^ship.Ship, encounter:
 	return run_ghost_snapshot_of(s, steps, zone, run_ship_battle_difficulty(zone, encounter.depth))
 }
 
-// run_apply_upgrade_offer resolves an Upgrade Offer encounter (ADR-0008):
-// grants nothing concrete yet since which upgrade the captain picks among
-// offer's options is real content for issue #23 — this proc only returns the
-// resolved Ghost_Snapshot, using offer's zone-and-depth-scaled quality
-// placeholder as the snapshot's difficulty_rating.
-run_apply_upgrade_offer :: proc(s: ^ship.Ship, offer: Encounter_Upgrade_Offer, zone: Zone, steps: int) -> Ghost_Snapshot {
-	return run_ghost_snapshot_of(s, steps, zone, offer.quality)
-}
+// An Item Offer has no run-side apply proc (issue #96): unlike a Stat Trade it
+// changes no ship stat on arrival, and unlike the retired Upgrade Offer it
+// grants nothing at resolve time — picking an item opens a Refit (core/sim's
+// sim_open_refit) that places it through the manual-loadout commands, and the
+// old run_apply_upgrade_offer / its resolve-time Ghost_Snapshot are retired with
+// the auto-replace path. The Sim marks the node resolved when the choice is made.
 
-// run_apply_stat_trade resolves a Stat Trade encounter: unlike Upgrade Offer,
+// run_apply_stat_trade resolves a Stat Trade encounter: unlike an Item Offer,
 // a Stat Trade is a single fixed trade-off rather than a choice among
 // options, so it applies immediately and permanently on arrival, matching "no
 // decline". Returns a post-trade Ghost_Snapshot (ADR-0008); the trade's own

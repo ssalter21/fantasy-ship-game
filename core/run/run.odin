@@ -25,7 +25,7 @@ Zone :: enum {
 
 // zone_tier is the single shared per-zone difficulty/reward ladder
 // (placeholder values expected to move during playtesting) — Coastal <
-// Open_Sea < Deep. Ship Battle, Upgrade Offer, and Stat Trade each scale off
+// Open_Sea < Deep. Ship Battle, Item Offer, and Stat Trade each scale off
 // this one table via their own PER_TIER constant below, so the three kinds
 // land on distinguishable magnitudes instead of duplicating the same literal
 // table.
@@ -45,8 +45,8 @@ SHIP_BATTLE_HP_PER_DEPTH :: 3
 SHIP_BATTLE_DURABILITY_PER_TIER :: 1
 SHIP_BATTLE_DURABILITY_PER_DEPTH :: 1
 SHIP_BATTLE_OPPONENT_SPEED :: 5
-UPGRADE_OFFER_QUALITY_PER_TIER :: 15
-UPGRADE_OFFER_QUALITY_PER_DEPTH :: 5
+ITEM_OFFER_QUALITY_PER_TIER :: 15
+ITEM_OFFER_QUALITY_PER_DEPTH :: 5
 STAT_TRADE_DURABILITY_PER_TIER :: 8
 STAT_TRADE_DURABILITY_PER_DEPTH :: 2
 STAT_TRADE_SPEED_COST_PER_TIER :: 1
@@ -89,12 +89,13 @@ run_ship_battle_opponent_durability :: proc(zone: Zone, depth: int) -> int {
 	return run_zone_depth_scaled(zone, depth, SHIP_BATTLE_DURABILITY_PER_TIER, SHIP_BATTLE_DURABILITY_PER_DEPTH)
 }
 
-// run_upgrade_offer_quality is a zone-and-depth-scaled reward-quality
-// placeholder — a deeper Upgrade Offer grants a bigger boost than a shallow
-// one in the same zone. Concrete meaning (what an Upgrade Offer actually
-// grants) is issue #23's content.
-run_upgrade_offer_quality :: proc(zone: Zone, depth: int) -> int {
-	return run_zone_depth_scaled(zone, depth, UPGRADE_OFFER_QUALITY_PER_TIER, UPGRADE_OFFER_QUALITY_PER_DEPTH)
+// run_item_offer_quality is a zone-and-depth-scaled reward-quality placeholder —
+// a deeper Item Offer presents stronger items than a shallow one in the same
+// zone. It feeds run_item_offer_options' per-item scaling bonus (issue #96,
+// ADR-0012); the old Upgrade Offer's same quality knob is preserved here, only
+// its name and consumer changed.
+run_item_offer_quality :: proc(zone: Zone, depth: int) -> int {
+	return run_zone_depth_scaled(zone, depth, ITEM_OFFER_QUALITY_PER_TIER, ITEM_OFFER_QUALITY_PER_DEPTH)
 }
 
 // run_stat_trade_gain_durability and run_stat_trade_cost_speed are the
@@ -127,10 +128,13 @@ run_node_is_port :: proc(p: Node) -> bool {
 	return p.kind == .Start || p.kind == .Port
 }
 
-// Encounter_Kind is the type of interaction an Encounter node presents.
+// Encounter_Kind is the type of interaction an Encounter node presents. The
+// old Upgrade_Offer is repurposed as the Item_Offer (ADR-0012, issue #96): the
+// encounter-kind slot in the map model is unchanged — the map still deals three
+// kinds per zone — only this kind's content and behavior changed.
 Encounter_Kind :: enum {
 	Ship_Battle,
-	Upgrade_Offer,
+	Item_Offer,
 	Stat_Trade,
 }
 
@@ -140,9 +144,17 @@ Encounter_Kind :: enum {
 // added without restructuring callers.
 Encounter :: union {
 	Encounter_Ship_Battle,
-	Encounter_Upgrade_Offer,
+	Encounter_Item_Offer,
 	Encounter_Stat_Trade,
 }
+
+// ITEM_OFFER_OPTION_COUNT is how many distinct roster items an Item Offer
+// presents (issue #96, ADR-0012's "presents a few distinct roster items"). The
+// player picks one to place — or skips — so this is the "N" in the acceptance
+// criteria. Fixed here (a small fixed array on the encounter, no allocation)
+// rather than varying per node; must be <= ship.ITEM_ROSTER_SIZE so the pool can
+// supply that many distinct items.
+ITEM_OFFER_OPTION_COUNT :: 3
 
 // Encounter_Ship_Battle is a full battle against a game-configured opponent,
 // resolved via core/combat's existing phased-round Battle — this package
@@ -157,12 +169,16 @@ Encounter_Ship_Battle :: struct {
 	opponent: ship.Ship,
 }
 
-// Encounter_Upgrade_Offer is a choice among upgrade options; picking one is a
-// separate captain decision left to implementation — this package only
-// carries the offer's zone-and-depth-scaled quality placeholder. Real upgrade
-// content is issue #23.
-Encounter_Upgrade_Offer :: struct {
-	quality: int,
+// Encounter_Item_Offer presents a few distinct roster items to place by hand
+// (ADR-0012, issue #96) — the repurposed Upgrade Offer. `options` are the
+// concrete items on offer, drawn from the roster pool and zone-and-depth-scaled
+// at generation time (run_item_offer_options), so an Item Offer carries its
+// items as baked content the way a Ship Battle carries its opponent, rather than
+// a bare quality number resolved later. Picking one opens a Refit to place or
+// swap it; the player may also skip. A fixed-size array — no owned heap, so
+// run_map_destroy needs no per-offer cleanup.
+Encounter_Item_Offer :: struct {
+	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 }
 
 // Encounter_Stat_Trade is a permanent stat-for-stat/cargo trade-off (example:

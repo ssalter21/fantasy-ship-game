@@ -1,6 +1,7 @@
 package run
 
 import "../ship"
+import "core:math/rand"
 
 // run_make_opponent_ship computes a Ship Battle opponent's baseline stats
 // (hp, durability, speed) from zone/depth — the numeric half of a
@@ -63,22 +64,34 @@ run_pve_opponent :: proc(zone: Zone, depth: int) -> ship.Ship {
 	return s
 }
 
-// UPGRADE_OFFER_QUALITY_DIVISOR converts a node's zone-scaled quality
-// placeholder (run_upgrade_offer_quality) into a flat magnitude bonus for
-// whichever of the three starting fittings the captain picks (issue #23): a
-// smaller, more legible number than raw quality while still scaling with it.
-UPGRADE_OFFER_QUALITY_DIVISOR :: 5
+// ITEM_OFFER_QUALITY_DIVISOR converts a node's zone-scaled quality placeholder
+// (run_item_offer_quality) into a flat magnitude bonus added to each offered
+// item (issue #96): a smaller, more legible number than raw quality while still
+// scaling with it — the same knob the old Upgrade Offer applied to its three
+// fixed variants, now spread across the roster items on offer.
+ITEM_OFFER_QUALITY_DIVISOR :: 5
 
-// run_upgrade_offer_options is the fixed menu presented at every Upgrade
-// Offer node (issue #23; ADR-0004: findable content is limited to upgraded
-// variants of the three starting fittings — no separate fitting roster, so
-// the menu itself never varies). Only the magnitude scales per node, driven
-// by that node's own zone-scaled quality.
-run_upgrade_offer_options :: proc(offer: Encounter_Upgrade_Offer) -> [3]ship.Fitting {
-	bonus := offer.quality / UPGRADE_OFFER_QUALITY_DIVISOR
-	return [3]ship.Fitting{
-		ship.ship_fitting_upgraded_top_crew(bonus),
-		ship.ship_fitting_upgraded_captains_quarters(bonus),
-		ship.ship_fitting_upgraded_gun_deck(bonus),
+// run_item_offer_options picks the distinct roster items an Item Offer node
+// presents (issue #96, ADR-0012): it samples ITEM_OFFER_OPTION_COUNT distinct
+// items from ship_item_roster — shuffling the pool's indices with the map
+// generator's RNG (`gen`) so an offer's items are reproducible per seed yet vary
+// node to node — and scales each by this node's zone-and-depth quality. Baked at
+// generation time (run_make_encounter), so the offer carries its items as
+// content, like a Ship Battle carries its opponent. Retires run_upgrade_offer_options'
+// fixed three-upgrade menu.
+run_item_offer_options :: proc(zone: Zone, depth: int, gen: rand.Generator) -> [ITEM_OFFER_OPTION_COUNT]ship.Fitting {
+	bonus := run_item_offer_quality(zone, depth) / ITEM_OFFER_QUALITY_DIVISOR
+	roster := ship.ship_item_roster()
+
+	indices: [ship.ITEM_ROSTER_SIZE]int
+	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
+		indices[i] = i
 	}
+	rand.shuffle(indices[:], gen)
+
+	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting
+	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
+		options[i] = ship.ship_fitting_scaled(roster[indices[i]], bonus)
+	}
+	return options
 }

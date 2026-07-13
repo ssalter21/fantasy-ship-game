@@ -16,7 +16,12 @@ import "core:mem/virtual"
 Phase :: enum {
 	Awaiting_Travel_Choice,
 	Awaiting_Battle_Command,
-	Awaiting_Upgrade_Choice,
+	// Awaiting_Item_Choice is the Item Offer decision (issue #96, ADR-0012): the
+	// ship arrived at an Item Offer node and is choosing one of the offered
+	// distinct roster items to place — or skipping. Picking one opens a Refit
+	// (Awaiting_Refit) to place or swap it; skipping resolves the encounter and
+	// returns to a travel choice. Repurposes the old Awaiting_Upgrade_Choice.
+	Awaiting_Item_Choice,
 	// Awaiting_Refit is the manual-loadout mode (issue #95, ADR-0012): the ship
 	// is rearranged through install / move / remove commands, ended by a finish
 	// command. Opened by sim_open_refit — which the acquisition channels (#96
@@ -30,9 +35,10 @@ Phase :: enum {
 // or upgrade option index belongs, e.g. via Command_Travel_To).
 Node_ID :: distinct int
 
-// Option_Index identifies one of Command_Pick_Upgrade's 3 fixed Upgrade
-// Offer options by position (issue #54: distinct from a plain int for the
-// same reason as Node_ID).
+// Option_Index identifies one of an Item Offer's presented options by position
+// (issue #54: distinct from a plain int for the same reason as Node_ID, so an
+// option index can't be passed where a node id or slot index belongs). Indexes
+// into the offered items the Sim stages in item_offer_options.
 Option_Index :: distinct int
 
 Sim :: struct {
@@ -78,7 +84,11 @@ Sim :: struct {
 	pending_command:   Maybe(Command),
 	battle:            combat.Battle,
 	active_encounter:  run.Encounter_Ship_Battle,
-	upgrade_options:   [3]ship.Fitting,
+	// item_offer_options are the distinct roster items the current Item Offer is
+	// presenting (issue #96): staged from the arrived node's Encounter_Item_Offer
+	// and broadcast on Event_Item_Offer_Presented, then indexed by a
+	// Command_Pick_Item's Option_Index to know which item to open a Refit with.
+	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 	// refit_pending is the incoming fitting an open Refit (Awaiting_Refit) was
 	// opened to place (issue #95): set by sim_open_refit, consumed when a
 	// Refit_Install lands it in a slot, and discarded (nil) when the refit
@@ -101,7 +111,7 @@ Sim :: struct {
 Command :: union {
 	Command_Travel_To,
 	Command_Battle_Choice,
-	Command_Pick_Upgrade,
+	Command_Pick_Item,
 	Command_Refit,
 }
 
@@ -113,13 +123,15 @@ Command_Battle_Choice :: struct {
 	combat_command: combat.Command,
 }
 
-// Command_Pick_Upgrade picks one of the 3 fixed Upgrade Offer options
-// (option_index into the order run.run_upgrade_offer_options returns:
-// 0 = Top Crew/Buff, 1 = Captain's Quarters/Defensive, 2 = Gun Deck/Offensive).
-// The picked option's own Fitting.category says which starting slot it
-// replaces — no separate index-to-category table needed.
-Command_Pick_Upgrade :: struct {
-	option_index: Option_Index,
+// Command_Pick_Item resolves an Item Offer (issue #96, ADR-0012), valid only
+// while Sim is in the Awaiting_Item_Choice phase. `selection` is the offered
+// item the captain picked (an Option_Index into item_offer_options), or nil to
+// **skip** the offer entirely — the "or a skip" half of the acceptance
+// criteria. A pick opens a Refit to place or swap that item; a skip resolves the
+// encounter with no loadout change. Modeled as a Maybe rather than a sentinel
+// index so "skip" is a distinct, unmistakable value.
+Command_Pick_Item :: struct {
+	selection: Maybe(Option_Index),
 }
 
 // Command_Refit carries one loadout operation during a Refit (issue #95,
@@ -180,8 +192,7 @@ Event :: union {
 	Event_Battle_Menu,
 	Event_Battle_Event,
 	Event_Ship_Updated,
-	Event_Upgrade_Offer_Presented,
-	Event_Upgrade_Applied,
+	Event_Item_Offer_Presented,
 	Event_Refit_Started,
 	Event_Fitting_Installed,
 	Event_Fitting_Moved,
@@ -261,12 +272,15 @@ Event_Ship_Updated :: struct {
 	ship: ship.Ship,
 }
 
-Event_Upgrade_Offer_Presented :: struct {
-	options: [3]ship.Fitting,
-}
-
-Event_Upgrade_Applied :: struct {
-	fitting: ship.Fitting,
+// Event_Item_Offer_Presented carries the distinct roster items an Item Offer is
+// presenting (issue #96, ADR-0012), dispatched when the ship arrives at an Item
+// Offer node. Presentation renders each item's tags, phase, size, and effect
+// intent and offers a pick-or-skip choice; picking one opens a Refit
+// (Event_Refit_Started). Replaces Event_Upgrade_Offer_Presented — there is no
+// Event_Upgrade_Applied successor: a pick's placement is announced by the
+// Refit's own Event_Fitting_Installed, not a separate apply event.
+Event_Item_Offer_Presented :: struct {
+	options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 }
 
 // Event_Refit_Started brackets the opening of a Refit (issue #95): `incoming`
@@ -390,8 +404,8 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim_process_travel(sim, events)
 	case .Awaiting_Battle_Command:
 		sim_process_battle_round(sim, events)
-	case .Awaiting_Upgrade_Choice:
-		sim_process_upgrade_choice(sim, events)
+	case .Awaiting_Item_Choice:
+		sim_process_item_choice(sim, events)
 	case .Awaiting_Refit:
 		sim_process_refit(sim, events)
 	case .Ended:
@@ -454,9 +468,9 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	case .Awaiting_Battle_Command:
 		_, ok := cmd.(Command_Battle_Choice)
 		assert(ok, "expected a Command_Battle_Choice while awaiting a battle command")
-	case .Awaiting_Upgrade_Choice:
-		_, ok := cmd.(Command_Pick_Upgrade)
-		assert(ok, "expected a Command_Pick_Upgrade while awaiting an upgrade choice")
+	case .Awaiting_Item_Choice:
+		_, ok := cmd.(Command_Pick_Item)
+		assert(ok, "expected a Command_Pick_Item while awaiting an item choice")
 	case .Awaiting_Refit:
 		_, ok := cmd.(Command_Refit)
 		assert(ok, "expected a Command_Refit while awaiting a refit command")
@@ -471,7 +485,7 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 // sim_emit_encounter_resolved is the single place the Sim captures a resolved
 // encounter's Ghost_Snapshot onto its run-scoped arena and emits it (issue
 // #82, ADR-0008). The run-side resolution procs (run_apply_stat_trade,
-// run_finish_ship_battle, run_apply_upgrade_offer) return a borrowed-layout
+// run_finish_ship_battle, run_apply_stat_trade) return a borrowed-layout
 // snapshot; run_ghost_snapshot_capture clones that snapshot's layout under the
 // arena so it outlives the tick (issue #52) and lives as long as the Sim.
 // Concentrating the arena/temp-allocator ritual here is why the per-encounter

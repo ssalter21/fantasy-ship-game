@@ -38,8 +38,10 @@ dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^t
 	dispatch(&state, sim.Event(sim.Event_Battle_Menu{may_leave = true}))
 	dispatch(&state, sim.Event(sim.Event_Battle_Event{inner = combat.Event(combat.Event_Battle_Ended{reason = .Destroyed})}))
 	dispatch(&state, sim.Event(sim.Event_Ship_Updated{ship = state.player}))
-	dispatch(&state, sim.Event(sim.Event_Upgrade_Offer_Presented{}))
-	dispatch(&state, sim.Event(sim.Event_Upgrade_Applied{}))
+	dispatch(&state, sim.Event(sim.Event_Item_Offer_Presented{}))
+	dispatch(&state, sim.Event(sim.Event_Refit_Started{incoming = ship.ship_fitting_gun_deck()}))
+	dispatch(&state, sim.Event(sim.Event_Fitting_Installed{slot = 0, fitting = ship.ship_fitting_gun_deck()}))
+	dispatch(&state, sim.Event(sim.Event_Refit_Finished{}))
 	dispatch(&state, sim.Event(sim.Event_Run_Ended{status = .Won}))
 }
 
@@ -68,14 +70,122 @@ battle_menu_loop_falls_back_to_hold_without_a_live_window :: proc(t: ^testing.T)
 }
 
 @(test)
-upgrade_menu_loop_falls_back_to_option_zero_without_a_live_window :: proc(t: ^testing.T) {
-	state := Game_State{upgrade_options = [3]ship.Fitting{}}
+item_offer_menu_loop_falls_back_to_skip_without_a_live_window :: proc(t: ^testing.T) {
+	state := Game_State{}
 
-	cmd := upgrade_menu_loop(&state)
+	cmd := item_offer_menu_loop(&state)
 
-	pick, ok := cmd.(sim.Command_Pick_Upgrade)
+	pick, ok := cmd.(sim.Command_Pick_Item)
 	testing.expect(t, ok)
-	testing.expect_value(t, pick.option_index, 0)
+	_, has_selection := pick.selection.?
+	testing.expect(t, !has_selection) // nil selection == skip
+}
+
+@(test)
+refit_menu_loop_falls_back_to_finish_without_a_live_window :: proc(t: ^testing.T) {
+	state := Game_State{}
+
+	cmd := refit_menu_loop(&state)
+
+	refit, ok := cmd.(sim.Command_Refit)
+	testing.expect(t, ok)
+	_, is_finish := refit.command.(sim.Refit_Finish)
+	testing.expect(t, is_finish)
+}
+
+@(test)
+refit_click_maps_clicks_to_loadout_operations :: proc(t: ^testing.T) {
+	// The place/swap/move/finish interaction is pure state logic, testable
+	// without a live window (issue #96).
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	state := Game_State{player = s}
+	finish := len(s.layout)
+	// Starting slots: 0 top deck (M) Captain's Quarters, 2 gun deck (L) Gun Deck,
+	// 4 hold 1 (M) Cargo. Place a Medium item so the swap/move slots line up.
+
+	// Finish box commits a Refit_Finish.
+	cmd, ready := refit_click(&state, finish, finish)
+	testing.expect(t, ready)
+	refit, _ := cmd.(sim.Command_Refit)
+	_, is_finish := refit.command.(sim.Refit_Finish)
+	testing.expect(t, is_finish)
+
+	// Placing a Medium item: a filled same-size slot (0 holds Captain's Quarters,
+	// Medium) clears first.
+	state.refit_incoming = ship.ship_fitting_top_crew() // Medium
+	cmd, ready = refit_click(&state, 0, finish)
+	testing.expect(t, ready)
+	refit, _ = cmd.(sim.Command_Refit)
+	_, is_remove := refit.command.(sim.Refit_Remove)
+	testing.expect(t, is_remove)
+
+	// A filled slot of a different size (2 is a Large Gun Deck) is ignored — no
+	// accidental discard of a fitting the item can't replace.
+	_, ready = refit_click(&state, 2, finish)
+	testing.expect(t, !ready)
+
+	// An empty same-size slot installs the pending item.
+	state.player.layout[4].fitting = nil // hold 1, Medium
+	cmd, ready = refit_click(&state, 4, finish)
+	testing.expect(t, ready)
+	refit, _ = cmd.(sim.Command_Refit)
+	install, is_install := refit.command.(sim.Refit_Install)
+	testing.expect(t, is_install)
+	testing.expect_value(t, install.slot, ship.Slot_Index(4))
+
+	// Rearranging (no pending item): select a filled source, then move it to the
+	// empty slot 4.
+	state.refit_incoming = nil
+	state.refit_move_from = nil
+	_, ready = refit_click(&state, 0, finish)
+	testing.expect(t, !ready) // selecting, not committing
+	from, selecting := state.refit_move_from.?
+	testing.expect(t, selecting)
+	testing.expect_value(t, from, ship.Slot_Index(0))
+	cmd, ready = refit_click(&state, 4, finish)
+	testing.expect(t, ready)
+	refit, _ = cmd.(sim.Command_Refit)
+	move, is_move := refit.command.(sim.Refit_Move)
+	testing.expect(t, is_move)
+	testing.expect_value(t, move.from, ship.Slot_Index(0))
+	testing.expect_value(t, move.to, ship.Slot_Index(4))
+	_, still_selecting := state.refit_move_from.?
+	testing.expect(t, !still_selecting) // move committed, selection cleared
+
+	// Clicking the selected source again cancels the move.
+	_, _ = refit_click(&state, 0, finish)
+	_, ready = refit_click(&state, 0, finish)
+	testing.expect(t, !ready)
+	_, still_selecting = state.refit_move_from.?
+	testing.expect(t, !still_selecting)
+}
+
+@(test)
+fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
+	flat := ship.Fitting{category = .Offensive, active = ship.Effect{magnitude = 5}}
+	testing.expect_value(t, fitting_effect_intent(flat), "+5 Offense")
+
+	dur := ship.Fitting{category = .Defensive, passive = ship.Effect{kind = .Modify_Durability, magnitude = 2}}
+	testing.expect_value(t, fitting_effect_intent(dur), "+2 Durability")
+
+	synergy := ship.Fitting{category = .Buff, active = ship.Effect{magnitude = 2, synergy = ship.Selector(ship.Tag.Weapon)}}
+	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Buff per Weapon")
+
+	conditional := ship.Fitting{category = .Offensive, active = ship.Effect{magnitude = 8, conditional = ship.Condition_HP_Below{percent = 50}}}
+	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense below 50% HP")
+
+	cargo := ship.ship_fitting_cargo("Cargo", .Small)
+	testing.expect_value(t, fitting_effect_intent(cargo), "no effect")
+}
+
+@(test)
+fitting_tags_label_lists_every_family :: proc(t: ^testing.T) {
+	multi := ship.Fitting{tags = {.Crew, .Weapon}}
+	testing.expect_value(t, fitting_tags_label(multi.tags), "Crew, Weapon")
+
+	none := ship.Fitting{}
+	testing.expect_value(t, fitting_tags_label(none.tags), "—")
 }
 
 @(test)

@@ -13,8 +13,8 @@ encounter_kind_of :: proc(e: Encounter) -> Encounter_Kind {
 	switch _ in e {
 	case Encounter_Ship_Battle:
 		return .Ship_Battle
-	case Encounter_Upgrade_Offer:
-		return .Upgrade_Offer
+	case Encounter_Item_Offer:
+		return .Item_Offer
 	case Encounter_Stat_Trade:
 		return .Stat_Trade
 	}
@@ -41,8 +41,8 @@ ship_battle_opponent_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 }
 
 @(test)
-upgrade_offer_quality_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_upgrade_offer_quality)
+item_offer_quality_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_item_offer_quality)
 }
 
 @(test)
@@ -65,9 +65,9 @@ run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t
 
 @(test)
 the_three_zone_scaled_encounter_kinds_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
-	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_upgrade_offer_quality(.Coastal, 0))
+	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_item_offer_quality(.Coastal, 0))
 	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_stat_trade_gain_durability(.Coastal, 0))
-	testing.expect(t, run_upgrade_offer_quality(.Coastal, 0) != run_stat_trade_gain_durability(.Coastal, 0))
+	testing.expect(t, run_item_offer_quality(.Coastal, 0) != run_stat_trade_gain_durability(.Coastal, 0))
 }
 
 // --- Depth normalization: stable endpoints regardless of layer count -------
@@ -272,8 +272,8 @@ encounter_kind_counts_per_zone_are_as_even_as_a_three_way_split_allows :: proc(t
 					counts[encounter_kind_of(enc)] += 1
 				}
 			}
-			lo := min(counts[.Ship_Battle], counts[.Upgrade_Offer], counts[.Stat_Trade])
-			hi := max(counts[.Ship_Battle], counts[.Upgrade_Offer], counts[.Stat_Trade])
+			lo := min(counts[.Ship_Battle], counts[.Item_Offer], counts[.Stat_Trade])
+			hi := max(counts[.Ship_Battle], counts[.Item_Offer], counts[.Stat_Trade])
 			testing.expectf(t, hi - lo <= 1, "seed %d: zone %v kind spread %d..%d not even", seed, zone, lo, hi)
 		}
 	}

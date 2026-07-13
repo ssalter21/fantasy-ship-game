@@ -82,8 +82,8 @@ node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: 
 		switch enc in encounter {
 		case run.Encounter_Ship_Battle:
 			return rl.Fade(rl.MAROON, 0.7), "Battle"
-		case run.Encounter_Upgrade_Offer:
-			return rl.Fade(rl.LIME, 0.7), "Upgrade"
+		case run.Encounter_Item_Offer:
+			return rl.Fade(rl.LIME, 0.7), "Items"
 		case run.Encounter_Stat_Trade:
 			return rl.Fade(rl.ORANGE, 0.7), "Trade"
 		}
@@ -208,6 +208,96 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 		}
 		rl.DrawText(fmt.ctprintf("%s", label), x, row_y, 14, rl.BLACK)
 	}
+}
+
+// fitting_tags_label renders a fitting's tag families as a comma-separated list
+// ("Crew, Weapon"), or "—" when it carries none. Used by the Item Offer and
+// Refit screens (issue #96) to show which families an item belongs to.
+fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
+	label := ""
+	for tag in ship.Tag {
+		if tag not_in tags {
+			continue
+		}
+		if len(label) == 0 {
+			label = fmt.tprintf("%v", tag)
+		} else {
+			label = fmt.tprintf("%s, %v", label, tag)
+		}
+	}
+	return len(label) > 0 ? label : "—"
+}
+
+// fitting_effect_intent renders a one-line, human-readable summary of what a
+// fitting's effect does (issue #96's "effect intent"): the magnitude and what it
+// feeds — a combat phase (its Category), or a ship stat for a stat-modifier —
+// with the synergy/conditional context spelled out ("+2 Buff per Weapon",
+// "+8 Offense below 50% HP"). Reads whichever of active/passive carries the one
+// effect a roster item has; returns "no effect" for a cargo filler.
+fitting_effect_intent :: proc(f: ship.Fitting) -> string {
+	effect: ship.Effect
+	if active, ok := f.active.?; ok {
+		effect = active
+	} else if passive, ok := f.passive.?; ok {
+		effect = passive
+	} else {
+		return "no effect"
+	}
+
+	target: string
+	switch effect.kind {
+	case .Phase_Contribution:
+		switch f.category {
+		case .Buff:
+			target = "Buff"
+		case .Defensive:
+			target = "Defense"
+		case .Offensive:
+			target = "Offense"
+		}
+	case .Modify_Durability:
+		target = "Durability"
+	case .Modify_Speed:
+		target = "Speed"
+	case .Modify_Max_HP:
+		target = "Max HP"
+	}
+
+	intent := fmt.tprintf("+%d %s", int(effect.magnitude), target)
+	if selector, ok := effect.synergy.?; ok {
+		intent = fmt.tprintf("%s per %v", intent, selector)
+	}
+	if condition, ok := effect.conditional.?; ok {
+		intent = fmt.tprintf("%s %s", intent, condition_intent(condition))
+	}
+	return intent
+}
+
+// condition_intent renders a conditional effect's trigger as a short clause the
+// Item Offer / Refit UI appends to the effect intent (issue #96).
+condition_intent :: proc(condition: ship.Condition) -> string {
+	switch c in condition {
+	case ship.Condition_HP_Below:
+		return fmt.tprintf("below %d%% HP", c.percent)
+	case ship.Condition_Round_At_Least:
+		return fmt.tprintf("from round %d", c.round)
+	case ship.Condition_Self_Visibility:
+		return fmt.tprintf("while %v", c.visibility)
+	case ship.Condition_Opponent_Faster:
+		return "vs a faster foe"
+	case ship.Condition_Opponent_Slower:
+		return "vs a slower foe"
+	}
+	return ""
+}
+
+// fitting_summary_lines renders the two detail lines the Item Offer and Refit
+// screens show under an item's name (issue #96's tags / phase / size / effect
+// intent): the first its size, phase (Category), and tag families; the second
+// its effect intent.
+fitting_summary_lines :: proc(f: ship.Fitting) -> (string, string) {
+	spec := fmt.tprintf("%v · %v · %s", f.size, f.category, fitting_tags_label(f.tags))
+	return spec, fitting_effect_intent(f)
 }
 
 // draw_scene_contents draws whichever screen is currently relevant (battle
