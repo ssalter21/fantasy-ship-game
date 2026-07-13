@@ -284,6 +284,81 @@ draw_item_offer_box :: proc(box: rl.Rectangle, f: ship.Fitting) {
 	draw_labeled_box(box, f.name, spec, intent)
 }
 
+// shop_menu_loop is the Port shop screen (issue #98, ADR-0012): it blocks until
+// the player buys one stocked roster item or leaves, then returns a
+// Command_Buy_Item — a selected Option_Index for a buy, or a nil selection to
+// leave. Each item box shows the same size / phase / tags / effect intent as an
+// Item Offer plus the item's price, so the spend is an informed choice; an
+// item the player can't currently afford is drawn dimmed but still clickable —
+// the Sim owns affordability and bounces an unaffordable buy back as
+// Event_Purchase_Rejected (a beat), so the menu never has to gate the click
+// itself. A buy opens a Refit (the Sim's response) to place the item, reusing the
+// same loadout screen an Item Offer's pick does; this loop only reports the choice.
+shop_menu_loop :: proc(state: ^Game_State) -> sim.Command {
+	if !rl.IsWindowReady() {
+		// No live window (e.g. under `odin test`): leave rather than buy an item and
+		// open a refit the test harness can't drive.
+		return sim.Command(sim.Command_Buy_Item{selection = nil})
+	}
+	stock := state.shop_stock
+
+	// One clickable box per stocked item, plus a trailing Leave box — laid out
+	// once, read by both rendering and hit-testing (mirrors item_offer_menu_loop).
+	boxes: [run.SHOP_STOCK_COUNT + 1]rl.Rectangle
+	for i in 0 ..< len(boxes) {
+		boxes[i] = rl.Rectangle {
+			x      = SHIP_PANEL_X,
+			y      = f32(ITEM_OFFER_Y0 + i * (ITEM_OFFER_BOX_H + 6)),
+			width  = ITEM_OFFER_BOX_W,
+			height = ITEM_OFFER_BOX_H,
+		}
+	}
+	leave_index := len(boxes) - 1
+
+	for !rl.WindowShouldClose() {
+		rl.BeginDrawing()
+		draw_scene_contents(state, fmt.tprintf("Port shop — treasure: %d. Buy an item, or leave.", state.player.starting_treasure))
+		for item, i in stock {
+			draw_shop_item_box(boxes[i], item, item.cost <= state.player.starting_treasure)
+		}
+		draw_labeled_box(boxes[leave_index], "Leave (buy nothing)", "", "")
+		rl.EndDrawing()
+		free_all(context.temp_allocator)
+
+		if rl.IsMouseButtonPressed(.LEFT) {
+			mouse := rl.GetMousePosition()
+			for box, i in boxes {
+				if !rl.CheckCollisionPointRec(mouse, box) {
+					continue
+				}
+				if i == leave_index {
+					return sim.Command(sim.Command_Buy_Item{selection = nil})
+				}
+				return sim.Command(sim.Command_Buy_Item{selection = sim.Option_Index(i)})
+			}
+		}
+	}
+	// Window closing without a pick: leave cleanly.
+	return sim.Command(sim.Command_Buy_Item{selection = nil})
+}
+
+// draw_shop_item_box renders one stocked item as a titled box (issue #98): the
+// name and price on the title line, then the same size · phase · tags spec and
+// effect-intent lines an Item Offer shows. `affordable` dims the whole box when
+// the item costs more than the current purse, so an unaffordable buy reads as such
+// before the click (the Sim still enforces it).
+draw_shop_item_box :: proc(box: rl.Rectangle, item: run.Shop_Item, affordable: bool) {
+	spec, intent := fitting_summary_lines(item.fitting)
+	fill := affordable ? rl.LIGHTGRAY : rl.Color{210, 210, 210, 255}
+	rl.DrawRectangleRec(box, fill)
+	rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)
+	text := affordable ? rl.BLACK : rl.GRAY
+	x := i32(box.x + 8)
+	rl.DrawText(fmt.ctprintf("%s  —  %d treasure", item.fitting.name, item.cost), x, i32(box.y + 6), 16, text)
+	rl.DrawText(fmt.ctprintf("%s", spec), x, i32(box.y + 26), 12, rl.DARKGRAY)
+	rl.DrawText(fmt.ctprintf("%s", intent), x, i32(box.y + 42), 12, rl.DARKGRAY)
+}
+
 // draw_labeled_box draws a bordered box with a bold-ish title line and up to two
 // smaller detail lines (issue #96) — shared by the Item Offer options and the
 // Skip box. Empty detail strings are skipped.

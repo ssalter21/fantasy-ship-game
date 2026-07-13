@@ -25,8 +25,15 @@ Phase :: enum {
 	// Awaiting_Refit is the manual-loadout mode (issue #95, ADR-0012): the ship
 	// is rearranged through install / move / remove commands, ended by a finish
 	// command. Opened by sim_open_refit — which the acquisition channels (#96
-	// Item Offer, #98 Port shop) will call once they pick/buy an item.
+	// Item Offer, #98 Port shop) call once they pick/buy an item.
 	Awaiting_Refit,
+	// Awaiting_Shop_Choice is the Port shop decision (issue #98, ADR-0012): the
+	// ship arrived at a Port and is buying one of its stocked roster items — or
+	// leaving. Buying deducts the item's cost from starting_treasure and opens a
+	// Refit (Awaiting_Refit) to place it; an unaffordable buy is rejected and the
+	// shop stays open; leaving returns to a travel choice. Unlike an Item Offer a
+	// Port is a revisitable landmark, so the shop never marks anything resolved.
+	Awaiting_Shop_Choice,
 	Ended,
 }
 
@@ -91,6 +98,12 @@ Sim :: struct {
 	// and broadcast on Event_Item_Offer_Presented, then indexed by a
 	// Command_Pick_Item's Option_Index to know which item to open a Refit with.
 	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
+	// shop_stock is the purchasable stock of the Port the ship is currently at
+	// (issue #98): staged from the arrived Port node's Shop and broadcast on
+	// Event_Shop_Presented, then indexed by a Command_Buy_Item's Option_Index to
+	// know which item to price, charge for, and open a Refit with. Re-staged on
+	// every Port arrival, since a Port is revisitable.
+	shop_stock:         [run.SHOP_STOCK_COUNT]run.Shop_Item,
 	// refit_pending is the incoming fitting an open Refit (Awaiting_Refit) was
 	// opened to place (issue #95): set by sim_open_refit, consumed when a
 	// Refit_Install lands it in a slot, and discarded (nil) when the refit
@@ -114,6 +127,7 @@ Command :: union {
 	Command_Travel_To,
 	Command_Battle_Choice,
 	Command_Pick_Item,
+	Command_Buy_Item,
 	Command_Refit,
 }
 
@@ -133,6 +147,19 @@ Command_Battle_Choice :: struct {
 // encounter with no loadout change. Modeled as a Maybe rather than a sentinel
 // index so "skip" is a distinct, unmistakable value.
 Command_Pick_Item :: struct {
+	selection: Maybe(Option_Index),
+}
+
+// Command_Buy_Item resolves a Port shop decision (issue #98, ADR-0012), valid
+// only while Sim is in the Awaiting_Shop_Choice phase. `selection` is the stocked
+// item the captain chose to buy (an Option_Index into shop_stock), or nil to
+// **leave** the shop with no purchase — the shop counterpart to Command_Pick_Item
+// (an Item Offer's pick-or-skip), modeled the same way so "leave" is a distinct,
+// unmistakable value rather than a sentinel index. An affordable buy deducts the
+// item's cost from starting_treasure and opens a Refit to place it; an
+// unaffordable one is rejected and the shop stays open. Reuses Option_Index — a
+// shop selection and an offer selection index the same kind of small option list.
+Command_Buy_Item :: struct {
 	selection: Maybe(Option_Index),
 }
 
@@ -207,6 +234,8 @@ Event :: union {
 	Event_Battle_Event,
 	Event_Ship_Updated,
 	Event_Item_Offer_Presented,
+	Event_Shop_Presented,
+	Event_Purchase_Rejected,
 	Event_Refit_Started,
 	Event_Fitting_Installed,
 	Event_Fitting_Moved,
@@ -295,6 +324,27 @@ Event_Ship_Updated :: struct {
 // Refit's own Event_Fitting_Installed, not a separate apply event.
 Event_Item_Offer_Presented :: struct {
 	options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
+}
+
+// Event_Shop_Presented carries a Port's purchasable stock (issue #98, ADR-0012),
+// dispatched when the ship arrives at a Port. Presentation renders each item's
+// tags, phase, size, effect intent and cost and offers a buy-or-leave choice;
+// buying an affordable item opens a Refit (Event_Refit_Started). Re-dispatched on
+// every visit, since a Port is a revisitable landmark whose stock does not
+// deplete. The purse affordability is measured against is the ship's
+// starting_treasure, read off the latest Event_Ship_Updated — not duplicated here,
+// so the two can't disagree.
+Event_Shop_Presented :: struct {
+	stock: [run.SHOP_STOCK_COUNT]run.Shop_Item,
+}
+
+// Event_Purchase_Rejected reports a Port-shop buy the ship could not afford
+// (issue #98): the item's cost exceeds the current starting_treasure, so no
+// treasure is spent and no Refit opens — the shop simply stays open for another
+// choice. `item` echoes the refused line so presentation can explain it, mirroring
+// Event_Refit_Rejected's echo of a refused loadout command.
+Event_Purchase_Rejected :: struct {
+	item: run.Shop_Item,
 }
 
 // Event_Refit_Started brackets the opening of a Refit (issue #95): `incoming`
@@ -420,6 +470,8 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim_process_battle_round(sim, events)
 	case .Awaiting_Item_Choice:
 		sim_process_item_choice(sim, events)
+	case .Awaiting_Shop_Choice:
+		sim_process_shop_choice(sim, events)
 	case .Awaiting_Refit:
 		sim_process_refit(sim, events)
 	case .Ended:
@@ -485,6 +537,9 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	case .Awaiting_Item_Choice:
 		_, ok := cmd.(Command_Pick_Item)
 		assert(ok, "expected a Command_Pick_Item while awaiting an item choice")
+	case .Awaiting_Shop_Choice:
+		_, ok := cmd.(Command_Buy_Item)
+		assert(ok, "expected a Command_Buy_Item while awaiting a shop choice")
 	case .Awaiting_Refit:
 		_, ok := cmd.(Command_Refit)
 		assert(ok, "expected a Command_Refit while awaiting a refit command")

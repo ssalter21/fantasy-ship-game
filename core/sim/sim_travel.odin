@@ -16,8 +16,9 @@ import "../run"
 // node): an illegal destination is a driver bug and asserts, matching the
 // assert-on-driver-bug style of the phase checks. An Encounter node's effect
 // still fires only once — resolved[] tracks that, so re-arriving after a
-// retrace is a no-op, like a Port. Start/Port nodes have no shop system yet,
-// so they're pure pass-through waypoints in this slice's UI.
+// retrace is a no-op. A .Port node instead opens its shop (issue #98) on every
+// arrival, since a Port is a revisitable landmark whose stock never resolves;
+// Start (the home port) carries no shop and stays a pure pass-through waypoint.
 sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	if !has_pending {
@@ -43,6 +44,14 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	sim.steps += 1
 	append(events, Event(Event_Arrived_At_Node{node = node}))
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
+
+	// A Port opens its shop every arrival (issue #98) — no resolved[] gate, since
+	// a Port never resolves. sim_open_shop no-ops a shopless port (Start), leaving
+	// the ship at a travel choice.
+	if node.kind == .Port {
+		sim_open_shop(sim, node, events)
+		return
+	}
 
 	if already_resolved || node.kind != .Encounter {
 		return

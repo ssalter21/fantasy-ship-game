@@ -62,6 +62,11 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 		// with no loadout change, so the scenarios steer purely by travel/battle
 		// policy without an item-and-refit detour muddying their assertions.
 		return Command(Command_Pick_Item{selection = nil})
+	case .Awaiting_Shop_Choice:
+		// Leave every Port shop (issue #98): a nil selection buys nothing, so the
+		// scenarios steer purely by travel/battle policy without a purchase-and-refit
+		// detour muddying their assertions.
+		return Command(Command_Buy_Item{selection = nil})
 	case .Awaiting_Refit:
 		// A skipped Item Offer never opens a refit, so the Auto_Pilot reaches this
 		// only if some other channel (#98 Port shop) ever does; the Phase switch is
@@ -698,4 +703,142 @@ an_out_of_range_item_selection_asserts :: proc(t: ^testing.T) {
 
 	testing.expect_assert(t, "Command_Pick_Item selection out of range")
 	sim_tick(&sim, &events)
+}
+
+// default_shop_stock builds a Port shop's stock of SHOP_STOCK_COUNT distinct,
+// real (placeable) roster fittings, each priced at `cost` (issue #98) — a stand-in
+// for an arrived Port's Shop so the shop tests don't have to navigate the map to
+// one. Tests override individual entries to set up affordability cases.
+default_shop_stock :: proc(cost: int) -> [run.SHOP_STOCK_COUNT]run.Shop_Item {
+	roster := ship.ship_item_roster()
+	stock: [run.SHOP_STOCK_COUNT]run.Shop_Item
+	for i in 0 ..< run.SHOP_STOCK_COUNT {
+		stock[i] = run.Shop_Item{fitting = roster[i].fitting, cost = cost}
+	}
+	return stock
+}
+
+// stage_shop puts the Sim into a Port shop decision (issue #98): it stages a
+// stock and switches to Awaiting_Shop_Choice awaiting a Command_Buy_Item, standing
+// in for an arrival at a Port without navigating the whole map to one.
+stage_shop :: proc(sim: ^Sim, stock: [run.SHOP_STOCK_COUNT]run.Shop_Item) {
+	sim.shop_stock = stock
+	sim.phase = .Awaiting_Shop_Choice
+	sim.awaiting_decision = true
+}
+
+@(test)
+buying_an_affordable_item_deducts_treasure_and_opens_a_refit :: proc(t: ^testing.T) {
+	// The core of #98's acceptance: buying a stocked item the ship can afford
+	// deducts its cost from starting_treasure and opens a Refit staged with that
+	// exact item, so the manual-loadout commands place it — the same path an Item
+	// Offer's pick takes.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	stock := default_shop_stock(10)
+	sim.player.starting_treasure = 50
+	stage_shop(&sim, stock)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(1)}))
+	ev := refit_tick(&sim, &events)
+
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Refit)
+	testing.expect(t, has_event(ev, Event_Refit_Started))
+	testing.expect_value(t, sim.player.starting_treasure, 40) // 50 - 10 spent
+	incoming, pending := sim.refit_pending.?
+	testing.expect(t, pending)
+	testing.expect_value(t, incoming.name, stock[1].fitting.name) // the bought item is staged
+}
+
+@(test)
+an_unaffordable_item_is_refused_and_the_shop_stays_open :: proc(t: ^testing.T) {
+	// "an unaffordable item cannot be bought": a buy costing more than the purse is
+	// rejected, no treasure is spent, no Refit opens, and the shop stays open for
+	// another choice.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	stock := default_shop_stock(10)
+	stock[2].cost = 100 // beyond any reachable purse
+	sim.player.starting_treasure = 50
+	stage_shop(&sim, stock)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(2)}))
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, has_event(ev, Event_Purchase_Rejected))
+	testing.expect(t, !has_event(ev, Event_Refit_Started))
+	testing.expect_value(t, sim.player.starting_treasure, 50) // nothing spent
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice) // shop still open
+	_, pending := sim.refit_pending.?
+	testing.expect(t, !pending)
+}
+
+@(test)
+leaving_a_shop_makes_no_purchase_and_returns_to_travel :: proc(t: ^testing.T) {
+	// The "or leave" half: a nil selection buys nothing, spends nothing, opens no
+	// Refit, and returns straight to a travel choice. A Port is never marked
+	// resolved, so nothing here touches resolved[] — retracing re-opens the shop.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	stock := default_shop_stock(10)
+	sim.player.starting_treasure = 50
+	stage_shop(&sim, stock)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = nil}))
+	ev := refit_tick(&sim, &events)
+
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect_value(t, sim.player.starting_treasure, 50) // nothing spent
+	testing.expect(t, !has_event(ev, Event_Refit_Started))
+	testing.expect(t, has_event(ev, Event_Travel_Options)) // back to a travel choice
+}
+
+@(test)
+an_out_of_range_shop_selection_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	stage_shop(&sim, default_shop_stock(10))
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(run.SHOP_STOCK_COUNT)}))
+
+	testing.expect_assert(t, "Command_Buy_Item selection out of range")
+	sim_tick(&sim, &events)
+}
+
+@(test)
+arriving_at_a_port_opens_its_shop :: proc(t: ^testing.T) {
+	// Arriving at a Port stages its stock and presents the shop (issue #98). A
+	// shopless port (Start) is a pure waypoint — sim_open_shop no-ops it.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	stock := default_shop_stock(15)
+	port := run.Node{kind = .Port, shop = run.Shop{stock = stock}}
+	sim_open_shop(&sim, port, &events)
+
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice)
+	testing.expect(t, has_event(events[:], Event_Shop_Presented))
+	testing.expect_value(t, sim.shop_stock[0].fitting.name, stock[0].fitting.name)
+	testing.expect_value(t, sim.shop_stock[0].cost, 15)
+
+	// A shopless port leaves the Sim awaiting a travel choice, nothing presented.
+	clear(&events)
+	sim.phase = .Awaiting_Travel_Choice
+	sim_open_shop(&sim, run.Node{kind = .Port}, &events)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, !has_event(events[:], Event_Shop_Presented))
 }

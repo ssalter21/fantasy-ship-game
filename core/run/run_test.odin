@@ -258,6 +258,54 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 }
 
 @(test)
+every_port_stocks_a_shop_drawn_from_the_roster_and_priced_by_tier :: proc(t: ^testing.T) {
+	// #98: every .Port node carries a Shop of SHOP_STOCK_COUNT distinct roster
+	// items, each priced by its tier; non-port nodes carry no shop.
+	roster := ship.ship_item_roster()
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		for p in m.nodes {
+			shop, has_shop := p.shop.?
+			if p.kind != .Port {
+				testing.expectf(t, !has_shop, "seed %d: a %v node carries a shop", seed, p.kind)
+				continue
+			}
+			testing.expectf(t, has_shop, "seed %d: port %d carries no shop", seed, p.id)
+
+			for item, i in shop.stock {
+				// Every stocked fitting is a real roster item priced at that item's
+				// tier — the cost matches the roster's own tier-priced entry.
+				found := false
+				for r in roster {
+					if r.fitting.name == item.fitting.name {
+						found = true
+						testing.expectf(
+							t,
+							item.cost == ship.ship_item_cost(r.tier),
+							"seed %d: port %d stock %d (%s) priced %d, want %d for tier %v",
+							seed, p.id, i, item.fitting.name, item.cost, ship.ship_item_cost(r.tier), r.tier,
+						)
+						break
+					}
+				}
+				testing.expectf(t, found, "seed %d: port %d stock %d (%s) is not a roster item", seed, p.id, i, item.fitting.name)
+
+				// Distinct within a shop: no item name repeats.
+				for j in i + 1 ..< len(shop.stock) {
+					testing.expectf(
+						t,
+						item.fitting.name != shop.stock[j].fitting.name,
+						"seed %d: port %d stocks %s twice", seed, p.id, item.fitting.name,
+					)
+				}
+			}
+		}
+	}
+}
+
+@(test)
 encounter_kind_counts_per_zone_are_as_even_as_a_three_way_split_allows :: proc(t: ^testing.T) {
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)

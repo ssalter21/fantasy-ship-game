@@ -228,6 +228,22 @@ the_item_roster_spans_all_three_tiers :: proc(t: ^testing.T) {
 }
 
 @(test)
+shop_item_cost_rises_strictly_with_tier :: proc(t: ^testing.T) {
+	// #98: tier prices a shop item, weakest-to-strongest, and the whole ladder
+	// sits under STARTING_TREASURE so the fixed budget bites — a Deep item costs
+	// most, and even it is affordable from a full purse.
+	splash := ship_item_cost(.Splash)
+	shallow := ship_item_cost(.Shallow)
+	deep := ship_item_cost(.Deep)
+	testing.expect(t, splash < shallow)
+	testing.expect(t, shallow < deep)
+	testing.expect(t, deep <= STARTING_TREASURE) // a full purse can buy one Deep item
+	// But not two: the budget is deliberately tight enough that a second buy can
+	// be unaffordable, so "an unaffordable item cannot be bought" is reachable.
+	testing.expect(t, deep + splash > STARTING_TREASURE)
+}
+
+@(test)
 the_item_roster_spans_all_families_sizes_and_phases :: proc(t: ^testing.T) {
 	seen_family: [Tag]bool
 	seen_size: [Slot_Size]bool
