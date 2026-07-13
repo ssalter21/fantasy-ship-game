@@ -91,7 +91,10 @@ run_item_offer_options :: proc(zone: Zone, depth: int, gen: rand.Generator) -> [
 
 	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting
 	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
-		options[i] = ship.ship_fitting_scaled(roster[indices[i]], bonus)
+		// The offer places the item; tier's power is already baked into the
+		// item's magnitudes, so it reads only the fitting (a shop, #98, reads the
+		// tier for cost). The item is scaled by this node's zone/depth quality.
+		options[i] = ship.ship_fitting_scaled(roster[indices[i]].fitting, bonus)
 	}
 	return options
 }
