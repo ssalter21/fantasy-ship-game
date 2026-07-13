@@ -187,31 +187,6 @@ roster_item_named :: proc(name: string) -> Roster_Item {
 	panic("roster item not found")
 }
 
-// bare_test_ship is an empty template-layout ship the behavior tests install a
-// single roster item into, so an effect resolves against a known layout rather
-// than the starting loadout's fittings. Caller owns the layout slice.
-bare_test_ship :: proc() -> Ship {
-	return Ship{hp = 20, max_hp = 20, durability = 2, speed = 4, layout = ship_template_layout()}
-}
-
-// fit_first_matching_size installs `fitting` into the first empty slot of its
-// size, so a test can drop items onto the ship without hand-picking slot indices
-// (every roster item's size exists in the template — Large x2 / Medium x3 /
-// Small x3).
-fit_first_matching_size :: proc(s: ^Ship, fitting: Fitting) {
-	for &layout_slot in s.layout {
-		if layout_slot.slot.size != fitting.size {
-			continue
-		}
-		if _, occupied := layout_slot.fitting.?; occupied {
-			continue
-		}
-		ship_fit(&layout_slot, fitting)
-		return
-	}
-	panic("no empty slot of the fitting's size")
-}
-
 @(test)
 the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 	roster := ship_item_roster()
@@ -315,6 +290,8 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 // Representative behavior, one item per tier, each exercising a different effect
 // kind — a Splash synergy, a Shallow stat-modifier, and a Deep conditional —
 // confirming the authored items resolve the way their catalog intent describes.
+// Each builds its ship with synergy_ship (ship_test.odin), the package's bare
+// install-these-fittings test helper.
 
 @(test)
 splash_powder_monkeys_buff_scales_with_weapons_aboard :: proc(t: ^testing.T) {
@@ -322,18 +299,15 @@ splash_powder_monkeys_buff_scales_with_weapons_aboard :: proc(t: ^testing.T) {
 	testing.expect_value(t, item.tier, Tier.Splash)
 	active, _ := item.fitting.active.?
 
-	s := bare_test_ship()
-	defer delete(s.layout)
-	fit_first_matching_size(&s, item.fitting)
-	ctx := ship_effect_context(&s)
+	// No Weapons aboard (Powder Monkeys itself is Crew): the synergy is 0.
+	alone := synergy_ship(item.fitting)
+	defer delete(alone.layout)
+	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&alone)), Magnitude(0))
 
-	// No Weapons aboard yet (Powder Monkeys itself is Crew): the synergy is 0.
-	testing.expect_value(t, effect_magnitude(active, ctx), Magnitude(0))
-
-	// Each Weapon added lifts it by the per-unit magnitude.
-	fit_first_matching_size(&s, roster_item_named("Swivel Guns").fitting) // Weapon
-	fit_first_matching_size(&s, roster_item_named("Deck Cannon").fitting) // Weapon
-	testing.expect_value(t, effect_magnitude(active, ctx), active.magnitude * 2)
+	// Each Weapon aboard lifts it by the per-unit magnitude.
+	armed := synergy_ship(item.fitting, roster_item_named("Swivel Guns").fitting, roster_item_named("Deck Cannon").fitting)
+	defer delete(armed.layout)
+	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&armed)), active.magnitude * 2)
 }
 
 @(test)
@@ -342,13 +316,15 @@ shallow_reinforced_hull_raises_effective_durability :: proc(t: ^testing.T) {
 	testing.expect_value(t, item.tier, Tier.Shallow)
 	passive, _ := item.fitting.passive.?
 
-	s := bare_test_ship()
-	defer delete(s.layout)
-	base := ship_effective_durability(&s)
-	fit_first_matching_size(&s, item.fitting)
+	bare := synergy_ship()
+	defer delete(bare.layout)
+	base := ship_effective_durability(&bare)
+
+	hulled := synergy_ship(item.fitting)
+	defer delete(hulled.layout)
 
 	// The stat-modifier lifts effective Durability by its magnitude, not a phase.
-	testing.expect_value(t, ship_effective_durability(&s), base + int(passive.magnitude))
+	testing.expect_value(t, ship_effective_durability(&hulled), base + int(passive.magnitude))
 }
 
 @(test)
@@ -357,9 +333,9 @@ deep_cornered_beast_only_bites_below_half_hp :: proc(t: ^testing.T) {
 	testing.expect_value(t, item.tier, Tier.Deep)
 	active, _ := item.fitting.active.?
 
-	s := bare_test_ship()
+	s := synergy_ship(item.fitting)
 	defer delete(s.layout)
-	fit_first_matching_size(&s, item.fitting)
+	s.max_hp = 20
 	ctx := ship_effect_context(&s)
 
 	// At full HP the conditional contributes nothing; below half it resolves to
