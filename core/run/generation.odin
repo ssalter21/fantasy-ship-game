@@ -241,6 +241,18 @@ run_map_create :: proc(seed: u64) -> Map {
 	}
 	delete(adj)
 
+	// --- 6. Stock the shops. Every .Port node gets a purchasable stock drawn
+	// from the roster pool (#98). Done last, after kinds and edges, so it draws
+	// from `gen` only at the tail and leaves the encounter-kind and edge streams
+	// above byte-identical to a pre-shop map. Start (the home port) is a .Start
+	// node, not .Port, and stays a pure waypoint in this slice — you never arrive
+	// at it by travel, so a shop there would be unreachable.
+	for &node in nodes {
+		if node.kind == .Port {
+			node.shop = run_port_shop(gen)
+		}
+	}
+
 	return Map{nodes = nodes[:], edges = edges}
 }
 

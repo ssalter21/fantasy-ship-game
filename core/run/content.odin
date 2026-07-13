@@ -82,12 +82,7 @@ ITEM_OFFER_QUALITY_DIVISOR :: 5
 run_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM_OFFER_OPTION_COUNT]ship.Fitting {
 	bonus := run_item_offer_quality(site) / ITEM_OFFER_QUALITY_DIVISOR
 	roster := ship.ship_item_roster()
-
-	indices: [ship.ITEM_ROSTER_SIZE]int
-	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
-		indices[i] = i
-	}
-	rand.shuffle(indices[:], gen)
+	indices := run_shuffled_roster_indices(gen)
 
 	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting
 	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
@@ -97,4 +92,41 @@ run_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM
 		options[i] = ship.ship_fitting_scaled(roster[indices[i]].fitting, bonus)
 	}
 	return options
+}
+
+// run_shuffled_roster_indices returns the roster's indices
+// (0..<ship.ITEM_ROSTER_SIZE) in a per-seed-reproducible shuffled order — the
+// shared front half of sampling N distinct roster items, used by both the Item
+// Offer (run_item_offer_options) and the Port shop (run_port_shop). Each takes the
+// first N and maps them its own way: an offer scales the fitting by node quality,
+// a shop prices it by tier. Consolidating the shuffle here keeps the two samplers
+// from drifting (issue #98).
+run_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SIZE]int {
+	indices: [ship.ITEM_ROSTER_SIZE]int
+	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
+		indices[i] = i
+	}
+	rand.shuffle(indices[:], gen)
+	return indices
+}
+
+// run_port_shop builds a Port's purchasable stock (#98, ADR-0012): it samples
+// SHOP_STOCK_COUNT distinct roster items (run_shuffled_roster_indices, reproducible
+// per seed via the map generator's RNG) and prices each by its Tier
+// (ship.ship_item_cost). Unlike an Item Offer the fitting is stocked as-authored,
+// not zone/depth-scaled: a shop's variance is which items and what they cost, and
+// cost already rises with tier, so layering a quality bonus on top would
+// double-count the tier. Baked at generation time (a final pass in
+// run_map_create) so a Port carries its stock as content, like an Item Offer
+// carries its options.
+run_port_shop :: proc(gen: rand.Generator) -> Shop {
+	roster := ship.ship_item_roster()
+	indices := run_shuffled_roster_indices(gen)
+
+	shop: Shop
+	for i in 0 ..< SHOP_STOCK_COUNT {
+		item := roster[indices[i]]
+		shop.stock[i] = Shop_Item{fitting = item.fitting, cost = ship.ship_item_cost(item.tier)}
+	}
+	return shop
 }

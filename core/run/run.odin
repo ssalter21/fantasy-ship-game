@@ -193,6 +193,35 @@ Encounter_Item_Offer :: struct {
 	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 }
 
+// SHOP_STOCK_COUNT is how many distinct roster items a Port shop stocks (#98,
+// ADR-0012's "a stock of purchasable items"). A small fixed array on the Port
+// node — no owned heap, so run_map_destroy needs no per-shop cleanup — sized like
+// ITEM_OFFER_OPTION_COUNT and likewise must stay <= ship.ITEM_ROSTER_SIZE so the
+// pool can supply that many distinct items.
+SHOP_STOCK_COUNT :: 4
+
+// Shop_Item is one purchasable line in a Port shop (#98): the roster `fitting`
+// on offer and its `cost` in treasure. Cost is stored as a plain int, priced
+// once at generation from the item's Tier (ship.ship_item_cost) — tier itself
+// doesn't ride along because nothing past pricing reads it, and a bare Fitting is
+// what the Refit ultimately places. Buying deducts cost from the ship's
+// starting_treasure and opens a Refit to place the fitting.
+Shop_Item :: struct {
+	fitting: ship.Fitting,
+	cost:    int,
+}
+
+// Shop is a Port's purchasable stock (#98, ADR-0012): SHOP_STOCK_COUNT distinct
+// roster items, each priced by tier, drawn from the roster pool at generation
+// time (run_port_shop) and carried as baked content the way an Item Offer carries
+// its options. Unlike an encounter a shop never "resolves" — a Port is a
+// revisitable landmark, so its stock is re-presented every visit and the same
+// item may be bought again while treasure lasts. A fixed-size array: no owned
+// heap, so run_map_destroy needs no per-shop cleanup.
+Shop :: struct {
+	stock: [SHOP_STOCK_COUNT]Shop_Item,
+}
+
 // Encounter_Stat_Trade is a permanent stat-for-stat/cargo trade-off (example:
 // +Durability for -Speed) — that concrete shape is modeled directly rather
 // than as a generic stat-enum system, matching this slice's single
@@ -216,17 +245,18 @@ Node_ID :: distinct int
 // Node is a single node on the run's procedurally-generated map (ADR-0009).
 // zone is nil for Start and Goal, which sit
 // outside the three difficulty bands. encounter is set only when
-// kind == .Encounter. layer/lane are the node's position in the layered
-// forward graph — layer is its column (Start = 0, rising toward Goal), lane
-// its row within that column; presentation derives screen coordinates from
-// them, so Nodes still carry no screen coordinates of their own. depth is
-// the node's normalized depth-within-zone (0 for Start/Goal). Adjacency lives
-// on Map.edges, not on the Node.
+// kind == .Encounter; shop is set only on a .Port node (#98). layer/lane are the
+// node's position in the layered forward graph — layer is its column (Start = 0,
+// rising toward Goal), lane its row within that column; presentation derives
+// screen coordinates from them, so Nodes still carry no screen coordinates of
+// their own. depth is the node's normalized depth-within-zone (0 for
+// Start/Goal). Adjacency lives on Map.edges, not on the Node.
 Node :: struct {
 	id:        Node_ID,
 	zone:      Maybe(Zone),
 	kind:      Node_Kind,
 	encounter: Maybe(Encounter),
+	shop:      Maybe(Shop),
 	layer:     int,
 	lane:      int,
 	depth:     int,

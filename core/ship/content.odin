@@ -92,13 +92,43 @@ Tier :: enum {
 }
 
 // Roster_Item pairs a catalog Fitting with the Tier it was authored at (#97).
-// The Item Offer and (later) the Port shop sample these: an offer reads only the
+// The Item Offer and the Port shop sample these: an offer reads only the
 // `fitting` (tier's power is already baked into the item's magnitudes), while a
-// shop reads `tier` to price it. Keeping tier out of Fitting is what lets the
-// same Fitting round-trip through a Ghost_Snapshot (ADR-0008) unchanged.
+// shop reads `tier` to price it (ship_item_cost). Keeping tier out of Fitting is
+// what lets the same Fitting round-trip through a Ghost_Snapshot (ADR-0008)
+// unchanged.
 Roster_Item :: struct {
 	fitting: Fitting,
 	tier:    Tier,
+}
+
+// ITEM_COST_SPLASH / _SHALLOW / _DEEP are the Port-shop prices of a roster item
+// by its authored Tier (#98, ADR-0012: "tier scales an item's power and its shop
+// cost"). Graded weakest-to-strongest like the tiers themselves, and scaled
+// against STARTING_TREASURE so the fixed budget actually bites — the starting
+// purse buys one Deep item (and little else), a couple of Shallow ones, or a
+// handful of Splash ones, so an unaffordable item is a real, reachable state
+// rather than a theoretical one. Placeholder economy tuning like every other
+// balance constant here, expected to move in playtest (ADR-0012).
+ITEM_COST_SPLASH :: 10
+ITEM_COST_SHALLOW :: 25
+ITEM_COST_DEEP :: 45
+
+// ship_item_cost prices a roster item for a Port shop from its Tier (#98): the
+// one place tier becomes treasure, so the shop's stock carries a plain int cost
+// and nothing downstream re-derives it. A Fitting has no tier of its own (it
+// rides on Roster_Item), so a shop prices an item while it still has the
+// Roster_Item in hand, before it decays to a bare Fitting in the stock.
+ship_item_cost :: proc(tier: Tier) -> int {
+	switch tier {
+	case .Splash:
+		return ITEM_COST_SPLASH
+	case .Shallow:
+		return ITEM_COST_SHALLOW
+	case .Deep:
+		return ITEM_COST_DEEP
+	}
+	return 0
 }
 
 // ITEM_ROSTER_SIZE is how many distinct items ship_item_roster hands back — the
