@@ -220,6 +220,73 @@ boost_defensive_amplifies_the_phase_output_and_this_rounds_buff_output_together 
 }
 
 @(test)
+a_durability_stat_modifier_fitting_measurably_reduces_damage_taken :: proc(t: ^testing.T) {
+	cannon := ship.Fitting{name = "Cannon", size = .Large, category = .Offensive, active = ship.Effect{magnitude = 10}}
+	reinforced := ship.Fitting{
+		name = "Reinforced Hull", size = .Small,
+		passive = ship.Effect{kind = .Modify_Durability, magnitude = 4},
+	}
+
+	// Same attack against the same base ship, with and without the +Durability
+	// fitting installed on the target.
+	fire_once :: proc(target_layout: []ship.Layout_Slot, attacker: ship.Fitting) -> int {
+		a := ship.Ship{
+			hp = 20, durability = 0, speed = 5,
+			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = attacker}},
+		}
+		b := ship.Ship{hp = 20, durability = 1, speed = 5, layout = target_layout}
+		battle := combat_battle_create(&a, &b)
+		events: [dynamic]Event
+		defer delete(events)
+		cmds: [Side]Maybe(Command)
+		combat_resolve_round(&battle, cmds, &events)
+		return b.hp
+	}
+
+	bare_hp := fire_once(nil, cannon)
+	reinforced_hp := fire_once([]ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = reinforced}}, cannon)
+
+	// Bare: 10 raw - durability(1) = 9 -> hp 11. Reinforced: 10 - (1+4) = 5 -> hp 15.
+	testing.expect_value(t, bare_hp, 20 - 9)
+	testing.expect_value(t, reinforced_hp, 20 - 5)
+	testing.expect(t, reinforced_hp > bare_hp) // the +Durability fitting measurably reduced damage
+}
+
+@(test)
+a_speed_stat_modifier_fitting_raises_effective_speed_for_escape_eligibility :: proc(t: ^testing.T) {
+	fast_sails := ship.Fitting{
+		name = "Fast Sails", size = .Small,
+		passive = ship.Effect{kind = .Modify_Speed, magnitude = 3},
+	}
+	// Equal base Speed (5), but A carries a +3 Speed fitting: past the baseline
+	// round count only the strictly-faster side may leave, so A is eligible.
+	a := ship.Ship{
+		hp = 20, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = fast_sails}},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	battle.round = BASELINE_ROUND_COUNT
+
+	testing.expect_value(t, combat_effective_speed(&battle, .A), 5 + 3)
+	testing.expect(t, combat_may_leave(&battle, .A))
+	testing.expect(t, !combat_may_leave(&battle, .B))
+}
+
+@(test)
+the_three_starting_fittings_phase_output_matches_their_magnitude_constants :: proc(t: ^testing.T) {
+	// Regression anchor for the Effect port (issue #92): the ported flat/constant
+	// starting fittings must produce byte-identical phase output to before —
+	// exactly their magnitude constants, one per phase.
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+
+	testing.expect_value(t, combat_phase_output(&s, .Buff), ship.TOP_CREW_BUFF_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&s, .Defensive), ship.CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&s, .Offensive), ship.GUN_DECK_OFFENSE_MAGNITUDE)
+}
+
+@(test)
 hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{

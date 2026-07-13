@@ -130,10 +130,11 @@ combat_opposite_side :: proc(side: Side) -> Side {
 }
 
 // combat_effective_speed is a side's Speed for escape/tiebreak purposes:
-// base ship Speed plus this-round Man the Sails and any permanent
+// the ship's effective Speed (base plus any Stat_Modifier fittings — issue
+// #92, ship_effective_speed) plus this-round Man the Sails and any permanent
 // Jettison Cargo bonuses accumulated so far.
 combat_effective_speed :: proc(battle: ^Battle, side: Side) -> int {
-	return battle.ships[side].speed + battle.temp_speed[side] + battle.perm_speed[side]
+	return ship.ship_effective_speed(battle.ships[side]) + battle.temp_speed[side] + battle.perm_speed[side]
 }
 
 // combat_apply_jettison empties the cargo fitting at slot_index on side's
@@ -152,20 +153,26 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 }
 
 // combat_phase_output sums the active-effect magnitude of every fitting of
-// `phase`'s Category in s's fixed slot order (ADR-0006): every fitting with
-// an active effect triggers exactly once per round, no per-fitting cooldown.
+// `phase`'s Category in s's fixed slot order (ADR-0006): every fitting with an
+// active Phase_Contribution effect triggers exactly once per round, no
+// per-fitting cooldown. Active effects of a Modify_* kind (stat modifiers,
+// issue #92) never contribute here — they act through the effective-stat
+// readers, not the phase totals. Magnitude is resolved against the owning
+// ship (ship.effect_magnitude) so a later context-sensitive source (#88)
+// needs no change here.
 combat_phase_output :: proc(s: ^ship.Ship, phase: ship.Category) -> int {
 	total := 0
+	ctx := ship.ship_effect_context(s)
 	for layout_slot in s.layout {
 		fitting, has_fitting := layout_slot.fitting.?
 		if !has_fitting || fitting.category != phase {
 			continue
 		}
 		active, has_active := fitting.active.?
-		if !has_active {
+		if !has_active || active.kind != .Phase_Contribution {
 			continue
 		}
-		total += int(active.magnitude)
+		total += int(ship.effect_magnitude(active, ctx))
 	}
 	return total
 }
@@ -268,7 +275,9 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	for side in Side {
 		target := combat_opposite_side(side)
 		target_ship := battle.ships[target]
-		final := max(0, round_state[side].raw_damage-(target_ship.durability + round_state[target].defense_bonus))
+		// Effective Durability (issue #92): base plus any Stat_Modifier
+		// fittings, so a +Durability fitting measurably reduces damage taken.
+		final := max(0, round_state[side].raw_damage-(ship.ship_effective_durability(target_ship) + round_state[target].defense_bonus))
 		if final > 0 {
 			target_ship.hp = max(0, target_ship.hp-final)
 			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, raw_damage = round_state[side].raw_damage, final_damage = final}))

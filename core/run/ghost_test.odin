@@ -15,6 +15,24 @@ capture_resets_hp_to_max_hp_regardless_of_current_hp :: proc(t: ^testing.T) {
 }
 
 @(test)
+capture_resets_hp_to_effective_max_hp_including_a_max_hp_fitting :: proc(t: ^testing.T) {
+	ballast := ship.Fitting{
+		name = "Ballast Tanks", size = .Small,
+		passive = ship.Effect{kind = .Modify_Max_HP, magnitude = 10},
+	}
+	s := ship.Ship{
+		hp = 3, max_hp = 20,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = ballast}},
+	}
+
+	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, .Coastal, 0))
+	defer delete(snap.ship.layout)
+
+	// Effective max HP = raw 20 + the +Max_HP fitting's 10 (issue #92).
+	testing.expect_value(t, snap.ship.hp, 30)
+}
+
+@(test)
 capture_clones_the_layout_so_later_mutation_to_the_source_ship_does_not_leak_into_the_snapshot :: proc(t: ^testing.T) {
 	cargo := ship.Fitting{name = "Rations", is_cargo = true, stack_count = 1}
 	s := ship.Ship{

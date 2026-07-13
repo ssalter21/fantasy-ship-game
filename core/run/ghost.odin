@@ -21,8 +21,9 @@ Ghost_Progress :: struct {
 }
 
 // run_ghost_snapshot_of assembles a Ghost_Snapshot describing ship s at the
-// given run progress, without cloning: hp is reset to s.max_hp (ADR-0008: a
-// ghost always starts at full health), but the returned snapshot's layout
+// given run progress, without cloning: hp is reset to s's effective max HP
+// (ADR-0008: a ghost always starts at full health; issue #92: effective, so a
+// +Max_HP fitting counts), but the returned snapshot's layout
 // *aliases* s.layout rather than owning a copy. It is a borrowed description
 // valid only as long as s and its layout are — a caller that must hand the
 // snapshot out past s's lifetime (core/sim, via Event_Encounter_Resolved)
@@ -31,7 +32,7 @@ Ghost_Progress :: struct {
 // (issue #82).
 run_ghost_snapshot_of :: proc(s: ^ship.Ship, steps: int, zone: Zone, difficulty_rating: int) -> Ghost_Snapshot {
 	snap_ship := s^
-	snap_ship.hp = s.max_hp
+	snap_ship.hp = ship.ship_effective_max_hp(s)
 
 	return Ghost_Snapshot{
 		ship = snap_ship,
