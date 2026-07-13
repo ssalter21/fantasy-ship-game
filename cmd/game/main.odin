@@ -58,12 +58,13 @@ Game_State :: struct {
 	// (issue #96), copied from Event_Item_Offer_Presented; item_offer_menu_loop
 	// renders and offers them.
 	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
-	// shop_stock is the purchasable stock of the Port the ship is at (issue #98),
-	// copied from Event_Shop_Presented; shop_menu_loop renders it with prices and
-	// offers a buy-or-leave choice. Affordability is read live off
-	// state.player.starting_treasure (kept current by Event_Ship_Updated), so no
-	// separate purse field is tracked here.
-	shop_stock:       [run.SHOP_STOCK_COUNT]run.Shop_Item,
+	// shop_shelf is the current shelf window of the Port the ship is at (issue
+	// #123), copied from Event_Shop_Presented; shop_menu_loop renders each filled
+	// slot's card with prices and offers a buy-or-leave choice. A nil slot is past
+	// the deck's tail (never at the real roster size). Affordability is read live
+	// off state.player.starting_treasure (kept current by Event_Ship_Updated), so
+	// no separate purse field is tracked here.
+	shop_shelf:       [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item),
 	// refit_incoming is the item an open Refit is placing (issue #96), tracked
 	// from Event_Refit_Started and cleared once installed or the refit finishes,
 	// so refit_menu_loop knows whether it is placing an item or just rearranging.
@@ -154,10 +155,11 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		state.item_offer_options = e.options
 
 	case sim.Event_Shop_Presented:
-		// Arrived at a Port shop (issue #98): remember its stock so shop_menu_loop
-		// can render it. The purse it renders comes from state.player.starting_treasure
-		// (kept current by Event_Ship_Updated).
-		state.shop_stock = e.stock
+		// Arrived at a Port shop, or returned to it from a buy's refit (issue #123):
+		// remember its current shelf so shop_menu_loop can render it (refilled after a
+		// buy). The purse it renders comes from state.player.starting_treasure (kept
+		// current by Event_Ship_Updated).
+		state.shop_shelf = e.shelf
 
 	case sim.Event_Purchase_Rejected:
 		play_beat(state, fmt.tprintf("You can't afford %s.", e.item.fitting.name))

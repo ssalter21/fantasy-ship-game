@@ -27,12 +27,14 @@ Phase :: enum {
 	// command. Opened by sim_open_refit — which the acquisition channels (#96
 	// Item Offer, #98 Port shop) call once they pick/buy an item.
 	Awaiting_Refit,
-	// Awaiting_Shop_Choice is the Port shop decision (issue #98, ADR-0012): the
-	// ship arrived at a Port and is buying one of its stocked roster items — or
-	// leaving. Buying deducts the item's cost from starting_treasure and opens a
-	// Refit (Awaiting_Refit) to place it; an unaffordable buy is rejected and the
-	// shop stays open; leaving returns to a travel choice. Unlike an Item Offer a
-	// Port is a revisitable landmark, so the shop never marks anything resolved.
+	// Awaiting_Shop_Choice is the Port shop decision (issue #123, ADR-0013): the
+	// ship is at a Port buying cards off its persistent deck's shelf — or leaving.
+	// Buying an affordable card deducts its cost from starting_treasure, refills its
+	// shelf slot from the deck, and opens a Refit (Awaiting_Refit) to place it that
+	// returns *here* on finish, so the player keeps buying until only Leave exits to
+	// travel; an unaffordable buy is rejected and the shop stays open. Unlike an Item
+	// Offer a Port is a revisitable landmark, so the shop never marks anything
+	// resolved and its draw-down persists across visits (port_shelves).
 	Awaiting_Shop_Choice,
 	Ended,
 }
@@ -47,8 +49,20 @@ Node_ID :: run.Node_ID
 // Option_Index identifies one of an Item Offer's presented options by position
 // (issue #54: distinct from a plain int for the same reason as Node_ID, so an
 // option index can't be passed where a node id or slot index belongs). Indexes
-// into the offered items the Sim stages in item_offer_options.
+// into the offered items the Sim stages in item_offer_options, or the shelf
+// cards a Port shop stages in shop_shelf.
 Option_Index :: distinct int
+
+// Refit_Origin is where a Refit was opened from, so its finish knows where to
+// return (issue #123, ADR-0013). An Item Offer's pick opens a refit that finishes
+// back at a travel choice (.Travel); a Port-shop buy opens one that finishes back
+// at the *shop* (.Shop), refilled — the multi-buy loop that lets a player keep
+// buying at one Port until they Leave. Its zero value is .Travel, the pre-#123
+// behavior and the right default for a rearrange-only refit.
+Refit_Origin :: enum {
+	Travel,
+	Shop,
+}
 
 Sim :: struct {
 	// rng is kept per ADR-0001 ("Sim owns its own seeded RNG... for
@@ -98,12 +112,22 @@ Sim :: struct {
 	// and broadcast on Event_Item_Offer_Presented, then indexed by a
 	// Command_Pick_Item's Option_Index to know which item to open a Refit with.
 	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
-	// shop_stock is the purchasable stock of the Port the ship is currently at
-	// (issue #98): staged from the arrived Port node's Shop and broadcast on
-	// Event_Shop_Presented, then indexed by a Command_Buy_Item's Option_Index to
-	// know which item to price, charge for, and open a Refit with. Re-staged on
-	// every Port arrival, since a Port is revisitable.
-	shop_stock:         [run.SHOP_STOCK_COUNT]run.Shop_Item,
+	// port_shelves is the persistent per-Port shop state (issue #123, ADR-0013),
+	// parallel to run_map.nodes and indexed by Node_ID like resolved/visited. Each
+	// Port_Shelf holds the deck positions currently shown in its shelf slots plus
+	// its draw cursor (next deck position to draw when a slot refills). This is the
+	// draw-down that persists for the rest of the run: a revisited Port resumes its
+	// shelf and cursor rather than re-dealing a fresh one, and buying a card refills
+	// that slot in place from the deck. Run-scoped: arena allocated in sim_create,
+	// reclaimed by sim_destroy. Only Port entries are ever dealt; other nodes' rows
+	// sit unused (a Port is a small fraction of nodes, and a parallel array keeps the
+	// Node_ID indexing uniform with resolved/visited). See sim_shop.odin.
+	port_shelves:       []Port_Shelf,
+	// refit_origin is where the open Refit was entered from, consulted at its finish
+	// to decide whether to return to a travel choice or back to the Port shop (issue
+	// #123): sim_open_refit sets it per refit (defaulting to .Travel), so it never
+	// goes stale across refits.
+	refit_origin:       Refit_Origin,
 	// refit_pending is the incoming fitting an open Refit (Awaiting_Refit) was
 	// opened to place (issue #95): set by sim_open_refit, consumed when a
 	// Refit_Install lands it in a slot, and discarded (nil) when the refit
@@ -150,15 +174,17 @@ Command_Pick_Item :: struct {
 	selection: Maybe(Option_Index),
 }
 
-// Command_Buy_Item resolves a Port shop decision (issue #98, ADR-0012), valid
-// only while Sim is in the Awaiting_Shop_Choice phase. `selection` is the stocked
-// item the captain chose to buy (an Option_Index into shop_stock), or nil to
-// **leave** the shop with no purchase — the shop counterpart to Command_Pick_Item
+// Command_Buy_Item resolves a Port shop decision (issue #123, ADR-0013), valid
+// only while Sim is in the Awaiting_Shop_Choice phase. `selection` is the shelf
+// card the captain chose to buy (an Option_Index into the presented shelf), or nil
+// to **leave** the shop with no purchase — the shop counterpart to Command_Pick_Item
 // (an Item Offer's pick-or-skip), modeled the same way so "leave" is a distinct,
 // unmistakable value rather than a sentinel index. An affordable buy deducts the
-// item's cost from starting_treasure and opens a Refit to place it; an
-// unaffordable one is rejected and the shop stays open. Reuses Option_Index — a
-// shop selection and an offer selection index the same kind of small option list.
+// card's cost from starting_treasure, refills its shelf slot from the deck, and
+// opens a Refit that returns to the shop on finish (the multi-buy loop); an
+// unaffordable one is rejected and the shop stays open; only leaving exits to
+// travel. Reuses Option_Index — a shop selection and an offer selection index the
+// same kind of small option list.
 Command_Buy_Item :: struct {
 	selection: Maybe(Option_Index),
 }
@@ -326,16 +352,19 @@ Event_Item_Offer_Presented :: struct {
 	options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 }
 
-// Event_Shop_Presented carries a Port's purchasable stock (issue #98, ADR-0012),
-// dispatched when the ship arrives at a Port. Presentation renders each item's
+// Event_Shop_Presented carries a Port shop's current shelf (issue #123, ADR-0013),
+// dispatched when the ship arrives at a Port and again on each return from a buy's
+// Refit, so presentation always sees the live draw-down. Each `shelf` slot is a
+// Maybe(Shop_Item): the card on that shelf position, or nil past the deck's tail
+// (the graceful short-deck case — never reached at the real roster size). A slot's
+// index is its Command_Buy_Item Option_Index. Presentation renders each card's
 // tags, phase, size, effect intent and cost and offers a buy-or-leave choice;
-// buying an affordable item opens a Refit (Event_Refit_Started). Re-dispatched on
-// every visit, since a Port is a revisitable landmark whose stock does not
-// deplete. The purse affordability is measured against is the ship's
+// buying an affordable card opens a Refit (Event_Refit_Started) and, on its finish,
+// returns here refilled. The purse affordability is measured against is the ship's
 // starting_treasure, read off the latest Event_Ship_Updated — not duplicated here,
 // so the two can't disagree.
 Event_Shop_Presented :: struct {
-	stock: [run.SHOP_STOCK_COUNT]run.Shop_Item,
+	shelf: [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item),
 }
 
 // Event_Purchase_Rejected reports a Port-shop buy the ship could not afford
@@ -415,6 +444,10 @@ sim_create :: proc(seed: u64) -> Sim {
 	s.resolved = make([]bool, len(s.run_map.nodes))
 	s.visited = make([]bool, len(s.run_map.nodes))
 	s.visited[0] = true // the ship starts at Start (id 0), so retrace to it is legal from the outset.
+	// Per-Port shop shelves (issue #123): parallel to nodes, un-dealt at run start
+	// (a Port_Shelf's zero value has opened=false, dealt lazily on first arrival);
+	// only Port rows are ever dealt. Arena-backed, reclaimed by sim_destroy.
+	s.port_shelves = make([]Port_Shelf, len(s.run_map.nodes))
 	s.travel_options = make([dynamic]Node_ID, 0, 8) // arena-backed (context.allocator is the arena here); reused every travel decision.
 	s.status = .In_Progress
 	s.phase = .Awaiting_Travel_Choice

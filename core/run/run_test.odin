@@ -258,9 +258,10 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 }
 
 @(test)
-every_port_stocks_a_shop_drawn_from_the_roster_and_priced_by_tier :: proc(t: ^testing.T) {
-	// #98: every .Port node carries a Shop of SHOP_STOCK_COUNT distinct roster
-	// items, each priced by its tier; non-port nodes carry no shop.
+every_port_bakes_a_full_roster_deck_priced_by_tier :: proc(t: ^testing.T) {
+	// #123, ADR-0013: every .Port node bakes a Shop whose deck is the *full*
+	// roster — a permutation, so every roster item appears exactly once — each
+	// card priced at its tier; non-port nodes carry no shop.
 	roster := ship.ship_item_roster()
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
@@ -273,33 +274,91 @@ every_port_stocks_a_shop_drawn_from_the_roster_and_priced_by_tier :: proc(t: ^te
 				continue
 			}
 			testing.expectf(t, has_shop, "seed %d: port %d carries no shop", seed, p.id)
+			testing.expectf(
+				t,
+				len(shop.deck) == ship.ITEM_ROSTER_SIZE,
+				"seed %d: port %d deck has %d cards, want the full roster of %d",
+				seed, p.id, len(shop.deck), ship.ITEM_ROSTER_SIZE,
+			)
 
-			for item, i in shop.stock {
-				// Every stocked fitting is a real roster item priced at that item's
-				// tier — the cost matches the roster's own tier-priced entry.
-				found := false
-				for r in roster {
-					if r.fitting.name == item.fitting.name {
-						found = true
-						testing.expectf(
-							t,
-							item.cost == ship.ship_item_cost(r.tier),
-							"seed %d: port %d stock %d (%s) priced %d, want %d for tier %v",
-							seed, p.id, i, item.fitting.name, item.cost, ship.ship_item_cost(r.tier), r.tier,
-						)
+			// The deck is a permutation of the roster: every roster item is present
+			// exactly once, and each card is priced at its own tier.
+			for r in roster {
+				seen := 0
+				for card in shop.deck {
+					if card.fitting.name != r.fitting.name {
+						continue
+					}
+					seen += 1
+					testing.expectf(
+						t,
+						card.cost == ship.ship_item_cost(r.tier),
+						"seed %d: port %d card %s priced %d, want %d for tier %v",
+						seed, p.id, card.fitting.name, card.cost, ship.ship_item_cost(r.tier), r.tier,
+					)
+				}
+				testing.expectf(t, seen == 1, "seed %d: port %d holds %s %d times, want exactly once", seed, p.id, r.fitting.name, seen)
+			}
+		}
+	}
+}
+
+@(test)
+a_ports_deck_is_deterministic_per_seed :: proc(t: ^testing.T) {
+	// #123, ADR-0013: a deck is a pure function of the run seed (no runtime RNG), so
+	// the same seed reproduces every Port's deck card-for-card — a seed's shops are
+	// fully determined before play, like the rest of map generation.
+	a := run_map_create(42)
+	defer run_map_destroy(&a)
+	b := run_map_create(42)
+	defer run_map_destroy(&b)
+
+	for pa, i in a.nodes {
+		sa, is_port := pa.shop.?
+		if !is_port {
+			continue
+		}
+		sb := b.nodes[i].shop.?
+		for pos in 0 ..< len(sa.deck) {
+			testing.expectf(
+				t,
+				sa.deck[pos].fitting.name == sb.deck[pos].fitting.name && sa.deck[pos].cost == sb.deck[pos].cost,
+				"port %d deck position %d differs between two builds of seed 42", pa.id, pos,
+			)
+		}
+	}
+}
+
+@(test)
+distinct_ports_bake_distinct_decks :: proc(t: ^testing.T) {
+	// #123, ADR-0013: each Port owns a distinct deck — run variety comes from
+	// checking Port against Port — so two Ports' decks must not be identically
+	// ordered. Decks are independent shuffles of the same roster (a permutation
+	// collision is a ~1/ITEM_ROSTER_SIZE! event, i.e. never), so any two differ.
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		port_ids: [dynamic]Node_ID
+		defer delete(port_ids)
+		for p in m.nodes {
+			if p.kind == .Port {
+				append(&port_ids, p.id)
+			}
+		}
+
+		for i in 0 ..< len(port_ids) {
+			for j in i + 1 ..< len(port_ids) {
+				a := m.nodes[port_ids[i]].shop.?
+				b := m.nodes[port_ids[j]].shop.?
+				identical := true
+				for pos in 0 ..< len(a.deck) {
+					if a.deck[pos].fitting.name != b.deck[pos].fitting.name {
+						identical = false
 						break
 					}
 				}
-				testing.expectf(t, found, "seed %d: port %d stock %d (%s) is not a roster item", seed, p.id, i, item.fitting.name)
-
-				// Distinct within a shop: no item name repeats.
-				for j in i + 1 ..< len(shop.stock) {
-					testing.expectf(
-						t,
-						item.fitting.name != shop.stock[j].fitting.name,
-						"seed %d: port %d stocks %s twice", seed, p.id, item.fitting.name,
-					)
-				}
+				testing.expectf(t, !identical, "seed %d: ports %d and %d bake identical decks", seed, port_ids[i], port_ids[j])
 			}
 		}
 	}

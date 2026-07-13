@@ -4,15 +4,18 @@ import "../ship"
 
 // sim_open_refit puts Sim into a Refit (issue #95, ADR-0012's manual loadout):
 // it stages `incoming` — the fitting the refit is opened to place, or nil for a
-// rearrange-only refit — switches to the Awaiting_Refit phase, and emits
-// Event_Refit_Started. The acquisition channels (#96 Item Offer, #98 Port shop)
-// will call this from their own encounter-resolution paths once they pick or
-// buy an item; until they exist it is the sole entry into a refit. It sets
-// awaiting_decision so the next refit command can be submitted straight away —
-// idempotent with sim_tick's tail, which re-affirms it when a caller opens a
-// refit from inside a tick.
-sim_open_refit :: proc(sim: ^Sim, incoming: Maybe(ship.Fitting), events: ^[dynamic]Event) {
+// rearrange-only refit — records `origin` (where to return when the refit
+// finishes: .Travel for an Item Offer pick or a bare rearrange, .Shop for a
+// Port-shop buy so the multi-buy loop returns to the shop — issue #123), switches
+// to the Awaiting_Refit phase, and emits Event_Refit_Started. The acquisition
+// channels (#96 Item Offer, #123 Port shop) call this from their own resolution
+// paths once they pick or buy an item. It sets awaiting_decision so the next refit
+// command can be submitted straight away — idempotent with sim_tick's tail, which
+// re-affirms it when a caller opens a refit from inside a tick. origin defaults to
+// .Travel so callers that don't return to a shop needn't name it.
+sim_open_refit :: proc(sim: ^Sim, incoming: Maybe(ship.Fitting), events: ^[dynamic]Event, origin: Refit_Origin = .Travel) {
 	sim.refit_pending = incoming
+	sim.refit_origin = origin
 	sim.phase = .Awaiting_Refit
 	append(events, Event(Event_Refit_Started{incoming = incoming}))
 	sim.awaiting_decision = true
@@ -23,9 +26,11 @@ sim_open_refit :: proc(sim: ^Sim, incoming: Maybe(ship.Fitting), events: ^[dynam
 // Install / Replace / Move / Remove each apply the change and emit its event
 // (plus a fresh Event_Ship_Updated) or, when ADR-0004's fit rule refuses it,
 // emit Event_Refit_Rejected and leave the layout untouched; all four keep Sim in
-// Awaiting_Refit so a sequence of edits runs without re-opening. Finish returns
-// Sim to awaiting a travel choice, discarding any still-pending incoming
-// fitting (no inventory — ADR-0012).
+// Awaiting_Refit so a sequence of edits runs without re-opening. Finish discards
+// any still-pending incoming fitting (no inventory — ADR-0012) and returns Sim to
+// where the refit was opened from (refit_origin, issue #123): a travel choice for
+// an Item Offer pick or a bare rearrange, or back to the Port shop — refilled — for
+// a shop buy, so a player keeps buying at one Port until they Leave.
 sim_process_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	assert(has_pending, "sim_process_refit called without a pending command")
@@ -44,8 +49,15 @@ sim_process_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim_refit_remove(sim, op, events)
 	case Refit_Finish:
 		sim.refit_pending = nil
-		sim.phase = .Awaiting_Travel_Choice
 		append(events, Event(Event_Refit_Finished{}))
+		switch sim.refit_origin {
+		case .Travel:
+			sim.phase = .Awaiting_Travel_Choice
+		case .Shop:
+			// Return to the shop the buy was made at (the current node — you can't
+			// travel mid-refit), re-staging its now-refilled shelf.
+			sim_open_shop(sim, sim.run_map.nodes[sim.current], events)
+		}
 	}
 }
 

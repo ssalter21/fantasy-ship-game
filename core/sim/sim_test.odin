@@ -63,14 +63,14 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 		// policy without an item-and-refit detour muddying their assertions.
 		return Command(Command_Pick_Item{selection = nil})
 	case .Awaiting_Shop_Choice:
-		// Leave every Port shop (issue #98): a nil selection buys nothing, so the
+		// Leave every Port shop (issue #123): a nil selection buys nothing, so the
 		// scenarios steer purely by travel/battle policy without a purchase-and-refit
 		// detour muddying their assertions.
 		return Command(Command_Buy_Item{selection = nil})
 	case .Awaiting_Refit:
-		// A skipped Item Offer never opens a refit, so the Auto_Pilot reaches this
-		// only if some other channel (#98 Port shop) ever does; the Phase switch is
-		// exhaustive, so finish immediately rather than leaving the case unhandled.
+		// The Auto_Pilot skips Item Offers and leaves shops, so it never opens a
+		// refit; the Phase switch is exhaustive, so finish immediately rather than
+		// leaving the case unhandled.
 		return Command(Command_Refit{command = Refit_Finish{}})
 	case .Ended:
 		panic("auto pilot asked for a choice after the run ended")
@@ -705,31 +705,67 @@ an_out_of_range_item_selection_asserts :: proc(t: ^testing.T) {
 	sim_tick(&sim, &events)
 }
 
-// default_shop_stock builds a Port shop's stock of SHOP_STOCK_COUNT distinct,
-// real (placeable) roster fittings, each priced at `cost` (issue #98) — a stand-in
-// for an arrived Port's Shop so the shop tests don't have to navigate the map to
-// one. Tests override individual entries to set up affordability cases.
-default_shop_stock :: proc(cost: int) -> [run.SHOP_STOCK_COUNT]run.Shop_Item {
+// flat_deck bakes a Port deck of the full roster in roster order, every card
+// priced flat at `cost` (issue #123) — a stand-in for a generated Port's baked
+// deck with predictable affordability and a known top-of-deck order (card at deck
+// position i is roster[i]), so the shop tests can assert exactly which card the
+// shelf shows and refills with. A real generated deck is a shuffle of this same
+// set (run_port_shop); the tests don't need the shuffle, only the deck contract.
+flat_deck :: proc(cost: int) -> run.Shop {
 	roster := ship.ship_item_roster()
-	stock: [run.SHOP_STOCK_COUNT]run.Shop_Item
-	for i in 0 ..< run.SHOP_STOCK_COUNT {
-		stock[i] = run.Shop_Item{fitting = roster[i].fitting, cost = cost}
+	shop: run.Shop
+	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
+		shop.deck[i] = run.Shop_Item{fitting = roster[i].fitting, cost = cost}
 	}
-	return stock
+	return shop
 }
 
-// stage_shop puts the Sim into a Port shop decision (issue #98): it stages a
-// stock and switches to Awaiting_Shop_Choice awaiting a Command_Buy_Item, standing
-// in for an arrival at a Port without navigating the whole map to one.
-stage_shop :: proc(sim: ^Sim, stock: [run.SHOP_STOCK_COUNT]run.Shop_Item) {
-	sim.shop_stock = stock
-	sim.phase = .Awaiting_Shop_Choice
+// install_port_deck marks node `id` a Port carrying `shop`'s baked deck (issue
+// #123), so the shop tests can drive sim_open_shop / buy / refit-finish over a real
+// node whose shop both the buy and the refit-return paths read. Mutating the
+// arena-backed map directly is a white-box test privilege; the Port's persistent
+// shelf (port_shelves[id]) is untouched, so it deals on first arrival and persists
+// across the arrivals a test stages.
+install_port_deck :: proc(sim: ^Sim, id: Node_ID, shop: run.Shop) {
+	sim.run_map.nodes[id].kind = .Port
+	sim.run_map.nodes[id].shop = shop
+}
+
+// arrive_at_port points the ship at Port `id` and opens its shop (issue #123),
+// as sim_process_travel does on arrival. It sets awaiting_decision (sim_open_shop
+// leaves that to sim_tick's tail, which isn't running here), so a test can submit
+// a Command_Buy_Item next. events holds the emitted Event_Shop_Presented.
+arrive_at_port :: proc(sim: ^Sim, id: Node_ID, events: ^[dynamic]Event) {
+	sim.current = id
+	clear(events)
+	sim_open_shop(sim, sim.run_map.nodes[id], events)
 	sim.awaiting_decision = true
+}
+
+// presented_shelf returns the shelf carried by the last Event_Shop_Presented in
+// the batch (issue #123), so a test reads what a re-staged shop actually showed.
+presented_shelf :: proc(events: []Event) -> [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item) {
+	shelf: [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item)
+	for e in events {
+		if presented, ok := e.(Event_Shop_Presented); ok {
+			shelf = presented.shelf
+		}
+	}
+	return shelf
+}
+
+// shelf_card_name is the fitting name shown in shelf slot i, or "" if that slot
+// is empty (past the deck's tail).
+shelf_card_name :: proc(shelf: [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item), i: int) -> string {
+	if card, ok := shelf[i].?; ok {
+		return card.fitting.name
+	}
+	return ""
 }
 
 @(test)
 buying_an_affordable_item_deducts_treasure_and_opens_a_refit :: proc(t: ^testing.T) {
-	// The core of #98's acceptance: buying a stocked item the ship can afford
+	// The core of #123's acceptance: buying a shelf card the ship can afford
 	// deducts its cost from starting_treasure and opens a Refit staged with that
 	// exact item, so the manual-loadout commands place it — the same path an Item
 	// Offer's pick takes.
@@ -738,18 +774,20 @@ buying_an_affordable_item_deducts_treasure_and_opens_a_refit :: proc(t: ^testing
 	events: [dynamic]Event
 	defer delete(events)
 
-	stock := default_shop_stock(10)
 	sim.player.starting_treasure = 50
-	stage_shop(&sim, stock)
+	install_port_deck(&sim, 1, flat_deck(10))
+	arrive_at_port(&sim, 1, &events)
 	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(1)}))
 	ev := refit_tick(&sim, &events)
 
+	roster := ship.ship_item_roster()
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Refit)
 	testing.expect(t, has_event(ev, Event_Refit_Started))
 	testing.expect_value(t, sim.player.starting_treasure, 40) // 50 - 10 spent
+	testing.expect_value(t, sim.refit_origin, Refit_Origin.Shop) // finishes back at the shop
 	incoming, pending := sim.refit_pending.?
 	testing.expect(t, pending)
-	testing.expect_value(t, incoming.name, stock[1].fitting.name) // the bought item is staged
+	testing.expect_value(t, incoming.name, roster[1].fitting.name) // shelf slot 1 == deck pos 1 == roster[1]
 }
 
 @(test)
@@ -762,10 +800,11 @@ an_unaffordable_item_is_refused_and_the_shop_stays_open :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	stock := default_shop_stock(10)
-	stock[2].cost = 100 // beyond any reachable purse
+	shop := flat_deck(10)
+	shop.deck[2].cost = 100 // slot 2 (deck pos 2) beyond any reachable purse
 	sim.player.starting_treasure = 50
-	stage_shop(&sim, stock)
+	install_port_deck(&sim, 1, shop)
+	arrive_at_port(&sim, 1, &events)
 	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(2)}))
 	ev := refit_tick(&sim, &events)
 
@@ -780,16 +819,16 @@ an_unaffordable_item_is_refused_and_the_shop_stays_open :: proc(t: ^testing.T) {
 @(test)
 leaving_a_shop_makes_no_purchase_and_returns_to_travel :: proc(t: ^testing.T) {
 	// The "or leave" half: a nil selection buys nothing, spends nothing, opens no
-	// Refit, and returns straight to a travel choice. A Port is never marked
-	// resolved, so nothing here touches resolved[] — retracing re-opens the shop.
+	// Refit, and returns straight to a travel choice — the only exit to travel. A
+	// Port is never marked resolved, so nothing here touches resolved[].
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
 	defer delete(events)
 
-	stock := default_shop_stock(10)
 	sim.player.starting_treasure = 50
-	stage_shop(&sim, stock)
+	install_port_deck(&sim, 1, flat_deck(10))
+	arrive_at_port(&sim, 1, &events)
 	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = nil}))
 	ev := refit_tick(&sim, &events)
 
@@ -810,30 +849,38 @@ an_out_of_range_shop_selection_asserts :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	stage_shop(&sim, default_shop_stock(10))
-	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(run.SHOP_STOCK_COUNT)}))
+	install_port_deck(&sim, 1, flat_deck(10))
+	arrive_at_port(&sim, 1, &events)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(run.SHOP_SHELF_SIZE)}))
 
 	testing.expect_assert(t, "Command_Buy_Item selection out of range")
 	sim_tick(&sim, &events)
 }
 
 @(test)
-arriving_at_a_port_opens_its_shop :: proc(t: ^testing.T) {
-	// Arriving at a Port stages its stock and presents the shop (issue #98). A
-	// shopless port (Start) is a pure waypoint — sim_open_shop no-ops it.
+arriving_at_a_port_presents_the_top_of_its_deck :: proc(t: ^testing.T) {
+	// Arriving at a Port stages a SHOP_SHELF_SIZE shelf off the top of its deck and
+	// presents the shop (issue #123). A shopless port (Start) is a pure waypoint —
+	// sim_open_shop no-ops it.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
 	defer delete(events)
 
-	stock := default_shop_stock(15)
-	port := run.Node{kind = .Port, shop = run.Shop{stock = stock}}
-	sim_open_shop(&sim, port, &events)
+	install_port_deck(&sim, 1, flat_deck(15))
+	arrive_at_port(&sim, 1, &events)
 
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice)
-	testing.expect(t, has_event(events[:], Event_Shop_Presented))
-	testing.expect_value(t, sim.shop_stock[0].fitting.name, stock[0].fitting.name)
-	testing.expect_value(t, sim.shop_stock[0].cost, 15)
+	shelf := presented_shelf(events[:])
+	roster := ship.ship_item_roster()
+	// The shelf is the top SHOP_SHELF_SIZE deck cards (deck position i is roster[i]),
+	// each priced at the deck's flat 15.
+	for i in 0 ..< run.SHOP_SHELF_SIZE {
+		card, filled := shelf[i].?
+		testing.expect(t, filled)
+		testing.expect_value(t, card.fitting.name, roster[i].fitting.name)
+		testing.expect_value(t, card.cost, 15)
+	}
 
 	// A shopless port leaves the Sim awaiting a travel choice, nothing presented.
 	clear(&events)
@@ -841,4 +888,133 @@ arriving_at_a_port_opens_its_shop :: proc(t: ^testing.T) {
 	sim_open_shop(&sim, run.Node{kind = .Port}, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, !has_event(events[:], Event_Shop_Presented))
+}
+
+@(test)
+buying_a_shelf_card_refills_the_slot_from_the_deck_on_the_refits_finish :: proc(t: ^testing.T) {
+	// #123's core: an affordable buy opens a Refit, and on its finish the Sim
+	// returns to the *shop* (not travel) with the bought slot refilled by the next
+	// deck card. The bought item (roster[0]) is gone from the shelf; the refill
+	// (roster[SHOP_SHELF_SIZE], the first still-undrawn card) has taken slot 0.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim.player.starting_treasure = 50
+	install_port_deck(&sim, 1, flat_deck(10))
+	arrive_at_port(&sim, 1, &events)
+
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+	refit_tick(&sim, &events) // buy: deduct, open the refit (origin .Shop)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Refit)
+
+	submit_refit(&sim, Refit_Finish{})
+	ev := refit_tick(&sim, &events) // finish: return to the shop, refilled
+
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice) // back at the shop, not travel
+	testing.expect(t, has_event(ev, Event_Shop_Presented)) // re-presented refilled
+	roster := ship.ship_item_roster()
+	shelf := presented_shelf(ev)
+	// Slot 0 refilled with the next deck card; the bought roster[0] is off the shelf.
+	testing.expect_value(t, shelf_card_name(shelf, 0), roster[run.SHOP_SHELF_SIZE].fitting.name)
+	for i in 0 ..< run.SHOP_SHELF_SIZE {
+		testing.expect(t, shelf_card_name(shelf, i) != roster[0].fitting.name)
+	}
+}
+
+@(test)
+multiple_items_can_be_bought_in_one_visit_before_leaving :: proc(t: ^testing.T) {
+	// #123: a visit is a multi-buy loop — each buy's refit returns to the shop, so
+	// the player keeps buying (draining the deck and the purse) until only Leave
+	// exits to travel. Buy three cards in a row, then leave.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim.player.starting_treasure = 50
+	install_port_deck(&sim, 1, flat_deck(10))
+	arrive_at_port(&sim, 1, &events)
+
+	for _ in 0 ..< 3 {
+		testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice)
+		sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+		refit_tick(&sim, &events) // open the buy's refit
+		submit_refit(&sim, Refit_Finish{})
+		refit_tick(&sim, &events) // finish -> back to the shop
+	}
+	testing.expect_value(t, sim.player.starting_treasure, 20) // 50 - 3*10 spent this visit
+
+	// Only Leave exits to travel.
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = nil}))
+	ev := refit_tick(&sim, &events)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, has_event(ev, Event_Travel_Options))
+}
+
+@(test)
+a_ports_draw_down_persists_across_visits :: proc(t: ^testing.T) {
+	// #123: the draw cursor and purchases persist for the rest of the run — a
+	// revisited Port shows the same shelf minus what was taken, not a fresh one.
+	// Buy the top card, leave, then revisit: the shelf resumes where it was left
+	// (roster[0] gone, its slot holding the refill), not reset to the deck's top.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim.player.starting_treasure = 50
+	install_port_deck(&sim, 1, flat_deck(10))
+	roster := ship.ship_item_roster()
+
+	// Visit 1: buy the top card, finish its refit, then leave to travel.
+	arrive_at_port(&sim, 1, &events)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Finish{})
+	refit_tick(&sim, &events) // back at the shop, refilled
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = nil}))
+	refit_tick(&sim, &events) // leave to travel
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+
+	// Visit 2: arrive at the same Port again. The ledger persisted, so the shelf is
+	// the deck minus roster[0], with the refill in its place — not the deck's top.
+	arrive_at_port(&sim, 1, &events)
+	shelf := presented_shelf(events[:])
+	testing.expect_value(t, shelf_card_name(shelf, 0), roster[run.SHOP_SHELF_SIZE].fitting.name)
+	for i in 0 ..< run.SHOP_SHELF_SIZE {
+		testing.expect(t, shelf_card_name(shelf, i) != roster[0].fitting.name) // stays bought
+	}
+}
+
+@(test)
+distinct_ports_draw_down_independently :: proc(t: ^testing.T) {
+	// #123: each Port owns its own ledger, so buying at one Port doesn't touch
+	// another's shelf — variety comes from checking Port against Port. Buy at Port
+	// 1, then open Port 2 (same flat deck for a comparable shelf): Port 2 still
+	// shows its deck's untouched top.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim.player.starting_treasure = 50
+	install_port_deck(&sim, 1, flat_deck(10))
+	install_port_deck(&sim, 2, flat_deck(10))
+	roster := ship.ship_item_roster()
+
+	arrive_at_port(&sim, 1, &events)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Finish{})
+	refit_tick(&sim, &events)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = nil}))
+	refit_tick(&sim, &events)
+
+	// Port 2 is untouched: its shelf still opens on the deck's top card (roster[0]).
+	arrive_at_port(&sim, 2, &events)
+	shelf := presented_shelf(events[:])
+	testing.expect_value(t, shelf_card_name(shelf, 0), roster[0].fitting.name)
 }

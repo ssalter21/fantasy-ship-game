@@ -52,16 +52,17 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 		// no refit, so the auto-player never has to drive a loadout edit.
 		return sim.Command(sim.Command_Pick_Item{selection = nil})
 	case .Awaiting_Shop_Choice:
-		// Leave every Port shop (issue #98): a nil selection buys nothing and opens
+		// Leave every Port shop (issue #123): a nil selection buys nothing and opens
 		// no refit, so the scripted auto-player never has to spend treasure or drive
-		// a loadout edit — it just walks through the port.
+		// the buy-refit-return loop — it just walks through the port.
 		return sim.Command(sim.Command_Buy_Item{selection = nil})
 	case .Awaiting_Travel_Choice:
 		return sim.Command(sim.Command_Travel_To{node_id = headless_next_node(state)})
 	case .Awaiting_Refit:
-		// A skipped Item Offer never opens a refit; if some other channel (#98 Port
-		// shop) ever does, this scripted driver just finishes it rather than
-		// editing the loadout.
+		// The auto-player skips Item Offers and leaves shops, so it never opens a
+		// refit; were one ever open, this scripted driver just finishes it rather than
+		// editing the loadout (finishing a shop-opened refit returns to the shop,
+		// which it then leaves).
 		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
 	case .Ended:
 		panic("get_captain_choice called while the sim isn't awaiting a decision")
