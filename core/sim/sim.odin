@@ -114,10 +114,11 @@ Sim :: struct {
 	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 	// port_shelves is the persistent per-Port shop state (issue #123, ADR-0013),
 	// parallel to run_map.nodes and indexed by Node_ID like resolved/visited. Each
-	// Port_Shelf holds the deck positions currently shown in its shelf slots plus
-	// its draw cursor (next deck position to draw when a slot refills). This is the
-	// draw-down that persists for the rest of the run: a revisited Port resumes its
-	// shelf and cursor rather than re-dealing a fresh one, and buying a card refills
+	// Port_Shelf holds the deck positions currently shown in its shelf slots, its
+	// draw cursor (next deck position to draw when a slot refills), and its purchase
+	// count (driving the depth surcharge, issue #124). This is the draw-down that
+	// persists for the rest of the run: a revisited Port resumes its shelf, cursor,
+	// and purchase count rather than re-dealing a fresh one, and buying a card refills
 	// that slot in place from the deck. Run-scoped: arena allocated in sim_create,
 	// reclaimed by sim_destroy. Only Port entries are ever dealt; other nodes' rows
 	// sit unused (a Port is a small fraction of nodes, and a parallel array keeps the

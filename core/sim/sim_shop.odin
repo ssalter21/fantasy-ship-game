@@ -13,14 +13,37 @@ Deck_Position :: distinct int
 // holds the deck position currently shown in each shelf slot (nil past the deck's
 // tail — the graceful short-deck case, unreachable at the real roster size against
 // a fixed purse), and `next_draw` is the next deck position to draw when a slot
-// refills after a buy. `opened` is false until the Port's first arrival deals its
-// shelf (sim_deal_shelf); thereafter the shelf and cursor persist for the rest of
-// the run, so a revisit resumes exactly where it was left. Kept per-Port in
+// refills after a buy. `purchases` counts how many items have been bought at this
+// Port so far, driving the depth surcharge (issue #124, port_shelf_price). `opened`
+// is false until the Port's first arrival deals its shelf (sim_deal_shelf);
+// thereafter the shelf, cursor, and purchase count persist for the rest of the run,
+// so a revisit resumes exactly where it was left. Kept per-Port in
 // sim.port_shelves; the deck itself is immutable baked content on the Node.
 Port_Shelf :: struct {
 	slots:     [run.SHOP_SHELF_SIZE]Maybe(Deck_Position),
 	next_draw: Deck_Position,
+	purchases: int,
 	opened:    bool,
+}
+
+// SHOP_DEPTH_SURCHARGE_STEP is the per-purchase Port-shop price surcharge (issue
+// #124, ADR-0013): each successive buy at a given Port costs this much more than
+// the last, so digging one shop deep is expensive and the player is pushed to
+// check Port against Port rather than draining the nearest one. Additive and
+// depth-linear (see port_shelf_price), with the first buy at a Port at the plain
+// tier price. A single placeholder constant, isolated here from the deck/refill
+// logic so it can move in playtest without touching it — the leading shape is not
+// committed (ADR-0012's placeholder-economy convention).
+SHOP_DEPTH_SURCHARGE_STEP :: 5
+
+// port_shelf_price is the treasure a shelf card costs given how many items have
+// already been bought at this Port (issue #124): its tier base plus the depth
+// surcharge, `base + SHOP_DEPTH_SURCHARGE_STEP × purchases`. The one place the
+// surcharge is applied, shared by the shelf's displayed prices (sim_open_shop) and
+// the charge at buy (sim_process_shop_choice) so the two can't disagree. purchases
+// is 0 on the first buy, so it charges the plain tier base.
+port_shelf_price :: proc(base_cost: int, purchases: int) -> int {
+	return base_cost + SHOP_DEPTH_SURCHARGE_STEP * purchases
 }
 
 // port_shelf_draw_next hands out the next undrawn deck position and advances the
@@ -58,7 +81,11 @@ sim_open_shop :: proc(sim: ^Sim, node: run.Node, events: ^[dynamic]Event) {
 	shelf: [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item)
 	for slot, i in ps.slots {
 		if pos, filled := slot.?; filled {
-			shelf[i] = shop.deck[pos]
+			// Present each card at its depth-surcharged price (issue #124), so the
+			// price shown is exactly the price charged (sim_process_shop_choice).
+			card := shop.deck[pos]
+			card.cost = port_shelf_price(card.cost, ps.purchases)
+			shelf[i] = card
 		}
 	}
 	append(events, Event(Event_Shop_Presented{shelf = shelf}))
@@ -80,10 +107,14 @@ sim_deal_shelf :: proc(ps: ^Port_Shelf, shop: run.Shop) {
 // ADR-0013), resolving one Port-shop decision. A nil selection leaves the shop
 // with no purchase and returns to a travel choice — the only exit to travel; the
 // Port is never marked resolved, so retracing to it re-opens the shop where it was
-// left. A selection buys that shelf card: an unaffordable one (cost above the
-// current starting_treasure) is refused with Event_Purchase_Rejected and the shop
-// stays open — ADR-0012's preserved "an unaffordable item cannot be bought" — while
-// an affordable one deducts its cost from starting_treasure (the minimal spend
+// left. A selection buys that shelf card at its depth-surcharged price (issue
+// #124, port_shelf_price: the tier base plus a surcharge for how deep this Port is
+// already dug): an unaffordable one (that price above the current
+// starting_treasure) is refused with Event_Purchase_Rejected and the shop
+// stays open — ADR-0012's preserved "an unaffordable item cannot be bought", now
+// covering a buy the surcharge alone puts out of reach — while an affordable one
+// deducts its cost from starting_treasure and records the purchase (deepening the
+// surcharge for the next buy here) (the minimal spend
 // economy: fixed budget, offers free, shop purchases paid), refills the bought slot
 // in place from the next deck card (advancing the draw cursor), and opens a Refit
 // staged with the item and flagged .Shop so the Refit's finish returns to this shop
@@ -111,12 +142,17 @@ sim_process_shop_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	// We are at this Port's shop (Awaiting_Shop_Choice), so its Node carries the deck.
 	shop := sim.run_map.nodes[sim.current].shop.?
 	card := shop.deck[deck_pos]
+	// Charge the depth-surcharged price (issue #124): the tier base plus the surcharge
+	// for how deep this Port has already been dug. card carries this price onward, so
+	// a rejection echoes what the shelf showed and an affordable buy deducts it.
+	card.cost = port_shelf_price(card.cost, ps.purchases)
 	if card.cost > sim.player.starting_treasure {
 		append(events, Event(Event_Purchase_Rejected{item = card}))
 		return
 	}
 
 	sim.player.starting_treasure -= card.cost
+	ps.purchases += 1 // this Port is one item deeper; the next buy here costs more
 	// Refill the bought slot in place with the next deck card (nil at the deck's
 	// tail), advancing the cursor — the persistent draw-down.
 	ps.slots[selection] = port_shelf_draw_next(ps, len(shop.deck))
