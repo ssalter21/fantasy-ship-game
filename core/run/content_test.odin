@@ -7,7 +7,7 @@ run_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T
 	opponent := run_pve_opponent(.Coastal, 3)
 	defer delete(opponent.layout)
 
-	testing.expect_value(t, len(opponent.layout), 6)
+	testing.expect_value(t, len(opponent.layout), 8)
 	for layout_slot in opponent.layout {
 		_, has_fitting := layout_slot.fitting.?
 		testing.expect(t, has_fitting)
@@ -63,7 +63,7 @@ run_map_create_wires_the_hand_authored_pve_opponent_content_into_ship_battle_nod
 			continue
 		}
 		found_a_ship_battle = true
-		testing.expect_value(t, len(battle.opponent.layout), 6)
+		testing.expect_value(t, len(battle.opponent.layout), 8)
 	}
 	testing.expect(t, found_a_ship_battle)
 }

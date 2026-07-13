@@ -94,8 +94,8 @@ A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time,
 
 ## Vertical-slice scope (see GitHub issue #4)
 
-- One fixed ship template: 6 slots — 2 medium exposed ("top deck", "top crew"), 1 large exposed ("gun deck"), 3 small concealed.
-- Fixed starting loadout: "Top Crew", "Captain's Quarters", "Gun Deck" fill the exposed slots; cargo fills the 3 concealed slots by default.
+- One fixed ship template: 8 slots (issue #91) — Large x2, Medium x3, Small x3, split 4 exposed ("top deck", "top crew", "gun deck", "forecastle") / 4 concealed (one medium plus three small holds).
+- Fixed starting loadout: "Top Crew", "Captain's Quarters", "Gun Deck" fill three exposed slots; cargo fills every remaining slot by default, each cargo filler sized to its slot (issue #91).
 - Findable content is limited to upgraded variants of those same three fittings (e.g. "Upgraded Gun Deck") — no separate fitting roster.
 - Exactly one captain.
 - Map: a procedurally-generated connected node graph, Start/home port → Coastal → Open Sea → The Deep → Goal, ~50 points (17/17/16 per zone) of which 44 are encounters (15/15/14) and 6 are ports (2 per zone). Encounter kinds split via a per-zone shuffled bag across Ship Battle / Upgrade Offer / Stat Trade. Supersedes the original 12-point open map. See ADR-0009.

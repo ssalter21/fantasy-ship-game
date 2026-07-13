@@ -38,17 +38,18 @@ run_pve_opponent_offense_bonus :: proc(zone: Zone, depth: int) -> int {
 // formulas rather than duplicating them. Carries no captain — a captain is a
 // player-side, run-start choice (CONTEXT.md), not opponent content. Caller
 // owns the returned Ship's layout slice.
-// run_fit_pve_opponent_loadout fits every slot of run_pve_opponent's fixed
-// loadout (issue #54: an or_return chain replacing 6 hand-threaded
-// ok/assert pairs, mirroring core/ship's ship_fit_starting_loadout — a false
-// return means the template and this roster have drifted out of sync).
+// run_fit_pve_opponent_loadout fits the opponent's fixed combat loadout into
+// the template's exposed slots and hands the rest to
+// ship_fill_empty_slots_with_cargo (issue #54: an or_return chain replacing
+// hand-threaded ok/assert pairs, mirroring core/ship's
+// ship_fit_starting_loadout — a false return means the template and this
+// roster have drifted out of sync). Issue #91: the opponent's spare slots fill
+// with "Spoils" cargo the same way the player's fill with "Cargo".
 run_fit_pve_opponent_loadout :: proc(layout: []ship.Layout_Slot, bonus: int) -> bool {
 	ship.ship_fit(&layout[0], ship.ship_fitting_captains_quarters()) or_return
 	ship.ship_fit(&layout[1], ship.ship_fitting_top_crew()) or_return
 	ship.ship_fit(&layout[2], ship.ship_fitting_upgraded_gun_deck(bonus)) or_return
-	ship.ship_fit(&layout[3], ship.ship_fitting_cargo("Spoils")) or_return
-	ship.ship_fit(&layout[4], ship.ship_fitting_cargo("Spoils")) or_return
-	return ship.ship_fit(&layout[5], ship.ship_fitting_cargo("Spoils"))
+	return ship.ship_fill_empty_slots_with_cargo(layout, "Spoils")
 }
 
 run_pve_opponent :: proc(zone: Zone, depth: int) -> ship.Ship {

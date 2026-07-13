@@ -70,25 +70,34 @@ ship_fitting_upgraded_gun_deck :: proc(bonus: int) -> Fitting {
 	return ship_fitting_upgraded(ship_fitting_gun_deck(), "Upgraded Gun Deck", bonus)
 }
 
-// ship_fitting_cargo builds one of the ship template's default cargo
-// fillers (issue #23: "cargo fills the 3 concealed slots by default").
-// name lets a caller flavor multiple cargo instances (e.g. a PvE opponent's
-// "Spoils") without a separate fitting type (ADR-0004).
-ship_fitting_cargo :: proc(name: string) -> Fitting {
-	return Fitting{name = name, size = .Small, is_cargo = true, stack_count = CARGO_STACK_COUNT}
+// ship_fitting_cargo builds one of the ship template's default cargo fillers
+// (issue #23: "cargo fills the concealed slots by default"). name lets a
+// caller flavor multiple cargo instances (e.g. a PvE opponent's "Spoils")
+// without a separate fitting type (ADR-0004). size is caller-supplied so cargo
+// can fill a slot of any size under the exact-size-match fit rule (issue #91:
+// every empty slot, not just the small holds, can be spent on cargo capacity —
+// a larger slot's cargo is worth more, see ship_cargo_slot_contribution).
+ship_fitting_cargo :: proc(name: string, size: Slot_Size) -> Fitting {
+	return Fitting{name = name, size = size, is_cargo = true, stack_count = CARGO_STACK_COUNT}
 }
 
-// ship_template_layout is the vertical slice's one ship template (issue #23,
-// CONTEXT.md): 6 slots — 2 medium exposed ("top deck", "top crew"), 1 large
-// exposed ("gun deck"), 3 small concealed. Caller owns the returned slice.
+// ship_template_layout is the vertical slice's one ship template (issue #91,
+// CONTEXT.md): 8 slots — Large x2, Medium x3, Small x3, split 4 exposed / 4
+// concealed. The three exposed combat slots ("top deck", "top crew", "gun
+// deck") keep their sizes so the starting loadout still fits; the expansion
+// adds a second exposed Large ("forecastle") and grows the concealed hold from
+// three small slots to one medium plus three small. Caller owns the returned
+// slice.
 ship_template_layout :: proc() -> []Layout_Slot {
-	layout := make([]Layout_Slot, 6)
+	layout := make([]Layout_Slot, 8)
 	layout[0] = Layout_Slot{slot = Slot{name = "top deck", size = .Medium, base_visibility = .Exposed}}
 	layout[1] = Layout_Slot{slot = Slot{name = "top crew", size = .Medium, base_visibility = .Exposed}}
 	layout[2] = Layout_Slot{slot = Slot{name = "gun deck", size = .Large, base_visibility = .Exposed}}
-	layout[3] = Layout_Slot{slot = Slot{name = "hold 1", size = .Small, base_visibility = .Concealed}}
-	layout[4] = Layout_Slot{slot = Slot{name = "hold 2", size = .Small, base_visibility = .Concealed}}
-	layout[5] = Layout_Slot{slot = Slot{name = "hold 3", size = .Small, base_visibility = .Concealed}}
+	layout[3] = Layout_Slot{slot = Slot{name = "forecastle", size = .Large, base_visibility = .Exposed}}
+	layout[4] = Layout_Slot{slot = Slot{name = "hold 1", size = .Medium, base_visibility = .Concealed}}
+	layout[5] = Layout_Slot{slot = Slot{name = "hold 2", size = .Small, base_visibility = .Concealed}}
+	layout[6] = Layout_Slot{slot = Slot{name = "hold 3", size = .Small, base_visibility = .Concealed}}
+	layout[7] = Layout_Slot{slot = Slot{name = "hold 4", size = .Small, base_visibility = .Concealed}}
 	return layout
 }
 
@@ -101,23 +110,40 @@ ship_starting_captain :: proc() -> Captain {
 // ship_starting_ship assembles the run's starting Ship (issue #23): the one
 // template, filled with its fixed starting loadout — Captain's Quarters and
 // Top Crew in the two medium exposed slots, Gun Deck in the large exposed
-// slot, cargo filling the three small concealed slots by default — plus the
+// slot, cargo filling every remaining slot by default (issue #91) — plus the
 // one captain. Hand-placement of Captain's Quarters into "top deck" and Top
 // Crew into "top crew" is a flavor-only pairing (ADR-0004: slot names impose
 // no restriction on what fills them). Caller owns the returned Ship's
 // layout slice.
-// ship_fit_starting_loadout fits every slot of ship_starting_ship's fixed
-// loadout (issue #54: an or_return chain replacing 6 hand-threaded
-// ok/assert pairs — a false return here means the template and its starting
-// fittings have drifted out of sync, a content bug caught immediately by
-// this package's own tests, not a real runtime condition).
+// ship_fit_starting_loadout fits the fixed combat loadout into ship_starting_ship's
+// exposed slots and hands the rest to ship_fill_empty_slots_with_cargo (issue
+// #54: an or_return chain replacing hand-threaded ok/assert pairs — a false
+// return here means the template and its starting fittings have drifted out of
+// sync, a content bug caught immediately by this package's own tests, not a
+// real runtime condition).
 ship_fit_starting_loadout :: proc(layout: []Layout_Slot) -> bool {
 	ship_fit(&layout[0], ship_fitting_captains_quarters()) or_return
 	ship_fit(&layout[1], ship_fitting_top_crew()) or_return
 	ship_fit(&layout[2], ship_fitting_gun_deck()) or_return
-	ship_fit(&layout[3], ship_fitting_cargo("Cargo")) or_return
-	ship_fit(&layout[4], ship_fitting_cargo("Cargo")) or_return
-	return ship_fit(&layout[5], ship_fitting_cargo("Cargo"))
+	return ship_fill_empty_slots_with_cargo(layout, "Cargo")
+}
+
+// ship_fill_empty_slots_with_cargo fills every still-empty slot of `layout`
+// with a size-matching cargo filler (issue #91: once the combat fittings are
+// placed, all remaining slots — whatever their size or visibility — go to
+// cargo capacity rather than sitting idle). Each filler takes its slot's own
+// size so it satisfies the exact-size-match fit rule (ADR-0004), so ship_fit
+// only fails here on a genuine content bug, never a size mismatch. Both the
+// starting loadout and the PvE-opponent loadout share this, so a template
+// resize needs no per-slot edits at either call site.
+ship_fill_empty_slots_with_cargo :: proc(layout: []Layout_Slot, name: string) -> bool {
+	for &layout_slot in layout {
+		if _, occupied := layout_slot.fitting.?; occupied {
+			continue
+		}
+		ship_fit(&layout_slot, ship_fitting_cargo(name, layout_slot.slot.size)) or_return
+	}
+	return true
 }
 
 ship_starting_ship :: proc() -> Ship {

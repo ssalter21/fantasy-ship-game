@@ -12,27 +12,36 @@ find_slot :: proc(s: Ship, slot_name: string) -> Layout_Slot {
 }
 
 @(test)
-ship_template_layout_has_six_slots_two_medium_exposed_one_large_exposed_three_small_concealed :: proc(t: ^testing.T) {
+ship_template_layout_has_eight_slots_two_large_three_medium_three_small_split_four_exposed_four_concealed :: proc(t: ^testing.T) {
 	layout := ship_template_layout()
 	defer delete(layout)
 
-	testing.expect_value(t, len(layout), 6)
+	testing.expect_value(t, len(layout), 8)
 
-	medium_exposed, large_exposed, small_concealed := 0, 0, 0
+	large, medium, small := 0, 0, 0
+	exposed, concealed := 0, 0
 	for layout_slot in layout {
-		switch {
-		case layout_slot.slot.size == .Medium && layout_slot.slot.base_visibility == .Exposed:
-			medium_exposed += 1
-		case layout_slot.slot.size == .Large && layout_slot.slot.base_visibility == .Exposed:
-			large_exposed += 1
-		case layout_slot.slot.size == .Small && layout_slot.slot.base_visibility == .Concealed:
-			small_concealed += 1
+		switch layout_slot.slot.size {
+		case .Large:
+			large += 1
+		case .Medium:
+			medium += 1
+		case .Small:
+			small += 1
+		}
+		switch layout_slot.slot.base_visibility {
+		case .Exposed:
+			exposed += 1
+		case .Concealed:
+			concealed += 1
 		}
 	}
 
-	testing.expect_value(t, medium_exposed, 2)
-	testing.expect_value(t, large_exposed, 1)
-	testing.expect_value(t, small_concealed, 3)
+	testing.expect_value(t, large, 2)
+	testing.expect_value(t, medium, 3)
+	testing.expect_value(t, small, 3)
+	testing.expect_value(t, exposed, 4)
+	testing.expect_value(t, concealed, 4)
 }
 
 Expected_Loadout :: struct {
@@ -73,7 +82,33 @@ ship_starting_ship_fills_every_concealed_slot_with_cargo_by_default :: proc(t: ^
 		testing.expect(t, has_fitting)
 		testing.expect(t, fitting.is_cargo)
 	}
-	testing.expect_value(t, concealed_count, 3)
+	testing.expect_value(t, concealed_count, 4)
+}
+
+// Every slot the starting loadout doesn't spend on a combat fitting becomes
+// cargo, whatever its size (issue #91): the expanded hull leaves an exposed
+// Large and a concealed Medium open alongside the small holds, and all of them
+// must fill with a size-matching cargo filler rather than sit idle.
+@(test)
+ship_starting_ship_fills_every_non_combat_slot_with_size_matching_cargo :: proc(t: ^testing.T) {
+	s := ship_starting_ship()
+	defer delete(s.layout)
+
+	saw_size := [Slot_Size]bool{}
+	for layout_slot in s.layout {
+		fitting, has_fitting := layout_slot.fitting.?
+		testing.expect(t, has_fitting)
+		if !fitting.is_cargo {
+			continue
+		}
+		testing.expect_value(t, fitting.size, layout_slot.slot.size)
+		saw_size[layout_slot.slot.size] = true
+	}
+
+	// Cargo fills slots of all three sizes now, not just Small.
+	testing.expect(t, saw_size[.Small])
+	testing.expect(t, saw_size[.Medium])
+	testing.expect(t, saw_size[.Large])
 }
 
 @(test)
