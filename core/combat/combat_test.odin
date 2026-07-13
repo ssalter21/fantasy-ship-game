@@ -777,3 +777,47 @@ identical_ships_and_commands_produce_identical_results_every_time :: proc(t: ^te
 	testing.expect_value(t, a_hp_1, a_hp_2)
 	testing.expect_value(t, b_hp_1, b_hp_2)
 }
+
+// Demo (issue #93): a synergy fitting's combat output scales with the count of
+// installed fittings matching its selector, resolved against the owning ship's
+// current layout at combat-resolve time (combat_phase_output routes magnitude
+// through ship.effect_magnitude). Here an Offensive "for each Weapon, +Offense"
+// fitting's phase output rises as Weapon fittings are added and falls as they
+// are removed. The synergy fitting is itself an Artifact, so it never counts
+// toward its own selector — the output tracks the other Weapons only.
+@(test)
+synergy_offense_rises_and_falls_with_the_weapon_count_aboard :: proc(t: ^testing.T) {
+	OFFENSE_PER_WEAPON :: 3
+	synergy_gun := ship.Fitting{
+		name     = "Runic Battery",
+		size     = .Large,
+		category = .Offensive,
+		tags     = {.Artifact},
+		active   = ship.Effect{magnitude = OFFENSE_PER_WEAPON, synergy = ship.Selector(ship.Tag.Weapon)},
+	}
+	cannon := ship.Fitting{name = "Cannon", size = .Large, tags = {.Weapon}}
+	ballista := ship.Fitting{name = "Ballista", size = .Small, tags = {.Weapon}}
+
+	s := ship.Ship{
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Large, base_visibility = .Exposed}, fitting = synergy_gun},
+			{slot = ship.Slot{size = .Large, base_visibility = .Exposed}},
+			{slot = ship.Slot{size = .Small, base_visibility = .Concealed}},
+		},
+	}
+
+	// No Weapons aboard yet: for-each-Weapon output is zero.
+	testing.expect_value(t, combat_phase_output(&s, .Offensive), 0)
+
+	// Add one Weapon: output rises to one Weapon's worth.
+	s.layout[1].fitting = cannon
+	testing.expect_value(t, combat_phase_output(&s, .Offensive), OFFENSE_PER_WEAPON)
+
+	// Add a second Weapon: output rises again.
+	s.layout[2].fitting = ballista
+	testing.expect_value(t, combat_phase_output(&s, .Offensive), 2 * OFFENSE_PER_WEAPON)
+
+	// Remove a Weapon: output falls back.
+	s.layout[1].fitting = nil
+	testing.expect_value(t, combat_phase_output(&s, .Offensive), OFFENSE_PER_WEAPON)
+}
