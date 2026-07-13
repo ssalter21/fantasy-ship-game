@@ -51,13 +51,69 @@ Slot :: struct {
 // to int explicitly (see core/combat's combat_phase_output).
 Magnitude :: distinct int
 
-// Effect is the numeric strength of a fitting's passive/active combat
-// contribution. What magnitude means is decided by the combat resolver
-// (ADR-0006, core/combat) from the owning fitting's Category; the concrete
-// fitting roster and its balance values belong to the vertical-slice content
-// ticket (issue #23), not this data model.
+// Effect_Kind is what an Effect's resolved magnitude does (issue #92). The
+// zero value, Phase_Contribution, is the original bare-magnitude behavior:
+// the magnitude feeds the owning fitting's combat phase (its Category, decided
+// by the combat resolver — ADR-0006, core/combat). The Modify_* kinds instead
+// adjust one of the owning ship's effective stats (ship_effective_durability /
+// _speed / _max_hp), so a fitting can raise Durability / Speed / Max HP
+// without contributing to a phase (issue #88: "fittings may modify ship
+// stats"). Kept as an enum rather than a tagged union — the house idiom for a
+// closed variant set — because for this ticket's closed set every kind carries
+// the same payload (a single magnitude), so a union would be four identical
+// variants; the enum encodes both "it's a stat modifier" and "which stat" in
+// one field, avoiding a conditionally-meaningful parallel `stat` field. The
+// synergy / conditional kinds of #93/#94 carry their own payload (a selector,
+// a trigger); if they extend this set rather than attaching to the magnitude
+// seam (effect_magnitude), revisit whether a tagged union fits better then.
+Effect_Kind :: enum {
+	Phase_Contribution,
+	Modify_Durability,
+	Modify_Speed,
+	Modify_Max_HP,
+}
+
+// Effect is a fitting's data-driven passive/active contribution, resolved
+// against an Effect_Context at the point of use rather than baked in as a bare
+// constant (issue #92, #88). It stays plain data — no function pointers — so a
+// Ghost_Snapshot (ADR-0008) can carry it. `kind` decides what the resolved
+// magnitude does; `magnitude` is flat today and is the seam where later
+// build-variance tickets (#88: synergy counts, battle-state conditionals) make
+// magnitude context-sensitive by changing only effect_magnitude. The concrete
+// fitting roster and its balance values belong to the content tickets (issue
+// #23), not this data model.
 Effect :: struct {
+	kind:      Effect_Kind,
 	magnitude: Magnitude,
+}
+
+// Effect_Context is everything an Effect may resolve its magnitude against
+// (issue #92): the owning ship today. The combat battle/opponent state that
+// synergy and conditional effects (issue #88) will read is the documented
+// extension point — added by those tickets, not a field here yet — mirroring
+// how the third visibility layer (ship_effective_visibility) is documented
+// ahead of implementation.
+Effect_Context :: struct {
+	owner: ^Ship,
+}
+
+// effect_magnitude resolves `effect`'s magnitude against `ctx` (issue #92).
+// Flat today — it returns the stored constant and ignores ctx — but every
+// magnitude read (combat phase output, the effective-stat readers) goes
+// through here, so later tickets (#88) can make magnitude context-sensitive
+// (synergy counts, conditionals) by changing only this proc, leaving combat
+// and the stat readers untouched.
+effect_magnitude :: proc(effect: Effect, ctx: Effect_Context) -> Magnitude {
+	return effect.magnitude
+}
+
+// ship_effect_context builds the Effect_Context an effect resolves against for
+// ship s (issue #92). The single place that shape is constructed — combat's
+// phase output and the effective-stat readers both call it — so the
+// battle/opponent fields the synergy/conditional tickets (#93/#94) add land
+// here, not at every resolve site.
+ship_effect_context :: proc(s: ^Ship) -> Effect_Context {
+	return Effect_Context{owner = s}
 }
 
 Fitting :: struct {
@@ -152,6 +208,53 @@ ship_effective_visibility :: proc(layout_slot: Layout_Slot) -> Visibility {
 		}
 	}
 	return layout_slot.slot.base_visibility
+}
+
+// ship_fitting_stat_contribution sums the resolved magnitude of a fitting's
+// Stat_Modifier effects of `kind` (issue #92). Both the passive and active
+// effect are considered, so a stat modifier may sit in either slot; only
+// effects whose Effect_Kind matches count, so a Phase_Contribution never
+// leaks into a stat total.
+ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx: Effect_Context) -> int {
+	total := 0
+	for slot in ([2]Maybe(Effect){fitting.passive, fitting.active}) {
+		if effect, ok := slot.?; ok && effect.kind == kind {
+			total += int(effect_magnitude(effect, ctx))
+		}
+	}
+	return total
+}
+
+// ship_effective_stat is the shared shape behind ship_effective_durability /
+// _speed / _max_hp (issue #92): the raw base stat plus every installed
+// fitting's matching Stat_Modifier contribution. `base` is the ship's own
+// field and `kind` the Modify_* kind that targets it.
+ship_effective_stat :: proc(s: ^Ship, base: int, kind: Effect_Kind) -> int {
+	total := base
+	ctx := ship_effect_context(s)
+	for layout_slot in s.layout {
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+			total += ship_fitting_stat_contribution(fitting, kind, ctx)
+		}
+	}
+	return total
+}
+
+// ship_effective_durability / _speed / _max_hp return a ship's stat after its
+// installed fittings' Stat_Modifier effects apply on top of the raw Ship field
+// (issue #92). Combat reads these rather than the raw fields (see core/combat's
+// combat_effective_speed and its damage calc; ADR-0008's ghost capture resets
+// hp to effective max HP), so a fitting can raise Durability / Speed / Max HP.
+ship_effective_durability :: proc(s: ^Ship) -> int {
+	return ship_effective_stat(s, s.durability, .Modify_Durability)
+}
+
+ship_effective_speed :: proc(s: ^Ship) -> int {
+	return ship_effective_stat(s, s.speed, .Modify_Speed)
+}
+
+ship_effective_max_hp :: proc(s: ^Ship) -> int {
+	return ship_effective_stat(s, s.max_hp, .Modify_Max_HP)
 }
 
 // ship_cargo_capacity adjusts the ship's baseline cargo stat by the slots

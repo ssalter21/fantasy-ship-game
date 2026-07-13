@@ -258,6 +258,65 @@ replace_fitting_swaps_an_occupied_slots_fitting_for_a_same_sized_one :: proc(t: 
 }
 
 @(test)
+effect_magnitude_resolves_a_flat_effect_to_its_stored_constant :: proc(t: ^testing.T) {
+	s := Ship{}
+	ctx := Effect_Context{owner = &s}
+
+	testing.expect_value(t, effect_magnitude(Effect{magnitude = 7}, ctx), Magnitude(7))
+	testing.expect_value(t, effect_magnitude(Effect{kind = .Modify_Durability, magnitude = 4}, ctx), Magnitude(4))
+}
+
+@(test)
+effective_stats_equal_the_raw_fields_when_no_stat_modifier_is_installed :: proc(t: ^testing.T) {
+	cannon := Fitting{name = "Cannon", size = .Large, category = .Offensive, active = Effect{magnitude = 10}}
+	s := Ship{
+		durability = 2, speed = 4, max_hp = 20,
+		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},
+	}
+
+	testing.expect_value(t, ship_effective_durability(&s), 2)
+	testing.expect_value(t, ship_effective_speed(&s), 4)
+	testing.expect_value(t, ship_effective_max_hp(&s), 20)
+}
+
+@(test)
+a_stat_modifier_fitting_raises_the_matching_effective_stat_only :: proc(t: ^testing.T) {
+	reinforced := Fitting{
+		name = "Reinforced Hull", size = .Small,
+		passive = Effect{kind = .Modify_Durability, magnitude = 3},
+	}
+	s := Ship{
+		durability = 2, speed = 4, max_hp = 20,
+		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = reinforced}},
+	}
+
+	testing.expect_value(t, ship_effective_durability(&s), 2 + 3)
+	testing.expect_value(t, ship_effective_speed(&s), 4) // unaffected
+	testing.expect_value(t, ship_effective_max_hp(&s), 20) // unaffected
+}
+
+@(test)
+stat_modifiers_stack_across_slots_and_span_max_hp_and_speed :: proc(t: ^testing.T) {
+	hull := Fitting{name = "Reinforced Hull", size = .Small, passive = Effect{kind = .Modify_Durability, magnitude = 3}}
+	plating := Fitting{name = "Iron Plating", size = .Small, passive = Effect{kind = .Modify_Durability, magnitude = 2}}
+	sails := Fitting{name = "Fast Sails", size = .Small, passive = Effect{kind = .Modify_Speed, magnitude = 4}}
+	ballast := Fitting{name = "Ballast Tanks", size = .Small, passive = Effect{kind = .Modify_Max_HP, magnitude = 10}}
+	s := Ship{
+		durability = 1, speed = 5, max_hp = 20,
+		layout = []Layout_Slot{
+			{slot = Slot{size = .Small}, fitting = hull},
+			{slot = Slot{size = .Small}, fitting = plating},
+			{slot = Slot{size = .Small}, fitting = sails},
+			{slot = Slot{size = .Small}, fitting = ballast},
+		},
+	}
+
+	testing.expect_value(t, ship_effective_durability(&s), 1 + 3 + 2)
+	testing.expect_value(t, ship_effective_speed(&s), 5 + 4)
+	testing.expect_value(t, ship_effective_max_hp(&s), 20 + 10)
+}
+
+@(test)
 replace_fitting_rejects_a_size_mismatch_and_leaves_the_original_installed :: proc(t: ^testing.T) {
 	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
 	ok := ship_fit(&layout_slot, Fitting{name = "Gun Deck", size = .Large})

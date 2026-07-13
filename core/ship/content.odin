@@ -56,7 +56,9 @@ ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) 
 	f := base
 	f.name = upgraded_name
 	base_active, _ := base.active.?
-	f.active = Effect{magnitude = base_active.magnitude + Magnitude(bonus)}
+	// Carry the base effect's kind through unchanged (all three starting
+	// fittings are Phase_Contribution) so an upgrade only scales magnitude.
+	f.active = Effect{kind = base_active.kind, magnitude = base_active.magnitude + Magnitude(bonus)}
 	return f
 }
 
