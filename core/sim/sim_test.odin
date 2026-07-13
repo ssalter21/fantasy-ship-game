@@ -2,6 +2,7 @@ package sim
 
 import "../combat"
 import "../run"
+import "../ship"
 import "../testutil"
 import "core:testing"
 
@@ -59,6 +60,11 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 		return Command(Command_Battle_Choice{combat_command = pilot.battle_cmd})
 	case .Awaiting_Upgrade_Choice:
 		return Command(Command_Pick_Upgrade{option_index = pilot.upgrade_index})
+	case .Awaiting_Refit:
+		// The Auto_Pilot never opens a refit (no acquisition channel drives one
+		// yet — #96/#98), but the Phase switch is exhaustive: finish immediately
+		// if one ever appears rather than leaving the case unhandled.
+		return Command(Command_Refit{command = Refit_Finish{}})
 	case .Ended:
 		panic("auto pilot asked for a choice after the run ended")
 	}
@@ -420,5 +426,161 @@ tick_again_while_awaiting_decision_asserts :: proc(t: ^testing.T) {
 	sim_tick(&sim, &events) // first tick: awaiting a travel choice
 
 	testing.expect_assert(t, "sim_tick called while a captain decision is still outstanding")
+	sim_tick(&sim, &events)
+}
+
+// submit_refit submits one loadout operation for the next tick to apply.
+submit_refit :: proc(sim: ^Sim, op: Refit_Command) {
+	sim_submit_captain_choice(sim, Command(Command_Refit{command = op}))
+}
+
+// refit_tick clears events, ticks the Sim once, and returns that tick's events
+// for inspection. The returned slice points at the events buffer as filled this
+// tick, valid until the next refit_tick clears it.
+refit_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) -> []Event {
+	clear(events)
+	sim_tick(sim, events)
+	return events[:]
+}
+
+// has_event reports whether the batch holds an event of variant T.
+has_event :: proc(events: []Event, $T: typeid) -> bool {
+	for e in events {
+		if _, ok := e.(T); ok {
+			return true
+		}
+	}
+	return false
+}
+
+fitting_name_at :: proc(sim: ^Sim, slot: int) -> string {
+	f, ok := sim.player.layout[slot].fitting.?
+	return ok ? f.name : ""
+}
+
+slot_is_empty :: proc(sim: ^Sim, slot: int) -> bool {
+	_, ok := sim.player.layout[slot].fitting.?
+	return !ok
+}
+
+slot_holds_cargo :: proc(sim: ^Sim, slot: int) -> bool {
+	f, ok := sim.player.layout[slot].fitting.?
+	return ok && f.is_cargo
+}
+
+@(test)
+a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :: proc(t: ^testing.T) {
+	// Drive a full loadout-editing sequence over the starting ship and assert
+	// both the resulting layout and that every illegal placement is refused
+	// without disturbing it (issue #95's acceptance test). Starting slots:
+	//   0 top deck (M) Captain's Quarters   4 hold 1 (M) Cargo
+	//   1 top crew (M) Top Crew             5 hold 2 (S) Cargo
+	//   2 gun deck (L) Gun Deck             6 hold 3 (S) Cargo
+	//   3 forecastle (L) Cargo              7 hold 4 (S) Cargo
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	incoming := ship.ship_fitting_upgraded_gun_deck(3) // "Upgraded Gun Deck", Large
+	sim_open_refit(&sim, incoming, &events)
+	testing.expect(t, has_event(events[:], Event_Refit_Started))
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Refit)
+
+	// Install into a size-mismatched slot (Large item, Medium slot 0): refused,
+	// layout untouched, incoming still pending.
+	submit_refit(&sim, Refit_Install{slot = 0})
+	ev := refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect_value(t, fitting_name_at(&sim, 0), "Captain's Quarters")
+	_, still_pending := sim.refit_pending.?
+	testing.expect(t, still_pending)
+
+	// Install into an occupied same-size slot (Large slot 3 holds cargo): refused.
+	submit_refit(&sim, Refit_Install{slot = 3})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect(t, slot_holds_cargo(&sim, 3))
+
+	// Remove the Large cargo in slot 3: discarded (no inventory), slot empties.
+	submit_refit(&sim, Refit_Remove{slot = 3})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Fitting_Removed))
+	testing.expect(t, slot_is_empty(&sim, 3))
+
+	// Move the Gun Deck (Large) from slot 2 into the now-empty Large slot 3.
+	submit_refit(&sim, Refit_Move{from = 2, to = 3})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Fitting_Moved))
+	testing.expect(t, slot_is_empty(&sim, 2))
+	testing.expect_value(t, fitting_name_at(&sim, 3), "Gun Deck")
+
+	// Install the pending Upgraded Gun Deck into the freed Large slot 2.
+	submit_refit(&sim, Refit_Install{slot = 2})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Fitting_Installed))
+	testing.expect_value(t, fitting_name_at(&sim, 2), "Upgraded Gun Deck")
+	_, pending_after_install := sim.refit_pending.?
+	testing.expect(t, !pending_after_install) // consumed
+
+	// With nothing pending, an install even into an empty, size-matching slot is
+	// refused: free a Small slot, then try to install into it.
+	submit_refit(&sim, Refit_Remove{slot = 5})
+	refit_tick(&sim, &events)
+	testing.expect(t, slot_is_empty(&sim, 5))
+	submit_refit(&sim, Refit_Install{slot = 5})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect(t, slot_is_empty(&sim, 5)) // nothing installed
+
+	// Removing an already-empty slot is refused too.
+	submit_refit(&sim, Refit_Remove{slot = 5})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+
+	// Finish returns to a travel choice and broadcasts the legal moves again.
+	submit_refit(&sim, Refit_Finish{})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Finished))
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, has_event(ev, Event_Travel_Options))
+}
+
+@(test)
+finishing_a_refit_discards_an_unplaced_incoming_fitting :: proc(t: ^testing.T) {
+	// No inventory (ADR-0012): an incoming fitting never installed is gone once
+	// the refit finishes — the Sim holds nothing that could re-offer it.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_open_refit(&sim, ship.ship_fitting_upgraded_gun_deck(3), &events)
+	_, pending := sim.refit_pending.?
+	testing.expect(t, pending)
+
+	submit_refit(&sim, Refit_Finish{})
+	refit_tick(&sim, &events)
+
+	_, still_pending := sim.refit_pending.?
+	testing.expect(t, !still_pending) // discarded
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+}
+
+@(test)
+a_refit_slot_index_out_of_range_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_open_refit(&sim, ship.ship_fitting_upgraded_gun_deck(3), &events)
+	submit_refit(&sim, Refit_Remove{slot = ship.Slot_Index(len(sim.player.layout))})
+
+	testing.expect_assert(t, "refit slot index out of range")
 	sim_tick(&sim, &events)
 }
