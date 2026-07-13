@@ -77,6 +77,108 @@ ship_fitting_upgraded_gun_deck :: proc(bonus: int) -> Fitting {
 	return ship_fitting_upgraded(ship_fitting_gun_deck(), "Upgraded Gun Deck", bonus)
 }
 
+// The minimal item roster (issue #96): a handful of distinct roster items the
+// Item Offer draws from until the full ~50-item roster lands (#97, ADR-0012).
+// Deliberately small but spread across the axes build variance turns on — the
+// five tag families, all three sizes and phases, and the full effect vocabulary
+// (flat, stat-modifier, synergy, conditional, and a multi-tag fitting) — so an
+// offer is already a meaningful build choice, not the old three fixed upgrades.
+// Every magnitude is placeholder tuning like the rest of this file. Sizes are
+// chosen so each item fits somewhere in the template (Medium x3 / Large x2 /
+// Small x3).
+CANNON_BATTERY_OFFENSE :: 6
+REINFORCED_HULL_DURABILITY :: 2
+WAR_SERPENT_OFFENSE :: 8
+POWDER_MONKEYS_BUFF_PER_WEAPON :: 2
+SWIFT_RIGGING_SPEED :: 2
+MARINE_BOARDERS_OFFENSE :: 4
+
+// ITEM_ROSTER_SIZE is how many distinct items ship_item_roster hands back — the
+// pool an Item Offer samples its options from (run.run_item_offer_options). Must
+// stay at least run.ITEM_OFFER_OPTION_COUNT so an offer can present that many
+// distinct items.
+ITEM_ROSTER_SIZE :: 6
+
+// ship_item_roster returns the minimal roster pool (issue #96) as value data —
+// built in the proc body (not a top-level constant) so its synergy Selector
+// literal resolves at runtime, sidestepping the const-fold regression the CI
+// pin documents. Caller owns the returned array by value (Fittings hold only
+// value fields and static-string names, so there is nothing to free).
+ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Fitting {
+	return [ITEM_ROSTER_SIZE]Fitting {
+		// Flat weapon: the plain-offense baseline, a large gun.
+		Fitting {
+			name = "Cannon Battery",
+			size = .Large,
+			category = .Offensive,
+			tags = {.Weapon},
+			active = Effect{magnitude = CANNON_BATTERY_OFFENSE},
+		},
+		// Stat-modifier: raises effective Durability rather than feeding a phase.
+		Fitting {
+			name = "Reinforced Hull",
+			size = .Medium,
+			category = .Defensive,
+			tags = {.Artifact},
+			passive = Effect{kind = .Modify_Durability, magnitude = REINFORCED_HULL_DURABILITY},
+		},
+		// Conditional: a beast that only bites once the ship is below half HP.
+		Fitting {
+			name = "War Serpent",
+			size = .Large,
+			category = .Offensive,
+			tags = {.Beast},
+			active = Effect{magnitude = WAR_SERPENT_OFFENSE, conditional = Condition_HP_Below{percent = 50}},
+		},
+		// Synergy: buff scaling with how many Weapons are aboard.
+		Fitting {
+			name = "Powder Monkeys",
+			size = .Small,
+			category = .Buff,
+			tags = {.Crew},
+			active = Effect{magnitude = POWDER_MONKEYS_BUFF_PER_WEAPON, synergy = Selector(Tag.Weapon)},
+		},
+		// Stat-modifier: raises effective Speed (better escape / tie-break).
+		Fitting {
+			name = "Swift Rigging",
+			size = .Small,
+			category = .Buff,
+			tags = {.Artifact},
+			passive = Effect{kind = .Modify_Speed, magnitude = SWIFT_RIGGING_SPEED},
+		},
+		// Multi-tag flat: a boarding party that is both Crew and Weapon, so it
+		// feeds a Weapon synergy while itself being plain offense.
+		Fitting {
+			name = "Marine Boarders",
+			size = .Medium,
+			category = .Offensive,
+			tags = {.Crew, .Weapon},
+			active = Effect{magnitude = MARINE_BOARDERS_OFFENSE},
+		},
+	}
+}
+
+// ship_fitting_scaled returns a copy of base with `bonus` added to its effect
+// magnitude — the Item Offer's zone-and-depth quality knob applied to a roster
+// item (issue #96), the roster analogue of ship_fitting_upgraded's per-node
+// scaling. bonus lands on whichever of the passive/active effect the item
+// carries (roster items carry exactly one), leaving the effect's kind, selector,
+// and condition intact so its flat / stat-modifier / synergy / conditional
+// character is preserved and only its strength moves. A cargo filler (no effect)
+// is returned unchanged.
+ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
+	f := base
+	if effect, ok := f.passive.?; ok {
+		effect.magnitude += Magnitude(bonus)
+		f.passive = effect
+	}
+	if effect, ok := f.active.?; ok {
+		effect.magnitude += Magnitude(bonus)
+		f.active = effect
+	}
+	return f
+}
+
 // ship_fitting_cargo builds one of the ship template's default cargo fillers
 // (issue #23: "cargo fills the concealed slots by default"). name lets a
 // caller flavor multiple cargo instances (e.g. a PvE opponent's "Spoils")

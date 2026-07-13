@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import combat "../../core/combat"
+import run "../../core/run"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
@@ -99,9 +100,9 @@ draw_buttons :: proc(buttons: []Button) {
 
 // button_menu_loop blocks, drawing prompt and buttons each frame, until the
 // player clicks one of buttons or the window closes. Returns the picked
-// index, or -1 if the window closed without a pick. Shared by
-// battle_menu_loop and upgrade_menu_loop, which differ only in how they map
-// the picked index to a sim.Command.
+// index, or -1 if the window closed without a pick. Used by battle_menu_loop;
+// the Item Offer and Refit screens draw richer multi-line boxes and run their
+// own loops instead.
 button_menu_loop :: proc(state: ^Game_State, prompt: string, buttons: []Button) -> int {
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
@@ -215,35 +216,243 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
 }
 
-// upgrade_menu_loop blocks until the player picks one of the 3 fixed
-// Upgrade Offer options, then returns a Command_Pick_Upgrade.
-upgrade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
+// ITEM_OFFER_BOX_H / _W and the offer column origin size the Item Offer's
+// option boxes (issue #96): each item gets a box tall enough for a name line
+// plus two detail lines, stacked under the ship panel with a Skip box last.
+ITEM_OFFER_BOX_W :: 340
+ITEM_OFFER_BOX_H :: 62
+ITEM_OFFER_Y0 :: 296
+
+// item_offer_menu_loop blocks until the player picks one of the offered roster
+// items or skips (issue #96, ADR-0012), then returns a Command_Pick_Item — a
+// selected Option_Index for a pick, or a nil selection for a skip. Each item box
+// shows the item's size, phase, tags, and effect intent (the acceptance
+// criteria's "tags, phase, size, and effect intent"), so the choice is informed.
+// A pick opens a Refit (the Sim's response); this loop only reports the choice.
+item_offer_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
-		return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})
+		// No live window (e.g. under `odin test`): skip rather than open a refit
+		// the test harness can't drive.
+		return sim.Command(sim.Command_Pick_Item{selection = nil})
 	}
-	options := state.upgrade_options
+	options := state.item_offer_options
 
-	// See battle_menu_loop's comment: labels must survive across this
-	// loop's per-frame free_all(context.temp_allocator), so they're
-	// heap-allocated (fmt.aprintf) and freed explicitly below.
-	buttons: [3]Button
-	defer for b in buttons {
-		delete(b.label)
-	}
-	for option, i in options {
-		magnitude := 0
-		if active, has_active := option.active.?; has_active {
-			magnitude = int(active.magnitude)
-		}
-		buttons[i] = Button{
-			rect  = rl.Rectangle{x = SHIP_PANEL_X, y = f32(460 + i * 60), width = 260, height = 48},
-			label = fmt.aprintf("%s (%d)", option.name, magnitude),
+	// One clickable box per option, plus a trailing Skip box. The boxes are laid
+	// out once; rendering (rich multi-line text) and hit-testing both read them.
+	boxes: [run.ITEM_OFFER_OPTION_COUNT + 1]rl.Rectangle
+	for i in 0 ..< len(boxes) {
+		boxes[i] = rl.Rectangle {
+			x      = SHIP_PANEL_X,
+			y      = f32(ITEM_OFFER_Y0 + i * (ITEM_OFFER_BOX_H + 6)),
+			width  = ITEM_OFFER_BOX_W,
+			height = ITEM_OFFER_BOX_H,
 		}
 	}
+	skip_index := len(boxes) - 1
 
-	picked := button_menu_loop(state, "Choose an upgrade.", buttons[:])
-	if picked >= 0 {
-		return sim.Command(sim.Command_Pick_Upgrade{option_index = sim.Option_Index(picked)})
+	for !rl.WindowShouldClose() {
+		rl.BeginDrawing()
+		draw_scene_contents(state, "Choose an item to take, or skip.")
+		for option, i in options {
+			draw_item_offer_box(boxes[i], option)
+		}
+		draw_labeled_box(boxes[skip_index], "Skip (take nothing)", "", "")
+		rl.EndDrawing()
+		free_all(context.temp_allocator)
+
+		if rl.IsMouseButtonPressed(.LEFT) {
+			mouse := rl.GetMousePosition()
+			for box, i in boxes {
+				if !rl.CheckCollisionPointRec(mouse, box) {
+					continue
+				}
+				if i == skip_index {
+					return sim.Command(sim.Command_Pick_Item{selection = nil})
+				}
+				return sim.Command(sim.Command_Pick_Item{selection = sim.Option_Index(i)})
+			}
+		}
 	}
-	return sim.Command(sim.Command_Pick_Upgrade{option_index = 0})
+	// Window closing without a pick: skip cleanly.
+	return sim.Command(sim.Command_Pick_Item{selection = nil})
+}
+
+// draw_item_offer_box renders one offered item as a titled box with its spec
+// (size · phase · tags) and effect-intent detail lines (issue #96).
+draw_item_offer_box :: proc(box: rl.Rectangle, f: ship.Fitting) {
+	spec, intent := fitting_summary_lines(f)
+	draw_labeled_box(box, f.name, spec, intent)
+}
+
+// draw_labeled_box draws a bordered box with a bold-ish title line and up to two
+// smaller detail lines (issue #96) — shared by the Item Offer options and the
+// Skip box. Empty detail strings are skipped.
+draw_labeled_box :: proc(box: rl.Rectangle, title: string, line1: string, line2: string) {
+	rl.DrawRectangleRec(box, rl.LIGHTGRAY)
+	rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)
+	x := i32(box.x + 8)
+	rl.DrawText(fmt.ctprintf("%s", title), x, i32(box.y + 6), 16, rl.BLACK)
+	if len(line1) > 0 {
+		rl.DrawText(fmt.ctprintf("%s", line1), x, i32(box.y + 26), 12, rl.DARKGRAY)
+	}
+	if len(line2) > 0 {
+		rl.DrawText(fmt.ctprintf("%s", line2), x, i32(box.y + 42), 12, rl.DARKGRAY)
+	}
+}
+
+// refit_menu_loop is the manual-loadout screen (issue #96, ADR-0012's Refit): it
+// blocks until the player commits one loadout operation, then returns that
+// single Command_Refit — run_session ticks it and re-enters this loop for the
+// next, so a whole loadout edit is a sequence of these calls. The interaction:
+//   - With an item pending (just picked from an Item Offer): click an empty slot
+//     to Install it there, or a filled slot to Remove that fitting first — the
+//     place-or-swap path.
+//   - With nothing pending (rearranging): click a filled slot to select it, then
+//     an empty slot to Move it there (or the same slot again to cancel).
+//   - Finish ends the refit (discarding any still-unplaced item — no inventory).
+// The exact-size fit rule is the Sim's to enforce; an illegal click comes back
+// as Event_Refit_Rejected (a beat), leaving the layout untouched.
+refit_menu_loop :: proc(state: ^Game_State) -> sim.Command {
+	if !rl.IsWindowReady() {
+		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
+	}
+
+	slot_count := len(state.player.layout)
+	// One box per slot, plus a trailing Finish box.
+	boxes := make([]rl.Rectangle, slot_count + 1)
+	defer delete(boxes)
+	for i in 0 ..< len(boxes) {
+		boxes[i] = rl.Rectangle {
+			x      = SHIP_PANEL_X,
+			y      = f32(300 + i * 30),
+			width  = 300,
+			height = 26,
+		}
+	}
+	finish_index := slot_count
+
+	for !rl.WindowShouldClose() {
+		rl.BeginDrawing()
+		draw_scene_contents(state, refit_prompt(state))
+		draw_refit_incoming(state)
+		draw_refit_boxes(state, boxes, finish_index)
+		rl.EndDrawing()
+		free_all(context.temp_allocator)
+
+		if rl.IsMouseButtonPressed(.LEFT) {
+			mouse := rl.GetMousePosition()
+			for box, i in boxes {
+				if !rl.CheckCollisionPointRec(mouse, box) {
+					continue
+				}
+				if cmd, ready := refit_click(state, i, finish_index); ready {
+					return cmd
+				}
+			}
+		}
+	}
+	return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
+}
+
+// refit_click maps a click on slot box `i` (or the Finish box) to the loadout
+// operation it commits, or updates the in-progress move selection and reports
+// "not ready" so refit_menu_loop keeps blocking (issue #96). See refit_menu_loop
+// for the interaction rules this encodes.
+refit_click :: proc(state: ^Game_State, i: int, finish_index: int) -> (sim.Command, bool) {
+	if i == finish_index {
+		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}}), true
+	}
+
+	slot := ship.Slot_Index(i)
+	_, occupied := state.player.layout[i].fitting.?
+
+	if incoming, has_incoming := state.refit_incoming.?; has_incoming {
+		// Placing an item: an empty slot installs it; a filled slot of the *same
+		// size* is cleared first (the swap path — the removed fitting is discarded,
+		// no inventory). A filled slot of a different size can't take the item, so
+		// clearing it would drop a fitting for nothing — that click is ignored.
+		if occupied {
+			if state.player.layout[i].slot.size == incoming.size {
+				return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = slot}}), true
+			}
+			return {}, false
+		}
+		return sim.Command(sim.Command_Refit{command = sim.Refit_Install{slot = slot}}), true
+	}
+
+	// Rearranging: first click selects a filled source, second click moves it to
+	// an empty slot (or the same slot again cancels the selection).
+	from, selecting := state.refit_move_from.?
+	if !selecting {
+		if occupied {
+			state.refit_move_from = slot
+		}
+		return {}, false
+	}
+	if slot == from {
+		state.refit_move_from = nil // cancel
+		return {}, false
+	}
+	if occupied {
+		state.refit_move_from = slot // reselect a different source
+		return {}, false
+	}
+	state.refit_move_from = nil
+	return sim.Command(sim.Command_Refit{command = sim.Refit_Move{from = from, to = slot}}), true
+}
+
+// refit_prompt is the one-line instruction at the bottom of the refit screen,
+// reflecting what the next click will do given the current mode (issue #96).
+refit_prompt :: proc(state: ^Game_State) -> string {
+	if incoming, has_incoming := state.refit_incoming.?; has_incoming {
+		return fmt.tprintf("Placing %s: click an empty %v slot to install, or a filled %v slot to swap.", incoming.name, incoming.size, incoming.size)
+	}
+	if from, selecting := state.refit_move_from.?; selecting {
+		name := state.player.layout[from].slot.name
+		return fmt.tprintf("Moving from %s: click an empty same-size slot, or %s again to cancel.", name, name)
+	}
+	return "Refit: click a filled slot to move it, or Finish."
+}
+
+// draw_refit_incoming draws the pending item's details above the slot list, so
+// the player can see the tags/phase/size/effect intent of what they are placing
+// (issue #96); nothing is drawn during a rearrange-only refit.
+draw_refit_incoming :: proc(state: ^Game_State) {
+	incoming, has_incoming := state.refit_incoming.?
+	if !has_incoming {
+		return
+	}
+	spec, intent := fitting_summary_lines(incoming)
+	x := i32(SHIP_PANEL_X)
+	rl.DrawText(fmt.ctprintf("Placing: %s", incoming.name), x, 262, 16, rl.MAROON)
+	rl.DrawText(fmt.ctprintf("%s   %s", spec, intent), x, 282, 12, rl.DARKGRAY)
+}
+
+// draw_refit_boxes draws the clickable slot rows and the Finish box (issue #96),
+// highlighting a slot currently selected as a move source.
+draw_refit_boxes :: proc(state: ^Game_State, boxes: []rl.Rectangle, finish_index: int) {
+	for box, i in boxes {
+		if i == finish_index {
+			rl.DrawRectangleRec(box, rl.BEIGE)
+			rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)
+			rl.DrawText("Finish refit", i32(box.x + 8), i32(box.y + 6), 14, rl.BLACK)
+			continue
+		}
+		selected := false
+		if from, selecting := state.refit_move_from.?; selecting {
+			selected = i == int(from)
+		}
+		fill := selected ? rl.GOLD : rl.LIGHTGRAY
+		rl.DrawRectangleRec(box, fill)
+		rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)
+
+		layout_slot := state.player.layout[i]
+		label: string
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+			label = fmt.tprintf("%s: %s (%v)", layout_slot.slot.name, fitting.name, layout_slot.slot.size)
+		} else {
+			label = fmt.tprintf("%s: (empty, %v)", layout_slot.slot.name, layout_slot.slot.size)
+		}
+		rl.DrawText(fmt.ctprintf("%s", label), i32(box.x + 8), i32(box.y + 6), 14, rl.BLACK)
+	}
 }

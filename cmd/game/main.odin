@@ -40,7 +40,7 @@ main :: proc() {
 // halves of the UI read/write (issue #24 — the same rawptr-sharing trick as
 // cmd/headless's Headless_State, since Odin gives each callback only its own
 // rawptr): dispatch records what the last event told us (current ship
-// state, sighted opponent, upgrade options on offer, map layout) and every
+// state, sighted opponent, items on offer, an open refit, map layout) and every
 // blocking decision loop in menu.odin renders from this same state.
 // get_captain_choice's awaiting parameter (issue #39) — not any field here
 // — is what decides which decision menu to render.
@@ -54,7 +54,17 @@ Game_State :: struct {
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
 	may_leave:        bool,
-	upgrade_options:  [3]ship.Fitting,
+	// item_offer_options are the items the current Item Offer is presenting
+	// (issue #96), copied from Event_Item_Offer_Presented; item_offer_menu_loop
+	// renders and offers them.
+	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
+	// refit_incoming is the item an open Refit is placing (issue #96), tracked
+	// from Event_Refit_Started and cleared once installed or the refit finishes,
+	// so refit_menu_loop knows whether it is placing an item or just rearranging.
+	refit_incoming:   Maybe(ship.Fitting),
+	// refit_move_from is the slot a two-click Refit move has selected as its
+	// source, or nil when no move is in progress (issue #96).
+	refit_move_from:  Maybe(ship.Slot_Index),
 	status:           run.Run_Status,
 }
 
@@ -73,17 +83,14 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	}
 
 	switch awaiting {
-	case .Awaiting_Upgrade_Choice:
-		return upgrade_menu_loop(state)
+	case .Awaiting_Item_Choice:
+		return item_offer_menu_loop(state)
 	case .Awaiting_Battle_Command:
 		return battle_menu_loop(state)
 	case .Awaiting_Travel_Choice:
 		return travel_menu_loop(state)
 	case .Awaiting_Refit:
-		// No refit menu yet — the loadout-editing UI arrives with the Item Offer /
-		// Port shop entries that open a refit (#96/#98). Finish immediately so a
-		// refit (were one somehow opened) can't stall the session.
-		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
+		return refit_menu_loop(state)
 	case .Ended:
 		panic("get_captain_choice called while the sim isn't awaiting a decision")
 	}
@@ -135,22 +142,31 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Ship_Updated:
 		state.player = e.ship
 
-	case sim.Event_Upgrade_Offer_Presented:
-		state.upgrade_options = e.options
+	case sim.Event_Item_Offer_Presented:
+		state.item_offer_options = e.options
 
-	case sim.Event_Upgrade_Applied:
-		play_beat(state, fmt.tprintf("Installed %s!", e.fitting.name))
+	case sim.Event_Refit_Started:
+		// Opening a Refit (issue #96): remember the item being placed (nil for a
+		// rearrange-only refit) and clear any half-built move, so refit_menu_loop
+		// starts from a clean state.
+		state.refit_incoming = e.incoming
+		state.refit_move_from = nil
 
-	case sim.Event_Refit_Started,
-	     sim.Event_Fitting_Installed,
-	     sim.Event_Fitting_Moved,
-	     sim.Event_Fitting_Removed,
-	     sim.Event_Refit_Rejected,
-	     sim.Event_Refit_Finished:
-		// The manual-loadout Refit engine (issue #95) has no acquisition channel
-		// opening it in the game yet — the Item Offer / Port shop entries and the
-		// refit menu that reacts to these events land with #96/#98. Ignored here
-		// until then so the exhaustive switch stays complete.
+	case sim.Event_Fitting_Installed:
+		// The incoming item just landed in a slot — it is no longer pending, so the
+		// refit is now a rearrange until it finishes.
+		state.refit_incoming = nil
+
+	case sim.Event_Fitting_Moved, sim.Event_Fitting_Removed:
+		// The ship panel re-renders from Event_Ship_Updated, so a move/remove needs
+		// no extra UI state here; the change is visible on the next refit frame.
+
+	case sim.Event_Refit_Rejected:
+		play_beat(state, "That can't go there.")
+
+	case sim.Event_Refit_Finished:
+		state.refit_incoming = nil
+		state.refit_move_from = nil
 
 	case sim.Event_Encounter_Resolved:
 		// No cleanup needed: the snapshot lives in the Sim's own run-scoped
