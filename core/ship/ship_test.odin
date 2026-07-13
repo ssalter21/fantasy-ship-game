@@ -307,6 +307,58 @@ move_from_an_empty_slot_is_rejected :: proc(t: ^testing.T) {
 }
 
 @(test)
+replace_swaps_a_same_size_fitting_into_an_occupied_slot :: proc(t: ^testing.T) {
+	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
+	testing.expect(t, ship_fit(&layout_slot, Fitting{name = "Cannon", size = .Large}))
+
+	ok := ship_replace_fitting(&layout_slot, Fitting{name = "Ballista", size = .Large})
+
+	testing.expect(t, ok)
+	installed, has_fitting := layout_slot.fitting.?
+	testing.expect(t, has_fitting)
+	testing.expect_value(t, installed.name, "Ballista") // the displaced Cannon is gone
+}
+
+@(test)
+replace_into_an_empty_slot_places_the_fitting :: proc(t: ^testing.T) {
+	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
+
+	ok := ship_replace_fitting(&layout_slot, Fitting{name = "Cannon", size = .Large})
+
+	testing.expect(t, ok)
+	installed, has_fitting := layout_slot.fitting.?
+	testing.expect(t, has_fitting)
+	testing.expect_value(t, installed.name, "Cannon")
+}
+
+@(test)
+replace_with_a_different_size_fitting_is_rejected_and_leaves_the_slot_untouched :: proc(t: ^testing.T) {
+	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
+	testing.expect(t, ship_fit(&layout_slot, Fitting{name = "Cannon", size = .Large}))
+
+	ok := ship_replace_fitting(&layout_slot, Fitting{name = "Dagger", size = .Small})
+
+	testing.expect(t, !ok)
+	installed, has_fitting := layout_slot.fitting.?
+	testing.expect(t, has_fitting)
+	testing.expect_value(t, installed.name, "Cannon") // untouched
+}
+
+@(test)
+replace_with_a_cargo_fitting_carrying_an_effect_is_rejected :: proc(t: ^testing.T) {
+	layout_slot := make_layout_slot("hold", .Large, .Concealed)
+	testing.expect(t, ship_fit(&layout_slot, Fitting{name = "Cannon", size = .Large}))
+	cursed_loot := Fitting{name = "Cursed Loot", size = .Large, is_cargo = true, stack_count = 1, passive = Effect{}}
+
+	ok := ship_replace_fitting(&layout_slot, cursed_loot)
+
+	testing.expect(t, !ok)
+	installed, has_fitting := layout_slot.fitting.?
+	testing.expect(t, has_fitting)
+	testing.expect_value(t, installed.name, "Cannon") // untouched
+}
+
+@(test)
 effect_magnitude_resolves_a_flat_effect_to_its_stored_constant :: proc(t: ^testing.T) {
 	s := Ship{}
 	ctx := Effect_Context{owner = &s}

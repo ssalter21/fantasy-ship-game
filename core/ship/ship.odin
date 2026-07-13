@@ -362,16 +362,15 @@ Ship :: struct {
 	captain:             Maybe(Captain),
 }
 
-// ship_fit installs `fitting` into `layout_slot` under the exact-size-match
-// fit rule (ADR-0004): no downsizing, and an already-occupied slot is
-// rejected. Cargo fittings are additionally validated against ADR-0004's
-// "stackable and effect-less" rule: a cargo fitting must carry no
-// passive/active effect and must have a stack_count of at least 1.
-ship_fit :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
-	if fitting.size != layout_slot.slot.size {
-		return false
-	}
-	if _, occupied := layout_slot.fitting.?; occupied {
+// ship_fitting_fits reports whether `fitting` may occupy a slot of `size` under
+// ADR-0004's fit rule, independent of current occupancy: an exact size match (no
+// downsizing), plus — for a cargo fitting — the "stackable and effect-less" rule
+// (no passive/active effect, stack_count at least 1). It is the single statement
+// of the fit rule that both ship_fit (install into an empty slot) and
+// ship_replace_fitting (swap into any slot) share, so the two admit exactly the
+// same fittings.
+ship_fitting_fits :: proc(size: Slot_Size, fitting: Fitting) -> bool {
+	if fitting.size != size {
 		return false
 	}
 	if fitting.is_cargo {
@@ -380,6 +379,34 @@ ship_fit :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
 		if has_passive || has_active || fitting.stack_count < 1 {
 			return false
 		}
+	}
+	return true
+}
+
+// ship_fit installs `fitting` into `layout_slot` under the fit rule
+// (ship_fitting_fits, ADR-0004) with the additional install-only constraint that
+// an already-occupied slot is rejected — installing never displaces. A fitting
+// that fails either check leaves the slot untouched.
+ship_fit :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
+	if _, occupied := layout_slot.fitting.?; occupied {
+		return false
+	}
+	if !ship_fitting_fits(layout_slot.slot.size, fitting) {
+		return false
+	}
+	layout_slot.fitting = fitting
+	return true
+}
+
+// ship_replace_fitting swaps `fitting` into layout_slot under the same fit rule
+// as ship_fit (ship_fitting_fits, ADR-0004) but — unlike install — accepts an
+// occupied slot, discarding whatever it held (issue #111's place-or-swap; there
+// is no inventory, ADR-0012, so the displaced fitting is the caller's to
+// announce removed). A size- or cargo-rule mismatch is refused and leaves the
+// slot untouched.
+ship_replace_fitting :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
+	if !ship_fitting_fits(layout_slot.slot.size, fitting) {
+		return false
 	}
 	layout_slot.fitting = fitting
 	return true
