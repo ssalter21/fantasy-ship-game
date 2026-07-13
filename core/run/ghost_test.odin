@@ -106,7 +106,7 @@ finishing_a_ship_battle_returns_a_snapshot_of_the_players_ship :: proc(t: ^testi
 	testing.expect_value(t, snapshot.ship.hp, 20) // player's own max_hp, not the opponent's
 	testing.expect_value(t, snapshot.progress.steps, 8)
 	testing.expect_value(t, snapshot.progress.zone, Zone.Deep)
-	testing.expect_value(t, snapshot.progress.difficulty_rating, run_ship_battle_difficulty(.Deep, 2))
+	testing.expect_value(t, snapshot.progress.difficulty_rating, run_ship_battle_difficulty(Scaling_Site{zone = .Deep, depth = 2}))
 }
 
 @(test)

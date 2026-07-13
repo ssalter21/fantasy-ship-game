@@ -23,11 +23,11 @@ encounter_kind_of :: proc(e: Encounter) -> Encounter_Kind {
 
 // --- Gradient formulas: zone tier x depth ----------------------------------
 
-expect_rises_by_zone_and_depth :: proc(t: ^testing.T, f: proc(Zone, int) -> int) {
+expect_rises_by_zone_and_depth :: proc(t: ^testing.T, f: proc(Scaling_Site) -> int) {
 	// A deeper zone at the same depth is harder/more rewarding...
-	testing.expect(t, f(.Deep, 0) > f(.Coastal, 0))
+	testing.expect(t, f(Scaling_Site{zone = .Deep, depth = 0}) > f(Scaling_Site{zone = .Coastal, depth = 0}))
 	// ...and within a zone, a deeper node outscales a shallow one.
-	testing.expect(t, f(.Open_Sea, DEPTH_STEPS) > f(.Open_Sea, 0))
+	testing.expect(t, f(Scaling_Site{zone = .Open_Sea, depth = DEPTH_STEPS}) > f(Scaling_Site{zone = .Open_Sea, depth = 0}))
 }
 
 @(test)
@@ -57,17 +57,19 @@ stat_trade_cost_speed_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 
 @(test)
 run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t: ^testing.T) {
-	opponent := run_make_opponent_ship(.Deep, 2)
+	site := Scaling_Site{zone = .Deep, depth = 2}
+	opponent := run_make_opponent_ship(site)
 
-	testing.expect_value(t, opponent.hp, run_ship_battle_difficulty(.Deep, 2))
-	testing.expect_value(t, opponent.durability, run_ship_battle_opponent_durability(.Deep, 2))
+	testing.expect_value(t, opponent.hp, run_ship_battle_difficulty(site))
+	testing.expect_value(t, opponent.durability, run_ship_battle_opponent_durability(site))
 }
 
 @(test)
 the_three_zone_scaled_encounter_kinds_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
-	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_item_offer_quality(.Coastal, 0))
-	testing.expect(t, run_ship_battle_difficulty(.Coastal, 0) != run_stat_trade_gain_durability(.Coastal, 0))
-	testing.expect(t, run_item_offer_quality(.Coastal, 0) != run_stat_trade_gain_durability(.Coastal, 0))
+	coastal := Scaling_Site{zone = .Coastal, depth = 0}
+	testing.expect(t, run_ship_battle_difficulty(coastal) != run_item_offer_quality(coastal))
+	testing.expect(t, run_ship_battle_difficulty(coastal) != run_stat_trade_gain_durability(coastal))
+	testing.expect(t, run_item_offer_quality(coastal) != run_stat_trade_gain_durability(coastal))
 }
 
 // --- Depth normalization: stable endpoints regardless of layer count -------
