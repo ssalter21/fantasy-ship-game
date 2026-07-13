@@ -122,6 +122,21 @@ ship_starting_ship_is_assigned_the_one_captain :: proc(t: ^testing.T) {
 }
 
 @(test)
+the_three_starting_fittings_and_cargo_carry_their_families :: proc(t: ^testing.T) {
+	testing.expect_value(t, ship_fitting_top_crew().tags, bit_set[Tag]{.Crew})
+	testing.expect_value(t, ship_fitting_captains_quarters().tags, bit_set[Tag]{.Crew})
+	testing.expect_value(t, ship_fitting_gun_deck().tags, bit_set[Tag]{.Weapon})
+	testing.expect_value(t, ship_fitting_cargo("Cargo", .Small).tags, bit_set[Tag]{.Cargo})
+}
+
+@(test)
+an_upgraded_fitting_inherits_its_base_fittings_families :: proc(t: ^testing.T) {
+	testing.expect_value(t, ship_fitting_upgraded_top_crew(1).tags, ship_fitting_top_crew().tags)
+	testing.expect_value(t, ship_fitting_upgraded_captains_quarters(1).tags, ship_fitting_captains_quarters().tags)
+	testing.expect_value(t, ship_fitting_upgraded_gun_deck(1).tags, ship_fitting_gun_deck().tags)
+}
+
+@(test)
 upgraded_top_crew_keeps_size_and_category_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
 	base := ship_fitting_top_crew()
 	upgraded := ship_fitting_upgraded_top_crew(1)

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted, partially amended by ADR-0012 (build variance). The "Deferred/out of scope" note below — no fitting roster beyond the three starting fittings plus their upgraded variants — is retired there. The slot / unified-fitting / exact-size-fit-rule model carries forward unchanged; ADR-0012 extends the fitting with tags, data-driven context-sensitive effects, and stat-modifiers on top of it.
 
 ## Context
 
