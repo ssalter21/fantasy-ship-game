@@ -31,8 +31,14 @@ jobs:
         uses: laytan/setup-odin@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # Match the nightly toolchain the game is developed against.
-          release: nightly
+          # Pinned to the last nightly that compiles the Selector union (a
+          # tagged union of enums). dev-2026-07 regressed lb_const_value: a
+          # compile-time-constant value of a union with >=2 integer-backed
+          # variants panics ("(value.kind=Integer) Selector vs Selector"),
+          # which any fully-constant Effect{synergy = Selector(...)} literal
+          # hits. dev-2026-06 is the newest release without the regression;
+          # unpin once a fixed nightly ships.
+          release: dev-2026-06
 
       - name: Build executables
         shell: pwsh

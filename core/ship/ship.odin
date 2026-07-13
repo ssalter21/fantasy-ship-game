@@ -73,18 +73,39 @@ Effect_Kind :: enum {
 	Modify_Max_HP,
 }
 
+// Selector picks the fittings a synergy effect counts (issue #93, ADR-0012):
+// magnitude scales with how many installed fittings match it. It ranges over
+// four axes — a Tag family, a Slot_Size, an (effective) Visibility, or a round
+// Category — one axis per selector. Modeled as a tagged union of those four
+// enum types (the house idiom for a closed variant set whose variants carry
+// their own payload — see Effect_Kind's comment, which anticipated this exact
+// case: a synergy "carries its own payload, a selector"): the selector *is* its
+// criterion value, and its type is the discriminant. Plain data, so it
+// round-trips through a Ghost_Snapshot (ADR-0008) like the rest of an Effect.
+Selector :: union {
+	Tag,
+	Slot_Size,
+	Visibility,
+	Category,
+}
+
 // Effect is a fitting's data-driven passive/active contribution, resolved
 // against an Effect_Context at the point of use rather than baked in as a bare
 // constant (issue #92, #88). It stays plain data — no function pointers — so a
 // Ghost_Snapshot (ADR-0008) can carry it. `kind` decides what the resolved
-// magnitude does; `magnitude` is flat today and is the seam where later
-// build-variance tickets (#88: synergy counts, battle-state conditionals) make
-// magnitude context-sensitive by changing only effect_magnitude. The concrete
+// magnitude does; `magnitude` is the per-unit strength. `synergy`, when set,
+// makes the effect a synergy effect (issue #93): effect_magnitude multiplies
+// `magnitude` by the count of installed fittings the Selector matches, so the
+// resolved magnitude tracks the owning ship's current build. synergy is
+// orthogonal to `kind` — a synergy may feed a combat phase ("for each Weapon,
+// +Offense") or modify a stat — so it attaches to the magnitude seam
+// (effect_magnitude) rather than being a fourth Effect_Kind. The concrete
 // fitting roster and its balance values belong to the content tickets (issue
 // #23), not this data model.
 Effect :: struct {
 	kind:      Effect_Kind,
 	magnitude: Magnitude,
+	synergy:   Maybe(Selector),
 }
 
 // Effect_Context is everything an Effect may resolve its magnitude against
@@ -97,14 +118,62 @@ Effect_Context :: struct {
 	owner: ^Ship,
 }
 
-// effect_magnitude resolves `effect`'s magnitude against `ctx` (issue #92).
-// Flat today — it returns the stored constant and ignores ctx — but every
-// magnitude read (combat phase output, the effective-stat readers) goes
-// through here, so later tickets (#88) can make magnitude context-sensitive
-// (synergy counts, conditionals) by changing only this proc, leaving combat
-// and the stat readers untouched.
+// effect_magnitude resolves `effect`'s magnitude against `ctx` (issue #92, #93).
+// A flat effect returns its stored constant and ignores ctx; a synergy effect
+// (effect.synergy set) scales that constant by the count of ctx.owner's
+// installed fittings its Selector matches, so the resolved magnitude tracks the
+// current build (issue #93). Every magnitude read (combat phase output, the
+// effective-stat readers) goes through here, so those call sites stay untouched
+// as later tickets (#88) add further context-sensitive kinds (conditionals).
 effect_magnitude :: proc(effect: Effect, ctx: Effect_Context) -> Magnitude {
+	if selector, is_synergy := effect.synergy.?; is_synergy {
+		return effect.magnitude * Magnitude(ship_count_matching(ctx.owner, selector))
+	}
 	return effect.magnitude
+}
+
+// selector_matches reports whether layout_slot's installed fitting satisfies
+// `selector` (issue #93). Each Selector axis reads the fitting's corresponding
+// property: a Tag tests family membership (a multi-tag fitting matches on each
+// of its tags — ADR-0012); a Slot_Size / Category tests the fitting's own
+// field; a Visibility tests the fitting's *effective* visibility as an opponent
+// would observe it (ship_effective_visibility, ADR-0005), which is why this
+// takes the whole Layout_Slot rather than a bare Fitting. An empty slot matches
+// nothing: the has_fitting guard below owns that case, so callers may pass every
+// slot without pre-filtering (ship_count_matching does).
+selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
+	fitting, has_fitting := layout_slot.fitting.?
+	if !has_fitting {
+		return false
+	}
+	switch criterion in selector {
+	case Tag:
+		return criterion in fitting.tags
+	case Slot_Size:
+		return fitting.size == criterion
+	case Visibility:
+		return ship_effective_visibility(layout_slot) == criterion
+	case Category:
+		return fitting.category == criterion
+	}
+	return false
+}
+
+// ship_count_matching counts s's installed fittings that satisfy `selector`
+// (issue #93): the synergy magnitude scales with this. Cargo is not special-
+// cased out — it carries a real Tag / size / visibility, so a "for each Cargo"
+// or size/visibility synergy legitimately counts it (its Category field is the
+// one meaningless axis for cargo, a known data caveat, not something guarded
+// here). Called every time a synergy effect resolves (effect_magnitude), so the
+// count reflects the layout as it stands at that moment.
+ship_count_matching :: proc(s: ^Ship, selector: Selector) -> int {
+	count := 0
+	for layout_slot in s.layout {
+		if selector_matches(layout_slot, selector) {
+			count += 1
+		}
+	}
+	return count
 }
 
 // ship_effect_context builds the Effect_Context an effect resolves against for
