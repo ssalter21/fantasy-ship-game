@@ -108,7 +108,7 @@ A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time,
 - **Refit** — rearranging a ship's fittings by hand through Sim install / move / remove commands, enforcing ADR-0004's exact-size fit rule. There is **no inventory**: a fitting pulled fully off the ship is discarded, and every loadout change emits an Event.
   _Avoid_: inventory management — nothing holds an un-installed fitting.
 - **Item Offer** — the Upgrade Offer encounter kind repurposed: presents a few *distinct roster items* (or a skip) and opens a Refit to place or swap the pick, retiring the old same-category auto-replace. Free.
-- **Port shop** — a Port presenting a stock of purchasable roster items; buying deducts from the ship's **starting treasure** and places the item through a Refit. Minimal economy: fixed starting budget, Item Offers free, shop purchases paid.
+- **Port shop** — a Port presenting purchasable roster items; buying deducts from the ship's **starting treasure** and places the item through a Refit. Each Port owns its own seed-baked **deck** of the roster and shows a 5-item **shelf** off the top; buying refills the shelf slot by drawing the deck forward and returns to the shop, so a visit can buy repeatedly until you **leave**. The deck cursor and purchases **persist across visits** — a revisited Port shows the same shelf minus what you bought, so run variety comes from checking Port against Port. Minimal economy: fixed starting budget, Item Offers free, shop purchases paid, no sell-back. See ADR-0013 (revising ADR-0012); cost escalation with purchase depth is designed but deferred.
 
 ## Vertical-slice scope (see GitHub issue #4)
 
