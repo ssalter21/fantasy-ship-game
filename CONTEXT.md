@@ -80,7 +80,7 @@ _Avoid_: Game mode, client mode
 - **Encounter** — a non-landmark node carrying exactly one hidden Encounter kind, revealed and triggered once on **first** arrival (no decline option); revisiting a node never re-triggers it. The only way to avoid an encounter is to route around its node.
 - **Encounter kind** — the type of interaction an encounter presents: Ship Battle, Upgrade Offer, or Stat Trade. Assigned per zone via a shuffled bag, split as evenly as the encounter count allows.
 - **Ship Battle** — an encounter kind: a full battle against a game-configured opponent ship, resolved via the phased-round combat system (ADR-0006). Mechanically identical to a future ghost-PvP battle; this slice's opponents are not real players' stored snapshots.
-- **Upgrade Offer** — an encounter kind: choose one of a few options to upgrade one of the ship's starting fittings.
+- **Upgrade Offer** — an encounter kind: choose one of a few options to upgrade one of the ship's starting fittings. Being repurposed into the **Item Offer** by the build-variance effort (ADR-0012, #96) — the encounter slot stays, but its content becomes distinct roster items placed by hand rather than same-category auto-replace.
 - **Stat Trade** — an encounter kind: a permanent stat-for-stat or stat-for-cargo trade-off (e.g. +Durability for −Speed).
 
 ### Ghost snapshots and async PvP (see ADR-0008)
@@ -99,7 +99,7 @@ A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time,
 - **Tag family** — one of the five values a Tag is drawn from: **Crew, Weapon, Beast, Artifact, Cargo**. A closed set.
 - **Context-sensitive effect** — a fitting effect whose magnitude is *computed at resolve time* from the context it sees (the owning ship, and for combat the live battle/opponent state) rather than stored as a fixed number. A **closed parameterized set** of plain data — no function pointers — so a Ghost_Snapshot can carry it (ADR-0008). Synergy and conditional are its two genuinely context-dependent kinds; flat and stat-modifier resolve against the same context but a flat effect ignores it and a stat-modifier reads only the owning ship.
   _Avoid_: scripted effect, effect callback — effects are data, not code.
-- **Flat effect** — an effect with a constant magnitude that ignores context. The common case — most roster items are flat; the three starting fittings port to this form with byte-identical combat output.
+- **Flat effect** — an effect with a constant magnitude that ignores context. The common case: most roster items are flat, and the three starting fittings port to this form (see ADR-0012).
 - **Synergy effect** — an effect whose magnitude scales with the **count of installed fittings matching a selector** (over tag / size / visibility / category), resolved against the owning ship's current layout. Rises as matching fittings are added and falls as they are removed; a multi-tag fitting counts once per tag.
 - **Conditional effect** — an effect whose magnitude is **gated by a battle- or ship-state trigger** (at least: HP threshold, round number, own concealment, opponent faster/slower), evaluated per round against live state.
 - **Stat-modifier effect** — an effect that adjusts the owning ship's **effective Durability / Speed / Max HP** rather than feeding a combat phase. Combat and escape read *effective* stats (base fields plus installed modifiers), never the raw base fields.
@@ -111,8 +111,8 @@ A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time,
 
 ## Vertical-slice scope (see GitHub issue #4)
 
-- One fixed ship template: 6 slots — 2 medium exposed ("top deck", "top crew"), 1 large exposed ("gun deck"), 3 small concealed.
+- One fixed ship template: 6 slots — 2 medium exposed ("top deck", "top crew"), 1 large exposed ("gun deck"), 3 small concealed. _(Being grown to 8 slots by the build-variance effort — ADR-0012, #91.)_
 - Fixed starting loadout: "Top Crew", "Captain's Quarters", "Gun Deck" fill the exposed slots; cargo fills the 3 concealed slots by default.
-- Findable content is limited to upgraded variants of those same three fittings (e.g. "Upgraded Gun Deck") — no separate fitting roster.
+- Findable content is limited to upgraded variants of those same three fittings (e.g. "Upgraded Gun Deck") — no separate fitting roster. _(Superseded by the build-variance effort's ~50-item roster — ADR-0012, #97.)_
 - Exactly one captain.
 - Map: a procedurally-generated connected node graph, Start/home port → Coastal → Open Sea → The Deep → Goal, ~50 points (17/17/16 per zone) of which 44 are encounters (15/15/14) and 6 are ports (2 per zone). Encounter kinds split via a per-zone shuffled bag across Ship Battle / Upgrade Offer / Stat Trade. Supersedes the original 12-point open map. See ADR-0009.
