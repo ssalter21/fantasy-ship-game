@@ -284,27 +284,30 @@ draw_item_offer_box :: proc(box: rl.Rectangle, f: ship.Fitting) {
 	draw_labeled_box(box, f.name, spec, intent)
 }
 
-// shop_menu_loop is the Port shop screen (issue #98, ADR-0012): it blocks until
-// the player buys one stocked roster item or leaves, then returns a
-// Command_Buy_Item — a selected Option_Index for a buy, or a nil selection to
-// leave. Each item box shows the same size / phase / tags / effect intent as an
-// Item Offer plus the item's price, so the spend is an informed choice; an
-// item the player can't currently afford is drawn dimmed but still clickable —
-// the Sim owns affordability and bounces an unaffordable buy back as
-// Event_Purchase_Rejected (a beat), so the menu never has to gate the click
-// itself. A buy opens a Refit (the Sim's response) to place the item, reusing the
-// same loadout screen an Item Offer's pick does; this loop only reports the choice.
+// shop_menu_loop is the Port shop screen (issue #123, ADR-0013): it blocks until
+// the player buys one shelf card or leaves, then returns a Command_Buy_Item — a
+// selected Option_Index for a buy, or a nil selection to leave. The shelf is a
+// window onto the Port's persistent deck; buying opens a Refit and, on its finish,
+// the Sim returns here with the shelf refilled (a fresh Event_Shop_Presented), so
+// a player keeps buying until they Leave. Each card box shows the same size / phase
+// / tags / effect intent as an Item Offer plus the card's price; a card the player
+// can't currently afford is drawn dimmed but still clickable — the Sim owns
+// affordability and bounces an unaffordable buy back as Event_Purchase_Rejected (a
+// beat), so the menu never has to gate the click itself. A box index is its shelf
+// slot's Option_Index, so an empty tail slot (nil card, only past the deck's end —
+// never at the real roster size) is drawn as a non-clickable gap to keep indices
+// aligned with the Sim's shelf.
 shop_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
-		// No live window (e.g. under `odin test`): leave rather than buy an item and
+		// No live window (e.g. under `odin test`): leave rather than buy a card and
 		// open a refit the test harness can't drive.
 		return sim.Command(sim.Command_Buy_Item{selection = nil})
 	}
-	stock := state.shop_stock
+	shelf := state.shop_shelf
 
-	// One clickable box per stocked item, plus a trailing Leave box — laid out
-	// once, read by both rendering and hit-testing (mirrors item_offer_menu_loop).
-	boxes: [run.SHOP_STOCK_COUNT + 1]rl.Rectangle
+	// One box per shelf slot, plus a trailing Leave box — laid out once, read by
+	// both rendering and hit-testing (mirrors item_offer_menu_loop).
+	boxes: [run.SHOP_SHELF_SIZE + 1]rl.Rectangle
 	for i in 0 ..< len(boxes) {
 		boxes[i] = rl.Rectangle {
 			x      = SHIP_PANEL_X,
@@ -318,8 +321,10 @@ shop_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
 		draw_scene_contents(state, fmt.tprintf("Port shop — treasure: %d. Buy an item, or leave.", state.player.starting_treasure))
-		for item, i in stock {
-			draw_shop_item_box(boxes[i], item, item.cost <= state.player.starting_treasure)
+		for slot, i in shelf {
+			if card, filled := slot.?; filled {
+				draw_shop_item_box(boxes[i], card, card.cost <= state.player.starting_treasure)
+			}
 		}
 		draw_labeled_box(boxes[leave_index], "Leave (buy nothing)", "", "")
 		rl.EndDrawing()
@@ -333,6 +338,11 @@ shop_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 				}
 				if i == leave_index {
 					return sim.Command(sim.Command_Buy_Item{selection = nil})
+				}
+				// A click on an empty tail slot buys nothing — the Sim has no card
+				// there; ignore it so only real cards and Leave are actionable.
+				if _, filled := shelf[i].?; !filled {
+					continue
 				}
 				return sim.Command(sim.Command_Buy_Item{selection = sim.Option_Index(i)})
 			}

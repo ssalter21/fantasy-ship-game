@@ -193,14 +193,14 @@ Encounter_Item_Offer :: struct {
 	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 }
 
-// SHOP_STOCK_COUNT is how many distinct roster items a Port shop stocks (#98,
-// ADR-0012's "a stock of purchasable items"). A small fixed array on the Port
-// node — no owned heap, so run_map_destroy needs no per-shop cleanup — sized like
-// ITEM_OFFER_OPTION_COUNT and likewise must stay <= ship.ITEM_ROSTER_SIZE so the
-// pool can supply that many distinct items.
-SHOP_STOCK_COUNT :: 4
+// SHOP_SHELF_SIZE is how many deck cards a Port shop shows at once — the shelf
+// window onto the top of the deck (#123, ADR-0013's "a shelf of the top 5").
+// The deck itself is the full roster (Shop.deck); this is only how much of it is
+// visible/buyable at any moment. Must stay <= ship.ITEM_ROSTER_SIZE so a full
+// shelf can be drawn.
+SHOP_SHELF_SIZE :: 5
 
-// Shop_Item is one purchasable line in a Port shop (#98): the roster `fitting`
+// Shop_Item is one purchasable card in a Port shop (#98): the roster `fitting`
 // on offer and its `cost` in treasure. Cost is stored as a plain int, priced
 // once at generation from the item's Tier (ship.ship_item_cost) — tier itself
 // doesn't ride along because nothing past pricing reads it, and a bare Fitting is
@@ -211,15 +211,22 @@ Shop_Item :: struct {
 	cost:    int,
 }
 
-// Shop is a Port's purchasable stock (#98, ADR-0012): SHOP_STOCK_COUNT distinct
-// roster items, each priced by tier, drawn from the roster pool at generation
-// time (run_port_shop) and carried as baked content the way an Item Offer carries
-// its options. Unlike an encounter a shop never "resolves" — a Port is a
-// revisitable landmark, so its stock is re-presented every visit and the same
-// item may be bought again while treasure lasts. A fixed-size array: no owned
-// heap, so run_map_destroy needs no per-shop cleanup.
+// Shop is a Port's persistent purchasable deck (#123, ADR-0013, amending #98):
+// its own seed-baked shuffled deck of the *full* roster, each card priced by
+// tier, drawn from the roster pool at generation time (run_port_shop) and carried
+// as baked content the way an Item Offer carries its options. The deck is a pure
+// function of the run seed (no runtime RNG), so a seed's Ports are fully
+// determined before play, and each Port owns a distinct deck.
+//
+// A Port never "resolves" — it is a revisitable landmark whose deck is drawn down
+// over the run: the shop presents a SHOP_SHELF_SIZE window off the top, buying a
+// shelf card refills that slot from the next deck card, and the draw progress
+// persists across visits. That draw-down state (which cards have been bought) is
+// per-Port *runtime* state the Sim keeps keyed by Node — the deck itself is
+// immutable baked content. A fixed-size array: no owned heap, so run_map_destroy
+// needs no per-shop cleanup.
 Shop :: struct {
-	stock: [SHOP_STOCK_COUNT]Shop_Item,
+	deck: [ship.ITEM_ROSTER_SIZE]Shop_Item,
 }
 
 // Encounter_Stat_Trade is a permanent stat-for-stat/cargo trade-off (example:

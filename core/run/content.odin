@@ -110,23 +110,25 @@ run_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SI
 	return indices
 }
 
-// run_port_shop builds a Port's purchasable stock (#98, ADR-0012): it samples
-// SHOP_STOCK_COUNT distinct roster items (run_shuffled_roster_indices, reproducible
-// per seed via the map generator's RNG) and prices each by its Tier
-// (ship.ship_item_cost). Unlike an Item Offer the fitting is stocked as-authored,
-// not zone/depth-scaled: a shop's variance is which items and what they cost, and
-// cost already rises with tier, so layering a quality bonus on top would
-// double-count the tier. Baked at generation time (a final pass in
-// run_map_create) so a Port carries its stock as content, like an Item Offer
-// carries its options.
+// run_port_shop bakes a Port's persistent deck (#123, ADR-0013): the *full*
+// roster shuffled into a per-seed-reproducible order (run_shuffled_roster_indices,
+// off the map generator's RNG so decks vary port to port yet reproduce per seed),
+// each card priced by its Tier (ship.ship_item_cost). Unlike an Item Offer the
+// fitting is stocked as-authored, not zone/depth-scaled: a shop's variance is
+// which items and what they cost, and cost already rises with tier, so layering a
+// quality bonus on top would double-count the tier. Baked at generation time (a
+// final pass in run_map_create) so a Port carries its whole deck as content, like
+// an Item Offer carries its options; the shelf window and draw-down are runtime
+// concerns the Sim owns. Every card is distinct — the deck is a permutation of the
+// roster — so a shelf drawn off it never repeats an item within one Port.
 run_port_shop :: proc(gen: rand.Generator) -> Shop {
 	roster := ship.ship_item_roster()
-	indices := run_shuffled_roster_indices(gen)
+	order := run_shuffled_roster_indices(gen)
 
 	shop: Shop
-	for i in 0 ..< SHOP_STOCK_COUNT {
-		item := roster[indices[i]]
-		shop.stock[i] = Shop_Item{fitting = item.fitting, cost = ship.ship_item_cost(item.tier)}
+	for roster_index, deck_pos in order {
+		item := roster[roster_index]
+		shop.deck[deck_pos] = Shop_Item{fitting = item.fitting, cost = ship.ship_item_cost(item.tier)}
 	}
 	return shop
 }
