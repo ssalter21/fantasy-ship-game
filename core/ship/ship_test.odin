@@ -107,6 +107,24 @@ cargo_fitting_with_a_zero_stack_count_is_rejected :: proc(t: ^testing.T) {
 }
 
 @(test)
+a_fitting_defaults_to_carrying_no_tags :: proc(t: ^testing.T) {
+	bare := Fitting{name = "Ballast", size = .Small}
+
+	testing.expect_value(t, bare.tags, bit_set[Tag]{})
+}
+
+@(test)
+a_fitting_can_carry_more_than_one_tag :: proc(t: ^testing.T) {
+	// The set is the axis synergy effects will later count along (#88); a
+	// single fitting may sit in more than one family at once.
+	war_beast := Fitting{name = "War Kraken", size = .Large, tags = {.Beast, .Weapon}}
+
+	testing.expect(t, .Beast in war_beast.tags)
+	testing.expect(t, .Weapon in war_beast.tags)
+	testing.expect(t, .Crew not_in war_beast.tags)
+}
+
+@(test)
 empty_slot_resolves_to_its_own_base_visibility :: proc(t: ^testing.T) {
 	concealed_slot := make_layout_slot("hold", .Small, .Concealed)
 

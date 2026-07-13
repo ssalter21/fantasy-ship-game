@@ -28,16 +28,21 @@ CAPTAIN_CARGO_CAPACITY_BONUS :: 1
 // fill the ship template's three exposed slots. Their category assignment
 // gives the starting loadout one active effect per round phase (ADR-0006):
 // Top Crew buffs, Captain's Quarters defends, Gun Deck attacks.
+// The tags below are each fitting's family membership (#90): Top Crew and
+// Captain's Quarters are Crew, Gun Deck is a Weapon, cargo is Cargo. Each
+// starting fitting sits in exactly one family — multi-tag is reserved for the
+// roster to come (#88). The upgraded variants inherit these through
+// ship_fitting_upgraded, which copies the base fitting whole.
 ship_fitting_top_crew :: proc() -> Fitting {
-	return Fitting{name = "Top Crew", size = .Medium, category = .Buff, active = Effect{magnitude = TOP_CREW_BUFF_MAGNITUDE}}
+	return Fitting{name = "Top Crew", size = .Medium, category = .Buff, tags = {.Crew}, active = Effect{magnitude = TOP_CREW_BUFF_MAGNITUDE}}
 }
 
 ship_fitting_captains_quarters :: proc() -> Fitting {
-	return Fitting{name = "Captain's Quarters", size = .Medium, category = .Defensive, active = Effect{magnitude = CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE}}
+	return Fitting{name = "Captain's Quarters", size = .Medium, category = .Defensive, tags = {.Crew}, active = Effect{magnitude = CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE}}
 }
 
 ship_fitting_gun_deck :: proc() -> Fitting {
-	return Fitting{name = "Gun Deck", size = .Large, category = .Offensive, active = Effect{magnitude = GUN_DECK_OFFENSE_MAGNITUDE}}
+	return Fitting{name = "Gun Deck", size = .Large, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = GUN_DECK_OFFENSE_MAGNITUDE}}
 }
 
 // ship_fitting_upgraded is the shared shape behind ship_fitting_upgraded_top_crew,
@@ -75,7 +80,7 @@ ship_fitting_upgraded_gun_deck :: proc(bonus: int) -> Fitting {
 // name lets a caller flavor multiple cargo instances (e.g. a PvE opponent's
 // "Spoils") without a separate fitting type (ADR-0004).
 ship_fitting_cargo :: proc(name: string) -> Fitting {
-	return Fitting{name = name, size = .Small, is_cargo = true, stack_count = CARGO_STACK_COUNT}
+	return Fitting{name = name, size = .Small, tags = {.Cargo}, is_cargo = true, stack_count = CARGO_STACK_COUNT}
 }
 
 // ship_template_layout is the vertical slice's one ship template (issue #23,

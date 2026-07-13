@@ -25,6 +25,20 @@ Category :: enum {
 	Offensive,
 }
 
+// Tag is a fitting's family membership (#88 build-variance effort), the axis
+// synergy effects will later count fittings along. It is independent of a
+// fitting's combat phase (Category): a Beast may buff, defend, or attack, and
+// two fittings in different phases can still share a family. Multi-tag is
+// allowed but used sparingly — most fittings sit in exactly one family. No
+// behavior counts on tags yet; this ticket (#90) only establishes the axis.
+Tag :: enum {
+	Crew,
+	Weapon,
+	Beast,
+	Artifact,
+	Cargo,
+}
+
 Slot :: struct {
 	name:            string,
 	size:            Slot_Size,
@@ -52,6 +66,9 @@ Fitting :: struct {
 	// category is which round phase (ADR-0006) this fitting's active effect
 	// triggers in. Meaningless for cargo, which carries no effects.
 	category:            Category,
+	// tags is the fitting's family membership (see Tag): a set, since a fitting
+	// may belong to more than one family. Empty for a fitting that carries none.
+	tags:                bit_set[Tag],
 	visibility_override: Maybe(Visibility),
 	passive:             Maybe(Effect),
 	active:              Maybe(Effect),
