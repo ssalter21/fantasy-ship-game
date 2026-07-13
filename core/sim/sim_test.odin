@@ -944,7 +944,9 @@ multiple_items_can_be_bought_in_one_visit_before_leaving :: proc(t: ^testing.T) 
 		submit_refit(&sim, Refit_Finish{})
 		refit_tick(&sim, &events) // finish -> back to the shop
 	}
-	testing.expect_value(t, sim.player.starting_treasure, 20) // 50 - 3*10 spent this visit
+	// Three escalating buys (issue #124): base 10, then 10+step, then 10+2*step.
+	spent := 3 * 10 + SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)
+	testing.expect_value(t, sim.player.starting_treasure, 50 - spent)
 
 	// Only Leave exits to travel.
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice)
@@ -1017,6 +1019,119 @@ distinct_ports_draw_down_independently :: proc(t: ^testing.T) {
 	arrive_at_port(&sim, 2, &events)
 	shelf := presented_shelf(events[:])
 	testing.expect_value(t, shelf_card_name(shelf, 0), roster[0].fitting.name)
+}
+
+@(test)
+successive_buys_at_a_port_escalate_in_price :: proc(t: ^testing.T) {
+	// #124, ADR-0013: each successive buy at a Port costs step more than the last,
+	// so digging one shop deep is expensive. The first buy is the plain tier price
+	// (purchases == 0); each later buy climbs by SHOP_DEPTH_SURCHARGE_STEP, and the
+	// price shown on the re-presented shelf is exactly the price charged.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	base :: 10
+	sim.player.starting_treasure = 100
+	install_port_deck(&sim, 1, flat_deck(base))
+	arrive_at_port(&sim, 1, &events)
+
+	purse := 100
+	for n in 0 ..< 3 {
+		want_price := base + SHOP_DEPTH_SURCHARGE_STEP * n
+
+		// The re-presented shelf displays the surcharged price for this depth, so the
+		// buyer sees the escalation before committing.
+		shelf := presented_shelf(events[:])
+		card, filled := shelf[0].?
+		testing.expect(t, filled)
+		testing.expect_value(t, card.cost, want_price)
+
+		testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice)
+		sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+		refit_tick(&sim, &events) // buy: charge want_price, open the refit
+		purse -= want_price
+		testing.expect_value(t, sim.player.starting_treasure, purse) // charged the shown price
+
+		submit_refit(&sim, Refit_Finish{})
+		refit_tick(&sim, &events) // finish -> back to the shop, re-presented one depth deeper
+	}
+	// base + (base+step) + (base+2*step) spent across the three escalating buys.
+	testing.expect_value(t, sim.player.starting_treasure, 100 - (3 * base + SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)))
+}
+
+@(test)
+the_depth_surcharge_persists_across_visits :: proc(t: ^testing.T) {
+	// #124: the per-Port purchase count persists across visits like the draw cursor,
+	// so a revisited Port charges from where its depth left off — not a reset tier
+	// price. Buy once (tier price) and leave; on return the shelf shows, and the next
+	// buy charges, the escalated price.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	base :: 10
+	sim.player.starting_treasure = 100
+	install_port_deck(&sim, 1, flat_deck(base))
+
+	// Visit 1: one buy at the plain tier price, then leave to travel.
+	arrive_at_port(&sim, 1, &events)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Finish{})
+	refit_tick(&sim, &events)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = nil}))
+	refit_tick(&sim, &events)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect_value(t, sim.player.starting_treasure, 100 - base) // first buy at tier price
+
+	// Visit 2: the count persisted (one prior purchase), so the shelf shows and the
+	// next buy charges base + step, not the reset tier price.
+	arrive_at_port(&sim, 1, &events)
+	shelf := presented_shelf(events[:])
+	card, filled := shelf[0].?
+	testing.expect(t, filled)
+	testing.expect_value(t, card.cost, base + SHOP_DEPTH_SURCHARGE_STEP)
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	testing.expect_value(t, sim.player.starting_treasure, 100 - base - (base + SHOP_DEPTH_SURCHARGE_STEP))
+}
+
+@(test)
+a_surcharge_can_make_a_buy_unaffordable_and_the_shop_stays_open :: proc(t: ^testing.T) {
+	// #124: a buy the purse can't cover *once the surcharge is applied* is refused
+	// exactly like any other unaffordable buy — nothing spent, no Refit — and the
+	// shop stays open. Size the purse so the first buy (tier price) fits but the
+	// second (tier + step) does not.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	base :: 10
+	// Covers one buy at base with a little to spare, but not base + step for the next.
+	sim.player.starting_treasure = base + (base + SHOP_DEPTH_SURCHARGE_STEP) - 1
+	install_port_deck(&sim, 1, flat_deck(base))
+	arrive_at_port(&sim, 1, &events)
+
+	// First buy at the plain tier price succeeds.
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Finish{})
+	refit_tick(&sim, &events)
+	remaining := sim.player.starting_treasure
+	testing.expect_value(t, remaining, base + SHOP_DEPTH_SURCHARGE_STEP - 1)
+
+	// Second buy: base + step now exceeds the remaining purse, so the surcharge alone
+	// refuses it and the shop stays open.
+	sim_submit_captain_choice(&sim, Command(Command_Buy_Item{selection = Option_Index(0)}))
+	ev := refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Purchase_Rejected))
+	testing.expect(t, !has_event(ev, Event_Refit_Started))
+	testing.expect_value(t, sim.player.starting_treasure, remaining) // nothing spent
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice) // shop still open
 }
 
 @(test)
