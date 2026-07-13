@@ -1018,3 +1018,25 @@ distinct_ports_draw_down_independently :: proc(t: ^testing.T) {
 	shelf := presented_shelf(events[:])
 	testing.expect_value(t, shelf_card_name(shelf, 0), roster[0].fitting.name)
 }
+
+@(test)
+the_auto_pilot_leaves_every_shop_without_buying_or_refitting :: proc(t: ^testing.T) {
+	// #123 acceptance: the headless/test auto-player leaves every Port shop cleanly
+	// — a nil buy (no purchase) and, were a refit somehow open, an immediate finish
+	// (no loadout edit). Asserted directly on auto_pilot_choice, the input source the
+	// scenarios drive with, so the criterion is covered without depending on a seed
+	// whose route happens to pass a Port.
+	pilot := Auto_Pilot{}
+
+	leave := auto_pilot_choice(&pilot, .Awaiting_Shop_Choice)
+	buy, is_buy := leave.(Command_Buy_Item)
+	testing.expect(t, is_buy)
+	_, bought := buy.selection.?
+	testing.expect(t, !bought) // nil selection == leave, no purchase
+
+	refit := auto_pilot_choice(&pilot, .Awaiting_Refit)
+	cmd, is_refit := refit.(Command_Refit)
+	testing.expect(t, is_refit)
+	_, is_finish := cmd.command.(Refit_Finish)
+	testing.expect(t, is_finish) // no loadout edit
+}

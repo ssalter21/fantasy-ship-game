@@ -2,23 +2,37 @@ package sim
 
 import "../run"
 
-// SHELF_SLOT_EMPTY marks a shelf slot that has no card because the Port's deck
-// ran out (issue #123). Only reachable if a deck were drawn down below the shelf
-// size — unreachable at the real roster size against a fixed purse, but handled so
-// a nearly-drained shop shows fewer cards rather than misbehaving.
-SHELF_SLOT_EMPTY :: -1
+// Deck_Position identifies a card by its position in a Port's baked deck
+// (ADR-0011: distinct from a plain int so a deck position can't be silently
+// swapped with an Option_Index — the shelf-slot index into the *same* shop — or
+// any other index). It indexes run.Shop.deck; the Sim's per-Port shelves track
+// cards by it (Port_Shelf).
+Deck_Position :: distinct int
 
 // Port_Shelf is one Port's persistent shop state (issue #123, ADR-0013): `slots`
-// holds the deck position currently shown in each shelf slot (or SHELF_SLOT_EMPTY
-// past the deck's tail), and `next_draw` is the next deck position to draw when a
-// slot refills after a buy. `opened` is false until the Port's first arrival deals
-// its shelf (sim_deal_shelf); thereafter the shelf and cursor persist for the rest
-// of the run, so a revisit resumes exactly where it was left. Kept per-Port in
+// holds the deck position currently shown in each shelf slot (nil past the deck's
+// tail — the graceful short-deck case, unreachable at the real roster size against
+// a fixed purse), and `next_draw` is the next deck position to draw when a slot
+// refills after a buy. `opened` is false until the Port's first arrival deals its
+// shelf (sim_deal_shelf); thereafter the shelf and cursor persist for the rest of
+// the run, so a revisit resumes exactly where it was left. Kept per-Port in
 // sim.port_shelves; the deck itself is immutable baked content on the Node.
 Port_Shelf :: struct {
-	slots:     [run.SHOP_SHELF_SIZE]int,
-	next_draw: int,
+	slots:     [run.SHOP_SHELF_SIZE]Maybe(Deck_Position),
+	next_draw: Deck_Position,
 	opened:    bool,
+}
+
+// port_shelf_draw_next hands out the next undrawn deck position and advances the
+// cursor, or nil once the deck is exhausted (issue #123) — the one place the
+// draw-or-exhaust decision lives, shared by the opening deal and each buy's refill.
+port_shelf_draw_next :: proc(ps: ^Port_Shelf, deck_len: int) -> Maybe(Deck_Position) {
+	if int(ps.next_draw) >= deck_len {
+		return nil
+	}
+	pos := ps.next_draw
+	ps.next_draw += 1
+	return pos
 }
 
 // sim_open_shop opens the Port shop the ship is at (issue #123, ADR-0013): it
@@ -42,8 +56,8 @@ sim_open_shop :: proc(sim: ^Sim, node: run.Node, events: ^[dynamic]Event) {
 	}
 
 	shelf: [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item)
-	for pos, i in ps.slots {
-		if pos != SHELF_SLOT_EMPTY {
+	for slot, i in ps.slots {
+		if pos, filled := slot.?; filled {
 			shelf[i] = shop.deck[pos]
 		}
 	}
@@ -52,20 +66,13 @@ sim_open_shop :: proc(sim: ^Sim, node: run.Node, events: ^[dynamic]Event) {
 }
 
 // sim_deal_shelf lays out a Port's opening shelf (issue #123): the top
-// SHOP_SHELF_SIZE cards off the deck, one per slot, with next_draw pointing at the
-// first still-undrawn card. A deck shorter than the shelf (never at the real roster
-// size) leaves the tail slots empty. Called once per Port, on its first arrival.
+// SHOP_SHELF_SIZE cards off the deck, one per slot, with next_draw left pointing at
+// the first still-undrawn card. A deck shorter than the shelf (never at the real
+// roster size) leaves the tail slots nil. Called once per Port, on its first arrival.
 sim_deal_shelf :: proc(ps: ^Port_Shelf, shop: run.Shop) {
-	draw := 0
 	for i in 0 ..< run.SHOP_SHELF_SIZE {
-		if draw < len(shop.deck) {
-			ps.slots[i] = draw
-			draw += 1
-		} else {
-			ps.slots[i] = SHELF_SLOT_EMPTY
-		}
+		ps.slots[i] = port_shelf_draw_next(ps, len(shop.deck))
 	}
-	ps.next_draw = draw
 	ps.opened = true
 }
 
@@ -98,8 +105,8 @@ sim_process_shop_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	ps := &sim.port_shelves[sim.current]
 	assert(selection >= 0 && int(selection) < len(ps.slots), "Command_Buy_Item selection out of range")
-	deck_pos := ps.slots[selection]
-	assert(deck_pos != SHELF_SLOT_EMPTY, "Command_Buy_Item selected an empty shelf slot")
+	deck_pos, filled := ps.slots[selection].?
+	assert(filled, "Command_Buy_Item selected an empty shelf slot")
 
 	// We are at this Port's shop (Awaiting_Shop_Choice), so its Node carries the deck.
 	shop := sim.run_map.nodes[sim.current].shop.?
@@ -110,14 +117,9 @@ sim_process_shop_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	}
 
 	sim.player.starting_treasure -= card.cost
-	// Refill the bought slot in place with the next deck card (or empty it at the
-	// deck's tail), advancing the cursor — the persistent draw-down.
-	if ps.next_draw < len(shop.deck) {
-		ps.slots[selection] = ps.next_draw
-		ps.next_draw += 1
-	} else {
-		ps.slots[selection] = SHELF_SLOT_EMPTY
-	}
+	// Refill the bought slot in place with the next deck card (nil at the deck's
+	// tail), advancing the cursor — the persistent draw-down.
+	ps.slots[selection] = port_shelf_draw_next(ps, len(shop.deck))
 
 	// Broadcast the spent purse before the Refit opens, so the deduction is visible
 	// even if the buyer discards the item in the Refit without installing it (no
