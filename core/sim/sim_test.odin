@@ -594,7 +594,7 @@ a_refit_slot_index_out_of_range_asserts :: proc(t: ^testing.T) {
 stage_item_offer :: proc(sim: ^Sim) {
 	roster := ship.ship_item_roster()
 	for i in 0 ..< run.ITEM_OFFER_OPTION_COUNT {
-		sim.item_offer_options[i] = roster[i]
+		sim.item_offer_options[i] = roster[i].fitting
 	}
 	sim.phase = .Awaiting_Item_Choice
 	sim.awaiting_decision = true
