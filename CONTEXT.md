@@ -92,6 +92,23 @@ _Avoid_: Game mode, client mode
 
 A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time, regardless of the real ship's current run-persistent HP — a ghost is a decoupled copy that may be fought independently by multiple opponents, while the real player's own HP keeps degrading normally on their own run. Hand-authored PvE opponents may still set HP to any explicit value as a difficulty knob.
 
+### Build variance: tags, effects, and acquisition (see ADR-0012, amending ADR-0004)
+
+- **Tag** — a classifying label a Fitting carries, independent of its combat phase (ADR-0006) and of its slot size/visibility. Exists to be *counted* by synergy effects, not to restrict placement. A fitting may hold more than one; multi-tag is allowed but used sparingly.
+  _Avoid_: type, class — a tag imposes no fit restriction, unlike slot size.
+- **Tag family** — one of the five values a Tag is drawn from: **Crew, Weapon, Beast, Artifact, Cargo**. A closed set.
+- **Context-sensitive effect** — a fitting effect whose magnitude is *computed at resolve time* from the context it sees (the owning ship, and for combat the live battle/opponent state) rather than stored as a fixed number. A **closed parameterized set** of plain data — no function pointers — so a Ghost_Snapshot can carry it (ADR-0008). Synergy and conditional are its two genuinely context-dependent kinds; flat and stat-modifier resolve against the same context but a flat effect ignores it and a stat-modifier reads only the owning ship.
+  _Avoid_: scripted effect, effect callback — effects are data, not code.
+- **Flat effect** — an effect with a constant magnitude that ignores context. The common case — most roster items are flat; the three starting fittings port to this form with byte-identical combat output.
+- **Synergy effect** — an effect whose magnitude scales with the **count of installed fittings matching a selector** (over tag / size / visibility / category), resolved against the owning ship's current layout. Rises as matching fittings are added and falls as they are removed; a multi-tag fitting counts once per tag.
+- **Conditional effect** — an effect whose magnitude is **gated by a battle- or ship-state trigger** (at least: HP threshold, round number, own concealment, opponent faster/slower), evaluated per round against live state.
+- **Stat-modifier effect** — an effect that adjusts the owning ship's **effective Durability / Speed / Max HP** rather than feeding a combat phase. Combat and escape read *effective* stats (base fields plus installed modifiers), never the raw base fields.
+- **Splash / Shallow / Deep tier** — the three power/cost grades a roster item is authored at — Splash (lightest / cheapest) → Shallow (mid) → Deep (strongest) — echoing the Coastal → Open Sea → The Deep run progression. A catalog-authoring axis, not a runtime system.
+- **Refit** — rearranging a ship's fittings by hand through Sim install / move / remove commands, enforcing ADR-0004's exact-size fit rule. There is **no inventory**: a fitting pulled fully off the ship is discarded, and every loadout change emits an Event.
+  _Avoid_: inventory management — nothing holds an un-installed fitting.
+- **Item Offer** — the Upgrade Offer encounter kind repurposed: presents a few *distinct roster items* (or a skip) and opens a Refit to place or swap the pick, retiring the old same-category auto-replace. Free.
+- **Port shop** — a Port presenting a stock of purchasable roster items; buying deducts from the ship's **starting treasure** and places the item through a Refit. Minimal economy: fixed starting budget, Item Offers free, shop purchases paid.
+
 ## Vertical-slice scope (see GitHub issue #4)
 
 - One fixed ship template: 6 slots — 2 medium exposed ("top deck", "top crew"), 1 large exposed ("gun deck"), 3 small concealed.
