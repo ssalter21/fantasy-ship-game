@@ -305,13 +305,14 @@ draw_labeled_box :: proc(box: rl.Rectangle, title: string, line1: string, line2:
 // single Command_Refit — run_session ticks it and re-enters this loop for the
 // next, so a whole loadout edit is a sequence of these calls. The interaction:
 //   - With an item pending (just picked from an Item Offer): click an empty slot
-//     to Install it there, or a filled slot to Remove that fitting first — the
-//     place-or-swap path.
+//     to Install it there, or a filled slot to Replace its occupant (the swapped-
+//     out fitting is discarded, no inventory) — the place-or-swap path.
 //   - With nothing pending (rearranging): click a filled slot to select it, then
 //     an empty slot to Move it there (or the same slot again to cancel).
 //   - Finish ends the refit (discarding any still-unplaced item — no inventory).
-// The exact-size fit rule is the Sim's to enforce; an illegal click comes back
-// as Event_Refit_Rejected (a beat), leaving the layout untouched.
+// The exact-size fit rule is the Sim's to enforce, not the menu's to predict: the
+// menu emits the Install/Replace/Move command and an illegal one comes back as
+// Event_Refit_Rejected (a beat), leaving the layout untouched (issue #111).
 refit_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
@@ -366,16 +367,15 @@ refit_click :: proc(state: ^Game_State, i: int, finish_index: int) -> (sim.Comma
 	slot := ship.Slot_Index(i)
 	_, occupied := state.player.layout[i].fitting.?
 
-	if incoming, has_incoming := state.refit_incoming.?; has_incoming {
-		// Placing an item: an empty slot installs it; a filled slot of the *same
-		// size* is cleared first (the swap path — the removed fitting is discarded,
-		// no inventory). A filled slot of a different size can't take the item, so
-		// clearing it would drop a fitting for nothing — that click is ignored.
+	if _, has_incoming := state.refit_incoming.?; has_incoming {
+		// Placing an item: an empty slot installs it, a filled slot swaps it in
+		// (Refit_Replace, discarding the occupant — no inventory). Whether the item
+		// actually fits the slot is the Sim's call, not the menu's: it routes both
+		// commands through ADR-0004's fit rule and bounces a size mismatch back as
+		// Event_Refit_Rejected. The menu only names the slot and picks the operation
+		// from whether it is filled — it never re-checks the fit here (issue #111).
 		if occupied {
-			if state.player.layout[i].slot.size == incoming.size {
-				return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = slot}}), true
-			}
-			return {}, false
+			return sim.Command(sim.Command_Refit{command = sim.Refit_Replace{slot = slot}}), true
 		}
 		return sim.Command(sim.Command_Refit{command = sim.Refit_Install{slot = slot}}), true
 	}

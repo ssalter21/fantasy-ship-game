@@ -548,6 +548,45 @@ a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :
 }
 
 @(test)
+a_refit_replace_swaps_a_matching_fitting_and_rejects_a_size_mismatch :: proc(t: ^testing.T) {
+	// Refit_Replace is the place-or-swap counterpart to Install (issue #111): it
+	// drops a slot's occupant and lands the pending incoming in one command, still
+	// under ADR-0004's fit rule — the rule the game menu used to predict for itself.
+	// Starting slots: 0 top deck (M) Captain's Quarters, 2 gun deck (L) Gun Deck.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_open_refit(&sim, ship.ship_fitting_top_crew(), &events) // Medium incoming
+
+	// Replace into a size-mismatched slot (Medium item, Large slot 2): refused,
+	// layout untouched, incoming still pending.
+	submit_refit(&sim, Refit_Replace{slot = 2})
+	ev := refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect_value(t, fitting_name_at(&sim, 2), "Gun Deck")
+	_, still_pending := sim.refit_pending.?
+	testing.expect(t, still_pending)
+
+	// Replace into a same-size occupied slot (Medium slot 0): the occupant is
+	// discarded (Event_Fitting_Removed) and the incoming installed in its place.
+	submit_refit(&sim, Refit_Replace{slot = 0})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Fitting_Removed))
+	testing.expect(t, has_event(ev, Event_Fitting_Installed))
+	testing.expect_value(t, fitting_name_at(&sim, 0), "Top Crew")
+	_, pending_after := sim.refit_pending.?
+	testing.expect(t, !pending_after) // consumed
+
+	// With nothing left to place, a replace is refused and the slot is untouched.
+	submit_refit(&sim, Refit_Replace{slot = 0})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect_value(t, fitting_name_at(&sim, 0), "Top Crew")
+}
+
+@(test)
 finishing_a_refit_discards_an_unplaced_incoming_fitting :: proc(t: ^testing.T) {
 	// No inventory (ADR-0012): an incoming fitting never installed is gone once
 	// the refit finishes — the Sim holds nothing that could re-offer it.
