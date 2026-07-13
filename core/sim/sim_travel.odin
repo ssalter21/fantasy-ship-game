@@ -31,7 +31,7 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	assert(run.run_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
 	assert(
-		run.run_can_travel_to(sim.run_map, int(sim.current), sim.visited, int(cmd.node_id)),
+		run.run_can_travel_to(sim.run_map, sim.current, sim.visited, cmd.node_id),
 		"Command_Travel_To to a node that is not a legal neighbor of the current position",
 	)
 

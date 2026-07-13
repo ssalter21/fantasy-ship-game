@@ -49,7 +49,7 @@ Game_State :: struct {
 	positions:        []rl.Vector2, // parallel to run_map.nodes; screen position
 	visited:          []bool, // parallel to run_map.nodes; kept for rendering (revealing kinds, colouring nodes)
 	travel_options:   []sim.Node_ID, // borrowed from the latest Event_Travel_Options; the Sim's legal moves for the decision path
-	current_node_id:  int,
+	current_node_id:  sim.Node_ID,
 	player:           ship.Ship,
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),

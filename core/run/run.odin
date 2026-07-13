@@ -202,6 +202,17 @@ Encounter_Stat_Trade :: struct {
 	cost_speed:      int,
 }
 
+// Node_ID identifies a node in a Map's nodes slice by position (ADR-0011:
+// distinct from a plain int so a node id can't be silently swapped with a
+// slot index, an option index, or a raw layer/lane offset — a mixed-up id
+// becomes a compile error, not a value that plausibly indexes the wrong node).
+// The run package owns this type because it owns the Map; sim aliases it
+// (sim.Node_ID) so a single distinct type crosses the run/sim boundary with no
+// conversion. The generator computes ids as plain int layer/lane arithmetic
+// internally and converts to Node_ID only where an id is stored (Node.id,
+// Map.edges) — see generation.odin.
+Node_ID :: distinct int
+
 // Node is a single node on the run's procedurally-generated map (ADR-0009).
 // zone is nil for Start and Goal, which sit
 // outside the three difficulty bands. encounter is set only when
@@ -212,7 +223,7 @@ Encounter_Stat_Trade :: struct {
 // the node's normalized depth-within-zone (0 for Start/Goal). Adjacency lives
 // on Map.edges, not on the Node.
 Node :: struct {
-	id:        int,
+	id:        Node_ID,
 	zone:      Maybe(Zone),
 	kind:      Node_Kind,
 	encounter: Maybe(Encounter),
@@ -227,7 +238,7 @@ Node :: struct {
 // is derived from this adjacency plus the visited set by run_travel_options.
 Map :: struct {
 	nodes: []Node,
-	edges: [][]int,
+	edges: [][]Node_ID,
 }
 
 // Run_Status is the run's overall outcome so far (Win/loss conditions

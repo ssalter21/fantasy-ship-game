@@ -30,10 +30,12 @@ Phase :: enum {
 	Ended,
 }
 
-// Node_ID identifies a node in run_map.nodes by position (issue #54:
-// distinct from a plain int so a node id can't be passed where a slot index
-// or upgrade option index belongs, e.g. via Command_Travel_To).
-Node_ID :: distinct int
+// Node_ID identifies a node in run_map.nodes by position — used across the Sim
+// boundary via Command_Travel_To and Event_Travel_Options. It is an alias of
+// run.Node_ID (issue #112): run owns the Map, so it owns the canonical distinct
+// type (see run.odin for the ADR-0011 rationale); aliasing here means one
+// distinct type crosses the run/sim boundary with no int conversion.
+Node_ID :: run.Node_ID
 
 // Option_Index identifies one of an Item Offer's presented options by position
 // (issue #54: distinct from a plain int for the same reason as Node_ID, so an
@@ -457,12 +459,12 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 // payload survives the tick's whole dispatch batch yet isn't a fresh arena
 // allocation per decision (which would pile up unreclaimed until sim_destroy).
 sim_emit_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) {
-	options := run.run_travel_options(sim.run_map, int(sim.current), sim.visited)
+	options := run.run_travel_options(sim.run_map, sim.current, sim.visited)
 	defer delete(options)
 
 	clear(&sim.travel_options)
 	for id in options {
-		append(&sim.travel_options, Node_ID(id))
+		append(&sim.travel_options, id)
 	}
 	append(events, Event(Event_Travel_Options{options = sim.travel_options[:]}))
 }

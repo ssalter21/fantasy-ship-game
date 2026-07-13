@@ -13,7 +13,7 @@ import "core:testing"
 // a battle policy. The chosen seeds are fixed so each scenario reproduces
 // exactly.
 
-is_battle_node :: proc(m: run.Map, id: int) -> bool {
+is_battle_node :: proc(m: run.Map, id: Node_ID) -> bool {
 	enc, ok := m.nodes[id].encounter.?
 	if !ok {
 		return false
@@ -42,7 +42,7 @@ Travel_Policy :: enum {
 // recompute legality.
 Auto_Pilot :: struct {
 	m:             run.Map,
-	current:       int,
+	current:       Node_ID,
 	options:       []Node_ID,
 	policy:        Travel_Policy,
 	battles_taken: int,
@@ -101,7 +101,7 @@ auto_pilot_next :: proc(pilot: ^Auto_Pilot) -> Node_ID {
 		if _, has := first_forward.?; !has {
 			first_forward = dest
 		}
-		if is_battle_node(pilot.m, int(dest)) == want_battle {
+		if is_battle_node(pilot.m, dest) == want_battle {
 			return auto_pilot_take(pilot, dest)
 		}
 	}
@@ -115,7 +115,7 @@ auto_pilot_next :: proc(pilot: ^Auto_Pilot) -> Node_ID {
 // First_Battle_Then_Avoid flips to dodging after the first fight) and returns
 // dest unchanged.
 auto_pilot_take :: proc(pilot: ^Auto_Pilot, dest: Node_ID) -> Node_ID {
-	if is_battle_node(pilot.m, int(dest)) {
+	if is_battle_node(pilot.m, dest) {
 		pilot.battles_taken += 1
 	}
 	return dest
@@ -374,7 +374,7 @@ the_run_start_broadcast_hides_unvisited_encounter_kinds_and_reveals_on_arrival :
 	}
 
 	// Arriving at an encounter reveals its kind in the emitted event.
-	target := -1
+	target := Node_ID(-1)
 	for v in sim.run_map.edges[0] {
 		if sim.run_map.nodes[v].kind == .Encounter {
 			target = v
@@ -383,7 +383,7 @@ the_run_start_broadcast_hides_unvisited_encounter_kinds_and_reveals_on_arrival :
 	}
 	testing.expect(t, target >= 0)
 
-	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = Node_ID(target)}))
+	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = target}))
 	clear(&events)
 	sim_tick(&sim, &events)
 

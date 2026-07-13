@@ -134,7 +134,7 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		if len(state.travel_options) > 0 {
 			return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
 		}
-		return sim.Command(sim.Command_Travel_To{node_id = sim.Node_ID(state.current_node_id)})
+		return sim.Command(sim.Command_Travel_To{node_id = state.current_node_id})
 	}
 	for !rl.WindowShouldClose() {
 		draw_scene(state, "Click a highlighted node to travel there.")

@@ -30,7 +30,7 @@ main :: proc() {
 Headless_State :: struct {
 	events:         [dynamic]sim.Event,
 	run_map:        run.Map, // borrowed from Event_Run_Started (the masked public map)
-	current:        int,
+	current:        sim.Node_ID,
 	travel_options: []sim.Node_ID, // borrowed from the latest Event_Travel_Options
 }
 
