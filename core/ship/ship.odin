@@ -527,27 +527,27 @@ ship_remove :: proc(layout_slot: ^Layout_Slot) -> (Fitting, bool) {
 	return fitting, true
 }
 
-// ship_move relocates the fitting in layout[from] into the empty layout[to]
-// under ADR-0004's exact-size fit rule (issue #95): the source must hold a
-// fitting, the destination must be empty, and the two slots must be the same
-// size. Any of those unmet leaves both slots untouched and returns false — a
-// rejected move never disturbs the layout. On success the moved fitting is
-// returned (for the emitted Event_Fitting_Moved) and the source is left empty.
-// Indices are assumed in range: a refit's caller bounds-checks them, so an
-// out-of-range slot is a driver bug (asserted there), not a soft rejection.
-ship_move :: proc(layout: []Layout_Slot, from, to: int) -> (Fitting, bool) {
-	fitting, occupied := layout[from].fitting.?
+// ship_move relocates the fitting in `from` into the empty `to` under
+// ADR-0004's exact-size fit rule (issue #95): the source must hold a fitting,
+// the destination must be empty, and the two slots must be the same size. Any
+// of those unmet leaves both slots untouched and returns false — a rejected
+// move never disturbs the layout. On success the moved fitting is returned (for
+// the emitted Event_Fitting_Moved) and the source is left empty. Takes the two
+// slots by pointer, like ship_fit / ship_remove, so a refit's caller resolves
+// (and bounds-checks) the indices itself rather than passing bare ints through.
+ship_move :: proc(from, to: ^Layout_Slot) -> (Fitting, bool) {
+	fitting, occupied := from.fitting.?
 	if !occupied {
 		return {}, false
 	}
-	if _, dest_occupied := layout[to].fitting.?; dest_occupied {
+	if _, dest_occupied := to.fitting.?; dest_occupied {
 		return {}, false
 	}
-	if fitting.size != layout[to].slot.size {
+	if fitting.size != to.slot.size {
 		return {}, false
 	}
-	layout[from].fitting = nil
-	layout[to].fitting = fitting
+	from.fitting = nil
+	to.fitting = fitting
 	return fitting, true
 }
 

@@ -289,7 +289,7 @@ move_relocates_a_fitting_into_an_empty_same_size_slot :: proc(t: ^testing.T) {
 	ok := ship_fit(&layout[0], Fitting{name = "Gun Deck", size = .Large})
 	testing.expect(t, ok)
 
-	moved, did_move := ship_move(layout, 0, 1)
+	moved, did_move := ship_move(&layout[0], &layout[1])
 
 	testing.expect(t, did_move)
 	testing.expect_value(t, moved.name, "Gun Deck")
@@ -309,7 +309,7 @@ move_into_an_occupied_slot_is_rejected_without_disturbing_either_slot :: proc(t:
 	testing.expect(t, ship_fit(&layout[0], Fitting{name = "Gun Deck", size = .Large}))
 	testing.expect(t, ship_fit(&layout[1], Fitting{name = "Ballista", size = .Large}))
 
-	_, did_move := ship_move(layout, 0, 1)
+	_, did_move := ship_move(&layout[0], &layout[1])
 
 	testing.expect(t, !did_move)
 	source, _ := layout[0].fitting.?
@@ -326,7 +326,7 @@ move_into_a_different_size_slot_is_rejected_by_the_fit_rule :: proc(t: ^testing.
 	}
 	testing.expect(t, ship_fit(&layout[0], Fitting{name = "Top Crew", size = .Medium}))
 
-	_, did_move := ship_move(layout, 0, 1)
+	_, did_move := ship_move(&layout[0], &layout[1])
 
 	testing.expect(t, !did_move)
 	source, source_full := layout[0].fitting.?
@@ -343,7 +343,7 @@ move_from_an_empty_slot_is_rejected :: proc(t: ^testing.T) {
 		make_layout_slot("forecastle", .Large, .Exposed),
 	}
 
-	_, did_move := ship_move(layout, 0, 1)
+	_, did_move := ship_move(&layout[0], &layout[1])
 
 	testing.expect(t, !did_move)
 }

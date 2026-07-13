@@ -73,7 +73,7 @@ sim_refit_install :: proc(sim: ^Sim, op: Refit_Install, events: ^[dynamic]Event)
 sim_refit_move :: proc(sim: ^Sim, op: Refit_Move, events: ^[dynamic]Event) {
 	sim_refit_assert_slot(sim, op.from)
 	sim_refit_assert_slot(sim, op.to)
-	fitting, moved := ship.ship_move(sim.player.layout, int(op.from), int(op.to))
+	fitting, moved := ship.ship_move(&sim.player.layout[op.from], &sim.player.layout[op.to])
 	if !moved {
 		sim_refit_reject(Refit_Command(op), events)
 		return
