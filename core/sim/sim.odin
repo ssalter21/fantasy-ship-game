@@ -454,13 +454,13 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 // node — run_travel_options, the single legality predicate, called once per
 // travel decision (issue #83) — stages them (as Node_IDs) in the Sim's
 // run-scoped travel_options buffer, and emits them on Event_Travel_Options.
-// run_travel_options' own returned slice is short-lived scratch, freed here
-// immediately; the reused buffer is what the event borrows, so the emitted
-// payload survives the tick's whole dispatch batch yet isn't a fresh arena
-// allocation per decision (which would pile up unreclaimed until sim_destroy).
+// run_travel_options' own returned slice is Tick-lifetime temp_allocator
+// scratch, reclaimed at the run_session free_all boundary; the reused buffer
+// is what the event borrows, so the emitted payload survives the tick's whole
+// dispatch batch yet isn't a fresh arena allocation per decision (which would
+// pile up unreclaimed until sim_destroy).
 sim_emit_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	options := run.run_travel_options(sim.run_map, sim.current, sim.visited)
-	defer delete(options)
 
 	clear(&sim.travel_options)
 	for id in options {

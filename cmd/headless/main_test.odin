@@ -17,7 +17,6 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 	defer delete(visited)
 	visited[0] = true
 	options := run.run_travel_options(m, 0, visited)
-	defer delete(options)
 	travel_options := make([]sim.Node_ID, len(options))
 	defer delete(travel_options)
 	for id, i in options {

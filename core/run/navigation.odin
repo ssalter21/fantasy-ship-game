@@ -21,10 +21,11 @@ run_neighbor_is_legal :: proc(m: Map, current, neighbor: Node_ID, visited: []boo
 // run_travel_options is the single seam every legal-move consumer shares (the
 // Sim's travel gate, the UI's reachable-next affordance, and tests): the ids
 // legally reachable from current given visited — forward and lateral
-// neighbors always, backward neighbors only if already visited. Caller owns
-// the returned slice.
+// neighbors always, backward neighbors only if already visited. The returned
+// slice is Tick-lifetime scratch from context.temp_allocator (ADR-0010),
+// reclaimed at the caller's free_all boundary — never hand-freed.
 run_travel_options :: proc(m: Map, current: Node_ID, visited: []bool) -> []Node_ID {
-	options: [dynamic]Node_ID
+	options := make([dynamic]Node_ID, context.temp_allocator)
 	for neighbor in m.edges[current] {
 		if run_neighbor_is_legal(m, current, neighbor, visited) {
 			append(&options, neighbor)
