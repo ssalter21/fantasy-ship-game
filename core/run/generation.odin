@@ -151,7 +151,7 @@ run_map_create :: proc(seed: u64) -> Map {
 		}
 		bag := run_make_kind_bag(len(enc_ids), gen)
 		for id, i in enc_ids {
-			nodes[id].encounter = run_make_encounter(bag[i], zone, nodes[id].depth, gen)
+			nodes[id].encounter = run_make_encounter(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
 		}
 		delete(bag)
 		delete(enc_ids)
@@ -276,19 +276,20 @@ run_make_kind_bag :: proc(count: int, gen: rand.Generator) -> []Encounter_Kind {
 }
 
 // run_make_encounter builds one Encounter's zone-and-depth-scaled content for
-// the given kind. Split out so the generator's kind-assignment loop reads as
-// data, not a switch. Takes `gen` so an Item Offer can sample its distinct
-// roster items reproducibly from the same map-generation RNG stream.
-run_make_encounter :: proc(kind: Encounter_Kind, zone: Zone, depth: int, gen: rand.Generator) -> Encounter {
+// the given kind, at the node's Scaling_Site. Split out so the generator's
+// kind-assignment loop reads as data, not a switch. Takes `gen` so an Item Offer
+// can sample its distinct roster items reproducibly from the same map-generation
+// RNG stream.
+run_make_encounter :: proc(kind: Encounter_Kind, site: Scaling_Site, gen: rand.Generator) -> Encounter {
 	switch kind {
 	case .Ship_Battle:
-		return Encounter_Ship_Battle{depth = depth, opponent = run_pve_opponent(zone, depth)}
+		return Encounter_Ship_Battle{depth = site.depth, opponent = run_pve_opponent(site)}
 	case .Item_Offer:
-		return Encounter_Item_Offer{options = run_item_offer_options(zone, depth, gen)}
+		return Encounter_Item_Offer{options = run_item_offer_options(site, gen)}
 	case .Stat_Trade:
 		return Encounter_Stat_Trade{
-			gain_durability = run_stat_trade_gain_durability(zone, depth),
-			cost_speed      = run_stat_trade_cost_speed(zone, depth),
+			gain_durability = run_stat_trade_gain_durability(site),
+			cost_speed      = run_stat_trade_cost_speed(site),
 		}
 	}
 	unreachable()

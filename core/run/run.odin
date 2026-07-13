@@ -52,13 +52,25 @@ STAT_TRADE_DURABILITY_PER_DEPTH :: 2
 STAT_TRADE_SPEED_COST_PER_TIER :: 1
 STAT_TRADE_SPEED_COST_PER_DEPTH :: 1
 
+// Scaling_Site is a node's position on the difficulty/reward gradient: the
+// (zone, depth) pair every zone-and-depth-scaled formula below reads. The two
+// axes are a cohesive scaling group, so they travel as one named struct (issue
+// #113) rather than as a positional int/enum pair that call sites could silently
+// swap — the whole-struct idiom the Odin standards prescribe. Assembled from a
+// node's zone and normalized depth: at generation time to scale its content, and
+// again at battle-finish (run_finish_ship_battle) to recompute its difficulty.
+Scaling_Site :: struct {
+	zone:  Zone,
+	depth: int,
+}
+
 // run_zone_depth_scaled is the shared accessor behind every zone-and-depth-scaled
 // placeholder below: a kind's per_tier constant times the zone's position on
-// zone_tier, plus its per_depth constant times the node's normalized
+// zone_tier, plus its per_depth constant times the site's normalized
 // depth-within-zone. The two axes stack, so a deep node in a zone outscales a
 // shallow one, and a Deep-zone node still outscales a Coastal one.
-run_zone_depth_scaled :: proc(zone: Zone, depth: int, per_tier: int, per_depth: int) -> int {
-	return zone_tier[zone] * per_tier + depth * per_depth
+run_zone_depth_scaled :: proc(site: Scaling_Site, per_tier: int, per_depth: int) -> int {
+	return zone_tier[site.zone] * per_tier + site.depth * per_depth
 }
 
 // run_normalize_depth maps a node's raw depth (its 0-based layer index within
@@ -77,16 +89,16 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 
 // run_ship_battle_difficulty is the game-configured opponent's HP baseline
 // for a Ship Battle node: rises by zone tier and by depth-within-zone.
-run_ship_battle_difficulty :: proc(zone: Zone, depth: int) -> int {
-	return run_zone_depth_scaled(zone, depth, SHIP_BATTLE_HP_PER_TIER, SHIP_BATTLE_HP_PER_DEPTH)
+run_ship_battle_difficulty :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, SHIP_BATTLE_HP_PER_TIER, SHIP_BATTLE_HP_PER_DEPTH)
 }
 
 // run_ship_battle_opponent_durability is the opponent's flat incoming-damage
 // reduction (core/combat's durability stat) for a Ship Battle node: like
 // run_ship_battle_difficulty, rises by zone tier and by depth, so a deeper
 // battle isn't HP-pool-only.
-run_ship_battle_opponent_durability :: proc(zone: Zone, depth: int) -> int {
-	return run_zone_depth_scaled(zone, depth, SHIP_BATTLE_DURABILITY_PER_TIER, SHIP_BATTLE_DURABILITY_PER_DEPTH)
+run_ship_battle_opponent_durability :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, SHIP_BATTLE_DURABILITY_PER_TIER, SHIP_BATTLE_DURABILITY_PER_DEPTH)
 }
 
 // run_item_offer_quality is a zone-and-depth-scaled reward-quality placeholder —
@@ -94,20 +106,20 @@ run_ship_battle_opponent_durability :: proc(zone: Zone, depth: int) -> int {
 // zone. It feeds run_item_offer_options' per-item scaling bonus (issue #96,
 // ADR-0012); the old Upgrade Offer's same quality knob is preserved here, only
 // its name and consumer changed.
-run_item_offer_quality :: proc(zone: Zone, depth: int) -> int {
-	return run_zone_depth_scaled(zone, depth, ITEM_OFFER_QUALITY_PER_TIER, ITEM_OFFER_QUALITY_PER_DEPTH)
+run_item_offer_quality :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, ITEM_OFFER_QUALITY_PER_TIER, ITEM_OFFER_QUALITY_PER_DEPTH)
 }
 
 // run_stat_trade_gain_durability and run_stat_trade_cost_speed are the
 // zone-and-depth-scaled magnitudes of a Stat Trade's two sides: a deeper
 // trade is a bigger swing (more Durability gained, more Speed spent) than a
 // shallow one in the same zone.
-run_stat_trade_gain_durability :: proc(zone: Zone, depth: int) -> int {
-	return run_zone_depth_scaled(zone, depth, STAT_TRADE_DURABILITY_PER_TIER, STAT_TRADE_DURABILITY_PER_DEPTH)
+run_stat_trade_gain_durability :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, STAT_TRADE_DURABILITY_PER_TIER, STAT_TRADE_DURABILITY_PER_DEPTH)
 }
 
-run_stat_trade_cost_speed :: proc(zone: Zone, depth: int) -> int {
-	return run_zone_depth_scaled(zone, depth, STAT_TRADE_SPEED_COST_PER_TIER, STAT_TRADE_SPEED_COST_PER_DEPTH)
+run_stat_trade_cost_speed :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, STAT_TRADE_SPEED_COST_PER_TIER, STAT_TRADE_SPEED_COST_PER_DEPTH)
 }
 
 // Node_Kind is what a Node is: the Start/home port, a per-zone Port, an

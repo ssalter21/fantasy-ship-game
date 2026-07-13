@@ -6,7 +6,7 @@ import "core:testing"
 
 @(test)
 run_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T) {
-	opponent := run_pve_opponent(.Coastal, 3)
+	opponent := run_pve_opponent(Scaling_Site{zone = .Coastal, depth = 3})
 	defer delete(opponent.layout)
 
 	testing.expect_value(t, len(opponent.layout), 8)
@@ -18,16 +18,17 @@ run_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T
 
 @(test)
 run_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_ship_battle_formulas :: proc(t: ^testing.T) {
-	opponent := run_pve_opponent(.Deep, 2)
+	site := Scaling_Site{zone = .Deep, depth = 2}
+	opponent := run_pve_opponent(site)
 	defer delete(opponent.layout)
 
-	testing.expect_value(t, opponent.hp, run_ship_battle_difficulty(.Deep, 2))
-	testing.expect_value(t, opponent.durability, run_ship_battle_opponent_durability(.Deep, 2))
+	testing.expect_value(t, opponent.hp, run_ship_battle_difficulty(site))
+	testing.expect_value(t, opponent.durability, run_ship_battle_opponent_durability(site))
 }
 
 @(test)
 run_pve_opponent_carries_no_captain :: proc(t: ^testing.T) {
-	opponent := run_pve_opponent(.Coastal, 3)
+	opponent := run_pve_opponent(Scaling_Site{zone = .Coastal, depth = 3})
 	defer delete(opponent.layout)
 
 	_, has_captain := opponent.captain.?
@@ -36,9 +37,9 @@ run_pve_opponent_carries_no_captain :: proc(t: ^testing.T) {
 
 @(test)
 a_deeper_ship_battle_node_gives_the_opponent_a_harder_hitting_gun_deck :: proc(t: ^testing.T) {
-	coastal := run_pve_opponent(.Coastal, 0)
+	coastal := run_pve_opponent(Scaling_Site{zone = .Coastal, depth = 0})
 	defer delete(coastal.layout)
-	deep := run_pve_opponent(.Deep, 0)
+	deep := run_pve_opponent(Scaling_Site{zone = .Deep, depth = 0})
 	defer delete(deep.layout)
 
 	coastal_gun_deck, _ := coastal.layout[2].fitting.?
@@ -74,7 +75,7 @@ run_map_create_wires_the_hand_authored_pve_opponent_content_into_ship_battle_nod
 run_item_offer_options_presents_distinct_roster_items :: proc(t: ^testing.T) {
 	state := rand.create(0)
 	gen := rand.default_random_generator(&state)
-	options := run_item_offer_options(.Coastal, 0, gen)
+	options := run_item_offer_options(Scaling_Site{zone = .Coastal, depth = 0}, gen)
 
 	// Every offered option is a distinct roster item (no repeats), and each is a
 	// real fitting the player could place — not a cargo filler.
@@ -97,8 +98,8 @@ run_item_offer_options_scale_up_with_a_deeper_node :: proc(t: ^testing.T) {
 	// order, so the only difference is the zone/depth scaling.
 	low_state := rand.create(7)
 	high_state := rand.create(7)
-	low := run_item_offer_options(.Coastal, 0, rand.default_random_generator(&low_state))
-	high := run_item_offer_options(.Deep, 3, rand.default_random_generator(&high_state))
+	low := run_item_offer_options(Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&low_state))
+	high := run_item_offer_options(Scaling_Site{zone = .Deep, depth = 3}, rand.default_random_generator(&high_state))
 
 	found_scaled := false
 	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {

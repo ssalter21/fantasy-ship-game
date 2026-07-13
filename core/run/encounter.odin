@@ -29,7 +29,7 @@ run_start_battle :: proc(s: ^ship.Ship, encounter: ^Encounter_Ship_Battle) -> co
 run_finish_ship_battle :: proc(battle: ^combat.Battle, s: ^ship.Ship, encounter: ^Encounter_Ship_Battle, zone: Zone, steps: int) -> Ghost_Snapshot {
 	assert(battle.ended, "run_finish_ship_battle called before the battle ended")
 
-	return run_ghost_snapshot_of(s, steps, zone, run_ship_battle_difficulty(zone, encounter.depth))
+	return run_ghost_snapshot_of(s, steps, zone, run_ship_battle_difficulty(Scaling_Site{zone = zone, depth = encounter.depth}))
 }
 
 // An Item Offer has no run-side apply proc (issue #96): unlike a Stat Trade it
