@@ -4,68 +4,79 @@ import "../ship"
 import "core:math"
 
 // This file holds the run's shared domain data model (Zone, Node, Map, the
-// Encounter variants) and the difficulty/reward scaling group — the one
-// cohesive family of zone-and-depth-scaled formulas behind a shared accessor.
+// Encounter variants) and the stakes scaling group — the one cohesive family
+// of zone-and-depth-scaled formulas behind a shared accessor.
 // The other concerns carved out of the original single module live in sibling
 // files: procedural map generation (generation.odin), travel legality
 // (navigation.odin), encounter resolution + ghost emission (encounter.odin),
 // and the per-encounter content itself (content.odin).
 
-// Zone is one of the three fixed difficulty bands a Node belongs to, in a
-// fixed linear order (CONTEXT.md): Coastal (nearest Start) -> Open_Sea ->
-// Deep (nearest Goal). Both encounter difficulty and reward quality scale
-// with zone. The zones survive the node-graph redesign (ADR-0009, which
-// supersedes ADR-0007's topology/fog) — only the map's shape and the
-// within-zone gradient axis changed.
+// Zone is one of the three fixed stakes bands a Node belongs to, in a fixed
+// linear order (CONTEXT.md): Coastal (nearest Start) -> Open_Sea -> Deep
+// (nearest Goal). How much is on the line at a node scales with zone. The
+// zones survive the node-graph redesign (ADR-0009, which supersedes ADR-0007's
+// topology/fog) — only the map's shape and the within-zone gradient axis
+// changed.
 Zone :: enum {
 	Coastal,
 	Open_Sea,
 	Deep,
 }
 
-// zone_tier is the single shared per-zone difficulty/reward ladder
-// (placeholder values expected to move during playtesting) — Coastal <
-// Open_Sea < Deep. Ship Battle, Item Offer, and Stat Trade each scale off
-// this one table via their own PER_TIER constant below, so the three kinds
-// land on distinguishable magnitudes instead of duplicating the same literal
-// table.
+// zone_tier is the single shared per-zone stakes ladder (placeholder values
+// expected to move during playtesting) — Coastal < Open_Sea < Deep. Every
+// stage primitive scales off this one table via its own PER_TIER constant
+// below, so the primitives land on distinguishable magnitudes instead of
+// duplicating the same literal table.
 zone_tier := [Zone]int{.Coastal = 1, .Open_Sea = 2, .Deep = 3}
 
-// The difficulty/reward gradient now stacks two axes: the per-zone tier
-// ladder above, and depth-within-zone — how deep into a zone's phase a node
-// sits, normalized to a fixed range (DEPTH_STEPS) so the spread is consistent
-// regardless of how many layers a seed happened to roll. Both feed every
-// zone-scaled formula below via run_zone_depth_scaled. Depth replaces the retired
-// Ship-Battle-only "port proximity / contested waters" input, and now applies
-// to all three encounter kinds.
+// The stakes gradient stacks two axes: the per-zone tier ladder above, and
+// depth-within-zone — how deep into a zone's phase a node sits, normalized to a
+// fixed range (DEPTH_STEPS) so the spread is consistent regardless of how many
+// layers a seed happened to roll. Both feed every zone-scaled formula below via
+// run_zone_depth_scaled. Depth replaces the retired Fight-only "port proximity /
+// contested waters" input, and applies to every primitive.
 DEPTH_STEPS :: 3
 
-SHIP_BATTLE_HP_PER_TIER :: 10
-SHIP_BATTLE_HP_PER_DEPTH :: 3
-SHIP_BATTLE_DURABILITY_PER_TIER :: 1
-SHIP_BATTLE_DURABILITY_PER_DEPTH :: 1
-SHIP_BATTLE_OPPONENT_SPEED :: 5
-ITEM_OFFER_QUALITY_PER_TIER :: 15
-ITEM_OFFER_QUALITY_PER_DEPTH :: 5
-STAT_TRADE_DURABILITY_PER_TIER :: 8
-STAT_TRADE_DURABILITY_PER_DEPTH :: 2
-STAT_TRADE_SPEED_COST_PER_TIER :: 1
-STAT_TRADE_SPEED_COST_PER_DEPTH :: 1
+// The stakes constants below belong to **stage primitives**, not to encounter
+// kinds (ADR-0014): one gradient, read differently by each primitive — Fight as
+// opponent power, Offer as item quality, Trade as swing size. Grouping them by
+// primitive is what lets a recipe compose stages without asking which kind of
+// encounter it is. Shop and Reward have no per-tier/per-depth constants yet: a
+// Shop prices by item tier (ship_item_cost), and Reward has no implementation to
+// tune — both land here when they gain one.
 
-// Scaling_Site is a node's position on the difficulty/reward gradient: the
-// (zone, depth) pair every zone-and-depth-scaled formula below reads. The two
+FIGHT_OPPONENT_HP_PER_TIER :: 10
+FIGHT_OPPONENT_HP_PER_DEPTH :: 3
+FIGHT_OPPONENT_DURABILITY_PER_TIER :: 1
+FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
+FIGHT_OPPONENT_OFFENSE_PER_TIER :: 2
+FIGHT_OPPONENT_OFFENSE_PER_DEPTH :: 1
+FIGHT_OPPONENT_SPEED :: 5
+
+OFFER_ITEM_QUALITY_PER_TIER :: 15
+OFFER_ITEM_QUALITY_PER_DEPTH :: 5
+
+TRADE_GAIN_DURABILITY_PER_TIER :: 8
+TRADE_GAIN_DURABILITY_PER_DEPTH :: 2
+TRADE_COST_SPEED_PER_TIER :: 1
+TRADE_COST_SPEED_PER_DEPTH :: 1
+
+// Scaling_Site is a node's position on the stakes gradient: the (zone, depth)
+// pair every zone-and-depth-scaled formula below reads. It says *how much is on
+// the line here* — the primitive reading it decides what that means. The two
 // axes are a cohesive scaling group, so they travel as one named struct (issue
 // #113) rather than as a positional int/enum pair that call sites could silently
 // swap — the whole-struct idiom the Odin standards prescribe. Assembled from a
 // node's zone and normalized depth: at generation time to scale its content, and
-// again at battle-finish (run_finish_ship_battle) to recompute its difficulty.
+// again at battle-finish (run_finish_ship_battle) to record its stakes.
 Scaling_Site :: struct {
 	zone:  Zone,
 	depth: int,
 }
 
 // run_zone_depth_scaled is the shared accessor behind every zone-and-depth-scaled
-// placeholder below: a kind's per_tier constant times the zone's position on
+// placeholder below: a primitive's per_tier constant times the zone's position on
 // zone_tier, plus its per_depth constant times the site's normalized
 // depth-within-zone. The two axes stack, so a deep node in a zone outscales a
 // shallow one, and a Deep-zone node still outscales a Coastal one.
@@ -74,7 +85,7 @@ run_zone_depth_scaled :: proc(site: Scaling_Site, per_tier: int, per_depth: int)
 }
 
 // run_normalize_depth maps a node's raw depth (its 0-based layer index within
-// its zone's phase) onto the fixed 0..DEPTH_STEPS range, so the difficulty
+// its zone's phase) onto the fixed 0..DEPTH_STEPS range, so the stakes
 // spread is stable no matter how many layers a particular seed rolled for
 // that zone: the shallowest layer always normalizes to 0 and the deepest
 // always to DEPTH_STEPS. A single-layer zone (never happens at the real node
@@ -87,39 +98,42 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 	return int(math.round(fraction * f64(DEPTH_STEPS)))
 }
 
-// run_ship_battle_difficulty is the game-configured opponent's HP baseline
-// for a Ship Battle node: rises by zone tier and by depth-within-zone.
-run_ship_battle_difficulty :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, SHIP_BATTLE_HP_PER_TIER, SHIP_BATTLE_HP_PER_DEPTH)
+// The Fight primitive reads the site's stakes as opponent power, across three
+// stats so a deeper fight isn't HP-pool-only: run_fight_opponent_hp is the
+// opponent's HP baseline, run_fight_opponent_durability its flat
+// incoming-damage reduction (core/combat's durability stat), and
+// run_fight_opponent_offense its Gun Deck output bonus (issue #23). All three
+// rise by zone tier and by depth-within-zone. Speed is not a stakes reading —
+// FIGHT_OPPONENT_SPEED is flat.
+run_fight_opponent_hp :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, FIGHT_OPPONENT_HP_PER_TIER, FIGHT_OPPONENT_HP_PER_DEPTH)
 }
 
-// run_ship_battle_opponent_durability is the opponent's flat incoming-damage
-// reduction (core/combat's durability stat) for a Ship Battle node: like
-// run_ship_battle_difficulty, rises by zone tier and by depth, so a deeper
-// battle isn't HP-pool-only.
-run_ship_battle_opponent_durability :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, SHIP_BATTLE_DURABILITY_PER_TIER, SHIP_BATTLE_DURABILITY_PER_DEPTH)
+run_fight_opponent_durability :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, FIGHT_OPPONENT_DURABILITY_PER_TIER, FIGHT_OPPONENT_DURABILITY_PER_DEPTH)
 }
 
-// run_item_offer_quality is a zone-and-depth-scaled reward-quality placeholder —
-// a deeper Item Offer presents stronger items than a shallow one in the same
-// zone. It feeds run_item_offer_options' per-item scaling bonus (issue #96,
-// ADR-0012); the old Upgrade Offer's same quality knob is preserved here, only
-// its name and consumer changed.
-run_item_offer_quality :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, ITEM_OFFER_QUALITY_PER_TIER, ITEM_OFFER_QUALITY_PER_DEPTH)
+run_fight_opponent_offense :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, FIGHT_OPPONENT_OFFENSE_PER_TIER, FIGHT_OPPONENT_OFFENSE_PER_DEPTH)
 }
 
-// run_stat_trade_gain_durability and run_stat_trade_cost_speed are the
-// zone-and-depth-scaled magnitudes of a Stat Trade's two sides: a deeper
-// trade is a bigger swing (more Durability gained, more Speed spent) than a
-// shallow one in the same zone.
-run_stat_trade_gain_durability :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, STAT_TRADE_DURABILITY_PER_TIER, STAT_TRADE_DURABILITY_PER_DEPTH)
+// run_offer_item_quality is the Offer primitive's stakes reading: a deeper
+// Offer presents stronger items than a shallow one in the same zone. It feeds
+// run_item_offer_options' per-item scaling bonus (issue #96, ADR-0012).
+run_offer_item_quality :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, OFFER_ITEM_QUALITY_PER_TIER, OFFER_ITEM_QUALITY_PER_DEPTH)
 }
 
-run_stat_trade_cost_speed :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, STAT_TRADE_SPEED_COST_PER_TIER, STAT_TRADE_SPEED_COST_PER_DEPTH)
+// run_trade_gain_durability and run_trade_cost_speed are the Trade primitive's
+// stakes reading — swing size, across the trade's two sides: a deeper trade is a
+// bigger swing (more Durability gained, more Speed spent) than a shallow one in
+// the same zone.
+run_trade_gain_durability :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, TRADE_GAIN_DURABILITY_PER_TIER, TRADE_GAIN_DURABILITY_PER_DEPTH)
+}
+
+run_trade_cost_speed :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, TRADE_COST_SPEED_PER_TIER, TRADE_COST_SPEED_PER_DEPTH)
 }
 
 // Node_Kind is what a Node is: the Start/home port, a per-zone Port, an
@@ -171,12 +185,12 @@ ITEM_OFFER_OPTION_COUNT :: 3
 // Encounter_Ship_Battle is a full battle against a game-configured opponent,
 // resolved via core/combat's existing phased-round Battle — this package
 // hands off to combat.combat_battle_create rather than reimplementing combat.
-// opponent's stats are a difficulty placeholder (run_make_opponent_ship);
+// opponent's stats are a stakes placeholder (run_make_opponent_ship);
 // real PvE opponent content is issue #23.
 Encounter_Ship_Battle :: struct {
 	// depth is this node's normalized depth-within-zone (0..DEPTH_STEPS),
-	// retained so run_finish_ship_battle can recompute the node's original
-	// tuned difficulty rating without reading it off the battle-worn opponent.
+	// retained so run_finish_ship_battle can rebuild the node's Scaling_Site —
+	// its original stakes — without reading it off the battle-worn opponent.
 	depth:    int,
 	opponent: ship.Ship,
 }
@@ -251,7 +265,7 @@ Node_ID :: distinct int
 
 // Node is a single node on the run's procedurally-generated map (ADR-0009).
 // zone is nil for Start and Goal, which sit
-// outside the three difficulty bands. encounter is set only when
+// outside the three stakes bands. encounter is set only when
 // kind == .Encounter; shop is set only on a .Port node (#98). layer/lane are the
 // node's position in the layered forward graph — layer is its column (Start = 0,
 // rising toward Goal), lane its row within that column; presentation derives

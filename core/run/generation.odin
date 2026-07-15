@@ -315,8 +315,8 @@ run_make_encounter :: proc(kind: Encounter_Kind, site: Scaling_Site, gen: rand.G
 		return Encounter_Item_Offer{options = run_item_offer_options(site, gen)}
 	case .Stat_Trade:
 		return Encounter_Stat_Trade{
-			gain_durability = run_stat_trade_gain_durability(site),
-			cost_speed      = run_stat_trade_cost_speed(site),
+			gain_durability = run_trade_gain_durability(site),
+			cost_speed      = run_trade_cost_speed(site),
 		}
 	}
 	unreachable()

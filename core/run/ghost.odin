@@ -14,10 +14,19 @@ Ghost_Snapshot :: struct {
 
 // Ghost_Progress is a snapshot's run-progress half (ADR-0008). Not read by
 // combat resolution — captured wholesale for future analytics/ghost-selection.
+//
+// site is the node's stakes: where it sat on the gradient (ADR-0014). It
+// replaces ADR-0008's difficulty_rating, which was a misnomer — a Stat Trade has
+// no difficulty, so run_apply_stat_trade had to shove its gain_durability into
+// the field to have anything to say. Stakes is the concept that survives, and
+// Scaling_Site is what expresses it, so the snapshot carries the site itself
+// rather than one primitive's reading of it: the reading is recoverable
+// (run_fight_opponent_hp(site) and friends), a bare int isn't, and no primitive
+// has to lie about which number it owns. Scaling_Site carries the zone, so the
+// old separate zone field is subsumed rather than duplicated.
 Ghost_Progress :: struct {
-	steps:             int,
-	zone:              Zone,
-	difficulty_rating: int,
+	steps: int,
+	site:  Scaling_Site,
 }
 
 // run_ghost_snapshot_of assembles a Ghost_Snapshot describing ship s at the
@@ -30,13 +39,13 @@ Ghost_Progress :: struct {
 // owns it with run_ghost_snapshot_capture. The encounter-resolution procs
 // return one of these so the Sim owns the single arena-backed capture
 // (issue #82).
-run_ghost_snapshot_of :: proc(s: ^ship.Ship, steps: int, zone: Zone, difficulty_rating: int) -> Ghost_Snapshot {
+run_ghost_snapshot_of :: proc(s: ^ship.Ship, steps: int, site: Scaling_Site) -> Ghost_Snapshot {
 	snap_ship := s^
 	snap_ship.hp = ship.ship_effective_max_hp(s)
 
 	return Ghost_Snapshot{
 		ship = snap_ship,
-		progress = Ghost_Progress{steps = steps, zone = zone, difficulty_rating = difficulty_rating},
+		progress = Ghost_Progress{steps = steps, site = site},
 	}
 }
 
