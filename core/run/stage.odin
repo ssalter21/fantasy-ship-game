@@ -309,6 +309,26 @@ run_encounter_resolve_stage :: proc(e: ^Encounter, outcome: Stage_Outcome) -> (m
 	return !run_encounter_is_finished(e^)
 }
 
+// run_encounter_shop returns the Shop stage an encounter holds, or ok=false if it
+// holds none — the read a shop's Sim path needs now that a Port's stock is a
+// stage rather than a field on its Node (issue #134). First match wins: no
+// authored recipe carries two Shops, and a recipe that did would be two shops at
+// one node, which is a content question (#138) and not this accessor's to answer.
+//
+// This is a stopgap in the same shape as the Sim's first-stage-only firing: it
+// asks the stage list a Shop-specific question because the Port path is still
+// Shop-specific. The generic walk (#131) reaches each stage through the cursor
+// and asks nothing of the ones it isn't on, and the Shop stage's own Sim path
+// (#137) is what retires this.
+run_encounter_shop :: proc(e: Encounter) -> (shop: Stage_Shop, ok: bool) {
+	for i in 0 ..< e.count {
+		if s, is_shop := e.stages[i].(Stage_Shop); is_shop {
+			return s, true
+		}
+	}
+	return {}, false
+}
+
 // run_stage_kind_reveals reports whether a primitive shows its whole encounter on
 // the map before the ship arrives (ADR-0014). Today only Shop reveals: a shop you
 // cannot see is a shop you cannot route to, which is the entire point of a Port's

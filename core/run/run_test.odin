@@ -28,6 +28,18 @@ only_stage :: proc(e: Encounter, $T: typeid) -> (stage: T, ok: bool) {
 	return e.stages[0].(T)
 }
 
+// node_shop returns the Shop stage p's encounter holds, or ok=false for a node
+// that holds no encounter or no Shop within it. A Port's stock is a stage rather
+// than a field on the Node (#134), so "does this node carry a shop" is now a
+// question asked of its stage list — which is what the assertions below check.
+node_shop :: proc(p: Node) -> (shop: Stage_Shop, ok: bool) {
+	encounter, has_encounter := p.encounter.?
+	if !has_encounter {
+		return {}, false
+	}
+	return run_encounter_shop(encounter)
+}
+
 // --- Stakes formulas: zone tier x depth ------------------------------------
 
 expect_rises_by_zone_and_depth :: proc(t: ^testing.T, f: proc(Scaling_Site) -> int) {
@@ -247,6 +259,123 @@ per_zone_node_counts_are_17_17_16 :: proc(t: ^testing.T) {
 	}
 }
 
+// --- Recipe buckets: derived membership, zone hard-map (#134) ---------------
+
+@(test)
+recipe_bucket_membership_is_derived_from_stage_count :: proc(t: ^testing.T) {
+	// #134's headline property: a recipe lands in a bucket by being N stages long,
+	// with nothing authored to say so and nowhere to say it wrong. Checked against a
+	// synthetic catalog rather than the real one, because the real one is still
+	// one-stage-only (#138) and would leave the 2- and 3-stage cases untested.
+	one := [?]Stage_Kind{.Fight}
+	two := [?]Stage_Kind{.Fight, .Reward}
+	three := [?]Stage_Kind{.Offer, .Fight, .Reward}
+	catalog := [?]Recipe {
+		{name = "one-a", stages = one[:]},
+		{name = "three", stages = three[:]},
+		{name = "two", stages = two[:]},
+		{name = "one-b", stages = one[:]},
+	}
+
+	cases := [?]struct {
+		stage_count: int,
+		want:        int,
+	}{{1, 2}, {2, 1}, {3, 1}}
+	for c in cases {
+		bucket := run_recipe_bucket(catalog[:], c.stage_count)
+		defer delete(bucket)
+		testing.expectf(t, len(bucket) == c.want, "the %d-stage bucket holds %d recipes, want %d", c.stage_count, len(bucket), c.want)
+		for r in bucket {
+			testing.expectf(t, len(r.stages) == c.stage_count, "recipe %q (%d stages) landed in the %d-stage bucket", r.name, len(r.stages), c.stage_count)
+		}
+	}
+
+	// A bucket no recipe qualifies for is empty, not a fallback: the fallback is
+	// run_zone_recipe_pool's transitional choice, not the derivation's.
+	empty := run_recipe_bucket(catalog[:], ENCOUNTER_MAX_STAGES + 1)
+	defer delete(empty)
+	testing.expect(t, len(empty) == 0, "a stage count no recipe has should derive an empty bucket")
+}
+
+@(test)
+each_zone_deals_only_its_own_stage_count_bucket :: proc(t: ^testing.T) {
+	// ADR-0014's hard mapping (Coastal 1 -> Open_Sea 2 -> Deep 3), asserted where it
+	// actually has to hold: on generated maps. A zone whose bucket is still empty
+	// deals the 1-stage fallback (run_zone_recipe_pool) and is skipped here — the
+	// tripwire below is what makes that skip temporary.
+	catalog := run_recipe_catalog()
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		for p in m.nodes {
+			zone, in_zone := p.zone.?
+			if !in_zone || p.kind != .Encounter {
+				continue // Start/Goal hold nothing; a .Port is bespoke-placed and exempt.
+			}
+			bucket := run_recipe_bucket(catalog, zone_stage_count[zone])
+			defer delete(bucket)
+			if len(bucket) == 0 {
+				continue
+			}
+
+			encounter, has_encounter := p.encounter.?
+			testing.expectf(t, has_encounter, "seed %d: %v node %d holds no encounter", seed, zone, p.id)
+			testing.expectf(
+				t,
+				encounter.count == zone_stage_count[zone],
+				"seed %d: %v node %d holds a %d-stage encounter, want %d",
+				seed, zone, p.id, encounter.count, zone_stage_count[zone],
+			)
+		}
+	}
+}
+
+@(test)
+multi_stage_buckets_are_empty_until_the_catalog_is_authored :: proc(t: ^testing.T) {
+	// A tripwire, not a property: the catalog is still the three one-stage recipes
+	// ADR-0014 retired the encounter kinds into, so Open_Sea and The Deep deal
+	// run_zone_recipe_pool's 1-stage fallback rather than their own buckets.
+	//
+	// **When #138 authors the multi-stage recipes, this test fails — that is its
+	// whole job.** Delete it, and delete the fallback in run_zone_recipe_pool with
+	// it: an empty bucket is a content bug from that point on, and it should assert
+	// rather than quietly deal Coastal's encounters in The Deep.
+	catalog := run_recipe_catalog()
+	for stage_count in 2 ..= ENCOUNTER_MAX_STAGES {
+		bucket := run_recipe_bucket(catalog, stage_count)
+		defer delete(bucket)
+		testing.expectf(
+			t,
+			len(bucket) == 0,
+			"the %d-stage bucket now holds %d recipes — #138 has landed, so delete this test and run_zone_recipe_pool's fallback",
+			stage_count, len(bucket),
+		)
+	}
+}
+
+@(test)
+every_port_holds_the_one_stage_shop_recipe :: proc(t: ^testing.T) {
+	// The Port bucket's bespoke placement (#134): a Port is [Shop] — one stage even
+	// in The Deep, where the zone mapping would otherwise demand three — and it is
+	// visible on the map because Shop reveals, not because its node kind exempts it.
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		for p in m.nodes {
+			if p.kind != .Port {
+				continue
+			}
+			encounter, has_encounter := p.encounter.?
+			testing.expectf(t, has_encounter, "seed %d: port %d holds no encounter", seed, p.id)
+			testing.expectf(t, encounter.count == 1, "seed %d: port %d holds %d stages, want the one-stage [Shop]", seed, p.id, encounter.count)
+			testing.expectf(t, only_stage_kind(encounter) == .Shop, "seed %d: port %d holds a %v stage, want Shop", seed, p.id, only_stage_kind(encounter))
+			testing.expectf(t, run_encounter_reveals(encounter), "seed %d: port %d does not reveal itself on the map", seed, p.id)
+		}
+	}
+}
+
 @(test)
 each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 	for seed in TEST_SEEDS {
@@ -289,16 +418,19 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 
 @(test)
 every_port_bakes_a_full_roster_deck_priced_by_tier :: proc(t: ^testing.T) {
-	// #123, ADR-0013: every .Port node bakes a Shop whose deck is the *full*
-	// roster — a permutation, so every roster item appears exactly once — each
-	// card priced at its tier; non-port nodes carry no shop.
+	// #123, ADR-0013: every port bakes a Shop whose deck is the *full* roster — a
+	// permutation, so every roster item appears exactly once — each card priced at
+	// its tier; no other node carries a shop. Unchanged by #134 except in where the
+	// deck lives: it is the port's [Shop] stage's baked content now, dealt with its
+	// recipe, so this asserts the fold from the old step-6 stocking pass preserved
+	// the deck's shape.
 	roster := ship.ship_item_roster()
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
 		for p in m.nodes {
-			shop, has_shop := p.shop.?
+			shop, has_shop := node_shop(p)
 			if p.kind != .Port {
 				testing.expectf(t, !has_shop, "seed %d: a %v node carries a shop", seed, p.kind)
 				continue
@@ -344,11 +476,11 @@ a_ports_deck_is_deterministic_per_seed :: proc(t: ^testing.T) {
 	defer run_map_destroy(&b)
 
 	for pa, i in a.nodes {
-		sa, is_port := pa.shop.?
+		sa, is_port := node_shop(pa)
 		if !is_port {
 			continue
 		}
-		sb := b.nodes[i].shop.?
+		sb, _ := node_shop(b.nodes[i])
 		for pos in 0 ..< len(sa.deck) {
 			testing.expectf(
 				t,
@@ -379,8 +511,8 @@ distinct_ports_bake_distinct_decks :: proc(t: ^testing.T) {
 
 		for i in 0 ..< len(port_ids) {
 			for j in i + 1 ..< len(port_ids) {
-				a := m.nodes[port_ids[i]].shop.?
-				b := m.nodes[port_ids[j]].shop.?
+				a, _ := node_shop(m.nodes[port_ids[i]])
+				b, _ := node_shop(m.nodes[port_ids[j]])
 				identical := true
 				for pos in 0 ..< len(a.deck) {
 					if a.deck[pos].fitting.name != b.deck[pos].fitting.name {

@@ -195,10 +195,13 @@ run_trade_swing :: proc(site: Scaling_Site, stat: Trade_Stat) -> int {
 // is an Encounter holding the [Shop] recipe, visible because Shop reveals, not
 // because it is exempt. The end state is `Start | Encounter | Goal`.
 //
-// `.Port` is still here as a transitional value: retiring it means placing Ports
-// as [Shop] encounters (the Port bucket, issue #134) and collapsing the Sim's
-// per-Port cross-visit state (issue #137), neither of which is this ticket's
-// data-model half. Nothing new should key off it.
+// `.Port` is still here, but it no longer says what a node holds: the Port
+// bucket (issue #134) places Ports as [Shop] encounters like any other content,
+// so a Port's shop is its stage and `.Port` is down to a marker for *how the node
+// was placed* — bespoke, off the zone's stage-count draw. What still reads it is
+// the Sim's per-Port shop path, which keys arrival off the kind because its
+// cross-visit shelf state has nowhere else to hang yet; collapsing that (issue
+// #137) is what deletes this value for good. Nothing new should key off it.
 Node_Kind :: enum {
 	Start,
 	Port,
@@ -225,21 +228,23 @@ run_node_is_port :: proc(p: Node) -> bool {
 Node_ID :: distinct int
 
 // Node is a single node on the run's procedurally-generated map (ADR-0009).
-// zone is nil for Start and Goal, which sit
-// outside the three stakes bands. encounter is set only when
-// kind == .Encounter; shop is set only on a .Port node (#98) and collapses into a
-// Shop stage once a Port is the [Shop] recipe (#134/#137). layer/lane are the
-// node's position in the layered forward graph — layer is its column (Start = 0,
-// rising toward Goal), lane its row within that column; presentation derives
-// screen coordinates from them, so Nodes still carry no screen coordinates of
-// their own. depth is the node's normalized depth-within-zone (0 for
-// Start/Goal). Adjacency lives on Map.edges, not on the Node.
+// zone is nil for Start and Goal, which sit outside the three stakes bands.
+// encounter is set on every node that holds content — .Encounter nodes and the
+// bespoke-placed .Port ones alike (#134) — and nil on the Start/Goal landmarks,
+// which hold none. The separate `shop: Maybe(Stage_Shop)` a Port used to carry
+// (#98) is gone with the Port bucket: a port's stock is its [Shop] stage, so
+// there is one field content arrives in rather than a general one plus a
+// port-shaped exception. layer/lane are the node's position in the layered
+// forward graph — layer is its column (Start = 0, rising toward Goal), lane its
+// row within that column; presentation derives screen coordinates from them, so
+// Nodes still carry no screen coordinates of their own. depth is the node's
+// normalized depth-within-zone (0 for Start/Goal). Adjacency lives on Map.edges,
+// not on the Node.
 Node :: struct {
 	id:        Node_ID,
 	zone:      Maybe(Zone),
 	kind:      Node_Kind,
 	encounter: Maybe(Encounter),
-	shop:      Maybe(Stage_Shop),
 	layer:     int,
 	lane:      int,
 	depth:     int,
