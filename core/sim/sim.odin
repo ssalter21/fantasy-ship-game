@@ -72,13 +72,14 @@ Sim :: struct {
 	// to it as Sim's shape, not something this ticket revisits.
 	rng:               rand.Default_Random_State,
 	run_map:           run.Map,
-	// public_nodes is the encounter-kind-masked view of run_map.nodes the
-	// Sim broadcasts at run start (the hiding contract): a copy that nils every
-	// Encounter's kind while preserving graph shape and landmarks, so
-	// presentation cannot leak what kind of encounter a node holds before the
-	// ship arrives. Kind is revealed per-node on arrival via
-	// Event_Arrived_At_Node, which carries the full Node. The edges it pairs
-	// with are shared (borrowed) from run_map.
+	// public_nodes is the masked view of run_map.nodes the Sim broadcasts at run
+	// start (the hiding contract): a copy that nils every non-revealing
+	// Encounter's stage list while preserving graph shape and landmarks, so
+	// presentation cannot leak what a node holds before the ship arrives. An
+	// encounter holding a revealing stage (ADR-0014) passes through unmasked —
+	// that is what makes it visible on the map. Content is revealed per-node on
+	// arrival via Event_Arrived_At_Node, which carries the full Node. The edges it
+	// pairs with are shared (borrowed) from run_map. See sim_mask_encounters.
 	public_nodes:      []run.Node,
 	player:            ship.Ship,
 	current:           Node_ID, // index into run_map.nodes; Start is always 0
@@ -106,10 +107,10 @@ Sim :: struct {
 	awaiting_decision: bool,
 	pending_command:   Maybe(Command),
 	battle:            combat.Battle,
-	active_encounter:  run.Encounter_Ship_Battle,
-	// item_offer_options are the distinct roster items the current Item Offer is
-	// presenting (issue #96): staged from the arrived node's Encounter_Item_Offer
-	// and broadcast on Event_Item_Offer_Presented, then indexed by a
+	active_encounter:  run.Stage_Fight,
+	// item_offer_options are the distinct roster items the current Offer stage is
+	// presenting (issue #96): staged from the arrived node's Stage_Offer and
+	// broadcast on Event_Item_Offer_Presented, then indexed by a
 	// Command_Pick_Item's Option_Index to know which item to open a Refit with.
 	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 	// port_shelves is the persistent per-Port shop state (issue #123, ADR-0013),
@@ -276,12 +277,12 @@ Event :: union {
 // Event_Run_Started is dispatched exactly once, on the very first sim_tick
 // call. run_map carries the full graph shape (nodes, edges, zones, layer/lane
 // layout) and the always-visible landmarks (Start/Port/Goal), but its
-// Encounter nodes have their *kind* withheld — run_map.nodes is the Sim's
-// masked public_nodes, not its private run_map. This is the hiding contract
-// (ADR-0009): what kind of encounter
-// a node holds is a surprise revealed only on arrival, via
-// Event_Arrived_At_Node carrying that node's full Node. Withholding is a
-// guaranteed data property of the emitted event, not a presentation courtesy.
+// non-revealing Encounter nodes have their *stages* withheld — run_map.nodes is
+// the Sim's masked public_nodes, not its private run_map. This is the hiding
+// contract (ADR-0009): what a node holds is a surprise revealed only on arrival,
+// via Event_Arrived_At_Node carrying that node's full Node, unless the encounter
+// contains a revealing stage (ADR-0014). Withholding is a guaranteed data
+// property of the emitted event, not a presentation courtesy.
 Event_Run_Started :: struct {
 	run_map: run.Map,
 	ship:    ship.Ship,
@@ -440,7 +441,7 @@ sim_create :: proc(seed: u64) -> Sim {
 
 	s.rng = rand.create_u64(seed)
 	s.run_map = run.run_map_create(seed)
-	s.public_nodes = sim_mask_encounter_kinds(s.run_map.nodes)
+	s.public_nodes = sim_mask_encounters(s.run_map.nodes)
 	s.player = ship.ship_starting_ship()
 	s.resolved = make([]bool, len(s.run_map.nodes))
 	s.visited = make([]bool, len(s.run_map.nodes))
@@ -455,19 +456,30 @@ sim_create :: proc(seed: u64) -> Sim {
 	return s
 }
 
-// sim_mask_encounter_kinds builds the encounter-kind-masked view of nodes
-// (the hiding contract): a fresh copy in which every Encounter node's kind is
-// withheld (encounter = nil), while Start/Port/Goal landmarks — which carry
-// no hidden kind — pass through fully described. Graph shape (zone, layer,
-// lane, id) is preserved on every node. Allocated from whatever allocator is
-// in scope (the Sim's run-scoped arena at sim_create time).
-sim_mask_encounter_kinds :: proc(nodes: []run.Node) -> []run.Node {
+// sim_mask_encounters builds the masked public view of nodes (the hiding
+// contract): a fresh copy in which every Encounter node's content is withheld
+// (encounter = nil), while Start/Port/Goal landmarks — which carry nothing
+// hidden — pass through fully described. Graph shape (zone, layer, lane, id) is
+// preserved on every node. Allocated from whatever allocator is in scope (the
+// Sim's run-scoped arena at sim_create time).
+//
+// What gets withheld is now asked of the stage list, not of the node
+// (run.run_encounter_reveals, ADR-0014): an encounter holding a revealing stage
+// shows itself on the map before arrival, so it passes through unmasked. Today
+// only Shop reveals and no catalog recipe authors one, so nothing takes that
+// branch yet and the masked view is identical to the pre-stage-model one — it is
+// the Port bucket (#134) that starts placing revealing encounters.
+sim_mask_encounters :: proc(nodes: []run.Node) -> []run.Node {
 	masked := make([]run.Node, len(nodes))
 	for p, i in nodes {
 		masked[i] = p
-		if p.kind == .Encounter {
-			masked[i].encounter = nil
+		if p.kind != .Encounter {
+			continue
 		}
+		if enc, ok := p.encounter.?; ok && run.run_encounter_reveals(enc) {
+			continue
+		}
+		masked[i].encounter = nil
 	}
 	return masked
 }

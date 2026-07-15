@@ -73,7 +73,7 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 // headless_next_node picks the auto-player's next travel destination from the
 // Sim's emitted legal options (issue #83): a forward neighbour (deeper layer)
 // if one is offered, else the first emitted option — always making progress
-// toward Goal without depending on any hidden encounter kind.
+// toward Goal without depending on any hidden encounter content.
 headless_next_node :: proc(state: ^Headless_State) -> sim.Node_ID {
 	options := state.travel_options
 	assert(len(options) > 0, "no legal travel option from the current node")

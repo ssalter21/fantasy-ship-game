@@ -5,20 +5,26 @@ import "../ship"
 import "core:slice"
 import "core:testing"
 
-// encounter_kind_of classifies e as its Encounter_Kind so the assertions
-// below don't each repeat a type-switch over Encounter's variants. Kept
-// local to tests rather than exported from run.odin: nothing in production
-// code needs the reverse Encounter -> Encounter_Kind mapping.
-encounter_kind_of :: proc(e: Encounter) -> Encounter_Kind {
-	switch _ in e {
-	case Encounter_Ship_Battle:
-		return .Ship_Battle
-	case Encounter_Item_Offer:
-		return .Item_Offer
-	case Encounter_Stat_Trade:
-		return .Stat_Trade
+// only_stage_kind returns the primitive of e's single stage, asserting that e
+// has exactly one. Every recipe in today's catalog is a one-stage port of a
+// retired encounter kind (catalog.odin), so the generator assertions below can
+// still talk about "this node's kind" — but they say so through the stage list
+// rather than a kind tag, and they fail loudly rather than silently reading
+// stage 0 once #138 authors multi-stage recipes.
+only_stage_kind :: proc(e: Encounter) -> Stage_Kind {
+	assert(e.count == 1, "only_stage_kind on a multi-stage encounter — this assertion predates the multi-stage catalog (#138)")
+	return run_stage_kind(e.stages[0])
+}
+
+// only_stage returns e's single stage as T, or ok=false if e's one stage is a
+// different primitive. The Encounter-shaped counterpart of a plain type
+// assertion, for assertions that need the stage's baked content and not just its
+// kind.
+only_stage :: proc(e: Encounter, $T: typeid) -> (stage: T, ok: bool) {
+	if e.count != 1 {
+		return {}, false
 	}
-	unreachable()
+	return e.stages[0].(T)
 }
 
 // --- Stakes formulas: zone tier x depth ------------------------------------
@@ -373,27 +379,55 @@ distinct_ports_bake_distinct_decks :: proc(t: ^testing.T) {
 }
 
 @(test)
-encounter_kind_counts_per_zone_are_as_even_as_a_three_way_split_allows :: proc(t: ^testing.T) {
+recipe_counts_per_zone_are_as_even_as_the_catalog_split_allows :: proc(t: ^testing.T) {
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
 		for zone in Zone {
-			counts: [Encounter_Kind]int
+			counts: map[string]int
+			defer delete(counts)
 			for p in m.nodes {
 				pz, in_zone := p.zone.?
 				if !in_zone || pz != zone {
 					continue
 				}
 				if enc, ok := p.encounter.?; ok {
-					counts[encounter_kind_of(enc)] += 1
+					counts[recipe_name_of(enc)] += 1
 				}
 			}
-			lo := min(counts[.Ship_Battle], counts[.Item_Offer], counts[.Stat_Trade])
-			hi := max(counts[.Ship_Battle], counts[.Item_Offer], counts[.Stat_Trade])
-			testing.expectf(t, hi - lo <= 1, "seed %d: zone %v kind spread %d..%d not even", seed, zone, lo, hi)
+			lo, hi := max(int), 0
+			for r in run_recipe_catalog() {
+				lo = min(lo, counts[r.name])
+				hi = max(hi, counts[r.name])
+			}
+			testing.expectf(t, hi - lo <= 1, "seed %d: zone %v recipe spread %d..%d not even", seed, zone, lo, hi)
 		}
 	}
+}
+
+// recipe_name_of names the catalog recipe a generated encounter was baked from,
+// by matching its stage list against each authored entry. A generated Encounter
+// doesn't carry its recipe's name — generation bakes the stages and drops the
+// authoring label — so the deal-evenness assertion recovers it here rather than
+// widening the production type for a test's benefit.
+recipe_name_of :: proc(e: Encounter) -> string {
+	for r in run_recipe_catalog() {
+		if len(r.stages) != e.count {
+			continue
+		}
+		matched := true
+		for kind, i in r.stages {
+			if run_stage_kind(e.stages[i]) != kind {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return r.name
+		}
+	}
+	return ""
 }
 
 @(test)
@@ -478,7 +512,8 @@ the_same_seed_reproduces_an_identical_map :: proc(t: ^testing.T) {
 		eb, has_b := pb.encounter.?
 		testing.expect_value(t, has_a, has_b)
 		if has_a && has_b {
-			testing.expect_value(t, encounter_kind_of(ea), encounter_kind_of(eb))
+			testing.expect_value(t, ea.count, eb.count)
+			testing.expect_value(t, only_stage_kind(ea), only_stage_kind(eb))
 		}
 		testing.expect(t, slice.equal(a.edges[i], b.edges[i]))
 	}
@@ -505,7 +540,7 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 				if !ok {
 					continue
 				}
-				if _, is_battle := enc.(Encounter_Ship_Battle); !is_battle {
+				if _, is_fight := only_stage(enc, Stage_Fight); !is_fight {
 					continue
 				}
 				if shallow < 0 || p.depth < m.nodes[shallow].depth {
@@ -516,8 +551,8 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 				}
 			}
 			if shallow >= 0 && deep >= 0 && m.nodes[shallow].depth != m.nodes[deep].depth {
-				sb := m.nodes[shallow].encounter.?.(Encounter_Ship_Battle)
-				db := m.nodes[deep].encounter.?.(Encounter_Ship_Battle)
+				sb, _ := only_stage(m.nodes[shallow].encounter.?, Stage_Fight)
+				db, _ := only_stage(m.nodes[deep].encounter.?, Stage_Fight)
 				testing.expect(t, db.opponent.hp > sb.opponent.hp)
 				found = true
 			}
@@ -620,14 +655,14 @@ can_travel_to_rejects_a_non_adjacent_destination :: proc(t: ^testing.T) {
 // --- Encounter resolution + status (unchanged contracts) --------------------
 
 @(test)
-run_start_battle_hands_off_to_combat_with_the_ship_and_the_encounters_opponent :: proc(t: ^testing.T) {
+run_start_battle_hands_off_to_combat_with_the_ship_and_the_fight_stages_opponent :: proc(t: ^testing.T) {
 	player := ship.Ship{hp = 20, speed = 5}
-	encounter := Encounter_Ship_Battle{opponent = ship.Ship{hp = 10, speed = 3}}
+	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
 
-	battle := run_start_battle(&player, &encounter)
+	battle := run_start_battle(&player, &fight)
 
 	testing.expect_value(t, battle.ships[.A], &player)
-	testing.expect_value(t, battle.ships[.B], &encounter.opponent)
+	testing.expect_value(t, battle.ships[.B], &fight.opponent)
 
 	events: [dynamic]combat.Event
 	defer delete(events)
@@ -639,7 +674,7 @@ run_start_battle_hands_off_to_combat_with_the_ship_and_the_encounters_opponent :
 @(test)
 run_apply_stat_trade_permanently_gains_durability_and_costs_speed :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20, durability = 2, speed = 5}
-	trade := Encounter_Stat_Trade{gain_durability = 3, cost_speed = 1}
+	trade := Stage_Trade{gain_durability = 3, cost_speed = 1}
 
 	run_apply_stat_trade(&s, trade, Scaling_Site{zone = .Coastal, depth = 0}, 0)
 

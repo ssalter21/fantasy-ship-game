@@ -115,7 +115,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	switch e in event {
 	case sim.Event_Run_Started:
-		// e.run_map is the Sim's masked public map (unvisited encounter kinds
+		// e.run_map is the Sim's masked public map (unvisited encounters' stages
 		// hidden). Its nodes are cloned into UI-owned storage so arrivals can
 		// reveal kinds into it (state.run_map.nodes[id] = revealed node); the
 		// edges/adjacency are borrowed (they never change). Start (id 0) counts

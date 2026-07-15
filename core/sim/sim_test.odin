@@ -13,13 +13,27 @@ import "core:testing"
 // a battle policy. The chosen seeds are fixed so each scenario reproduces
 // exactly.
 
+// first_stage_is reports whether e's stage under the cursor is primitive T — how
+// the scenarios below ask "what does this node do", now that a node holds an
+// ordered stage list rather than one kind tag (ADR-0014). Every recipe in today's
+// catalog is one stage long, so for now this is the whole encounter; once #138
+// authors multi-stage recipes these scenarios will need to say which stage they
+// mean.
+first_stage_is :: proc(e: run.Encounter, $T: typeid) -> bool {
+	stage, ok := run.run_encounter_current(e)
+	if !ok {
+		return false
+	}
+	_, is_t := stage.(T)
+	return is_t
+}
+
 is_battle_node :: proc(m: run.Map, id: Node_ID) -> bool {
 	enc, ok := m.nodes[id].encounter.?
 	if !ok {
 		return false
 	}
-	_, is_battle := enc.(run.Encounter_Ship_Battle)
-	return is_battle
+	return first_stage_is(enc, run.Stage_Fight)
 }
 
 // Travel_Policy is how the Auto_Pilot chooses among the Sim's emitted forward
@@ -36,8 +50,8 @@ Travel_Policy :: enum {
 // a bespoke DP pathfinder precomputed. It is both the Input_Source and the
 // Event_Sink: dispatch records the emitted legal moves (plus the arrivals and
 // events the scenarios assert on), and get_captain_choice picks among them per
-// policy. It reads node kinds/layers off m — a kind-visible copy of the same
-// seed's map (a test privilege; the Sim's own public map hides kinds) — only to
+// policy. It reads node stages/layers off m — an unmasked copy of the same
+// seed's map (a test privilege; the Sim's own public map hides them) — only to
 // classify the already-legal options and prefer forward progress, never to
 // recompute legality.
 Auto_Pilot :: struct {
@@ -79,9 +93,9 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 }
 
 // auto_pilot_next chooses the next travel destination from the Sim's emitted
-// options: among the forward (deeper-layer) options it prefers one whose kind
+// options: among the forward (deeper-layer) options it prefers one whose stage
 // matches the policy's current battle preference, falling back to the first
-// forward option, and finally to the first option of any kind (never reached
+// forward option, and finally to the first option of any stage (never reached
 // before Goal, since every non-Goal node has a forward edge). Preferring
 // forward keeps the route progressing toward Goal instead of retracing.
 auto_pilot_next :: proc(pilot: ^Auto_Pilot) -> Node_ID {
@@ -160,8 +174,8 @@ drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Comman
 	sim := sim_create(seed)
 	defer sim_destroy(&sim)
 
-	// A kind-visible twin of the Sim's map: run_map_create is deterministic per
-	// seed, so its node ids line up with the Sim's, but its encounter kinds are
+	// An unmasked twin of the Sim's map: run_map_create is deterministic per
+	// seed, so its node ids line up with the Sim's, but its encounter stages are
 	// unmasked so the pilot can classify the options it is offered.
 	m := run.run_map_create(seed)
 	defer run.run_map_destroy(&m)
@@ -273,7 +287,7 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 			continue
 		}
 		if enc, ok := node.encounter.?; ok {
-			if _, is_trade := enc.(run.Encounter_Stat_Trade); is_trade {
+			if first_stage_is(enc, run.Stage_Trade) {
 				trade = o
 				break
 			}
@@ -368,7 +382,7 @@ the_run_start_broadcast_hides_unvisited_encounter_kinds_and_reveals_on_arrival :
 
 	// Graph shape is present: adjacency parallel to nodes.
 	testing.expect_value(t, len(started.run_map.edges), len(started.run_map.nodes))
-	// Every unvisited Encounter's kind is withheld; landmarks are unaffected.
+	// Every unvisited non-revealing Encounter's stages are withheld; landmarks are unaffected.
 	for p in started.run_map.nodes {
 		_, has_encounter := p.encounter.?
 		if p.kind == .Encounter {
@@ -711,9 +725,9 @@ an_out_of_range_item_selection_asserts :: proc(t: ^testing.T) {
 // position i is roster[i]), so the shop tests can assert exactly which card the
 // shelf shows and refills with. A real generated deck is a shuffle of this same
 // set (run_port_shop); the tests don't need the shuffle, only the deck contract.
-flat_deck :: proc(cost: int) -> run.Shop {
+flat_deck :: proc(cost: int) -> run.Stage_Shop {
 	roster := ship.ship_item_roster()
-	shop: run.Shop
+	shop: run.Stage_Shop
 	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
 		shop.deck[i] = run.Shop_Item{fitting = roster[i].fitting, cost = cost}
 	}
@@ -726,7 +740,7 @@ flat_deck :: proc(cost: int) -> run.Shop {
 // arena-backed map directly is a white-box test privilege; the Port's persistent
 // shelf (port_shelves[id]) is untouched, so it deals on first arrival and persists
 // across the arrivals a test stages.
-install_port_deck :: proc(sim: ^Sim, id: Node_ID, shop: run.Shop) {
+install_port_deck :: proc(sim: ^Sim, id: Node_ID, shop: run.Stage_Shop) {
 	sim.run_map.nodes[id].kind = .Port
 	sim.run_map.nodes[id].shop = shop
 }

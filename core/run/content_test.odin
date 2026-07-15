@@ -51,24 +51,24 @@ a_deeper_ship_battle_node_gives_the_opponent_a_harder_hitting_gun_deck :: proc(t
 }
 
 @(test)
-run_map_create_wires_the_hand_authored_pve_opponent_content_into_ship_battle_nodes :: proc(t: ^testing.T) {
+run_map_create_wires_the_hand_authored_pve_opponent_content_into_fight_stages :: proc(t: ^testing.T) {
 	m := run_map_create(0)
 	defer run_map_destroy(&m)
 
-	found_a_ship_battle := false
+	found_a_fight := false
 	for node in m.nodes {
 		encounter, has_encounter := node.encounter.?
 		if !has_encounter {
 			continue
 		}
-		battle, is_battle := encounter.(Encounter_Ship_Battle)
-		if !is_battle {
+		fight, is_fight := only_stage(encounter, Stage_Fight)
+		if !is_fight {
 			continue
 		}
-		found_a_ship_battle = true
-		testing.expect_value(t, len(battle.opponent.layout), 8)
+		found_a_fight = true
+		testing.expect_value(t, len(fight.opponent.layout), 8)
 	}
-	testing.expect(t, found_a_ship_battle)
+	testing.expect(t, found_a_fight)
 }
 
 @(test)

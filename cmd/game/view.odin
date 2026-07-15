@@ -61,10 +61,14 @@ zone_tint :: proc(zone: Maybe(run.Zone)) -> rl.Color {
 }
 
 // node_appearance picks the marker colour and label for a node (issue #71).
-// An unvisited Encounter is a generic zone-tinted marker with no kind label —
-// its kind is hidden until arrival (the Sim's hiding contract). Once visited,
-// an Encounter shows its revealed kind's colour and label; landmarks
+// An unvisited Encounter is a generic zone-tinted marker with no label — its
+// content is hidden until arrival (the Sim's hiding contract). Once visited, an
+// Encounter shows its revealed first stage's colour and label; landmarks
 // (Start/Port/Goal) are always fully labelled.
+//
+// Labelling by the first stage is what today's one-stage recipes allow
+// (catalog.odin); rendering an arbitrary stage sequence — including a halt read
+// as a consequence rather than a bug — is issue #139.
 node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:
@@ -75,17 +79,25 @@ node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: 
 		return rl.GOLD, "Goal"
 	case .Encounter:
 		if !visited {
-			// Kind hidden: generic zone-tinted marker, no kind label.
+			// Content hidden: generic zone-tinted marker, no label.
 			return zone_tint(p.zone), ""
 		}
 		encounter, _ := p.encounter.?
-		switch enc in encounter {
-		case run.Encounter_Ship_Battle:
+		stage, has_stage := run.run_encounter_current(encounter)
+		if !has_stage {
+			return rl.GRAY, ""
+		}
+		switch _ in stage {
+		case run.Stage_Fight:
 			return rl.Fade(rl.MAROON, 0.7), "Battle"
-		case run.Encounter_Item_Offer:
+		case run.Stage_Offer:
 			return rl.Fade(rl.LIME, 0.7), "Items"
-		case run.Encounter_Stat_Trade:
+		case run.Stage_Trade:
 			return rl.Fade(rl.ORANGE, 0.7), "Trade"
+		case run.Stage_Shop:
+			return rl.SKYBLUE, "Shop"
+		case run.Stage_Reward:
+			return rl.Fade(rl.GOLD, 0.7), "Loot"
 		}
 	}
 	return rl.GRAY, ""
