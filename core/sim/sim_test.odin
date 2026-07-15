@@ -315,7 +315,7 @@ a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
 	// one; that it is now scarce is the hard mapping meaning something, not a bug.
 	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
-	testing.expect_value(t, res.hp, 20) // untouched: no battle fought
+	testing.expect_value(t, res.hp, ship.STARTING_HP) // untouched: no battle fought
 }
 
 @(test)
@@ -335,7 +335,7 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
-	testing.expect(t, res.hp < 20) // a real fight cost some HP
+	testing.expect(t, res.hp < ship.STARTING_HP) // a real fight cost some HP
 }
 
 @(test)

@@ -223,20 +223,25 @@ the_hostile_roster_spans_speeds_either_side_of_a_starting_ship :: proc(t: ^testi
 // the state the player is actually in when they meet their first hostile, and (since
 // the draw reads no zone) any archetype can be that first hostile.
 //
-// Both failure directions are one-line mistakes in the table, and the margins are
-// single digits: damage is `raw - (effective_durability + defense_bonus)`, and a
-// starting player's raw of 8 already spends 6 of it on the template's own soak. A
-// few points of stacked +Durability — or of *buff*, which folds into the defender's
-// defense_bonus too — makes a hostile undentable. Overshoot the other way and it
-// one-shots a 20-HP ship. This test is what keeps the eight entries in the band the
-// retired template sat in.
+// Both failure directions are one-line mistakes in the table: damage is
+// `raw - (effective_durability + defense_bonus)`, so a few points of stacked
+// +Durability makes a hostile undentable, and overshooting the other way one-shots
+// the player. This test is what keeps the eight entries inside the band.
+//
+// **The floor is BASELINE_ROUND_COUNT, and #151 made that a real number rather than
+// a hopeful one.** It used to be 4 — *below* the escape gate — and it was never
+// reached anyway: every archetype died in 2-3 rounds, so `combat_may_leave` never
+// returned true and Leave Combat, which ADR-0006 calls "the primary tool for
+// avoiding a run-ending mistake", was unreachable in every Coastal fight in the
+// game. A fight that ends before the gate is not a fight the captain gets to play;
+// it is a coin flip that resolves itself. So the bound is the gate itself, by
+// reference and not by literal: both ships must still be afloat when escape unlocks.
 @(test)
 a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
-	// A Coastal hostile has 10 HP, so a fight that runs this long is not a fight.
+	// A fight that runs this long has stopped being one.
 	ROUND_CAP :: 30
-	// The player must still be afloat this far in: fewer rounds than this and the
-	// hostile is a coin-flip the captain never gets to play.
-	MIN_PLAYER_ROUNDS :: 4
+	// The intended fight length: long enough that Leave Combat comes off the bench.
+	MIN_PLAYER_ROUNDS :: combat.BASELINE_ROUND_COUNT
 
 	for archetype in run_hostile_roster() {
 		player := ship.ship_starting_ship()
@@ -277,7 +282,59 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 		)
 		// And the fight actually ends, rather than grinding on the damage floor.
 		testing.expectf(t, battle.ended, "%v and a starting player cannot finish a fight at Coastal", archetype.name)
+		// The other wall, and the one #151 added: a fight must last long enough for
+		// the captain to have played it. Ending before the escape gate means Leave
+		// Combat was never on the menu, so the hostile resolved itself.
+		testing.expectf(
+			t,
+			battle.round >= MIN_PLAYER_ROUNDS,
+			"%v and a starting player finish at Coastal in %d round(s), before the escape gate at %d — Leave Combat never comes off the bench",
+			archetype.name,
+			battle.round,
+			MIN_PLAYER_ROUNDS,
+		)
 	}
+}
+
+// **The Selector question, answered as a test** (#151). Admiral's Guard is +3 per
+// Crew aboard, so on a four-Crew build it reads +12 — and the pre-#151 fold put all
+// twelve into the build's own `defense_bonus`, against a starting player's raw of 8.
+// That is not a hard fight, it is arithmetic: the player's damage is `max(0, ...)`,
+// so it was exactly zero, for every round, forever. A whole family of ADR-0012's
+// roster — every `Selector`-based item, which is most of what the roster is *for* —
+// could not sit on a hostile at any magnitude.
+//
+// It can now, and the reason is structural rather than tuned: a Selector buff is
+// output, and output is the side of the ledger that can absorb a 12. The build is a
+// hard hitter instead of an invincible one, which is a *magnitude* problem (tunable
+// by the entry, the site, or the item) rather than a *category* one. So this test
+// asserts the property that changed — the player's damage gets through a stacked
+// Selector buff — and not a number.
+@(test)
+a_selector_buff_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^testing.T) {
+	// Four Crew aboard: Admiral's Guard itself, Naval Gun Crew, Boarding Pikes and
+	// Deckhands are all Crew-tagged, so the Guard reads its own maximum.
+	guard := [?]string{"Naval Gun Crew", "Admiral's Guard", "Boarding Pikes", "Deckhands"}
+
+	player := ship.ship_starting_ship()
+	defer delete(player.layout)
+	hostile := test_hostile({name = "Admiral's Guard build", speed = 4, items = guard[:]}, Scaling_Site{zone = .Coastal, depth = 0})
+	defer delete(hostile.layout)
+
+	battle := combat.combat_battle_create(&player, &hostile)
+	events: [dynamic]combat.Event
+	defer delete(events)
+	hold := [combat.Side]Maybe(combat.Command) {
+		.A = combat.Command(combat.Command_Hold{}),
+		.B = combat.Command(combat.Command_Hold{}),
+	}
+	combat.combat_resolve_round(&battle, hold, &events)
+
+	testing.expectf(
+		t,
+		hostile.hp < hostile.max_hp,
+		"a starting player cannot scratch a four-Crew Admiral's Guard build — the buff is soaking again, and every Selector item is barred from half the game",
+	)
 }
 
 // loadout_signature names the build a Ship is carrying, in slot order — enough to

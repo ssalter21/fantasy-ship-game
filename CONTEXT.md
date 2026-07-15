@@ -57,11 +57,14 @@ _Avoid_: Game mode, client mode
 - **Effective visibility** — a fitting's visibility as actually observed by an opponent (e.g. when scouting a ghost snapshot), resolved through a three-layer precedence: slot base visibility → fitting-level override → ship/captain-level forced override. See ADR-0005.
 - **Captain** — a run-start choice, structurally separate from the slot system (not a fitting, consumes no slot). Can influence a ship's slot limits/structure and grants additional manual per-round captain actions.
 
-### Combat resolution (see ADR-0006)
+### Combat resolution (see ADR-0006, amended by ADR-0017)
 
 - **Round** — one unit of battle resolution: the captain's decision is applied, then fitting effects resolve through the Buff → Defensive → Offensive phases. Corresponds to one Tick.
 - **Phase** — one of the three fixed stages (Buff, Defensive, Offensive) a round resolves through, in that order. Both ships resolve a phase together (simultaneous, not sequential-by-Speed); a ship's own fittings within a phase trigger in fixed slot order. Every fitting belongs to exactly one phase.
-- **Leave Combat** — a captain decision, available once a ship's Speed exceeds its opponent's after the battle's baseline round count, that ends the battle immediately for both ships without destruction.
+- **Buff** — the phase that resolves first, and whose output feeds the same round's **Offensive** total and nothing else (ADR-0017). It fed the Defensive total too until #151, which made it the one category worth twice its own number and — since a Selector buff reaches +12 while a starting ship's raw damage is 8 — put a whole family of roster items permanently out of reach of the subtracted side of the damage formula.
+- **Raw damage** / **soak** — the two sides of `final_damage = max(0, raw − soak)`. Raw is a side's boosted Offensive output plus its boosted Buff output; soak is the target's effective Durability plus its own boosted Defensive output. **Soak's vocabulary is deliberately the smaller of the two**: raw is what absorbs the roster's big magnitudes, because anything that can reach raw's own size on the soak side is a zero-damage floor rather than a hard fight.
+- **Boost** — a captain decision multiplying **its own phase's fittings**, this round only (ADR-0006's "that phase's fitting output", restored by ADR-0017). Boost Offensive presses the guns and Boost Buff presses the crew; nesting the two — boosting Offensive *and* the buff folded into it — made Boost Buff a Command that was never the right answer.
+- **Leave Combat** — a captain decision, available once a ship's Speed exceeds its opponent's after the battle's baseline round count, that ends the battle immediately for both ships without destruction. ADR-0006's "primary tool for avoiding a run-ending mistake" — and dead code until #151, since every fight in the game ended before the baseline round count it unlocks at.
 - **Jettison Cargo** — a captain decision that empties a cargo-filled slot for a permanent Speed increase for the rest of the battle. Settled at battle end: lost if the jettisoning ship escapes, claimed by the opponent as spoils otherwise.
 - **Man the Sails** — a captain decision granting a temporary Speed increase, lasting that round only.
 

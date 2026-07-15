@@ -47,8 +47,13 @@ DEPTH_STEPS :: 3
 // it prices by item tier (ship_item_cost), and lands here if that stops being
 // enough.
 
-FIGHT_OPPONENT_HP_PER_TIER :: 10
-FIGHT_OPPONENT_HP_PER_DEPTH :: 3
+// Scaled x4 with ship.STARTING_HP by #151 (ADR-0017), keeping the same shape. A
+// Coastal hostile used to hold 10 HP against the player's 20 — *half* — so it died
+// in 2-3 rounds, which is how every fight in the game managed to end before the
+// escape gate at BASELINE_ROUND_COUNT and leave Leave Combat unreachable. See
+// STARTING_HP for why the pool had to grow rather than the damage shrink.
+FIGHT_OPPONENT_HP_PER_TIER :: 40
+FIGHT_OPPONENT_HP_PER_DEPTH :: 12
 FIGHT_OPPONENT_DURABILITY_PER_TIER :: 1
 FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
 
@@ -166,8 +171,25 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // tuning this map rules out of scope. That leaves Treasure quoting ~1.36x the
 // other rows at Coastal and meeting them exactly at The Deep — the known residual,
 // and #124's business rather than this table's.
-TRADE_SWING_HP_PER_TIER :: 4
-TRADE_SWING_MAX_HP_PER_TIER :: 2
+//
+// # The two HP rows moved x4 with the HP scale (issue #151)
+//
+// **Derived by the rule above, not retuned.** ADR-0017 raised ship.STARTING_HP 20 ->
+// 100, and everything denominated in HP followed — including the roster's four
+// Modify_Max_HP items (Salt Provisions 2->8, Ship's Surgeon 4->16, Treasure Vault
+// 6->24, Titan's Heart 8->32). A swing at zone tier N is one tier-N stat fitting, so
+// Max HP's row is still read straight off that price list: 8/16/24 against Salt
+// Provisions, Ship's Surgeon and Treasure Vault, exactly as 2/4/6 was before. HP's
+// row keeps its "twice Max HP's" relationship for the same reason it always had it.
+// The other three rows are untouched — Durability and Speed are denominated in raw
+// damage, Treasure in treasure, and neither scale moved.
+//
+// **#151 did not reopen the depth axis**, contrary to what the note above hoped:
+// the band widened through the buff fold and the HP scale rather than through
+// Durability, whose base is still 2. So there is still nothing finer than a zone to
+// express a depth step in, and the axis stays deleted.
+TRADE_SWING_HP_PER_TIER :: 16
+TRADE_SWING_MAX_HP_PER_TIER :: 8
 TRADE_SWING_DURABILITY_PER_TIER :: 1
 TRADE_SWING_SPEED_PER_TIER :: 1
 TRADE_SWING_TREASURE_PER_TIER :: 15
