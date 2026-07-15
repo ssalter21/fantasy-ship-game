@@ -69,16 +69,24 @@ zone_tint :: proc(zone: Maybe(run.Zone)) -> rl.Color {
 // **Revealing is asked of the stage list, never of the node kind** (ADR-0014,
 // run_encounter_reveals). This used to read `case .Port` — a port was labelled
 // because of what kind of node it was — and issue #137 deleted that value, so the
-// question is now the same one the Sim's mask asks. A Port and a merchant vessel
-// both carry a Shop, so both label themselves before arrival, on one rule with no
-// branch of its own.
+// question is now the same one the Sim's mask asks.
 //
-// That does mean a port now reads **"Shop"** rather than "Port": the label comes
-// from the stage, and the recipe's name ("Port", and whatever #138 calls its
-// merchants) is not carried on a baked Encounter for the map to read. Naming a
-// revealed encounter properly is issue #139's, along with rendering an arbitrary
-// stage sequence — labelling by the first stage is only what today's one-stage
-// recipes allow.
+// An encounter reveals iff its **first** stage reveals (ADR-0016), and only the
+// Port bucket opens on a Shop, so the only encounters revealed before arrival are
+// the six Ports. A merchant vessel carries its Shop behind a stage and stays dark:
+// a market you can route to is what a Port is *for*, and a merchant is a windfall.
+//
+// That does mean a port reads **"Shop"** rather than "Port": the label comes from
+// the stage, and the recipe's name is not carried on a baked Encounter for the map
+// to read. Naming a revealed encounter properly is issue #139's, along with
+// rendering an arbitrary stage sequence.
+//
+// **Two rules that must not drift apart** (#161): reveal is defined on stage 0, but
+// the label below comes from run_encounter_current, which reads the **cursor**. For
+// an unvisited node those coincide — the cursor starts at 0 — so this is correct
+// today, and only a *visited* node can have them disagree. A walked-out encounter's
+// cursor sits past the end, so it falls through to the GRAY/no-label case below.
+// Whether that is the right thing to show for a visited node is #139's question.
 node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:

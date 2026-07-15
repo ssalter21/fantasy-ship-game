@@ -397,10 +397,14 @@ only_the_port_bucket_opens_on_a_shop :: proc(t: ^testing.T) {
 	// which is its bucket restated: a Port is guaranteed and general, a merchant is a
 	// windfall you sail into rather than one you can see and route to.
 	//
-	// **This is the rule to revisit first if #139 gives a revealed encounter its
-	// recipe's name on the map.** The whole argument rests on both markers reading
-	// "Shop"; name them and a `[Shop]` merchant stops being a counterfeit, which
-	// would reopen the one-stage bucket's fifth shape.
+	// **ADR-0016 gave this rule a second job, and made it permanent.** An encounter
+	// reveals iff its first stage reveals, so "opens on a Shop" ≡ "reveals" ≡ "is a
+	// Port": the same convention that keeps a counterfeit Port off the map is also
+	// what keeps every merchant hidden. It therefore cannot be traded away for a
+	// better marker — #139 naming revealed encounters would once have dissolved the
+	// counterfeit argument, but a `[Shop]` merchant is *visible*, so it is plannable,
+	// and a merchant is not something you plan a route to. Naming cannot fix that,
+	// because the objection is no longer about what the marker says.
 	for recipe in run_recipe_catalog() {
 		testing.expectf(
 			t,
@@ -733,8 +737,9 @@ every_port_holds_the_one_stage_shop_recipe :: proc(t: ^testing.T) {
 	//
 	// A port is found by **what it holds**, not by its kind: #137 retired Node_Kind.Port,
 	// so "is this a port" is asked of the stage list, exactly as the Sim's mask and the
-	// map view ask it. Only the Port bucket authors a Shop today, so holding one is
-	// what being a port means.
+	// map view ask it. Since ADR-0016 that question is sharper than "holds a Shop
+	// somewhere" — the merchants author Shops too, behind another stage; what only the
+	// Port bucket does is **open** on one, which is the same fact as revealing.
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
@@ -748,6 +753,52 @@ every_port_holds_the_one_stage_shop_recipe :: proc(t: ^testing.T) {
 			testing.expectf(t, encounter.count == 1, "seed %d: port %d holds %d stages, want the one-stage [Shop]", seed, p.id, encounter.count)
 			testing.expectf(t, only_stage_kind(encounter) == .Shop, "seed %d: port %d holds a %v stage, want Shop", seed, p.id, only_stage_kind(encounter))
 			testing.expectf(t, run_encounter_reveals(encounter), "seed %d: port %d does not reveal itself on the map", seed, p.id)
+		}
+	}
+}
+
+@(test)
+the_only_encounters_a_captain_can_see_coming_are_ports :: proc(t: ^testing.T) {
+	// ADR-0016's headline consequence, on a real map: the converse of the test above.
+	// Ports reveal — and *nothing else does*, so the map is uniformly dark, two known
+	// markets per zone and every other node a surprise. Before ADR-0016 an encounter
+	// revealed if it held a Shop anywhere, so The Deep (4 of its 5 recipes carry one)
+	// showed most of itself and the map's legibility ran backwards: the deepest zone
+	// was the best-known one.
+	//
+	// This is where the ADR's honest cost is observable. What survives the mask is
+	// exactly the six Ports, which is Node_Kind.Port derived rather than stored — a
+	// constant, but a constant contingent on only_the_port_bucket_opens_on_a_shop,
+	// which is an authoring convention. Author one [Shop, Fight] and this test fails
+	// rather than the model quietly bending: that failure *is* the contingency, and
+	// whether it means fix the recipe or revisit ADR-0016 is the reader's call.
+	for seed in TEST_SEEDS {
+		m := run_map_create(seed)
+		defer run_map_destroy(&m)
+
+		revealed := 0
+		per_zone: [Zone]int
+		for p in m.nodes {
+			encounter, has_encounter := p.encounter.?
+			if !has_encounter || !run_encounter_reveals(encounter) {
+				continue
+			}
+			revealed += 1
+			if zone, has_zone := p.zone.?; has_zone {
+				per_zone[zone] += 1
+			}
+			_, is_port := node_port_shop(p)
+			testing.expectf(
+				t,
+				is_port,
+				"seed %d: node %d reveals itself but is no port — a merchant a captain can route to",
+				seed,
+				p.id,
+			)
+		}
+		testing.expectf(t, revealed == PORTS_PER_ZONE * len(Zone), "seed %d: %d encounters revealed, want the ports alone", seed, revealed)
+		for count, zone in per_zone {
+			testing.expectf(t, count == PORTS_PER_ZONE, "seed %d: %v reveals %d encounters, want its %d ports", seed, zone, count, PORTS_PER_ZONE)
 		}
 	}
 }
