@@ -164,11 +164,22 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 			return
 		}
 
+		// Where the cursor is, said out loud (issue #139) — the one thing about the walk
+		// presentation cannot read off the Encounter it was handed at arrival. Emitted
+		// here rather than in sim_enter_stage's arms so it is one site for all five
+		// primitives, and *before* the stage presents, so "stage 2 of 3" is on screen by
+		// the time its decision is.
+		append(events, Event(Event_Stage_Entered{
+			kind  = run.run_stage_kind(stage),
+			index = encounter.cursor,
+			count = encounter.count,
+		}))
+
 		outcome, resolved := sim_enter_stage(sim, stage, events).?
 		if !resolved {
 			return // the stage is awaiting a captain decision; answering it resumes the walk
 		}
-		sim_advance_stage(sim, outcome)
+		sim_advance_stage(sim, outcome, events)
 	}
 }
 
@@ -253,9 +264,25 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 // the Refit's finish walks on to the next stage; a buy opens a Refit without
 // advancing, so the same finish re-enters the shop. Which of those happens is read
 // off the cursor at that point, which is why neither needs a remembered origin.
-sim_advance_stage :: proc(sim: ^Sim, outcome: run.Stage_Outcome) {
+//
+// A **halt** is announced on the way through (issue #139); a completion is not. This is
+// the only place both facts are in hand — run_encounter_resolve_stage takes the outcome
+// and the cursor still names the stage it applies to — and the asymmetry is
+// Event_Encounter_Halted's, not this proc's: a completion shows itself by what happens
+// next, a halt is the outcome with nothing to show.
+sim_advance_stage :: proc(sim: ^Sim, outcome: run.Stage_Outcome, events: ^[dynamic]Event) {
 	encounter, has_encounter := sim_current_encounter(sim)
 	assert(has_encounter, "resolved a stage at a node that holds no encounter")
+
+	if outcome == .Halted {
+		stage, walking := run.run_encounter_current(encounter^)
+		assert(walking, "halted a stage on an encounter whose walk already finished")
+		append(events, Event(Event_Encounter_Halted{
+			at    = run.run_stage_kind(stage),
+			index = encounter.cursor,
+			count = encounter.count,
+		}))
+	}
 
 	run.run_encounter_resolve_stage(encounter, outcome)
 	sim.shop_visit = {} // the cursor is leaving; a stage's working state dies with it
@@ -284,7 +311,7 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	selection, took := cmd.selection.?
 	if !took {
-		sim_advance_stage(sim, sim_stage_decline_outcome(stage))
+		sim_advance_stage(sim, sim_stage_decline_outcome(stage), events)
 		sim_walk_encounter(sim, events)
 		return
 	}
@@ -313,7 +340,7 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	case run.Stage_Offer:
 		// Picking completes the Offer. The cursor moves off it now, so the Refit's
 		// finish resumes the walk at whatever comes next.
-		sim_advance_stage(sim, .Completed)
+		sim_advance_stage(sim, .Completed, events)
 
 	case run.Stage_Shop:
 		// A buy does *not* resolve the Shop: the cursor stays put, so the Refit's finish

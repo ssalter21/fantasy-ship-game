@@ -26,7 +26,7 @@ sim_process_trade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	sim.pending_command = nil
 
 	if !cmd.accept {
-		sim_advance_stage(sim, .Halted)
+		sim_advance_stage(sim, .Halted, events)
 		sim_walk_encounter(sim, events)
 		return
 	}
@@ -39,6 +39,6 @@ sim_process_trade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	sim_emit_encounter_resolved(sim, snap, events)
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 
-	sim_advance_stage(sim, .Completed)
+	sim_advance_stage(sim, .Completed, events)
 	sim_walk_encounter(sim, events)
 }

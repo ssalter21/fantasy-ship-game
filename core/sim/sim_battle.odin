@@ -68,6 +68,6 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	if .A in sim.battle.escaped {
 		outcome = .Halted
 	}
-	sim_advance_stage(sim, outcome)
+	sim_advance_stage(sim, outcome, events)
 	sim_walk_encounter(sim, events)
 }

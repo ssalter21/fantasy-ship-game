@@ -401,6 +401,26 @@ run_stage_kind_reveals :: proc(kind: Stage_Kind) -> bool {
 	return kind == .Shop
 }
 
+// run_encounter_opening returns the stage an encounter **opens** with — stage 0,
+// regardless of where the cursor has walked to — or ok=false for an encounter with
+// no stages at all (which generation never bakes; run_encounter_from_recipe asserts
+// a recipe authors at least one).
+//
+// The opening stage is what an encounter *is* from the outside, and it is asked for
+// from two directions that must never diverge: whether the encounter reveals itself
+// on the map (run_encounter_reveals, below) and what a revealed or walked node is
+// **labelled** as (cmd/game's node_appearance). Both are properties of the whole
+// encounter as seen from the map, not of the step the captain happens to be on, so
+// both ask this rather than run_encounter_current — which answers a different
+// question (where is the walk now) and only coincided with this one while the cursor
+// sat at 0.
+run_encounter_opening :: proc(e: Encounter) -> (stage: Stage, ok: bool) {
+	if e.count == 0 {
+		return nil, false
+	}
+	return e.stages[0], true
+}
+
 // run_encounter_reveals reports whether an encounter shows itself on the map
 // before arrival: true iff its **first** stage reveals (ADR-0016). This is what
 // replaces asking a node whether it is a Port — visibility is a question asked of
@@ -413,8 +433,9 @@ run_stage_kind_reveals :: proc(kind: Stage_Kind) -> bool {
 // whole list instead revealed every merchant carrying a Shop anywhere, which made
 // a *visible* Battle marker a tell that a market waited behind the fight.
 run_encounter_reveals :: proc(e: Encounter) -> bool {
-	if e.count == 0 {
+	opening, ok := run_encounter_opening(e)
+	if !ok {
 		return false
 	}
-	return run_stage_kind_reveals(run_stage_kind(e.stages[0]))
+	return run_stage_kind_reveals(run_stage_kind(opening))
 }
