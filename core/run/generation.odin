@@ -322,9 +322,9 @@ run_make_recipe_bag :: proc(count: int, pool: []Recipe, gen: rand.Generator) -> 
 // Offer's items, a Shop's deck) draw reproducibly from the same map-generation
 // RNG stream. Nothing rolls on arrival.
 //
-// This is where each primitive's content roster will hang: the hostile roster a
-// Fight draws its opponent from (#135) and the axis roster a Trade draws its
-// swap from (#136) replace the single hand-authored template each has today.
+// This is where each primitive's content roster hangs: a Trade draws its swap
+// from the axis roster (run_make_trade, #136). The hostile roster that replaces
+// the Fight's single hand-authored template (#135) lands here the same way.
 run_bake_stage :: proc(kind: Stage_Kind, site: Scaling_Site, gen: rand.Generator) -> Stage {
 	switch kind {
 	case .Fight:
@@ -332,10 +332,7 @@ run_bake_stage :: proc(kind: Stage_Kind, site: Scaling_Site, gen: rand.Generator
 	case .Offer:
 		return Stage_Offer{options = run_item_offer_options(site, gen)}
 	case .Trade:
-		return Stage_Trade{
-			gain_durability = run_trade_gain_durability(site),
-			cost_speed      = run_trade_cost_speed(site),
-		}
+		return run_make_trade(site, gen)
 	case .Shop:
 		return run_port_shop(gen)
 	case .Reward:

@@ -83,13 +83,18 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim.phase = .Awaiting_Item_Choice
 
 	case run.Stage_Trade:
+		// A Trade now *asks* (issue #136, ADR-0014) rather than applying itself on
+		// arrival: it stages the bargain and waits, like an Offer stages its items.
+		// Nothing is paid or granted until a Command_Trade_Choice accepts.
 		zone, has_zone := node.zone.?
 		assert(has_zone, "an Encounter node must have a zone")
-		site := run.Scaling_Site{zone = zone, depth = node.depth}
-		snap := run.run_apply_stat_trade(&sim.player, s, site, sim.steps)
-		sim_emit_encounter_resolved(sim, snap, events)
-		append(events, Event(Event_Ship_Updated{ship = sim.player}))
-		sim.resolved[cmd.node_id] = true
+		sim.active_trade = s
+		sim.active_trade_site = run.Scaling_Site{zone = zone, depth = node.depth}
+		append(events, Event(Event_Trade_Presented{
+			trade      = sim.active_trade,
+			can_accept = run.run_trade_can_accept(&sim.player, sim.active_trade),
+		}))
+		sim.phase = .Awaiting_Trade_Choice
 
 	case run.Stage_Shop:
 		// Unreachable until Ports are placed as the [Shop] recipe (#134) and the

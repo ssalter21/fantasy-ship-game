@@ -369,6 +369,106 @@ draw_shop_item_box :: proc(box: rl.Rectangle, item: run.Shop_Item, affordable: b
 	rl.DrawText(fmt.ctprintf("%s", intent), x, i32(box.y + 42), 12, rl.DARKGRAY)
 }
 
+// trade_stat_label names a tradeable stat for the player (issue #136). The enum's
+// own spelling is close but not presentable (Max_HP), and a Trade is the first
+// screen that shows a stat by name rather than as a labeled row of the ship panel.
+trade_stat_label :: proc(stat: run.Trade_Stat) -> string {
+	switch stat {
+	case .HP:
+		return "HP"
+	case .Max_HP:
+		return "Max HP"
+	case .Durability:
+		return "Durability"
+	case .Speed:
+		return "Speed"
+	case .Treasure:
+		return "treasure"
+	}
+	return "?"
+}
+
+// trade_term_line renders one side of a bargain as a signed, named quantity —
+// "+8 Durability", "-1 Speed". A Trade_Term stores only the positive magnitude
+// (the side it sits on carries the direction), so the sign is supplied here at
+// the point the player reads it.
+trade_term_line :: proc(term: run.Trade_Term, sign: string) -> string {
+	return fmt.tprintf("%s%d %s", sign, term.amount, trade_stat_label(term.stat))
+}
+
+// trade_menu_loop is the Trade screen (issue #136, ADR-0014): it blocks until the
+// player accepts or rejects the bargain, then returns a Command_Trade_Choice.
+// Accepting applies the swap permanently and completes the stage; rejecting halts
+// the encounter, changing nothing. Both sides are rendered as signed named
+// quantities so the swap is legible before it is permanent.
+//
+// An accept the ship can't pay for (state.trade_can_accept, straight off
+// Event_Trade_Presented) is drawn dimmed and is **not** clickable. This is the
+// opposite of the shop's unaffordable card, which stays clickable and bounces off
+// the Sim as a rejected purchase: a shop has an Event_Purchase_Rejected to say no
+// with and stays open for another choice, whereas a Trade's only other answer is
+// to reject it — so a Sim-side refusal would have nowhere to return to, and
+// submitting one is a driver bug the Sim asserts on rather than a rejection it
+// reports.
+trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
+	if !rl.IsWindowReady() {
+		// No live window (e.g. under `odin test`): reject rather than permanently
+		// swap a stat the test harness never chose.
+		return sim.Command(sim.Command_Trade_Choice{accept = false})
+	}
+	trade := state.active_trade
+
+	boxes: [2]rl.Rectangle
+	for i in 0 ..< len(boxes) {
+		boxes[i] = rl.Rectangle {
+			x      = SHIP_PANEL_X,
+			y      = f32(ITEM_OFFER_Y0 + i * (ITEM_OFFER_BOX_H + 6)),
+			width  = ITEM_OFFER_BOX_W,
+			height = ITEM_OFFER_BOX_H,
+		}
+	}
+	accept_index :: 0
+	reject_index :: 1
+
+	for !rl.WindowShouldClose() {
+		rl.BeginDrawing()
+		draw_scene_contents(state, fmt.tprintf("%s — a permanent trade. Accept, or sail on.", trade.name))
+		draw_trade_accept_box(boxes[accept_index], trade, state.trade_can_accept)
+		draw_labeled_box(boxes[reject_index], "Reject (sail on)", "Nothing changes.", "")
+		rl.EndDrawing()
+		free_all(context.temp_allocator)
+
+		if rl.IsMouseButtonPressed(.LEFT) {
+			mouse := rl.GetMousePosition()
+			if state.trade_can_accept && rl.CheckCollisionPointRec(mouse, boxes[accept_index]) {
+				return sim.Command(sim.Command_Trade_Choice{accept = true})
+			}
+			if rl.CheckCollisionPointRec(mouse, boxes[reject_index]) {
+				return sim.Command(sim.Command_Trade_Choice{accept = false})
+			}
+		}
+	}
+	// Window closing without an answer: reject cleanly.
+	return sim.Command(sim.Command_Trade_Choice{accept = false})
+}
+
+// draw_trade_accept_box renders the bargain's accept option: what it gives against
+// what it takes, dimmed when the ship can't pay the cost (issue #136). Mirrors
+// draw_shop_item_box's affordable/unaffordable treatment, so "you can't pay for
+// this" looks the same wherever the player meets it.
+draw_trade_accept_box :: proc(box: rl.Rectangle, trade: run.Stage_Trade, can_accept: bool) {
+	fill := can_accept ? rl.LIGHTGRAY : rl.Color{210, 210, 210, 255}
+	rl.DrawRectangleRec(box, fill)
+	rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)
+
+	title := can_accept ? "Accept" : "Accept (you can't pay this)"
+	text := can_accept ? rl.BLACK : rl.GRAY
+	x := i32(box.x + 8)
+	rl.DrawText(fmt.ctprintf("%s", title), x, i32(box.y + 6), 16, text)
+	rl.DrawText(fmt.ctprintf("Gain %s", trade_term_line(trade.gain, "+")), x, i32(box.y + 26), 12, rl.DARKGRAY)
+	rl.DrawText(fmt.ctprintf("Cost %s", trade_term_line(trade.cost, "-")), x, i32(box.y + 42), 12, rl.DARKGRAY)
+}
+
 // draw_labeled_box draws a bordered box with a bold-ish title line and up to two
 // smaller detail lines (issue #96) — shared by the Item Offer options and the
 // Skip box. Empty detail strings are skipped.

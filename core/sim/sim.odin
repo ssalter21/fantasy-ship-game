@@ -22,6 +22,17 @@ Phase :: enum {
 	// (Awaiting_Refit) to place or swap it; skipping resolves the encounter and
 	// returns to a travel choice. Repurposes the old Awaiting_Upgrade_Choice.
 	Awaiting_Item_Choice,
+	// Awaiting_Trade_Choice is the Trade decision (issue #136, ADR-0014): the ship
+	// arrived at a Trade node and is accepting or rejecting the bargain it drew
+	// from the axis roster. Accepting completes the stage (the swap is applied
+	// permanently); rejecting halts the encounter, changing nothing. Either way the
+	// node resolves and the ship returns to a travel choice.
+	//
+	// This phase is new. A Trade used to have no decision at all — it applied on
+	// arrival, "matching no-decline" — so it never waited on the captain for
+	// anything. Under ADR-0014 a Trade is a stage like any other and its outcome is
+	// the player's.
+	Awaiting_Trade_Choice,
 	// Awaiting_Refit is the manual-loadout mode (issue #95, ADR-0012): the ship
 	// is rearranged through install / move / remove commands, ended by a finish
 	// command. Opened by sim_open_refit — which the acquisition channels (#96
@@ -113,6 +124,21 @@ Sim :: struct {
 	// broadcast on Event_Item_Offer_Presented, then indexed by a
 	// Command_Pick_Item's Option_Index to know which item to open a Refit with.
 	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
+	// active_trade is the bargain the current Trade stage is offering (issue #136):
+	// staged from the arrived node's Stage_Trade and broadcast on
+	// Event_Trade_Presented, then applied by a Command_Trade_Choice that accepts.
+	// Held for the same reason item_offer_options is — the choice arrives a tick
+	// after the node does, so the stage's baked content has to outlive the arrival.
+	// A plain value, not a Maybe: it is only ever read while the phase says a trade
+	// is on screen.
+	active_trade:       run.Stage_Trade,
+	// active_trade_site is the site of the node the active trade sits on, kept so
+	// the accepted trade's Ghost_Snapshot records the node's own stakes (ADR-0014).
+	// The trade's magnitudes were already baked from it at generation, but a
+	// Stage_Trade carries the magnitudes, not the site they came from — mirroring
+	// Stage_Fight.depth, which exists so run_finish_ship_battle can rebuild its
+	// site the same way.
+	active_trade_site:  run.Scaling_Site,
 	// port_shelves is the persistent per-Port shop state (issue #123, ADR-0013),
 	// parallel to run_map.nodes and indexed by Node_ID like resolved/visited. Each
 	// Port_Shelf holds the deck positions currently shown in its shelf slots, its
@@ -153,6 +179,7 @@ Command :: union {
 	Command_Travel_To,
 	Command_Battle_Choice,
 	Command_Pick_Item,
+	Command_Trade_Choice,
 	Command_Buy_Item,
 	Command_Refit,
 }
@@ -174,6 +201,23 @@ Command_Battle_Choice :: struct {
 // index so "skip" is a distinct, unmistakable value.
 Command_Pick_Item :: struct {
 	selection: Maybe(Option_Index),
+}
+
+// Command_Trade_Choice resolves a Trade (issue #136, ADR-0014), valid only while
+// Sim is in the Awaiting_Trade_Choice phase. `accept` takes the bargain — paying
+// its cost for its gain, permanently — and false rejects it, changing nothing.
+//
+// A plain bool rather than Command_Pick_Item's Maybe: an offer picks one of N
+// options *or* skips, so "skip" needs to be a value distinct from every index,
+// whereas a trade is one bargain with exactly two answers. There is nothing for a
+// Maybe to hold.
+//
+// Accepting a trade the ship cannot pay for (run_trade_can_accept — the cost
+// would break the stat's floor) is a driver bug, not a runtime rejection: the
+// Sim broadcasts can_accept on Event_Trade_Presented, so presentation knows not
+// to offer it.
+Command_Trade_Choice :: struct {
+	accept: bool,
 }
 
 // Command_Buy_Item resolves a Port shop decision (issue #123, ADR-0013), valid
@@ -262,6 +306,7 @@ Event :: union {
 	Event_Battle_Event,
 	Event_Ship_Updated,
 	Event_Item_Offer_Presented,
+	Event_Trade_Presented,
 	Event_Shop_Presented,
 	Event_Purchase_Rejected,
 	Event_Refit_Started,
@@ -335,7 +380,7 @@ Event_Battle_Event :: struct {
 
 // Event_Ship_Updated carries a plain (non-ghost) copy of the player's ship,
 // dispatched at run start and whenever its stats/layout change (after a
-// combat round, a Stat Trade, or an Upgrade applied). Needed because
+// combat round, an accepted Trade, or an Upgrade applied). Needed because
 // Ghost_Snapshot always resets hp to max_hp on capture (ADR-0008), which
 // makes Event_Encounter_Resolved's snapshot unsuitable for an accurate live
 // HP readout.
@@ -352,6 +397,23 @@ Event_Ship_Updated :: struct {
 // Refit's own Event_Fitting_Installed, not a separate apply event.
 Event_Item_Offer_Presented :: struct {
 	options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
+}
+
+// Event_Trade_Presented carries the bargain a Trade stage is offering (issue
+// #136, ADR-0014), dispatched when the ship arrives at a Trade node. `trade` is
+// the axis the node drew from the roster at generation, with both sides'
+// magnitudes already baked from its site — presentation renders it as "gain this,
+// cost that" off the two terms' stats and amounts, and offers accept-or-reject.
+//
+// `can_accept` is whether the ship can pay the cost in full (run_trade_can_accept):
+// genuinely Sim-side state, since it depends on the ship's *effective* stats — the
+// base fields on the last Event_Ship_Updated aren't enough to re-derive it, so
+// presentation would have to reimplement the floor rule to know whether accept is
+// a legal answer. This is the trade counterpart of Event_Battle_Menu's may_leave,
+// for the same reason.
+Event_Trade_Presented :: struct {
+	trade:      run.Stage_Trade,
+	can_accept: bool,
 }
 
 // Event_Shop_Presented carries a Port shop's current shelf (issue #123, ADR-0013),
@@ -516,6 +578,8 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim_process_battle_round(sim, events)
 	case .Awaiting_Item_Choice:
 		sim_process_item_choice(sim, events)
+	case .Awaiting_Trade_Choice:
+		sim_process_trade_choice(sim, events)
 	case .Awaiting_Shop_Choice:
 		sim_process_shop_choice(sim, events)
 	case .Awaiting_Refit:
@@ -583,6 +647,9 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	case .Awaiting_Item_Choice:
 		_, ok := cmd.(Command_Pick_Item)
 		assert(ok, "expected a Command_Pick_Item while awaiting an item choice")
+	case .Awaiting_Trade_Choice:
+		_, ok := cmd.(Command_Trade_Choice)
+		assert(ok, "expected a Command_Trade_Choice while awaiting a trade choice")
 	case .Awaiting_Shop_Choice:
 		_, ok := cmd.(Command_Buy_Item)
 		assert(ok, "expected a Command_Buy_Item while awaiting a shop choice")
@@ -599,8 +666,8 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 
 // sim_emit_encounter_resolved is the single place the Sim captures a resolved
 // encounter's Ghost_Snapshot onto its run-scoped arena and emits it (issue
-// #82, ADR-0008). The run-side resolution procs (run_apply_stat_trade,
-// run_finish_ship_battle, run_apply_stat_trade) return a borrowed-layout
+// #82, ADR-0008). The run-side resolution procs (run_finish_ship_battle,
+// run_apply_trade) return a borrowed-layout
 // snapshot; run_ghost_snapshot_capture clones that snapshot's layout under the
 // arena so it outlives the tick (issue #52) and lives as long as the Sim.
 // Concentrating the arena/temp-allocator ritual here is why the per-encounter

@@ -184,18 +184,25 @@ run_encounter_from_recipe_bakes_every_authored_stage_in_order :: proc(t: ^testin
 
 @(test)
 run_encounter_from_recipe_bakes_stakes_scaled_content :: proc(t: ^testing.T) {
-	state := rand.create(0)
-	gen := rand.default_random_generator(&state)
+	// Each bake gets its own generator off the same seed, so both draw the same
+	// axis from the trade roster (#136) and the site is the only difference
+	// between them. Sharing one generator would advance it between the two calls
+	// and compare two *different* bargains, whose magnitudes are quoted in
+	// different stats and needn't be ordered at all.
+	shallow_state := rand.create(0)
+	deep_state := rand.create(0)
 
 	r := Recipe{name = "Bargain", stages = BARGAIN_STAGES[:]}
-	shallow := run_encounter_from_recipe(r, Scaling_Site{zone = .Coastal, depth = 0}, gen)
-	deep := run_encounter_from_recipe(r, Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}, gen)
+	shallow := run_encounter_from_recipe(r, Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&shallow_state))
+	deep := run_encounter_from_recipe(r, Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}, rand.default_random_generator(&deep_state))
 
 	// The same recipe at a higher-stakes site bakes a bigger swing — the recipe
 	// authors the shape, the Scaling_Site the magnitude.
 	st, _ := shallow.stages[0].(Stage_Trade)
 	dt, _ := deep.stages[0].(Stage_Trade)
-	testing.expect(t, dt.gain_durability > st.gain_durability)
+	testing.expect_value(t, dt.gain.stat, st.gain.stat)
+	testing.expect(t, dt.gain.amount > st.gain.amount)
+	testing.expect(t, dt.cost.amount > st.cost.amount)
 }
 
 @(test)

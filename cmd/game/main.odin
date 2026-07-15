@@ -58,6 +58,14 @@ Game_State :: struct {
 	// (issue #96), copied from Event_Item_Offer_Presented; item_offer_menu_loop
 	// renders and offers them.
 	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
+	// active_trade is the bargain the current Trade is offering (issue #136),
+	// copied from Event_Trade_Presented; trade_menu_loop renders its two sides and
+	// offers accept-or-reject. trade_can_accept is whether the ship can pay the
+	// cost — taken from the same event rather than re-derived here, since it turns
+	// on the ship's *effective* stats, which state.player's base fields don't give
+	// (the Sim owns that rule, exactly as it owns shop affordability).
+	active_trade:     run.Stage_Trade,
+	trade_can_accept: bool,
 	// shop_shelf is the current shelf window of the Port the ship is at (issue
 	// #123), copied from Event_Shop_Presented; shop_menu_loop renders each filled
 	// slot's card with prices and offers a buy-or-leave choice. A nil slot is past
@@ -92,6 +100,8 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	switch awaiting {
 	case .Awaiting_Item_Choice:
 		return item_offer_menu_loop(state)
+	case .Awaiting_Trade_Choice:
+		return trade_menu_loop(state)
 	case .Awaiting_Shop_Choice:
 		return shop_menu_loop(state)
 	case .Awaiting_Battle_Command:
@@ -153,6 +163,13 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Item_Offer_Presented:
 		state.item_offer_options = e.options
+
+	case sim.Event_Trade_Presented:
+		// Arrived at a Trade (issue #136): remember the bargain and whether the ship
+		// can pay for it, so trade_menu_loop can render both sides and grey out an
+		// accept the ship can't afford.
+		state.active_trade = e.trade
+		state.trade_can_accept = e.can_accept
 
 	case sim.Event_Shop_Presented:
 		// Arrived at a Port shop, or returned to it from a buy's refit (issue #123):

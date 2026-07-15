@@ -95,13 +95,53 @@ Stage_Offer :: struct {
 	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting,
 }
 
-// Stage_Trade is a permanent stat-for-stat/cargo trade-off (example:
-// +Durability for -Speed). Accepting completes the stage, rejecting halts it.
-// Both magnitudes are stakes-scaled. The single hand-authored axis modeled here
-// is one roster entry among several once issue #136 unwelds it.
+// Trade_Stat is the closed set of ship stats a Trade may put on either side of
+// its swap (issue #136) — the parameterization that unwelds the axis. Plain data
+// naming a stat, never a pointer to a proc that applies it (ADR-0012), so a
+// baked Trade stays copyable into a Ghost_Snapshot like every other stage's
+// content.
+//
+// Closed at five because these are the ship stats a trade can move and have the
+// move *mean* something. **Cargo capacity is deliberately absent**, despite the
+// glossary's "stat-for-stat or stat-for-cargo": ship_cargo_capacity computes a
+// number that nothing in the game reads, so both halves of a cargo-capacity
+// trade would be no-ops — gaining it grants nothing and spending it costs
+// nothing. Trading it becomes real when treasure takes cargo slots (#143), and
+// Treasure is the axis that carries "stat-for-cargo" in the meantime: it is the
+// resource a Shop actually spends and a Reward actually grants (#132), and #143
+// is precisely the change that makes spending it *be* spending cargo.
+Trade_Stat :: enum {
+	HP,
+	Max_HP,
+	Durability,
+	Speed,
+	Treasure,
+}
+
+// Trade_Term is one side of a trade: which stat moves, and by how much. `amount`
+// is always the positive magnitude — which direction it moves is the term's
+// position in Stage_Trade (gain or cost), not a sign — so a term can never
+// contradict the side it sits on by carrying a negative.
+Trade_Term :: struct {
+	stat:   Trade_Stat,
+	amount: int,
+}
+
+// Stage_Trade is a permanent stat-for-stat trade-off, baked from one roster entry
+// (content.odin's Trade_Axis) at generation. Accepting completes the stage,
+// rejecting halts it.
+//
+// The +Durability/-Speed axis this used to weld into its two field *names* is now
+// just one roster entry among several (Reinforced Hull); what stays fixed is the
+// shape — every trade gains exactly one stat and costs exactly one stat. Both
+// magnitudes are stakes-scaled off the same site (run_trade_swing), so a Deep
+// trade is a bigger swing on both sides. `name` is the authored entry's name,
+// carried so presentation can say which bargain this is without reverse-looking-up
+// the roster from a stat pair (two entries could share one).
 Stage_Trade :: struct {
-	gain_durability: int,
-	cost_speed:      int,
+	name: string,
+	gain: Trade_Term,
+	cost: Trade_Term,
 }
 
 // Stage_Shop sells from a seed-baked deck of the full roster, each card priced by
