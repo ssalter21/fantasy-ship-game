@@ -4,6 +4,7 @@ import "../combat"
 import "../run"
 import "../ship"
 import "../testutil"
+import "core:math/rand"
 import "core:testing"
 
 // The map is procedurally generated per seed now, so these end-to-end
@@ -314,7 +315,12 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	// Fight the first (shallow, Coastal) battle the pilot reaches and boost
 	// Offensive, then dodge the rest: the fresh ship wins it and sails on to
 	// Goal, taking some damage along the way.
-	res := drive_policy(11, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
+	//
+	// Re-pointed from seed 11 by the hostile roster (#135), which #136 called: a new
+	// generation-time draw sits upstream of edge generation, so every seed's map
+	// reshapes and a scenario pinned to one has to be re-pinned. Seed 11's first
+	// battle is now a build this ship loses; seed 2's is one it wins.
+	res := drive_policy(2, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
 	testing.expect(t, res.hp < 20) // a real fight cost some HP
@@ -1112,9 +1118,15 @@ reward_stage :: proc() -> run.Stage_Reward {
 // opponent (Leave Combat unlocks at the baseline round) with `hp` to choose between
 // winning and fleeing. The opponent's layout is arena-backed like a generated one, so
 // sim_destroy reclaims it.
+//
+// Which archetype the roster deals here (#135) doesn't matter — hp and speed are
+// overridden below, so the draw only decides the loadout, and these scenarios are
+// about the Sim's walk rather than the fight's numbers. A fixed seed keeps them from
+// changing under a roster edit.
 fight_stage :: proc(sim: ^Sim, hp: int) -> run.Stage_Fight {
 	context.allocator = sim_arena_allocator(sim)
-	opponent := run.run_pve_opponent(run.Scaling_Site{zone = .Coastal, depth = 0})
+	state := rand.create(0)
+	opponent := run.run_pve_opponent(run.Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&state))
 	opponent.hp = hp
 	opponent.max_hp = hp
 	opponent.speed = 1 // slower than the player below, so escape unlocks once the baseline passes

@@ -74,8 +74,10 @@ Shop_Item :: struct {
 // combat.combat_battle_create rather than reimplementing combat. Victory
 // completes the stage, Leave Combat halts it, and sinking ends the run outright
 // (permadeath), which is the whole of why [Fight, Reward] needs no authored gate.
-// The opponent's stats are a stakes placeholder (run_make_opponent_ship); the
-// hostile roster that retires the single template is issue #135.
+// The opponent is baked at generation from two independent axes (#135): one
+// archetype drawn from the hostile roster (content.odin's Hostile_Archetype) for
+// its loadout and speed, scaled at this node's stakes for its hp, durability and
+// offensive output.
 Stage_Fight :: struct {
 	// depth is this node's normalized depth-within-zone (0..DEPTH_STEPS),
 	// retained so run_finish_ship_battle can rebuild the node's Scaling_Site —

@@ -361,3 +361,84 @@ deep_cornered_beast_only_bites_below_half_hp :: proc(t: ^testing.T) {
 	s.hp = s.max_hp / 2 - 1
 	testing.expect_value(t, effect_magnitude(active, ctx), active.magnitude)
 }
+
+// --- Roster lookup and first-empty fitting (issue #135) ----------------------
+
+// The lookup that lets a content table name the items it is built from. Every
+// roster item must be findable by the name it was authored under, and a name that
+// isn't in the roster must miss rather than return a zero Roster_Item as if it hit.
+@(test)
+ship_item_by_name_finds_every_roster_item_and_misses_on_anything_else :: proc(t: ^testing.T) {
+	for item in ship_item_roster() {
+		found, ok := ship_item_by_name(item.fitting.name)
+		testing.expectf(t, ok, "%q is in the roster but ship_item_by_name missed it", item.fitting.name)
+		testing.expect_value(t, found.fitting.name, item.fitting.name)
+		testing.expect_value(t, found.tier, item.tier)
+	}
+
+	_, ok := ship_item_by_name("Not A Real Fitting")
+	testing.expect(t, !ok)
+}
+
+// First-empty-fit is what lets a loadout be authored as an ordered list of fittings
+// rather than as slot assignments: each item takes the earliest free slot of its
+// own size, and sizes don't poach each other's slots.
+@(test)
+ship_fit_first_empty_slot_takes_the_earliest_free_slot_of_matching_size :: proc(t: ^testing.T) {
+	layout := ship_template_layout()
+	defer delete(layout)
+
+	// "top deck" is the first Medium; the next Medium goes to "top crew".
+	testing.expect(t, ship_fit_first_empty_slot(layout, ship_fitting_captains_quarters()))
+	testing.expect_value(t, occupant_name(layout, "top deck"), "Captain's Quarters")
+	testing.expect(t, ship_fit_first_empty_slot(layout, ship_fitting_top_crew()))
+	testing.expect_value(t, occupant_name(layout, "top crew"), "Top Crew")
+
+	// A Large skips both Mediums entirely and lands in "gun deck".
+	testing.expect(t, ship_fit_first_empty_slot(layout, ship_fitting_gun_deck()))
+	testing.expect_value(t, occupant_name(layout, "gun deck"), "Gun Deck")
+}
+
+// The template holds Medium x3 (two exposed, then the concealed "hold 1"), so a
+// third Medium falls into the hold. That fallback is content-visible — it is what
+// decides whether a Condition_Self_Visibility effect fires — so it is pinned here
+// rather than left as an accident of slot order. core/run's Smuggler's Run archetype
+// is built on exactly this.
+@(test)
+ship_fit_first_empty_slot_falls_back_from_exposed_slots_to_the_concealed_hold :: proc(t: ^testing.T) {
+	layout := ship_template_layout()
+	defer delete(layout)
+
+	medium :: proc(name: string) -> Fitting {
+		return Fitting{name = name, size = .Medium, category = .Offensive, active = Effect{magnitude = 1}}
+	}
+	testing.expect(t, ship_fit_first_empty_slot(layout, medium("first")))
+	testing.expect(t, ship_fit_first_empty_slot(layout, medium("second")))
+	testing.expect(t, ship_fit_first_empty_slot(layout, medium("third")))
+
+	testing.expect_value(t, occupant_name(layout, "top deck"), "first")
+	testing.expect_value(t, occupant_name(layout, "top crew"), "second")
+	// The third lands concealed, which is the whole point.
+	testing.expect_value(t, occupant_name(layout, "hold 1"), "third")
+	testing.expect_value(t, find_layout_slot(layout, "hold 1").slot.base_visibility, Visibility.Concealed)
+
+	// A fourth Medium has nowhere left to go, and says so rather than displacing one.
+	testing.expect(t, !ship_fit_first_empty_slot(layout, medium("fourth")))
+}
+
+find_layout_slot :: proc(layout: []Layout_Slot, slot_name: string) -> Layout_Slot {
+	for layout_slot in layout {
+		if layout_slot.slot.name == slot_name {
+			return layout_slot
+		}
+	}
+	return {}
+}
+
+occupant_name :: proc(layout: []Layout_Slot, slot_name: string) -> string {
+	fitting, has_fitting := find_layout_slot(layout, slot_name).fitting.?
+	if !has_fitting {
+		return ""
+	}
+	return fitting.name
+}
