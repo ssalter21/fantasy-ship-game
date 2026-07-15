@@ -12,9 +12,26 @@ needs it (see the verdict below).
   closed 35 seconds later and put hostile ladenness under the *site* (depth-scaled fill)
   instead. Reconciliation is **#176**, and the straddle-vs-ladenness table this program
   prints is that ticket's primary evidence — which is why this prototype outlives #158.
-- **#176's first job is one more column**: the player's purse grows with depth too, so
-  both sides may slow together and the straddle may survive a pure depth-scaled fill.
-  This program models the player at a *fixed* 122. That is its main known gap.
+- **The purse question is settled provisionally: hostile cargo is FLAT 50% full.** Neither
+  contender won — authoring (#158) and the depth gradient (#159) are both deferred until
+  hostile ship *templates* exist to derive richness from. Read the `laden050%` column;
+  that is the game. It straddles (1 slower / 6 faster) and Coastal Privateer and Ironclad
+  Hulk land exactly on #135's authored numbers.
+- **Known cost of the heuristic, accepted:** six of eight archetypes outrun a starting
+  player, so Leave Combat is mostly unavailable and `Condition_Opponent_Slower` mostly
+  cannot fire until templates land. The straddle rests on the Ironclad Hulk alone.
+  Deepwater Menagerie inverts worst — #135 authored it slow at 3 ("the archetype a
+  starting player can outrun"), and it reads **7** here, the fastest ship in the game,
+  because it is three small beasts flying the player's 8-slot hull with **130 of capacity
+  it never uses**. No fill percentage fixes that; only a hull sized for the build does.
+
+## Known gap
+
+The player is pinned at a **fixed** weight of 122 (72 of fittings + the 50 purse), so every
+`straddles 4?` verdict assumes a captain who never spends and never earns. Harmless under
+the flat-50% decision — both sides are static — but it is why this program could not
+adjudicate #159's depth-scaled fill, whose whole case rests on player and hostile getting
+richer together.
 
 Run it: `odin run cmd/proto_speed_curve`. Full output committed alongside as `OUTPUT.txt`.
 
