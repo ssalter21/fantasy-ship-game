@@ -404,10 +404,11 @@ run_bake_stage :: proc(kind: Stage_Kind, site: Scaling_Site, gen: rand.Generator
 	case .Shop:
 		return run_port_shop(gen)
 	case .Reward:
-		// Reward grants nothing yet — what it grants is issue #132 and the
-		// primitive that spends that answer is #133. Baking it is a no-op rather
-		// than an error so the arm is reachable the moment a recipe authors it.
-		return Stage_Reward{}
+		// A Reward's payout is fixed here, at generation, from this node's own site
+		// (#132/#133) — the amount is content like an Offer's items, not a number
+		// rolled on arrival. It draws no RNG, so a recipe carrying one leaves the
+		// generator's stream untouched.
+		return Stage_Reward{treasure = run_reward_treasure(site)}
 	}
 	unreachable()
 }
