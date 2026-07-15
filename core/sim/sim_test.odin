@@ -28,6 +28,34 @@ first_stage_is :: proc(e: run.Encounter, $T: typeid) -> bool {
 	return is_t
 }
 
+// seed_with_layer_one_stage finds a seed whose map puts primitive T on layer 1,
+// and the node it put it on. Layer 1 is the whole of Start's fan-out (every
+// layer-1 node is a Start neighbour by construction), so the returned node is
+// reachable on the run's first travel choice — which is what a scenario needing
+// "arrive at a Trade immediately" is really asking for.
+//
+// Hunted rather than hard-coded, because *which* recipe a seed deals a given node
+// is a generation detail and not a fact a Sim test should depend on: #134's bucket
+// draw moved it by baking a port's shop with its recipe instead of in a pass at
+// the tail, and #138's catalog will move it again. A scenario that hard-codes the
+// seed fails when generation shifts under it, having found nothing wrong.
+seed_with_layer_one_stage :: proc($T: typeid) -> (seed: u64, id: Node_ID, ok: bool) {
+	for candidate in u64(0) ..< 64 {
+		m := run.run_map_create(candidate)
+		defer run.run_map_destroy(&m)
+
+		for p in m.nodes {
+			if p.layer != 1 || p.kind != .Encounter {
+				continue
+			}
+			if enc, has_encounter := p.encounter.?; has_encounter && first_stage_is(enc, T) {
+				return candidate, p.id, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 is_battle_node :: proc(m: run.Map, id: Node_ID) -> bool {
 	enc, ok := m.nodes[id].encounter.?
 	if !ok {
@@ -271,29 +299,18 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	// Sim offers it as a backward option), then step forward onto that Stat Trade
 	// again. The second arrival must be a no-op, so durability is unchanged by
 	// the revisit.
-	sim := sim_create(0)
+	seed, trade, found := seed_with_layer_one_stage(run.Stage_Trade)
+	testing.expect(t, found)
+
+	sim := sim_create(seed)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
 	defer delete(events)
 
-	opts := tick_travel_options(&sim, &events) // run start
-
 	// A layer-1 Stat Trade is a Start neighbor, so it appears in the first
 	// emitted option set, and retrace to Start (id 0) and back to it is legal.
-	trade := Node_ID(-1)
-	for o in opts {
-		node := sim.run_map.nodes[o]
-		if node.layer != 1 {
-			continue
-		}
-		if enc, ok := node.encounter.?; ok {
-			if first_stage_is(enc, run.Stage_Trade) {
-				trade = o
-				break
-			}
-		}
-	}
-	testing.expect(t, trade >= 0)
+	opts := tick_travel_options(&sim, &events) // run start
+	testing.expect(t, node_id_in(opts, trade))
 
 	submit_travel(&sim, trade)
 	opts = tick_travel_options(&sim, &events) // arrive at the trade; it fires once
@@ -382,12 +399,24 @@ the_run_start_broadcast_hides_unvisited_encounter_kinds_and_reveals_on_arrival :
 
 	// Graph shape is present: adjacency parallel to nodes.
 	testing.expect_value(t, len(started.run_map.edges), len(started.run_map.nodes))
-	// Every unvisited non-revealing Encounter's stages are withheld; landmarks are unaffected.
+	// Every unvisited non-revealing Encounter's stages are withheld; an encounter
+	// that reveals passes through whole, and the Start/Goal landmarks hold nothing
+	// to withhold either way.
 	for p in started.run_map.nodes {
-		_, has_encounter := p.encounter.?
-		if p.kind == .Encounter {
-			testing.expect(t, !has_encounter) // kind hidden pre-arrival
-		} else {
+		encounter, has_encounter := p.encounter.?
+		switch p.kind {
+		case .Encounter:
+			// Withheld pre-arrival. Unconditional today because no catalog recipe
+			// authors a Shop (#138); once one does, this node is visible exactly when
+			// run_encounter_reveals says so, which is what the .Port arm already checks.
+			testing.expect(t, !has_encounter)
+		case .Port:
+			// A Port is the [Shop] recipe (#134) and Shop is the revealing primitive,
+			// so its stages survive masking — that visibility *is* a Port's map
+			// presence now, rather than a node kind the hiding contract skips.
+			testing.expect(t, has_encounter)
+			testing.expect(t, run.run_encounter_reveals(encounter))
+		case .Start, .Goal:
 			testing.expect(t, !has_encounter) // landmarks carry no encounter at all
 		}
 	}
@@ -740,9 +769,13 @@ flat_deck :: proc(cost: int) -> run.Stage_Shop {
 // arena-backed map directly is a white-box test privilege; the Port's persistent
 // shelf (port_shelves[id]) is untouched, so it deals on first arrival and persists
 // across the arrivals a test stages.
+//
+// The deck goes on as the node's [Shop] encounter, which is what the generator
+// builds a Port out of now (#134) — a Port is the [Shop] recipe, not a node kind
+// with a shop field bolted to it.
 install_port_deck :: proc(sim: ^Sim, id: Node_ID, shop: run.Stage_Shop) {
 	sim.run_map.nodes[id].kind = .Port
-	sim.run_map.nodes[id].shop = shop
+	sim.run_map.nodes[id].encounter = run.Encounter{stages = {0 = shop}, count = 1}
 }
 
 // arrive_at_port points the ship at Port `id` and opens its shop (issue #123),
@@ -775,6 +808,47 @@ shelf_card_name :: proc(shelf: [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item), i: int
 		return card.fitting.name
 	}
 	return ""
+}
+
+@(test)
+arriving_at_a_generated_port_opens_its_baked_shop :: proc(t: ^testing.T) {
+	// The shop tests below stage their own deck (install_port_deck) so they can
+	// assert exact cards; this one takes a Port straight from the generator and
+	// travels to it, because that path is what #134 rewired: a port's stock used to
+	// be hung on the Node by a stocking pass at the end of generation, and is now
+	// baked as its [Shop] stage's content when its recipe is dealt. Nothing else
+	// here checks that a *generated* port still opens a shop, and a fold that
+	// dropped the deck would leave every other test passing.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	// Any generated Port will do, and it is reached with arrive_at_port's white-box
+	// jump rather than by travel: no port sits on a zone's entrance layer, so none
+	// is a Start neighbour and getting to one honestly would mean pathfinding a
+	// scenario this test isn't about. arrive_at_port makes the same sim_open_shop
+	// call sim_process_travel's arrival makes.
+	port := Node_ID(-1)
+	for p in sim.run_map.nodes {
+		if p.kind == .Port {
+			port = p.id
+			break
+		}
+	}
+	testing.expect(t, port >= 0)
+
+	arrive_at_port(&sim, port, &events)
+
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Shop_Choice)
+	shelf := presented_shelf(events[:])
+	filled := 0
+	for slot in shelf {
+		if _, ok := slot.?; ok {
+			filled += 1
+		}
+	}
+	testing.expectf(t, filled == run.SHOP_SHELF_SIZE, "generated port %d dealt %d shelf cards, want %d", port, filled, run.SHOP_SHELF_SIZE)
 }
 
 @(test)

@@ -25,6 +25,17 @@ nodes_per_zone := [Zone]int{.Coastal = 17, .Open_Sea = 17, .Deep = 16}
 // never on the zone's entrance layer.
 PORTS_PER_ZONE :: 2
 
+// zone_stage_count is ADR-0014's hard mapping from zone to encounter length:
+// Coastal 1 -> Open_Sea 2 -> Deep 3. It is the *only* filter on which recipes a
+// zone may draw — the zone's bucket is every catalog recipe of that stage count —
+// so encounters lengthen as the run sails out. Pacing holds because layers are
+// LAYER_WIDTH_MIN..MAX wide and a route therefore crosses only ~3-4 of a zone's
+// nodes, and the player can still route shallow deliberately.
+//
+// The bespoke placements are exempt: a Port is [Shop] even in The Deep
+// (run_port_bucket), and Start/Goal carry no encounter at all.
+zone_stage_count := [Zone]int{.Coastal = 1, .Open_Sea = 2, .Deep = 3}
+
 // LAYER_WIDTH_MIN/MAX bound how many nodes sit in one layer of the forward
 // graph (locked by #60 as the tunable starting point).
 LAYER_WIDTH_MIN :: 4
@@ -104,11 +115,21 @@ run_map_create :: proc(seed: u64) -> Map {
 	}
 	n := len(nodes)
 
-	// --- 3. Place ports: PORTS_PER_ZONE per zone, each in a uniformly random
-	// layer within that zone's phase but never its entrance layer (reaching a
-	// port is a routing choice, not a guaranteed first stop). Two ports may
-	// share a layer. A port consumes an Encounter slot rather than adding a
-	// node.
+	// --- 3. Place the Port bucket: PORTS_PER_ZONE per zone, each in a uniformly
+	// random layer within that zone's phase but never its entrance layer (reaching
+	// a port is a routing choice, not a guaranteed first stop). Two ports may share
+	// a layer. A port consumes an Encounter slot rather than adding a node.
+	//
+	// This is a bucket like any other — a pool plus a placement rule (ADR-0014) —
+	// and the rule is the only thing bespoke about it. A Port is the [Shop] recipe,
+	// exempt from the zone's stage-count mapping, and visible on the map because
+	// Shop reveals (run_encounter_reveals) rather than because its node kind
+	// excuses it from the hiding contract. Its stock is baked here with its recipe,
+	// like every other node's content.
+	//
+	// Start is not in this bucket: it is a .Start node, so it draws no recipe and
+	// carries no shop. You never arrive at it by travel, so a shop there would be
+	// unreachable.
 	for zone in Zone {
 		zl0 := zone_first_layer[zone]
 		zl1 := zl0 + zone_layer_count[zone]
@@ -137,14 +158,22 @@ run_map_create :: proc(seed: u64) -> Map {
 			count += 1
 			nodes[id].kind = .Port
 		}
+
+		// Deal this zone's two ports their recipes and bake them, the same way
+		// step 4 deals the zone's encounters: one path puts content on a node
+		// (run_encounter_from_recipe), whichever bucket the node was placed from.
+		bag := run_make_recipe_bag(PORTS_PER_ZONE, run_port_bucket(), gen)
+		for id, i in placed {
+			nodes[id].encounter = run_encounter_from_recipe(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
+		}
+		delete(bag)
 	}
 
-	// --- 4. Deal each zone's encounters from a per-zone shuffled recipe bag,
-	// split as evenly across the catalog as the division allows, then bake each
-	// picked recipe's stages into that node's stakes-scaled content. Generation
-	// picks whole authored recipes — it never composes a stage list (ADR-0014).
-	// The bag is dealt from the whole catalog for now; drawing it from the zone's
-	// stage-count bucket instead (Coastal 1 / Open Sea 2 / Deep 3) is issue #134.
+	// --- 4. Deal each zone's encounters from a per-zone shuffled recipe bag over
+	// that zone's stage-count bucket, split as evenly across the bucket as the
+	// division allows, then bake each picked recipe's stages into that node's
+	// stakes-scaled content. Generation picks whole authored recipes — it never
+	// composes a stage list (ADR-0014).
 	for zone in Zone {
 		// enc_ids collects the plain int indices of this zone's encounter nodes;
 		// the generator works in raw indices internally and only Node.id is the
@@ -157,11 +186,13 @@ run_map_create :: proc(seed: u64) -> Map {
 				append(&enc_ids, int(p.id))
 			}
 		}
-		bag := run_make_recipe_bag(len(enc_ids), run_recipe_catalog(), gen)
+		pool := run_zone_recipe_pool(zone, run_recipe_catalog())
+		bag := run_make_recipe_bag(len(enc_ids), pool, gen)
 		for id, i in enc_ids {
 			nodes[id].encounter = run_encounter_from_recipe(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
 		}
 		delete(bag)
+		delete(pool)
 		delete(enc_ids)
 	}
 
@@ -245,18 +276,6 @@ run_map_create :: proc(seed: u64) -> Map {
 	}
 	delete(adj)
 
-	// --- 6. Stock the shops. Every .Port node gets a purchasable stock drawn
-	// from the roster pool (#98). Done last, after kinds and edges, so it draws
-	// from `gen` only at the tail and leaves the recipe-deal and edge streams
-	// above byte-identical to a pre-shop map. Start (the home port) is a .Start
-	// node, not .Port, and stays a pure waypoint in this slice — you never arrive
-	// at it by travel, so a shop there would be unreachable.
-	for &node in nodes {
-		if node.kind == .Port {
-			node.shop = run_port_shop(gen)
-		}
-	}
-
 	return Map{nodes = nodes[:], edges = edges}
 }
 
@@ -293,9 +312,10 @@ run_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 // Guarantees the zone-wide deal is even; makes no attempt to balance recipes
 // along any individual route. Caller owns the returned slice.
 //
-// The pool it *should* be handed is the zone's stage-count bucket (Coastal 1 /
-// Open Sea 2 / The Deep 3) — that draw is issue #134, and until it lands
-// run_map_create passes the whole catalog.
+// The pool it is handed is a bucket: a zone's stage-count bucket
+// (run_zone_recipe_pool) for the zone deals, or the Port bucket for the bespoke
+// port placements. It has no opinion on which — a bag is dealt from a pool of
+// recipes, and which pool is the caller's question.
 run_make_recipe_bag :: proc(count: int, pool: []Recipe, gen: rand.Generator) -> []Recipe {
 	assert(len(pool) > 0, "cannot deal a recipe bag from an empty pool")
 
@@ -313,6 +333,54 @@ run_make_recipe_bag :: proc(count: int, pool: []Recipe, gen: rand.Generator) -> 
 	}
 	rand.shuffle(bag, gen)
 	return bag
+}
+
+// run_recipe_bucket returns every recipe in pool whose stage list is exactly
+// stage_count long — the bucket, *derived*. Membership is read off
+// len(r.stages) and nothing else: a Recipe has no bucket field (stage.odin), so
+// authoring a 3-stage recipe in catalog.odin files it into The Deep's bucket
+// with no wiring here and no way to file it wrong. This is the effort's headline
+// property, and it is structural rather than conventional because there is no
+// second place a bucket could be recorded. Caller owns the returned slice.
+run_recipe_bucket :: proc(pool: []Recipe, stage_count: int) -> []Recipe {
+	n := 0
+	for r in pool {
+		if len(r.stages) == stage_count {
+			n += 1
+		}
+	}
+
+	bucket := make([]Recipe, n)
+	i := 0
+	for r in pool {
+		if len(r.stages) == stage_count {
+			bucket[i] = r
+			i += 1
+		}
+	}
+	return bucket
+}
+
+// run_zone_recipe_pool returns the bucket a zone deals its encounters from: the
+// catalog recipes whose stage count matches zone_stage_count[zone]. Caller owns
+// the returned slice.
+//
+// **Transitional**: the catalog is still the three one-stage recipes ADR-0014
+// retired the encounter kinds into (catalog.odin), so Open_Sea's and The Deep's
+// buckets are empty and there is nothing to deal them. Rather than assert — which
+// would make the game unplayable past Coastal until #138 authors the multi-stage
+// recipes — an empty bucket falls back to the 1-stage one, which is what those
+// zones deal today anyway. The fallback is the *only* thing standing between this
+// mapping and the real thing, and it must be deleted when #138 fills the buckets:
+// multi_stage_buckets_are_empty_until_the_catalog_is_authored (run_test.odin)
+// fails the moment that happens, so this can't be left behind by accident.
+run_zone_recipe_pool :: proc(zone: Zone, catalog: []Recipe) -> []Recipe {
+	bucket := run_recipe_bucket(catalog, zone_stage_count[zone])
+	if len(bucket) > 0 {
+		return bucket
+	}
+	delete(bucket)
+	return run_recipe_bucket(catalog, 1)
 }
 
 // run_bake_stage builds one stage's stakes-scaled content for the given

@@ -68,8 +68,17 @@ port_shelf_draw_next :: proc(ps: ^Port_Shelf, deck_len: int) -> Maybe(Deck_Posit
 // back to the caller with the ship still awaiting a travel choice, so Start stays a
 // pure waypoint. Called from sim_process_travel (on arrival) and from a Refit's
 // finish (on return); sim_tick's tail re-affirms awaiting_decision.
+//
+// The deck comes off the node's [Shop] stage rather than a `shop` field on the
+// Node, which the Port bucket retired (issue #134): a Port is a recipe now, so
+// its stock is baked content like any other stage's. Start has no encounter at
+// all and so no shop, which is the same no-op it always was.
 sim_open_shop :: proc(sim: ^Sim, node: run.Node, events: ^[dynamic]Event) {
-	shop, has_shop := node.shop.?
+	encounter, has_encounter := node.encounter.?
+	if !has_encounter {
+		return
+	}
+	shop, has_shop := run.run_encounter_shop(encounter)
 	if !has_shop {
 		return
 	}
@@ -139,8 +148,10 @@ sim_process_shop_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	deck_pos, filled := ps.slots[selection].?
 	assert(filled, "Command_Buy_Item selected an empty shelf slot")
 
-	// We are at this Port's shop (Awaiting_Shop_Choice), so its Node carries the deck.
-	shop := sim.run_map.nodes[sim.current].shop.?
+	// We are at this Port's shop (Awaiting_Shop_Choice), so its Node's encounter
+	// carries the [Shop] stage the deck is baked into (#134).
+	encounter := sim.run_map.nodes[sim.current].encounter.?
+	shop := run.run_encounter_shop(encounter) or_else panic("at a shop whose node holds no Shop stage")
 	card := shop.deck[deck_pos]
 	// Charge the depth-surcharged price (issue #124): the tier base plus the surcharge
 	// for how deep this Port has already been dug. card carries this price onward, so
