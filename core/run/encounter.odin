@@ -3,14 +3,21 @@ package run
 import "../combat"
 import "../ship"
 
-// Stage resolution + ghost emission: what happens when a stage the ship arrived
-// at is applied. Each primitive that changes run state resolves here and returns
-// a Ghost_Snapshot (ADR-0008) of the player-side ship at that point, stamped
-// with the node's stakes (its Scaling_Site). The stage's tuned magnitudes were
-// already baked into its content at generation time (content.odin); this is only
-// the arrival-time application and snapshot.
-// run_start_battle/run_finish_ship_battle bracket a Fight around core/combat,
-// which owns the actual round resolution.
+// Stage resolution: what happens when a stage the ship arrived at is applied.
+// Each primitive that changes run state resolves here, mutating the player-side
+// ship and nothing else. The stage's tuned magnitudes were already baked into its
+// content at generation time (content.odin); this is only the arrival-time
+// application. run_start_battle/run_finish_ship_battle bracket a Fight around
+// core/combat, which owns the actual round resolution.
+//
+// **No proc here returns a Ghost_Snapshot** (issue #162, ADR-0008 as amended). It
+// used to look like each one should: a stage that changes the ship is exactly the
+// thing a ghost records. But a ghost is captured once per *encounter*, at the end
+// of the node's walk — so an emit hanging off an apply proc is a stage-level
+// cadence nobody chose, and the proc set that happened to return one (Fight,
+// Trade, Reward) silently left Offer and Shop — the two stages that change the
+// *build* — recording nothing at all. The Sim captures it at the one site that
+// knows the walk is over (sim_walk_encounter).
 //
 // These are the per-primitive *applications*; which stage is applied next, and
 // whether the walk continues past it, is the encounter's own cursor
@@ -23,19 +30,28 @@ run_start_battle :: proc(s: ^ship.Ship, fight: ^Stage_Fight) -> combat.Battle {
 	return combat.combat_battle_create(s, &fight.opponent)
 }
 
-// run_finish_ship_battle resolves a Fight once its Battle has ended and returns a
-// Ghost_Snapshot (ADR-0008) of s, the player-side ship handed to run_start_battle,
-// not the opponent — a stage is "resolved" from the player's own run-progress
-// perspective. The snapshot's stakes are rebuilt from the node's own zone/depth
-// rather than read off the opponent's (now battle-worn) hp, which would reflect
-// remaining HP, not what the node staked: that rationale is why Stage_Fight
-// retains depth at all. The returned snapshot's layout aliases s (see
-// run_ghost_snapshot_of): the Sim owns the single arena-backed capture
-// (issue #82).
-run_finish_ship_battle :: proc(battle: ^combat.Battle, s: ^ship.Ship, fight: ^Stage_Fight, zone: Zone, steps: int) -> Ghost_Snapshot {
+// run_finish_ship_battle reads an ended Battle as a Fight's Stage_Outcome
+// (ADR-0014) — what this battle's ending means to the encounter, which is the one
+// thing a Fight has to say for itself once combat has stopped.
+//
+// **Leave Combat halts**: the captain took ADR-0006's Speed-gated escape, so the
+// encounter ends here and nothing downstream of the Fight is reached — flee a
+// [Fight, Reward] and the loot stage never fires, with no authored gate saying so.
+// Every other ending completes it: victory obviously, but also a round-cap
+// stalemate, and the opponent's *own* escape — Side.B fleeing is not the captain
+// declining the fight, so it reads as the fight being over rather than as a halt.
+//
+// **Sinking is neither**, and is not asked of this proc: the run is over by
+// permadeath (ADR-0006) and the walk stops dead rather than resolving the stage at
+// all, so the caller checks run_can_travel before it consults the outcome.
+//
+// It used to return a Ghost_Snapshot instead, which is why it took the player's
+// ship, the node's zone, and the step count it no longer needs — see the file
+// header (issue #162).
+run_finish_ship_battle :: proc(battle: ^combat.Battle) -> Stage_Outcome {
 	assert(battle.ended, "run_finish_ship_battle called before the battle ended")
 
-	return run_ghost_snapshot_of(s, steps, Scaling_Site{zone = zone, depth = fight.depth})
+	return .Halted if .A in battle.escaped else .Completed
 }
 
 // An Offer stage has no run-side apply proc (issue #96): unlike a Trade it
@@ -152,8 +168,7 @@ run_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 }
 
 // run_apply_trade resolves an **accepted** Trade stage (issue #136), permanently
-// swapping the trade's cost for its gain and returning a post-trade
-// Ghost_Snapshot (ADR-0008) carrying the node's own stakes.
+// swapping the trade's cost for its gain.
 //
 // Only accepting reaches here. The old run_apply_stat_trade applied on arrival —
 // a Trade was "a single fixed trade-off rather than a choice", so it matched
@@ -168,29 +183,25 @@ run_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 //
 // Affordability is the caller's gate, not a rejection: the Sim only offers accept
 // when run_trade_can_accept, so arriving here unable to pay is a driver bug.
-run_apply_trade :: proc(s: ^ship.Ship, trade: Stage_Trade, site: Scaling_Site, steps: int) -> Ghost_Snapshot {
+run_apply_trade :: proc(s: ^ship.Ship, trade: Stage_Trade) {
 	assert(run_trade_can_accept(s, trade), "run_apply_trade on a trade the ship cannot pay for")
 
 	run_trade_pay(s, trade.cost)
 	run_trade_grant(s, trade.gain)
-
-	return run_ghost_snapshot_of(s, steps, site)
 }
 
 // run_apply_reward pays a Reward stage's treasure into the ship's purse (issues
-// #132, #133) and returns a post-payout Ghost_Snapshot (ADR-0008) carrying the
-// node's own stakes.
+// #132, #133).
 //
 // The amount is not computed here — it was baked into the stage at generation
 // (run_bake_stage), so this is only the application, like every other proc in this
-// file. `site` is the node's, for the snapshot alone.
+// file.
 //
 // Unconditional, and that is the primitive: a Reward is a boon with nothing to
 // decline, so unlike run_apply_trade there is no affordability gate to assert and
 // no caller-side choice to have been made first. It always completes
 // (Stage_Outcome.Completed), which is what makes [Fight, Reward] read as "win, then
 // loot" with no authored gate — the halt on fleeing is Fight's, not Reward's.
-run_apply_reward :: proc(s: ^ship.Ship, reward: Stage_Reward, site: Scaling_Site, steps: int) -> Ghost_Snapshot {
+run_apply_reward :: proc(s: ^ship.Ship, reward: Stage_Reward) {
 	s.starting_treasure += reward.treasure
-	return run_ghost_snapshot_of(s, steps, site)
 }

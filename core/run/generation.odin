@@ -415,7 +415,7 @@ run_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Generator
 
 	switch spec.kind {
 	case .Fight:
-		return Stage_Fight{depth = site.depth, opponent = run_pve_opponent(site, gen)}
+		return Stage_Fight{opponent = run_pve_opponent(site, gen)}
 	case .Offer:
 		return Stage_Offer{options = run_item_offer_options(site, gen)}
 	case .Trade:

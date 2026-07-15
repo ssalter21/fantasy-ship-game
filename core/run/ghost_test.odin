@@ -1,7 +1,6 @@
 package run
 
 import "../ship"
-import "../testutil"
 import "core:testing"
 
 @(test)
@@ -80,49 +79,9 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 	testing.expect_value(t, snap.ship.captain, Maybe(ship.Captain)(captain))
 }
 
-@(test)
-applying_a_trade_returns_a_post_trade_snapshot :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 5}
-	trade := trade_of(.Durability, 3, .Speed, 1)
-	site := Scaling_Site{zone = .Open_Sea, depth = 1}
-
-	snapshot := run_apply_trade(&s, trade, site, 4)
-
-	testing.expect_value(t, snapshot.ship.durability, 5) // post-trade, not pre-trade
-	testing.expect_value(t, snapshot.ship.hp, 20)
-	testing.expect_value(t, snapshot.progress.steps, 4)
-	// The node's own stakes, not one side's magnitude wearing a difficulty's name
-	// (ADR-0014): a Trade's swing size is one reading of this site, and the
-	// snapshot records the site it was read from.
-	testing.expect_value(t, snapshot.progress.site, site)
-}
-
-@(test)
-finishing_a_ship_battle_returns_a_snapshot_of_the_players_ship :: proc(t: ^testing.T) {
-	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
-	fight := Stage_Fight{depth = 2, opponent = ship.Ship{hp = 10, speed = 3}}
-	battle := run_start_battle(&player, &fight)
-	battle.ended = true // stand in for a battle actually resolving to completion
-
-	snapshot := run_finish_ship_battle(&battle, &player, &fight, .Deep, 8)
-
-	testing.expect_value(t, snapshot.ship.hp, 20) // player's own max_hp, not the opponent's
-	testing.expect_value(t, snapshot.progress.steps, 8)
-	// Stakes come from the node's own zone/depth, not off the battle-worn
-	// opponent — the encounter's retained depth is what makes that possible.
-	testing.expect_value(t, snapshot.progress.site, Scaling_Site{zone = .Deep, depth = 2})
-}
-
-@(test)
-finishing_a_ship_battle_that_has_not_ended_asserts :: proc(t: ^testing.T) {
-	when testutil.SKIP_WINDOWS_ASSERT_BUG {
-		return
-	}
-
-	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
-	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
-	battle := run_start_battle(&player, &fight)
-
-	testing.expect_assert(t, "run_finish_ship_battle called before the battle ended")
-	run_finish_ship_battle(&battle, &player, &fight, .Coastal, 0)
-}
+// No test here drives a stage's apply proc to get a snapshot out of it, because
+// none of them return one any more (issue #162). A ghost is captured once per
+// encounter, at the end of the node's walk, so "what does a resolved encounter's
+// snapshot say" is core/sim's question and is asked there — this file is left with
+// the capture itself: what run_ghost_snapshot_of describes and what
+// run_ghost_snapshot_capture owns.

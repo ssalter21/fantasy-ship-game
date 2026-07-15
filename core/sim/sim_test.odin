@@ -1148,7 +1148,7 @@ fight_stage :: proc(sim: ^Sim, hp: int) -> run.Stage_Fight {
 	opponent.hp = hp
 	opponent.max_hp = hp
 	opponent.speed = 1 // slower than the player below, so escape unlocks once the baseline passes
-	return run.Stage_Fight{depth = 0, opponent = opponent}
+	return run.Stage_Fight{opponent = opponent}
 }
 
 // ready_for_battle gives the player enough HP to survive a long battle and enough
@@ -1467,8 +1467,10 @@ a_reward_pays_out_and_completes_without_stopping_for_the_captain :: proc(t: ^tes
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice) // never parked
 	testing.expect(t, sim.resolved[1])
 
-	// Presentation learns the purse moved only through Events (ADR-0001), and a Reward
-	// is a resolution like any other, so it snapshots too.
+	// Presentation learns the purse moved only through Events (ADR-0001). The node's
+	// ghost rides along here because a bare [Reward] *is* the whole encounter — its
+	// payout and the walk's end are the same tick — not because the payout emits one;
+	// the cadence tests above are where that distinction is asked properly.
 	testing.expect(t, has_event(events[:], Event_Ship_Updated))
 	testing.expect(t, has_event(events[:], Event_Encounter_Resolved))
 }
@@ -1585,6 +1587,245 @@ sinking_ends_the_run_without_walking_on_to_a_later_stage :: proc(t: ^testing.T) 
 	testing.expect_value(t, sim.status, run.Run_Status.Lost)
 	testing.expect_value(t, sim.phase, Phase.Ended)
 	testing.expect(t, has_event(ev, Event_Run_Ended))
+}
+
+// --- Ghost capture cadence: one snapshot per encounter (issue #162) ---------
+//
+// These count Event_Encounter_Resolved rather than merely asking whether one is
+// present, because the **count** is the contract (ADR-0008 as amended): one per
+// node's walk. Asking "was there a snapshot" is what let the retired cadence pass
+// unnoticed — it fired from the three run-side procs that happened to return one, so
+// a [Fight, Reward] emitted twice and an Offer, which is the stage that actually
+// changes the build, emitted not at all.
+
+// resolved_snapshots collects every Event_Encounter_Resolved's snapshot in the batch,
+// in order.
+resolved_snapshots :: proc(events: []Event) -> [dynamic]run.Ghost_Snapshot {
+	snaps: [dynamic]run.Ghost_Snapshot
+	for e in events {
+		if resolved, ok := e.(Event_Encounter_Resolved); ok {
+			append(&snaps, resolved.snapshot)
+		}
+	}
+	return snaps
+}
+
+// snapshot_holds reports whether a captured ship has a fitting of this name aboard —
+// "did the ghost record what the captain took on at this node", which is the question
+// the Offer and Shop stages had no way to answer at all before #162.
+snapshot_holds :: proc(snap: run.Ghost_Snapshot, name: string) -> bool {
+	for slot in snap.ship.layout {
+		if fitting, filled := slot.fitting.?; filled && fitting.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+@(test)
+one_encounter_emits_one_snapshot_however_many_stages_resolve :: proc(t: ^testing.T) {
+	// The cadence itself, on the encounter that exposed it: [Fight, Reward] is on every
+	// seed's Open Sea (#138), and both of its stages used to emit a ghost of their own.
+	// One node, one ghost — and it is taken **post-loot**, because it is the ship the
+	// captain leaves the node with rather than a timeline of the ship inside it.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	before := sim.player.starting_treasure
+	install_encounter(&sim, 1, fight_stage(&sim, 1), reward_stage()) // 1 HP: sinks in a round
+	arrive_at(&sim, 1, &events)
+
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
+	ev := refit_tick(&sim, &events)
+
+	snaps := resolved_snapshots(ev)
+	defer delete(snaps)
+	testing.expect_value(t, len(snaps), 1)
+	testing.expect_value(t, snaps[0].ship.starting_treasure, before + REWARD_PAYOUT)
+
+	// The node's own stakes ride along (ADR-0014), asked of the node the walk ended on
+	// rather than reconstructed by a stage — which is what retired Stage_Fight.depth and
+	// sim.active_trade_site, the two copies of this that a late-resolving stage carried
+	// so it could stamp a snapshot of its own.
+	testing.expect_value(t, snaps[0].progress.site, sim_current_site(&sim))
+}
+
+@(test)
+a_halted_encounter_emits_a_snapshot_of_the_ship_that_walked_away :: proc(t: ^testing.T) {
+	// A halt emits: the cursor jumps to the end, so it lands in the same branch that
+	// resolves any other walk, and a fled ship is a real ship a lobby can serve. Fleeing
+	// a [Fight, Reward] is the case where a *stage-level* cadence and a node-level one
+	// visibly disagree — the ghost is one, and the Reward it names is unpaid.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	before := sim.player.starting_treasure
+	install_encounter(&sim, 1, fight_stage(&sim, 10_000), reward_stage()) // too tough to sink quickly
+	arrive_at(&sim, 1, &events)
+
+	// Hold until the Speed-gated escape unlocks (ADR-0006), then take it.
+	for combat.BASELINE_ROUND_COUNT * 2 > sim.battle.round {
+		if combat.combat_may_leave(&sim.battle, .A) {
+			break
+		}
+		testing.expect(t, fight_round(&sim, &events))
+	}
+	testing.expect(t, combat.combat_may_leave(&sim.battle, .A))
+
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Leave_Combat{}}))
+	ev := refit_tick(&sim, &events)
+
+	snaps := resolved_snapshots(ev)
+	defer delete(snaps)
+	testing.expect(t, sim.resolved[1])
+	testing.expect_value(t, len(snaps), 1)
+	testing.expect_value(t, snaps[0].ship.starting_treasure, before) // fled: the ghost is unpaid too
+}
+
+@(test)
+a_sinking_emits_no_snapshot :: proc(t: ^testing.T) {
+	// The one encounter in a run that leaves no ghost, and a **behavior change** from
+	// the retired cadence, which emitted on the way down (sim_battle's per-proc emit
+	// fired before the status check). The walk stops dead, so the node is never
+	// resolved — and Event_Encounter_Resolved's "resolved" is now the Sim's `resolved`,
+	// which makes an emit here a contradiction rather than a courtesy. Nothing is lost:
+	// the build is whatever the last node's ghost already recorded, and Event_Run_Ended
+	// is what marks the death.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim.player.hp = 1 // goes down in the first round
+	sim.player.speed = 50
+	install_encounter(&sim, 1, fight_stage(&sim, 10_000), reward_stage())
+	arrive_at(&sim, 1, &events)
+
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}))
+	ev := refit_tick(&sim, &events)
+
+	snaps := resolved_snapshots(ev)
+	defer delete(snaps)
+	testing.expect(t, sim.player.hp <= 0)
+	testing.expect_value(t, len(snaps), 0)
+	testing.expect(t, !sim.resolved[1]) // the walk stopped: the node never resolved
+	testing.expect(t, has_event(ev, Event_Run_Ended))
+}
+
+@(test)
+the_snapshot_carries_the_fitting_an_offer_put_aboard :: proc(t: ^testing.T) {
+	// **The hole #162 was filed to close**, and there was no test for it because it had
+	// never been true: an Offer is the stage that changes the *build*, and it emitted
+	// nothing at all — it is not one of the three procs that happened to return a
+	// snapshot. A ghost is a build, so this is the ghost's whole job.
+	//
+	// The timing lands for free: an Offer's pick advances the cursor and *then* opens
+	// the Refit, so the Refit's finish routes back through the walk and the capture is
+	// post-install by construction rather than by an ordering someone has to maintain.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	arrive_at_offer(&sim, &events) // option 0 is the roster's first item, "Deckhands" (Small)
+
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Replace{slot = 5}) // hold 2, a Small slot holding cargo
+	refit_tick(&sim, &events)
+	testing.expect_value(t, fitting_name_at(&sim, 5), "Deckhands")
+
+	submit_refit(&sim, Refit_Finish{})
+	ev := refit_tick(&sim, &events)
+
+	snaps := resolved_snapshots(ev)
+	defer delete(snaps)
+	testing.expect_value(t, len(snaps), 1)
+	testing.expect(t, snapshot_holds(snaps[0], "Deckhands"))
+	// The item the captain *didn't* pick is not aboard — so the assertion above is the
+	// pick being recorded, not the roster leaking into the ghost through the offer.
+	testing.expect(t, !snapshot_holds(snaps[0], "Swivel Guns")) // option 1, declined
+}
+
+@(test)
+the_snapshot_carries_every_purchase_made_at_a_shop :: proc(t: ^testing.T) {
+	// The same hole from the other end, and the larger one: a Port is a [Shop] recipe
+	// (#134) and the multi-buy loop is the single biggest build change in the game —
+	// three fittings aboard in one visit, recorded by nothing. It is also the case that
+	// makes "at the end of the walk" load-bearing rather than incidental: a Shop keeps
+	// the cursor across each buy's Refit, so any capture pinned to a *stage* resolving
+	// would have to pick a buy to fire on.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim.player.starting_treasure = 1000 // afford the visit outright; pricing is not this test's subject
+	arrive_at_shop(&sim, 1, flat_stock(10), &events) // stock position i is roster[i]
+
+	// Buy option 0 ("Deckhands"), install it, and return to the refilled shelf.
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Replace{slot = 5})
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Finish{})
+	refit_tick(&sim, &events)
+
+	// Buy option 1 ("Swivel Guns") at the same shop — the second turn of the loop.
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(1)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Replace{slot = 6})
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Finish{})
+	refit_tick(&sim, &events)
+
+	// Leaving completes the Shop (it is the one primitive with no halt) and ends the walk.
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = nil}))
+	ev := refit_tick(&sim, &events)
+
+	snaps := resolved_snapshots(ev)
+	defer delete(snaps)
+	testing.expect_value(t, len(snaps), 1)
+	testing.expect(t, snapshot_holds(snaps[0], "Deckhands"))
+	testing.expect(t, snapshot_holds(snaps[0], "Swivel Guns"))
+}
+
+@(test)
+a_resolved_node_emits_no_second_snapshot_when_the_ship_returns :: proc(t: ^testing.T) {
+	// One per node holds across a *run*, not just within one walk: an encounter is
+	// walked once, so retracing to a resolved node re-emits nothing. Driven through the
+	// real arrival path rather than the walk directly, because the guard that makes this
+	// true lives there (sim_process_travel's already_resolved) — calling the walk would
+	// prove a different, easier thing.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	before := sim.player.starting_treasure
+	install_encounter(&sim, 1, reward_stage())
+	arrive_at(&sim, 1, &events)
+
+	first := resolved_snapshots(events[:])
+	defer delete(first)
+	testing.expect_value(t, len(first), 1)
+	testing.expect(t, sim.resolved[1])
+
+	sim.current = 0 // retrace: node 1 is a neighbour of Start on this seed
+	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = 1}))
+	clear(&events)
+	sim_tick(&sim, &events)
+
+	again := resolved_snapshots(events[:])
+	defer delete(again)
+	testing.expect_value(t, len(again), 0)
+	testing.expect_value(t, sim.player.starting_treasure, before + REWARD_PAYOUT) // and paid once
 }
 
 // flat_stock bakes a shop stocked to `count` cards in roster order, every card priced

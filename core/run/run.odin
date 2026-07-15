@@ -225,7 +225,8 @@ REWARD_TREASURE_PER_DEPTH :: 5
 // #113) rather than as a positional int/enum pair that call sites could silently
 // swap — the whole-struct idiom the Odin standards prescribe. Assembled from a
 // node's zone and normalized depth: at generation time to scale its content, and
-// again at battle-finish (run_finish_ship_battle) to record its stakes.
+// again as the node's walk finishes (sim_current_site) to record its stakes on
+// the encounter's Ghost_Snapshot.
 Scaling_Site :: struct {
 	zone:  Zone,
 	depth: int,
