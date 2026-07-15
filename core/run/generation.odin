@@ -333,8 +333,8 @@ run_bake_stage :: proc(kind: Stage_Kind, site: Scaling_Site, gen: rand.Generator
 		return Stage_Offer{options = run_item_offer_options(site, gen)}
 	case .Trade:
 		return Stage_Trade{
-			gain_durability = run_stat_trade_gain_durability(site),
-			cost_speed      = run_stat_trade_cost_speed(site),
+			gain_durability = run_trade_gain_durability(site),
+			cost_speed      = run_trade_cost_speed(site),
 		}
 	case .Shop:
 		return run_port_shop(gen)

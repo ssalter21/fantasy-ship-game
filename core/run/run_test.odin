@@ -27,38 +27,43 @@ only_stage :: proc(e: Encounter, $T: typeid) -> (stage: T, ok: bool) {
 	return e.stages[0].(T)
 }
 
-// --- Gradient formulas: zone tier x depth ----------------------------------
+// --- Stakes formulas: zone tier x depth ------------------------------------
 
 expect_rises_by_zone_and_depth :: proc(t: ^testing.T, f: proc(Scaling_Site) -> int) {
-	// A deeper zone at the same depth is harder/more rewarding...
+	// A deeper zone at the same depth stakes more...
 	testing.expect(t, f(Scaling_Site{zone = .Deep, depth = 0}) > f(Scaling_Site{zone = .Coastal, depth = 0}))
 	// ...and within a zone, a deeper node outscales a shallow one.
 	testing.expect(t, f(Scaling_Site{zone = .Open_Sea, depth = DEPTH_STEPS}) > f(Scaling_Site{zone = .Open_Sea, depth = 0}))
 }
 
 @(test)
-ship_battle_difficulty_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_ship_battle_difficulty)
+fight_opponent_hp_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_fight_opponent_hp)
 }
 
 @(test)
-ship_battle_opponent_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_ship_battle_opponent_durability)
+fight_opponent_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_fight_opponent_durability)
 }
 
 @(test)
-item_offer_quality_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_item_offer_quality)
+fight_opponent_offense_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_fight_opponent_offense)
 }
 
 @(test)
-stat_trade_gain_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_stat_trade_gain_durability)
+offer_item_quality_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_offer_item_quality)
 }
 
 @(test)
-stat_trade_cost_speed_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_stat_trade_cost_speed)
+trade_gain_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_trade_gain_durability)
+}
+
+@(test)
+trade_cost_speed_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_trade_cost_speed)
 }
 
 @(test)
@@ -66,16 +71,19 @@ run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t
 	site := Scaling_Site{zone = .Deep, depth = 2}
 	opponent := run_make_opponent_ship(site)
 
-	testing.expect_value(t, opponent.hp, run_ship_battle_difficulty(site))
-	testing.expect_value(t, opponent.durability, run_ship_battle_opponent_durability(site))
+	testing.expect_value(t, opponent.hp, run_fight_opponent_hp(site))
+	testing.expect_value(t, opponent.durability, run_fight_opponent_durability(site))
 }
 
+// The primitives all read one gradient, so their readings must stay
+// distinguishable — otherwise a shared table would be indistinguishable from
+// each primitive owning its own constants.
 @(test)
-the_three_zone_scaled_encounter_kinds_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
+the_primitives_readings_of_one_site_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
 	coastal := Scaling_Site{zone = .Coastal, depth = 0}
-	testing.expect(t, run_ship_battle_difficulty(coastal) != run_item_offer_quality(coastal))
-	testing.expect(t, run_ship_battle_difficulty(coastal) != run_stat_trade_gain_durability(coastal))
-	testing.expect(t, run_item_offer_quality(coastal) != run_stat_trade_gain_durability(coastal))
+	testing.expect(t, run_fight_opponent_hp(coastal) != run_offer_item_quality(coastal))
+	testing.expect(t, run_fight_opponent_hp(coastal) != run_trade_gain_durability(coastal))
+	testing.expect(t, run_offer_item_quality(coastal) != run_trade_gain_durability(coastal))
 }
 
 // --- Depth normalization: stable endpoints regardless of layer count -------
@@ -668,7 +676,7 @@ run_apply_stat_trade_permanently_gains_durability_and_costs_speed :: proc(t: ^te
 	s := ship.Ship{hp = 20, durability = 2, speed = 5}
 	trade := Stage_Trade{gain_durability = 3, cost_speed = 1}
 
-	run_apply_stat_trade(&s, trade, .Coastal, 0)
+	run_apply_stat_trade(&s, trade, Scaling_Site{zone = .Coastal, depth = 0}, 0)
 
 	testing.expect_value(t, s.durability, 5)
 	testing.expect_value(t, s.speed, 4)

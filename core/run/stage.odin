@@ -78,8 +78,8 @@ Shop_Item :: struct {
 // hostile roster that retires the single template is issue #135.
 Stage_Fight :: struct {
 	// depth is this node's normalized depth-within-zone (0..DEPTH_STEPS),
-	// retained so run_finish_ship_battle can recompute the node's original tuned
-	// stakes without reading them off the battle-worn opponent.
+	// retained so run_finish_ship_battle can rebuild the node's Scaling_Site —
+	// its original stakes — without reading it off the battle-worn opponent.
 	depth:    int,
 	opponent: ship.Ship,
 }

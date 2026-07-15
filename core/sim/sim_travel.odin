@@ -85,7 +85,8 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	case run.Stage_Trade:
 		zone, has_zone := node.zone.?
 		assert(has_zone, "an Encounter node must have a zone")
-		snap := run.run_apply_stat_trade(&sim.player, s, zone, sim.steps)
+		site := run.Scaling_Site{zone = zone, depth = node.depth}
+		snap := run.run_apply_stat_trade(&sim.player, s, site, sim.steps)
 		sim_emit_encounter_resolved(sim, snap, events)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		sim.resolved[cmd.node_id] = true

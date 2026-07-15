@@ -95,13 +95,15 @@ _Avoid_: Game mode, client mode
 
 ### Ghost snapshots and async PvP (see ADR-0008)
 
-- **Ghost_Snapshot** — a captured copy of a ship's current state (stats, layout/fittings, captain) plus its run progress (steps taken, zone), used as the opponent-ship representation for a Fight stage. The same struct serves both this slice's hand-authored PvE opponents and, eventually, real players' captured state — there is no separate opponent-config type.
-- **`Ghost_Snapshot.difficulty_rating`** — **retired as a misnomer** (ADR-0014). It was meant to carry a node's tuned difficulty number, but a Stat Trade has no difficulty — only **stakes** — so `run_apply_stat_trade` already passes `gain_durability` into the field, and the code that fills it is already lying about what it means. Stakes (`Scaling_Site`: zone tier + depth) is the concept that survives.
+- **Ghost_Snapshot** — a captured copy of a ship's current state (stats, layout/fittings, captain) plus its run progress (steps taken, and the node's **stakes**), used as the opponent-ship representation for a Fight stage. The same struct serves both this slice's hand-authored PvE opponents and, eventually, real players' captured state — there is no separate opponent-config type.
+- **`Ghost_Snapshot.progress.site`** — the node's stakes (`Scaling_Site`: zone tier + depth), and what a snapshot records of *where* it was captured. It carries the site rather than any one primitive's reading of it: each primitive's reading stays recoverable from the site (`run_fight_opponent_hp(site)` and friends), and no primitive has to claim a number it doesn't own. Subsumes the separate `zone` field, which the site already carries.
+- **`Ghost_Snapshot.difficulty_rating`** — **retired as a misnomer** (ADR-0014, #130). It was meant to carry a node's tuned difficulty number, but a Stat Trade has no difficulty — only **stakes** — so `run_apply_stat_trade` shoved `gain_durability` into it, and the code that filled it was lying about what it meant. Replaced by `progress.site`.
+  _Avoid_: difficulty_rating, and any per-primitive magnitude standing in for the gradient.
 - **EncounterResolved** — the Event the Sim emits after an encounter resolves, carrying a fresh `Ghost_Snapshot` of the ship's state at that point.
 - **Hold** — a `Command` variant that is a formal no-op: a scripted (non-player-controlled) ship submits it every round except when automatically taking Leave Combat once escape-eligible. Scripted opponents never choose Boost/Man the Sails/Jettison Cargo in this slice.
   _Avoid_: assuming a scripted opponent's Input_Source needs randomness — it doesn't; see ADR-0008.
 
-A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time, regardless of the real ship's current run-persistent HP — a ghost is a decoupled copy that may be fought independently by multiple opponents, while the real player's own HP keeps degrading normally on their own run. Hand-authored PvE opponents may still set HP to any explicit value as a difficulty knob.
+A `Ghost_Snapshot`'s HP always resets to the ship's max/base HP at capture time, regardless of the real ship's current run-persistent HP — a ghost is a decoupled copy that may be fought independently by multiple opponents, while the real player's own HP keeps degrading normally on their own run. Hand-authored PvE opponents may still set HP to any explicit value as an opponent-power knob.
 
 ### Build variance: tags, effects, and acquisition (see ADR-0012, amending ADR-0004)
 
