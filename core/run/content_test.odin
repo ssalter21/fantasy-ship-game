@@ -21,7 +21,43 @@ test_hostile :: proc(archetype: Hostile_Archetype, site: Scaling_Site) -> ship.S
 	s := run_make_opponent_ship(site)
 	s.speed = archetype.speed
 	layout := ship.ship_template_layout()
-	assert(run_fit_hostile_loadout(layout, archetype, run_fight_opponent_offense(site)))
+	assert(run_fit_hostile_loadout(layout, archetype, run_fight_opponent_power(site)))
+	s.layout = layout
+	return s
+}
+
+// hostile_output is what an archetype actually *deals* in a round —
+// `raw_damage = Offensive + Buff` (core/combat, ADR-0017) — resolved through a real
+// Battle rather than read off the authored magnitudes.
+//
+// The distinction is the whole reason this helper exists (#165). phase_magnitude
+// below sums `active.magnitude` directly, which is blind to both seams that stand
+// between a magnitude and a damage number: a **synergy** multiplies it by its match
+// count, and a **conditional** gates it on live battle state. #135's independence
+// test measured magnitudes and so reported a property that resolved output did not
+// have — Deepwater Menagerie collected 14 points of a site reading worth 9, because
+// Hunter's Pack's share was multiplied by the Beasts aboard. A property about what a
+// hostile hits for has to be measured where it is hit.
+//
+// `round` picks which round's state the conditionals resolve against; Death Throes
+// is a different ship above and below half HP.
+hostile_output :: proc(hostile: ^ship.Ship, round: int = 1) -> int {
+	player := ship.ship_starting_ship()
+	defer delete(player.layout)
+
+	battle := combat.combat_battle_create(&player, hostile)
+	battle.round = round
+	return combat.combat_phase_output(&battle, .B, .Offensive) + combat.combat_phase_output(&battle, .B, .Buff)
+}
+
+// hostile_at_power builds an archetype at an explicit power percent, off a site that
+// contributes nothing of its own — the only way to ask what an entry was *authored*
+// as (100%) independently of where it was met.
+hostile_at_power :: proc(archetype: Hostile_Archetype, percent: int) -> ship.Ship {
+	s := ship.Ship{}
+	s.speed = archetype.speed
+	layout := ship.ship_template_layout()
+	assert(run_fit_hostile_loadout(layout, archetype, percent))
 	s.layout = layout
 	return s
 }
@@ -136,43 +172,27 @@ a_deeper_node_gives_the_opponent_harder_hitting_offensive_fittings :: proc(t: ^t
 	testing.expect(t, deep.durability > coastal.durability)
 }
 
-// The stakes bonus lands on Offensive fittings only (run_fit_hostile_loadout).
-// Scaling Buff or Defensive fittings would raise the hostile's `defense_bonus`,
-// which is subtracted from the *player's* damage — so a deeper node would make a
-// hostile harder to hurt rather than harder to fight.
+// **Stakes scales what a hostile deals, never what it soaks** — the surviving half
+// of #135's rule (run_stakes_scales_category), and the half whose reason is still
+// alive: soak is subtracted from raw damage, so a site that scaled it would make a
+// deep hostile impossible to *hurt* rather than harder to fight.
+//
+// The other half of #135's rule — "Buff is not scaled either" — is deliberately
+// **gone** (#165), because #151 took Buff out of `defense_bonus`, so a scaled Buff
+// fitting now hits harder rather than soaking harder. That the two halves had one
+// stated reason and only one of them still holds is why this test names the
+// property rather than the category list.
+//
+// Both of a Defensive fitting's routes into soak are checked, since the roster uses
+// both: `Barricades` is an active that feeds the Defensive phase, and `Reinforced
+// Hull` is a passive Modify_Durability that never enters a phase at all. The site's
+// own durability reading is subtracted off so this asks about the *archetype's*
+// contribution rather than run_make_opponent_ship's baseline, which is a stakes
+// reading and is meant to move.
 @(test)
-the_stakes_bonus_scales_offensive_fittings_only :: proc(t: ^testing.T) {
-	for archetype in run_hostile_roster() {
-		shallow := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
-		defer delete(shallow.layout)
-		deep := test_hostile(archetype, Scaling_Site{zone = .Deep, depth = 3})
-		defer delete(deep.layout)
-
-		testing.expectf(
-			t,
-			phase_magnitude(deep, .Buff) == phase_magnitude(shallow, .Buff),
-			"%v's buff output moved with the site",
-			archetype.name,
-		)
-		testing.expectf(
-			t,
-			phase_magnitude(deep, .Defensive) == phase_magnitude(shallow, .Defensive),
-			"%v's defensive output moved with the site",
-			archetype.name,
-		)
-	}
-}
-
-// **The independence property.** The site's offense reading is a total shared across
-// an archetype's guns (run_fit_hostile_loadout), so stakes must be worth the same
-// uplift to every build — a three-gun archetype must not collect three times what a
-// one-gun archetype does. This is the test that would fail if the bonus were ever
-// quietly made per-fitting, which is the natural-looking thing to write.
-@(test)
-the_stakes_uplift_is_the_same_total_for_every_archetype :: proc(t: ^testing.T) {
+the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing.T) {
 	shallow_site := Scaling_Site{zone = .Coastal, depth = 0}
 	deep_site := Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}
-	expected := run_fight_opponent_offense(deep_site) - run_fight_opponent_offense(shallow_site)
 
 	for archetype in run_hostile_roster() {
 		shallow := test_hostile(archetype, shallow_site)
@@ -182,11 +202,150 @@ the_stakes_uplift_is_the_same_total_for_every_archetype :: proc(t: ^testing.T) {
 
 		testing.expectf(
 			t,
-			phase_magnitude(deep, .Offensive) - phase_magnitude(shallow, .Offensive) == expected,
-			"%v gained %d offense between Coastal and The Deep; every archetype must gain %d",
+			phase_magnitude(deep, .Defensive) == phase_magnitude(shallow, .Defensive),
+			"%v's defensive output moved with the site — soak is subtracted from raw, so scaling it walls the player",
 			archetype.name,
-			phase_magnitude(deep, .Offensive) - phase_magnitude(shallow, .Offensive),
-			expected,
+		)
+		testing.expectf(
+			t,
+			ship.ship_effective_durability(&deep) - run_fight_opponent_durability(deep_site) ==
+			ship.ship_effective_durability(&shallow) - run_fight_opponent_durability(shallow_site),
+			"%v's fittings contributed more Durability in The Deep — the site scaled a Modify_Durability passive",
+			archetype.name,
+		)
+	}
+}
+
+// **Speed is the archetype's axis, and the site must not touch it** (#165, and the
+// reason FIGHT_OPPONENT_SPEED was retired onto Hostile_Archetype by #135).
+//
+// This is a new tripwire, and it is live rather than theoretical: the roster's four
+// Modify_Speed items are filed under Category `.Buff` (Spare Rigging, Copper
+// Sheathing, Outriggers, Enchanted Keel), and `.Buff` is a category the site now
+// scales. Only ship_fitting_output_scaled's refusal to touch anything but an active
+// Phase_Contribution keeps a Deep node from handing Reef Skimmer more Speed than a
+// Coastal one — which would quietly decide who is allowed to leave the fight, since
+// escape eligibility is *strictly faster* (combat_may_leave).
+//
+// Two archetypes have real stakes in this: Smuggler's Run's Spare Rigging is what
+// takes it to an effective 8 so it bolts the round the gate opens, and Reef Skimmer
+// is two Modify_Speed items stacked.
+@(test)
+the_site_never_moves_a_hostiles_speed :: proc(t: ^testing.T) {
+	for archetype in run_hostile_roster() {
+		shallow := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
+		defer delete(shallow.layout)
+		deep := test_hostile(archetype, Scaling_Site{zone = .Deep, depth = DEPTH_STEPS})
+		defer delete(deep.layout)
+
+		testing.expectf(
+			t,
+			ship.ship_effective_speed(&deep) == ship.ship_effective_speed(&shallow),
+			"%v sails at %d in The Deep and %d at Coastal — the site is scaling a Modify_Speed fitting, and Speed is the archetype's axis",
+			archetype.name,
+			ship.ship_effective_speed(&deep),
+			ship.ship_effective_speed(&shallow),
+		)
+	}
+}
+
+// **The independence property, measured where the damage lands** (#165).
+//
+// #135 wanted the site's reading to be worth the same to every archetype, so that
+// which hostile you drew could not matter more than how deep you were. Its shared
+// total (run_offense_share) could not deliver that, and its test could not see the
+// failure: measuring *authored magnitudes*, it reported an equal uplift while
+// resolved output diverged by 56% — Deepwater Menagerie's Hunter's Pack multiplied
+// its share by the Beasts aboard, and Death Throes banked most of its share behind
+// an HP conditional.
+//
+// A multiplier states the property in the only form that can hold through a synergy:
+// **the same proportion, not the same amount.** `(m x pct) x count` is
+// `pct x (m x count)` for any count, so this passes for a flat build, a Selector
+// build and a conditional build alike — which is the structural claim, and it is
+// what the additive share could never make.
+//
+// Resolved at round 1 and again at a round where Death Throes' HP conditionals are
+// live would need two ships; round 1 is enough, because the property is about the
+// *shape* of the scaling and a conditional that is unmet contributes 0 at every
+// power, which scales correctly and trivially.
+//
+// The tolerance is rounding, and it is bounded rather than fudged:
+// ship_fitting_output_scaled rounds each fitting half-up, so a fitting is off by at
+// most half a point before its synergy count multiplies it — a couple of points
+// across a whole build. It is deliberately far tighter than the 5-point divergence
+// the old model had at Coastal and the 5-point one it had in The Deep.
+@(test)
+the_site_scales_every_archetype_by_the_same_proportion :: proc(t: ^testing.T) {
+	// Half a point per scaled fitting, times the largest synergy count in the roster.
+	TOLERANCE :: 2
+
+	for archetype in run_hostile_roster() {
+		as_authored := hostile_at_power(archetype, 100)
+		defer delete(as_authored.layout)
+		base := hostile_output(&as_authored)
+
+		for zone in Zone {
+			for depth in 0 ..= DEPTH_STEPS {
+				site := Scaling_Site{zone = zone, depth = depth}
+				percent := run_fight_opponent_power(site)
+
+				hostile := test_hostile(archetype, site)
+				defer delete(hostile.layout)
+
+				expected := (base * percent) / 100
+				actual := hostile_output(&hostile)
+				testing.expectf(
+					t,
+					abs(actual - expected) <= TOLERANCE,
+					"%v deals %d at %v depth %d (%d%% of an authored %d); every archetype must land within %d of %d — the site's reading is worth more to this build than to a flat one",
+					archetype.name,
+					actual,
+					zone,
+					depth,
+					percent,
+					base,
+					TOLERANCE,
+					expected,
+				)
+			}
+		}
+	}
+}
+
+// **100% means the archetype exactly as authored** — the property that lets the
+// roster's entries be read as written (hostile_roster's band note) and that makes
+// Open Sea the zone the table is authored at (zone_tier's 1/2/3 against
+// FIGHT_OPPONENT_POWER_PERCENT_PER_TIER's 50). If a scaling at 100 moved a single
+// magnitude, the entries would mean something other than what they say.
+@(test)
+a_hundred_percent_power_leaves_an_archetype_exactly_as_authored :: proc(t: ^testing.T) {
+	for archetype in run_hostile_roster() {
+		scaled := hostile_at_power(archetype, 100)
+		defer delete(scaled.layout)
+
+		layout := ship.ship_template_layout()
+		defer delete(layout)
+		for name in archetype.items {
+			item, _ := ship.ship_item_by_name(name)
+			testing.expect(t, ship.ship_fit_first_empty_slot(layout, item.fitting))
+		}
+		testing.expect(t, ship.ship_fill_empty_slots_with_cargo(layout, "Spoils"))
+
+		unscaled := ship.Ship{layout = layout, speed = archetype.speed}
+		testing.expectf(
+			t,
+			loadout_signature(scaled) == loadout_signature(unscaled),
+			"%v is not itself at 100%% power",
+			archetype.name,
+		)
+		testing.expectf(
+			t,
+			hostile_output(&scaled) == hostile_output(&unscaled),
+			"%v deals %d at 100%% power but was authored to deal %d",
+			archetype.name,
+			hostile_output(&scaled),
+			hostile_output(&unscaled),
 		)
 	}
 }
@@ -292,6 +451,54 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 			archetype.name,
 			battle.round,
 			MIN_PLAYER_ROUNDS,
+		)
+	}
+}
+
+// **The band's floor** (#165) — the wall a way *down* creates, and the one the test
+// above cannot see.
+//
+// a_starting_player_can_fight_every_archetype_at_coastal bounds the ceiling: it
+// checks the player can scratch the hostile, and that the fight lasts past the escape
+// gate. Nothing checked the converse, because until #165 nothing could fail it —
+// every archetype out-damaged a starting ship at Coastal, which was the complaint.
+// A multiplicative site factor makes the opposite failure reachable for the first
+// time: damage is `max(0, raw - soak)`, a starting ship soaks 4, and an entry
+// authored to deal 8 keeps 4 of it at Coastal — so the fight is a ten-round grind in
+// which the hostile lands *nothing*. That is the same dead node #151 found at the
+// ceiling, arrived at from underneath.
+//
+// This is what forced the roster's re-authoring rather than a taste call: six of the
+// eight entries failed it on the day the factor landed (see hostile_roster's note).
+// The bar is deliberately "the player is hurt at all" — not a margin — because the
+// margin is a tuning question and this is a structural one. The failure it names is
+// **zero**, and zero is not a number the playtest should have to discover.
+@(test)
+a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^testing.T) {
+	ROUND_CAP :: 30
+
+	for archetype in run_hostile_roster() {
+		player := ship.ship_starting_ship()
+		defer delete(player.layout)
+		hostile := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
+		defer delete(hostile.layout)
+
+		battle := combat.combat_battle_create(&player, &hostile)
+		events: [dynamic]combat.Event
+		defer delete(events)
+		hold := [combat.Side]Maybe(combat.Command) {
+			.A = combat.Command(combat.Command_Hold{}),
+			.B = combat.Command(combat.Command_Hold{}),
+		}
+		for !battle.ended && battle.round < ROUND_CAP {
+			combat.combat_resolve_round(&battle, hold, &events)
+		}
+
+		testing.expectf(
+			t,
+			player.hp < player.max_hp,
+			"%v cannot scratch a starting player at Coastal — half of its authored output is under a starting ship's soak, so the fight has no risk in it",
+			archetype.name,
 		)
 	}
 }
