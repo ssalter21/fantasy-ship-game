@@ -455,7 +455,6 @@ sim_create :: proc(seed: u64) -> Sim {
 
 	s.rng = rand.create_u64(seed)
 	s.run_map = run.run_map_create(seed)
-	sim_adopt_port_shops(s.run_map.nodes)
 	s.public_nodes = sim_mask_encounters(s.run_map.nodes)
 	s.player = ship.ship_starting_ship()
 	s.resolved = make([]bool, len(s.run_map.nodes))
@@ -465,39 +464,6 @@ sim_create :: proc(seed: u64) -> Sim {
 	s.status = .In_Progress
 	s.phase = .Awaiting_Travel_Choice
 	return s
-}
-
-// sim_adopt_port_shops rewrites each Port's loose `shop` field into the one-stage
-// [Shop] Encounter it should have been generated as (ADR-0014), in place on the
-// Sim's private map before anything reads it.
-//
-// This is a **transitional bridge, and deliberately the Sim's problem rather than
-// a second code path** (issue #131). ADR-0014 says a Port is not a node kind but an
-// encounter holding a revealing Shop stage — yet generation still hangs a shop off
-// a .Port node (`run_port_shop`, generation.odin step 6), and moving it is the Port
-// bucket's job (#134). Without this, a Port's shop would be the one interaction the
-// generic stage walk could not walk, and it would need its own arrival path,
-// phase, and file — exactly the per-kind duplication this ticket deletes. Adopting
-// the shop into an Encounter here buys the walk its uniformity now and costs one
-// proc, deleted whole the moment #134 bakes the [Shop] recipe at generation.
-//
-// The shop is **moved**, not copied: `shop` is cleared, so the stage list is the
-// single place a Port's stock lives and the two cannot drift. Keyed off the shop
-// field rather than off .Port, so nothing new keys on the node kind ADR-0014 is
-// retiring.
-sim_adopt_port_shops :: proc(nodes: []run.Node) {
-	for &p in nodes {
-		shop, has_shop := p.shop.?
-		if !has_shop {
-			continue
-		}
-		assert(p.encounter == nil, "a node carrying a generated shop must not already hold an encounter")
-
-		encounter := run.Encounter{count = 1}
-		encounter.stages[0] = shop
-		p.encounter = encounter
-		p.shop = nil
-	}
 }
 
 // sim_mask_encounters builds the masked public view of nodes (the hiding

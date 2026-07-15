@@ -50,8 +50,8 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	// An arrival hands off to the generic stage walk and asks nothing about what
 	// kind of node this is (issue #131): the walk finds no encounter at a landmark
 	// and leaves the ship at a travel choice, so Start and Goal need no branch of
-	// their own — and neither does a Port, which is now just a node carrying a
-	// [Shop] recipe (sim_adopt_port_shops).
+	// their own — and neither does a Port, which generation bakes as a node
+	// carrying the [Shop] recipe (issue #134).
 	if already_resolved {
 		return
 	}
