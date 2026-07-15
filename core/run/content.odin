@@ -71,14 +71,14 @@ run_pve_opponent :: proc(site: Scaling_Site) -> ship.Ship {
 // fixed variants, now spread across the roster items on offer.
 ITEM_OFFER_QUALITY_DIVISOR :: 5
 
-// run_item_offer_options picks the distinct roster items an Item Offer node
-// presents (issue #96, ADR-0012): it samples ITEM_OFFER_OPTION_COUNT distinct
-// items from ship_item_roster — shuffling the pool's indices with the map
-// generator's RNG (`gen`) so an offer's items are reproducible per seed yet vary
-// node to node — and scales each by this node's zone-and-depth quality. Baked at
-// generation time (run_make_encounter), so the offer carries its items as
-// content, like a Ship Battle carries its opponent. Retires run_upgrade_offer_options'
-// fixed three-upgrade menu.
+// run_item_offer_options picks the distinct roster items an Offer stage presents
+// (issue #96, ADR-0012): it samples ITEM_OFFER_OPTION_COUNT distinct items from
+// ship_item_roster — shuffling the pool's indices with the map generator's RNG
+// (`gen`) so an offer's items are reproducible per seed yet vary node to node —
+// and scales each by this node's stakes. Baked at generation time
+// (run_bake_stage), so the offer carries its items as content, like a Fight
+// carries its opponent. Retires run_upgrade_offer_options' fixed three-upgrade
+// menu.
 run_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM_OFFER_OPTION_COUNT]ship.Fitting {
 	bonus := run_item_offer_quality(site) / ITEM_OFFER_QUALITY_DIVISOR
 	roster := ship.ship_item_roster()
@@ -96,11 +96,11 @@ run_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM
 
 // run_shuffled_roster_indices returns the roster's indices
 // (0..<ship.ITEM_ROSTER_SIZE) in a per-seed-reproducible shuffled order — the
-// shared front half of sampling N distinct roster items, used by both the Item
-// Offer (run_item_offer_options) and the Port shop (run_port_shop). Each takes the
-// first N and maps them its own way: an offer scales the fitting by node quality,
-// a shop prices it by tier. Consolidating the shuffle here keeps the two samplers
-// from drifting (issue #98).
+// shared front half of sampling N distinct roster items, used by both the Offer
+// stage (run_item_offer_options) and the Shop stage (run_port_shop). Each takes
+// the first N and maps them its own way: an offer scales the fitting by node
+// stakes, a shop prices it by tier. Consolidating the shuffle here keeps the two
+// samplers from drifting (issue #98).
 run_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SIZE]int {
 	indices: [ship.ITEM_ROSTER_SIZE]int
 	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
@@ -110,22 +110,26 @@ run_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SI
 	return indices
 }
 
-// run_port_shop bakes a Port's persistent deck (#123, ADR-0013): the *full*
-// roster shuffled into a per-seed-reproducible order (run_shuffled_roster_indices,
-// off the map generator's RNG so decks vary port to port yet reproduce per seed),
-// each card priced by its Tier (ship.ship_item_cost). Unlike an Item Offer the
-// fitting is stocked as-authored, not zone/depth-scaled: a shop's variance is
-// which items and what they cost, and cost already rises with tier, so layering a
-// quality bonus on top would double-count the tier. Baked at generation time (a
-// final pass in run_map_create) so a Port carries its whole deck as content, like
-// an Item Offer carries its options; the shelf window and draw-down are runtime
-// concerns the Sim owns. Every card is distinct — the deck is a permutation of the
-// roster — so a shelf drawn off it never repeats an item within one Port.
-run_port_shop :: proc(gen: rand.Generator) -> Shop {
+// run_port_shop bakes a Shop stage's deck (#123, ADR-0013): the *full* roster
+// shuffled into a per-seed-reproducible order (run_shuffled_roster_indices, off
+// the map generator's RNG so decks vary node to node yet reproduce per seed),
+// each card priced by its Tier (ship.ship_item_cost). Unlike an Offer the fitting
+// is stocked as-authored, not stakes-scaled: a shop's variance is which items and
+// what they cost, and cost already rises with tier, so layering a quality bonus
+// on top would double-count the tier. Baked at generation time so a Shop carries
+// its whole deck as content, like an Offer carries its options; the shelf window
+// and draw-down are runtime concerns the Sim owns. Every card is distinct — the
+// deck is a permutation of the roster — so a shelf drawn off it never repeats an
+// item within one stage.
+//
+// Still named for the Port because a Port is the only thing that carries a shop
+// today; once Ports are the [Shop] recipe (#134/#137) the stage's stock pool is
+// what varies, which is #137's half.
+run_port_shop :: proc(gen: rand.Generator) -> Stage_Shop {
 	roster := ship.ship_item_roster()
 	order := run_shuffled_roster_indices(gen)
 
-	shop: Shop
+	shop: Stage_Shop
 	for roster_index, deck_pos in order {
 		item := roster[roster_index]
 		shop.deck[deck_pos] = Shop_Item{fitting = item.fitting, cost = ship.ship_item_cost(item.tier)}

@@ -8,8 +8,8 @@ import "../run"
 // triggers that encounter ("auto-triggers, no decline"). The very first call
 // — before any travel choice has been submitted — has nothing to apply yet
 // and just announces the run's starting state, broadcasting the masked
-// public map (graph shape + landmarks, encounter kinds withheld — the hiding
-// contract) rather than the private run_map.
+// public map (graph shape + landmarks, non-revealing encounters' stages withheld
+// — the hiding contract) rather than the private run_map.
 //
 // Travel is gated by run_travel_options' legality rule (forward and lateral
 // neighbors always, backward neighbors only by retrace to an already-visited
@@ -58,25 +58,48 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	}
 
 	encounter, _ := node.encounter.?
-	switch enc in encounter {
-	case run.Encounter_Ship_Battle:
-		sim.active_encounter = enc
+
+	// An Encounter is an ordered stage list walked by a cursor (ADR-0014), but
+	// this still fires only its first stage: the generic walk — advancing the
+	// cursor on a completed stage, stopping on a halted one, and collapsing these
+	// per-primitive phases into one path — is issue #131. Every recipe in today's
+	// catalog is one stage long (catalog.odin), so first-stage-only and the real
+	// walk agree exactly; the assert is what fails loudly if a multi-stage recipe
+	// (#138) lands before the walk does.
+	assert(encounter.count == 1, "sim fires only an encounter's first stage until the generic stage walk lands (#131)")
+	stage, _ := run.run_encounter_current(encounter)
+
+	switch s in stage {
+	case run.Stage_Fight:
+		sim.active_encounter = s
 		sim.battle = run.run_start_battle(&sim.player, &sim.active_encounter)
 		append(events, Event(Event_Ship_Battle_Sighted{opponent = sim.active_encounter.opponent}))
 		append(events, Event(Event_Battle_Menu{may_leave = combat.combat_may_leave(&sim.battle, .A)}))
 		sim.phase = .Awaiting_Battle_Command
 
-	case run.Encounter_Item_Offer:
-		sim.item_offer_options = enc.options
+	case run.Stage_Offer:
+		sim.item_offer_options = s.options
 		append(events, Event(Event_Item_Offer_Presented{options = sim.item_offer_options}))
 		sim.phase = .Awaiting_Item_Choice
 
-	case run.Encounter_Stat_Trade:
+	case run.Stage_Trade:
 		zone, has_zone := node.zone.?
 		assert(has_zone, "an Encounter node must have a zone")
-		snap := run.run_apply_stat_trade(&sim.player, enc, zone, sim.steps)
+		snap := run.run_apply_stat_trade(&sim.player, s, zone, sim.steps)
 		sim_emit_encounter_resolved(sim, snap, events)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		sim.resolved[cmd.node_id] = true
+
+	case run.Stage_Shop:
+		// Unreachable until Ports are placed as the [Shop] recipe (#134) and the
+		// Sim's per-Port shop state collapses into the stage (#137) — today a shop
+		// hangs off a .Port node, handled above, and no catalog recipe authors a
+		// Shop stage.
+		assert(false, "a Shop stage on an Encounter node needs the Port bucket (#134) and the Shop stage's Sim path (#137)")
+
+	case run.Stage_Reward:
+		// Unreachable until Reward has a payload (#132) and a primitive to spend it
+		// (#133); no catalog recipe authors one yet.
+		assert(false, "a Reward stage needs its grant decided (#132) and its primitive built (#133)")
 	}
 }

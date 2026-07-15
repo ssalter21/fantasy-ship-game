@@ -83,7 +83,7 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 @(test)
 applying_a_stat_trade_returns_a_post_trade_snapshot :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 5}
-	trade := Encounter_Stat_Trade{gain_durability = 3, cost_speed = 1}
+	trade := Stage_Trade{gain_durability = 3, cost_speed = 1}
 
 	snapshot := run_apply_stat_trade(&s, trade, .Open_Sea, 4)
 
@@ -97,11 +97,11 @@ applying_a_stat_trade_returns_a_post_trade_snapshot :: proc(t: ^testing.T) {
 @(test)
 finishing_a_ship_battle_returns_a_snapshot_of_the_players_ship :: proc(t: ^testing.T) {
 	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
-	encounter := Encounter_Ship_Battle{depth = 2, opponent = ship.Ship{hp = 10, speed = 3}}
-	battle := run_start_battle(&player, &encounter)
+	fight := Stage_Fight{depth = 2, opponent = ship.Ship{hp = 10, speed = 3}}
+	battle := run_start_battle(&player, &fight)
 	battle.ended = true // stand in for a battle actually resolving to completion
 
-	snapshot := run_finish_ship_battle(&battle, &player, &encounter, .Deep, 8)
+	snapshot := run_finish_ship_battle(&battle, &player, &fight, .Deep, 8)
 
 	testing.expect_value(t, snapshot.ship.hp, 20) // player's own max_hp, not the opponent's
 	testing.expect_value(t, snapshot.progress.steps, 8)
@@ -116,9 +116,9 @@ finishing_a_ship_battle_that_has_not_ended_asserts :: proc(t: ^testing.T) {
 	}
 
 	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
-	encounter := Encounter_Ship_Battle{opponent = ship.Ship{hp = 10, speed = 3}}
-	battle := run_start_battle(&player, &encounter)
+	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	battle := run_start_battle(&player, &fight)
 
 	testing.expect_assert(t, "run_finish_ship_battle called before the battle ended")
-	run_finish_ship_battle(&battle, &player, &encounter, .Coastal, 0)
+	run_finish_ship_battle(&battle, &player, &fight, .Coastal, 0)
 }

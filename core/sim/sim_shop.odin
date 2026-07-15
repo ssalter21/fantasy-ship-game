@@ -5,7 +5,7 @@ import "../run"
 // Deck_Position identifies a card by its position in a Port's baked deck
 // (ADR-0011: distinct from a plain int so a deck position can't be silently
 // swapped with an Option_Index — the shelf-slot index into the *same* shop — or
-// any other index). It indexes run.Shop.deck; the Sim's per-Port shelves track
+// any other index). It indexes run.Stage_Shop.deck; the Sim's per-Port shelves track
 // cards by it (Port_Shelf).
 Deck_Position :: distinct int
 
@@ -96,7 +96,7 @@ sim_open_shop :: proc(sim: ^Sim, node: run.Node, events: ^[dynamic]Event) {
 // SHOP_SHELF_SIZE cards off the deck, one per slot, with next_draw left pointing at
 // the first still-undrawn card. A deck shorter than the shelf (never at the real
 // roster size) leaves the tail slots nil. Called once per Port, on its first arrival.
-sim_deal_shelf :: proc(ps: ^Port_Shelf, shop: run.Shop) {
+sim_deal_shelf :: proc(ps: ^Port_Shelf, shop: run.Stage_Shop) {
 	for i in 0 ..< run.SHOP_SHELF_SIZE {
 		ps.slots[i] = port_shelf_draw_next(ps, len(shop.deck))
 	}

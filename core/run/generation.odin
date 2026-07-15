@@ -4,11 +4,12 @@ import "core:math/rand"
 
 // Procedural map generation: builds the run's connected node graph (ADR-0009)
 // from a seed, and tears it down again. This is the content-producing half of
-// the module — it materializes the Nodes, scatters ports, assigns encounter
-// kinds, and wires edges — sitting behind the navigation seam
-// (navigation.odin), which only reads the finished graph. Difficulty/reward
-// magnitudes come from the scaling group in run.odin; the per-encounter
-// content itself is built in content.odin.
+// the module — it materializes the Nodes, scatters ports, deals each zone's
+// encounters from a shuffled recipe bag, and wires edges — sitting behind the
+// navigation seam (navigation.odin), which only reads the finished graph. Stakes
+// magnitudes come from the scaling group in run.odin, the encounters it deals
+// from the catalog (catalog.odin), and the per-stage content itself is built in
+// content.odin.
 
 // --- Generation constants (all tuning knobs live here, near the generator;
 // no config file, no settings UI) -------------------------------------------
@@ -138,9 +139,12 @@ run_map_create :: proc(seed: u64) -> Map {
 		}
 	}
 
-	// --- 4. Assign encounter kinds from a per-zone shuffled bag, split as
-	// evenly across the three kinds as a three-way division allows, then build
-	// each encounter's zone-and-depth-scaled content.
+	// --- 4. Deal each zone's encounters from a per-zone shuffled recipe bag,
+	// split as evenly across the catalog as the division allows, then bake each
+	// picked recipe's stages into that node's stakes-scaled content. Generation
+	// picks whole authored recipes — it never composes a stage list (ADR-0014).
+	// The bag is dealt from the whole catalog for now; drawing it from the zone's
+	// stage-count bucket instead (Coastal 1 / Open Sea 2 / Deep 3) is issue #134.
 	for zone in Zone {
 		// enc_ids collects the plain int indices of this zone's encounter nodes;
 		// the generator works in raw indices internally and only Node.id is the
@@ -153,9 +157,9 @@ run_map_create :: proc(seed: u64) -> Map {
 				append(&enc_ids, int(p.id))
 			}
 		}
-		bag := run_make_kind_bag(len(enc_ids), gen)
+		bag := run_make_recipe_bag(len(enc_ids), run_recipe_catalog(), gen)
 		for id, i in enc_ids {
-			nodes[id].encounter = run_make_encounter(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
+			nodes[id].encounter = run_encounter_from_recipe(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
 		}
 		delete(bag)
 		delete(enc_ids)
@@ -243,7 +247,7 @@ run_map_create :: proc(seed: u64) -> Map {
 
 	// --- 6. Stock the shops. Every .Port node gets a purchasable stock drawn
 	// from the roster pool (#98). Done last, after kinds and edges, so it draws
-	// from `gen` only at the tail and leaves the encounter-kind and edge streams
+	// from `gen` only at the tail and leaves the recipe-deal and edge streams
 	// above byte-identical to a pre-shop map. Start (the home port) is a .Start
 	// node, not .Port, and stays a pure waypoint in this slice — you never arrive
 	// at it by travel, so a shop there would be unreachable.
@@ -281,20 +285,29 @@ run_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 	return widths
 }
 
-// run_make_kind_bag builds count encounter kinds split as evenly across the three
-// kinds as a three-way division allows (e.g. 15 -> 5/5/5, 14 -> 5/5/4), then
-// shuffles them. Guarantees the zone-wide pool is even; makes no attempt to
-// balance kinds along any individual route. Caller owns the returned slice.
-run_make_kind_bag :: proc(count: int, gen: rand.Generator) -> []Encounter_Kind {
-	bag := make([]Encounter_Kind, count)
-	base := count / 3
-	rem := count % 3
+// run_make_recipe_bag deals count recipes from `pool`, split as evenly across
+// the pool as the division allows (e.g. 15 from a 3-recipe pool -> 5/5/5, 14 ->
+// 5/5/4), then shuffles them. This is ADR-0009's per-zone shuffled kind bag with
+// its three-way hard-coding removed: the even split is now over whatever pool it
+// is handed, so widening the catalog is a data change rather than an edit here.
+// Guarantees the zone-wide deal is even; makes no attempt to balance recipes
+// along any individual route. Caller owns the returned slice.
+//
+// The pool it *should* be handed is the zone's stage-count bucket (Coastal 1 /
+// Open Sea 2 / The Deep 3) — that draw is issue #134, and until it lands
+// run_map_create passes the whole catalog.
+run_make_recipe_bag :: proc(count: int, pool: []Recipe, gen: rand.Generator) -> []Recipe {
+	assert(len(pool) > 0, "cannot deal a recipe bag from an empty pool")
+
+	bag := make([]Recipe, count)
+	base := count / len(pool)
+	rem := count % len(pool)
 
 	i := 0
-	for kind, k in ([3]Encounter_Kind{.Ship_Battle, .Item_Offer, .Stat_Trade}) {
+	for recipe, k in pool {
 		c := base + (1 if k < rem else 0)
 		for _ in 0 ..< c {
-			bag[i] = kind
+			bag[i] = recipe
 			i += 1
 		}
 	}
@@ -302,22 +315,34 @@ run_make_kind_bag :: proc(count: int, gen: rand.Generator) -> []Encounter_Kind {
 	return bag
 }
 
-// run_make_encounter builds one Encounter's zone-and-depth-scaled content for
-// the given kind, at the node's Scaling_Site. Split out so the generator's
-// kind-assignment loop reads as data, not a switch. Takes `gen` so an Item Offer
-// can sample its distinct roster items reproducibly from the same map-generation
-// RNG stream.
-run_make_encounter :: proc(kind: Encounter_Kind, site: Scaling_Site, gen: rand.Generator) -> Encounter {
+// run_bake_stage builds one stage's stakes-scaled content for the given
+// primitive, at the node's Scaling_Site — the per-primitive half of
+// run_encounter_from_recipe, which walks a recipe and calls this for each
+// authored stage. Takes `gen` so the primitives that sample the roster (an
+// Offer's items, a Shop's deck) draw reproducibly from the same map-generation
+// RNG stream. Nothing rolls on arrival.
+//
+// This is where each primitive's content roster will hang: the hostile roster a
+// Fight draws its opponent from (#135) and the axis roster a Trade draws its
+// swap from (#136) replace the single hand-authored template each has today.
+run_bake_stage :: proc(kind: Stage_Kind, site: Scaling_Site, gen: rand.Generator) -> Stage {
 	switch kind {
-	case .Ship_Battle:
-		return Encounter_Ship_Battle{depth = site.depth, opponent = run_pve_opponent(site)}
-	case .Item_Offer:
-		return Encounter_Item_Offer{options = run_item_offer_options(site, gen)}
-	case .Stat_Trade:
-		return Encounter_Stat_Trade{
+	case .Fight:
+		return Stage_Fight{depth = site.depth, opponent = run_pve_opponent(site)}
+	case .Offer:
+		return Stage_Offer{options = run_item_offer_options(site, gen)}
+	case .Trade:
+		return Stage_Trade{
 			gain_durability = run_stat_trade_gain_durability(site),
 			cost_speed      = run_stat_trade_cost_speed(site),
 		}
+	case .Shop:
+		return run_port_shop(gen)
+	case .Reward:
+		// Reward grants nothing yet — what it grants is issue #132 and the
+		// primitive that spends that answer is #133. Baking it is a no-op rather
+		// than an error so the arm is reachable the moment a recipe authors it.
+		return Stage_Reward{}
 	}
 	unreachable()
 }
@@ -372,18 +397,24 @@ run_pick_source_with_capacity :: proc(a0, a1: int, forward_out: []int, gen: rand
 }
 
 // run_map_destroy frees a Map's owned memory: each node's adjacency slice and
-// the edges array, m.nodes itself, plus each Ship Battle encounter's
-// opponent.layout slice (issue #23; run_pve_opponent allocates a fresh layout
-// per node). Callers of run_map_create must use this instead of a bare
-// delete(m.nodes).
+// the edges array, m.nodes itself, plus each Fight stage's opponent.layout slice
+// (issue #23; run_pve_opponent allocates a fresh layout per stage). Callers of
+// run_map_create must use this instead of a bare delete(m.nodes).
+//
+// An Encounter stores its stages inline (ADR-0014's fixed-size storage), so this
+// walks the stage list rather than freeing an owned one: the opponent layout is
+// the only heap a stage holds, and every other primitive's content is a
+// fixed-size array that goes with m.nodes.
 run_map_destroy :: proc(m: ^Map) {
 	for node in m.nodes {
 		encounter, has_encounter := node.encounter.?
 		if !has_encounter {
 			continue
 		}
-		if battle, is_battle := encounter.(Encounter_Ship_Battle); is_battle {
-			delete(battle.opponent.layout)
+		for i in 0 ..< encounter.count {
+			if fight, is_fight := encounter.stages[i].(Stage_Fight); is_fight {
+				delete(fight.opponent.layout)
+			}
 		}
 	}
 	for adj in m.edges {

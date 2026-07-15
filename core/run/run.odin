@@ -3,13 +3,14 @@ package run
 import "../ship"
 import "core:math"
 
-// This file holds the run's shared domain data model (Zone, Node, Map, the
-// Encounter variants) and the difficulty/reward scaling group — the one
-// cohesive family of zone-and-depth-scaled formulas behind a shared accessor.
-// The other concerns carved out of the original single module live in sibling
-// files: procedural map generation (generation.odin), travel legality
-// (navigation.odin), encounter resolution + ghost emission (encounter.odin),
-// and the per-encounter content itself (content.odin).
+// This file holds the run's shared domain data model (Zone, Node, Map) and the
+// stakes scaling group — the one cohesive family of zone-and-depth-scaled
+// formulas behind a shared accessor. The other concerns carved out of the
+// original single module live in sibling files: the encounter stage model an
+// Encounter node holds (stage.odin), procedural map generation
+// (generation.odin), travel legality (navigation.odin), encounter resolution +
+// ghost emission (encounter.odin), and the per-stage content itself
+// (content.odin).
 
 // Zone is one of the three fixed difficulty bands a Node belongs to, in a
 // fixed linear order (CONTEXT.md): Coastal (nearest Start) -> Open_Sea ->
@@ -23,21 +24,19 @@ Zone :: enum {
 	Deep,
 }
 
-// zone_tier is the single shared per-zone difficulty/reward ladder
-// (placeholder values expected to move during playtesting) — Coastal <
-// Open_Sea < Deep. Ship Battle, Item Offer, and Stat Trade each scale off
-// this one table via their own PER_TIER constant below, so the three kinds
-// land on distinguishable magnitudes instead of duplicating the same literal
-// table.
+// zone_tier is the single shared per-zone stakes ladder (placeholder values
+// expected to move during playtesting) — Coastal < Open_Sea < Deep. Each stage
+// primitive scales off this one table via its own PER_TIER constant below, so
+// the primitives land on distinguishable magnitudes instead of duplicating the
+// same literal table.
 zone_tier := [Zone]int{.Coastal = 1, .Open_Sea = 2, .Deep = 3}
 
-// The difficulty/reward gradient now stacks two axes: the per-zone tier
-// ladder above, and depth-within-zone — how deep into a zone's phase a node
-// sits, normalized to a fixed range (DEPTH_STEPS) so the spread is consistent
-// regardless of how many layers a seed happened to roll. Both feed every
-// zone-scaled formula below via run_zone_depth_scaled. Depth replaces the retired
-// Ship-Battle-only "port proximity / contested waters" input, and now applies
-// to all three encounter kinds.
+// The stakes gradient stacks two axes: the per-zone tier ladder above, and
+// depth-within-zone — how deep into a zone's phase a node sits, normalized to a
+// fixed range (DEPTH_STEPS) so the spread is consistent regardless of how many
+// layers a seed happened to roll. Both feed every zone-scaled formula below via
+// run_zone_depth_scaled. Depth replaces the retired Ship-Battle-only "port
+// proximity / contested waters" input, and applies to every stage primitive.
 DEPTH_STEPS :: 3
 
 SHIP_BATTLE_HP_PER_TIER :: 10
@@ -52,13 +51,16 @@ STAT_TRADE_DURABILITY_PER_DEPTH :: 2
 STAT_TRADE_SPEED_COST_PER_TIER :: 1
 STAT_TRADE_SPEED_COST_PER_DEPTH :: 1
 
-// Scaling_Site is a node's position on the difficulty/reward gradient: the
-// (zone, depth) pair every zone-and-depth-scaled formula below reads. The two
+// Scaling_Site is a node's position on the stakes gradient: the (zone, depth)
+// pair every zone-and-depth-scaled formula below reads. It says *how much is on
+// the line here*, and each stage primitive reads it through its own constants —
+// Fight as opponent power, Offer as item quality, Trade as swing size (ADR-0014's
+// stakes-not-difficulty; the per-primitive constants are issue #130). The two
 // axes are a cohesive scaling group, so they travel as one named struct (issue
 // #113) rather than as a positional int/enum pair that call sites could silently
 // swap — the whole-struct idiom the Odin standards prescribe. Assembled from a
 // node's zone and normalized depth: at generation time to scale its content, and
-// again at battle-finish (run_finish_ship_battle) to recompute its difficulty.
+// again at battle-finish (run_finish_ship_battle) to recompute its stakes.
 Scaling_Site :: struct {
 	zone:  Zone,
 	depth: int,
@@ -123,9 +125,21 @@ run_stat_trade_cost_speed :: proc(site: Scaling_Site) -> int {
 }
 
 // Node_Kind is what a Node is: the Start/home port, a per-zone Port, an
-// Encounter, or the Goal. Nodes are now graph nodes with edges/adjacency
-// (ADR-0009), but the kind vocabulary is
-// unchanged.
+// Encounter, or the Goal.
+//
+// ADR-0014 keeps this enum but shrinks what it means. It **survives** because
+// Start and Goal are genuine landmarks — fixed, terminal, carrying no encounter —
+// and that is a fact about the node's place in the graph, not about content, so
+// nothing in the stage list can express it. What it stops carrying is content:
+// `.Port` was the only kind that said what a node *holds* rather than where it
+// sits, and stage-derived visibility (run_encounter_reveals) replaces it — a Port
+// is an Encounter holding the [Shop] recipe, visible because Shop reveals, not
+// because it is exempt. The end state is `Start | Encounter | Goal`.
+//
+// `.Port` is still here as a transitional value: retiring it means placing Ports
+// as [Shop] encounters (the Port bucket, issue #134) and collapsing the Sim's
+// per-Port cross-visit state (issue #137), neither of which is this ticket's
+// data-model half. Nothing new should key off it.
 Node_Kind :: enum {
 	Start,
 	Port,
@@ -138,104 +152,6 @@ Node_Kind :: enum {
 // need to special-case .Start itself just to ask "is this node a port".
 run_node_is_port :: proc(p: Node) -> bool {
 	return p.kind == .Start || p.kind == .Port
-}
-
-// Encounter_Kind is the type of interaction an Encounter node presents. The
-// old Upgrade_Offer is repurposed as the Item_Offer (ADR-0012, issue #96): the
-// encounter-kind slot in the map model is unchanged — the map still deals three
-// kinds per zone — only this kind's content and behavior changed.
-Encounter_Kind :: enum {
-	Ship_Battle,
-	Item_Offer,
-	Stat_Trade,
-}
-
-// Encounter is what happens automatically on the first arrival at an
-// Encounter node (no decline once arrived). Shaped as an open union,
-// mirroring core/combat's Command/Event pattern, so a future kind can be
-// added without restructuring callers.
-Encounter :: union {
-	Encounter_Ship_Battle,
-	Encounter_Item_Offer,
-	Encounter_Stat_Trade,
-}
-
-// ITEM_OFFER_OPTION_COUNT is how many distinct roster items an Item Offer
-// presents (issue #96, ADR-0012's "presents a few distinct roster items"). The
-// player picks one to place — or skips — so this is the "N" in the acceptance
-// criteria. Fixed here (a small fixed array on the encounter, no allocation)
-// rather than varying per node; must be <= ship.ITEM_ROSTER_SIZE so the pool can
-// supply that many distinct items.
-ITEM_OFFER_OPTION_COUNT :: 3
-
-// Encounter_Ship_Battle is a full battle against a game-configured opponent,
-// resolved via core/combat's existing phased-round Battle — this package
-// hands off to combat.combat_battle_create rather than reimplementing combat.
-// opponent's stats are a difficulty placeholder (run_make_opponent_ship);
-// real PvE opponent content is issue #23.
-Encounter_Ship_Battle :: struct {
-	// depth is this node's normalized depth-within-zone (0..DEPTH_STEPS),
-	// retained so run_finish_ship_battle can recompute the node's original
-	// tuned difficulty rating without reading it off the battle-worn opponent.
-	depth:    int,
-	opponent: ship.Ship,
-}
-
-// Encounter_Item_Offer presents a few distinct roster items to place by hand
-// (ADR-0012, issue #96) — the repurposed Upgrade Offer. `options` are the
-// concrete items on offer, drawn from the roster pool and zone-and-depth-scaled
-// at generation time (run_item_offer_options), so an Item Offer carries its
-// items as baked content the way a Ship Battle carries its opponent, rather than
-// a bare quality number resolved later. Picking one opens a Refit to place or
-// swap it; the player may also skip. A fixed-size array — no owned heap, so
-// run_map_destroy needs no per-offer cleanup.
-Encounter_Item_Offer :: struct {
-	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting,
-}
-
-// SHOP_SHELF_SIZE is how many deck cards a Port shop shows at once — the shelf
-// window onto the top of the deck (#123, ADR-0013's "a shelf of the top 5").
-// The deck itself is the full roster (Shop.deck); this is only how much of it is
-// visible/buyable at any moment. Must stay <= ship.ITEM_ROSTER_SIZE so a full
-// shelf can be drawn.
-SHOP_SHELF_SIZE :: 5
-
-// Shop_Item is one purchasable card in a Port shop (#98): the roster `fitting`
-// on offer and its `cost` in treasure. Cost is stored as a plain int, priced
-// once at generation from the item's Tier (ship.ship_item_cost) — tier itself
-// doesn't ride along because nothing past pricing reads it, and a bare Fitting is
-// what the Refit ultimately places. Buying deducts cost from the ship's
-// starting_treasure and opens a Refit to place the fitting.
-Shop_Item :: struct {
-	fitting: ship.Fitting,
-	cost:    int,
-}
-
-// Shop is a Port's persistent purchasable deck (#123, ADR-0013, amending #98):
-// its own seed-baked shuffled deck of the *full* roster, each card priced by
-// tier, drawn from the roster pool at generation time (run_port_shop) and carried
-// as baked content the way an Item Offer carries its options. The deck is a pure
-// function of the run seed (no runtime RNG), so a seed's Ports are fully
-// determined before play, and each Port owns a distinct deck.
-//
-// A Port never "resolves" — it is a revisitable landmark whose deck is drawn down
-// over the run: the shop presents a SHOP_SHELF_SIZE window off the top, buying a
-// shelf card refills that slot from the next deck card, and the draw progress
-// persists across visits. That draw-down state (which cards have been bought) is
-// per-Port *runtime* state the Sim keeps keyed by Node — the deck itself is
-// immutable baked content. A fixed-size array: no owned heap, so run_map_destroy
-// needs no per-shop cleanup.
-Shop :: struct {
-	deck: [ship.ITEM_ROSTER_SIZE]Shop_Item,
-}
-
-// Encounter_Stat_Trade is a permanent stat-for-stat/cargo trade-off (example:
-// +Durability for -Speed) — that concrete shape is modeled directly rather
-// than as a generic stat-enum system, matching this slice's single
-// hand-authored trade axis. Both magnitudes are zone-and-depth-scaled.
-Encounter_Stat_Trade :: struct {
-	gain_durability: int,
-	cost_speed:      int,
 }
 
 // Node_ID identifies a node in a Map's nodes slice by position (ADR-0011:
@@ -251,8 +167,9 @@ Node_ID :: distinct int
 
 // Node is a single node on the run's procedurally-generated map (ADR-0009).
 // zone is nil for Start and Goal, which sit
-// outside the three difficulty bands. encounter is set only when
-// kind == .Encounter; shop is set only on a .Port node (#98). layer/lane are the
+// outside the three stakes bands. encounter is set only when
+// kind == .Encounter; shop is set only on a .Port node (#98) and collapses into a
+// Shop stage once a Port is the [Shop] recipe (#134/#137). layer/lane are the
 // node's position in the layered forward graph — layer is its column (Start = 0,
 // rising toward Goal), lane its row within that column; presentation derives
 // screen coordinates from them, so Nodes still carry no screen coordinates of
@@ -263,7 +180,7 @@ Node :: struct {
 	zone:      Maybe(Zone),
 	kind:      Node_Kind,
 	encounter: Maybe(Encounter),
-	shop:      Maybe(Shop),
+	shop:      Maybe(Stage_Shop),
 	layer:     int,
 	lane:      int,
 	depth:     int,
