@@ -149,7 +149,10 @@ a_recipes_bucket_is_derived_from_its_stage_count_not_authored :: proc(t: ^testin
 	// disagree with its stage list, so a recipe cannot be filed in the wrong
 	// bucket. All that's left to assert is that the derivation is the stage count
 	// itself — the key the per-zone bucket draw (#134) will group on.
-	one := Recipe{name = "One", stages = SEA_BATTLE_STAGES[:]}
+	// Literals rather than catalog entries: the derivation is a property of Recipe,
+	// so it should not restate whichever authored recipe happens to be one stage
+	// long today. (It used to read SEA_BATTLE_STAGES, which #138 grew to two.)
+	one := Recipe{name = "One", stages = []Stage_Spec{{kind = .Fight}}}
 	testing.expect_value(t, len(one.stages), 1)
 
 	two := Recipe{name = "Two", stages = []Stage_Spec{{kind = .Fight}, {kind = .Reward}}}

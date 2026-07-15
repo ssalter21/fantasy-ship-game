@@ -305,7 +305,15 @@ a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
 	// The graph forces a route through some node per layer, but dodging battles
 	// at every emitted option gets the ship to Goal unscathed — the redesign's
 	// "travel to Goal wins" over a real graph.
-	res := drive_policy(4, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
+	//
+	// Re-pointed from seed 4 by the recipe catalog (#138), the third time a new
+	// generation-time draw has reshaped every seed's map (#135, #136). This one also
+	// moved the *odds*: a battle-free route existed on most seeds while every zone
+	// dealt the same 1-stage bucket and one recipe in three opened on a Fight. The
+	// catalog makes that 1-in-4 in Coastal but 1-in-2 in Open Sea and 3-in-5 in The
+	// Deep, so only 4 seeds in 40 still let a ship reach Goal untouched. Seed 9 is
+	// one; that it is now scarce is the hard mapping meaning something, not a bug.
+	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect_value(t, res.hp, 20) // untouched: no battle fought
 }
@@ -316,11 +324,15 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	// Offensive, then dodge the rest: the fresh ship wins it and sails on to
 	// Goal, taking some damage along the way.
 	//
-	// Re-pointed from seed 11 by the hostile roster (#135), which #136 called: a new
-	// generation-time draw sits upstream of edge generation, so every seed's map
-	// reshapes and a scenario pinned to one has to be re-pinned. Seed 11's first
-	// battle is now a build this ship loses; seed 2's is one it wins.
-	res := drive_policy(2, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
+	// Re-pointed from seed 11 by the hostile roster (#135), then from seed 2 by the
+	// recipe catalog (#138), which #136 called: a new generation-time draw sits
+	// upstream of edge generation, so every seed's map reshapes and a scenario
+	// pinned to one has to be re-pinned. Seed 9's first battle is a Coastal one at
+	// depth 0 that this ship wins, and seed 9 is deliberately the same map
+	// a_battle_free_route_reaches_the_goal_and_wins sails: one map that both permits
+	// a route around every fight and rewards taking the first one is a better pair of
+	// scenarios than two unrelated seeds.
+	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
 	testing.expect(t, res.hp < 20) // a real fight cost some HP
@@ -342,7 +354,12 @@ skipping_item_offers_on_the_route_leaves_the_loadout_unchanged :: proc(t: ^testi
 	// each (a nil Command_Choose_Option), so no Refit opens and the starting Gun Deck
 	// still sits in its Large exposed slot at Goal — the retired auto-replace path
 	// would have swapped it.
-	res := drive_policy(4, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
+	//
+	// Re-pointed from seed 4 to seed 9 with the battle-free route above (#138). The
+	// premise was checked rather than assumed on the way: seed 9's dodging route
+	// arrives at four Offer-opening nodes and is presented six option lists, so there
+	// is something here to skip.
+	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 }
 

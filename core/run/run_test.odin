@@ -8,11 +8,15 @@ import "core:slice"
 import "core:testing"
 
 // only_stage_kind returns the primitive of e's single stage, asserting that e
-// has exactly one. Every recipe in today's catalog is a one-stage port of a
-// retired encounter kind (catalog.odin), so the generator assertions below can
-// still talk about "this node's kind" — but they say so through the stage list
-// rather than a kind tag, and they fail loudly rather than silently reading
-// stage 0 once #138 authors multi-stage recipes.
+// has exactly one — for the assertions that are *about* a one-stage encounter and
+// would be saying something else entirely if handed a longer one.
+//
+// It was written as a guard: while the whole catalog was one-stage ports of the
+// retired kinds, several assertions talked about "this node's kind" through the
+// stage list, and this made them fail loudly rather than silently read stage 0
+// once #138 authored multi-stage recipes. It did its job — #138 tripped it — and
+// what is left is the honest use, the Port, which is one stage by its bucket's
+// exemption rather than by the catalog's not having grown up yet.
 only_stage_kind :: proc(e: Encounter) -> Stage_Kind {
 	assert(e.count == 1, "only_stage_kind on a multi-stage encounter — this assertion predates the multi-stage catalog (#138)")
 	return run_stage_kind(e.stages[0])
@@ -29,13 +33,13 @@ only_stage :: proc(e: Encounter, $T: typeid) -> (stage: T, ok: bool) {
 	return e.stages[0].(T)
 }
 
-// node_shop returns the Shop stage p's encounter holds, or ok=false for a node
-// that holds no encounter or no Shop within it. A Port's stock is a stage rather
-// than a field on the Node (#134), so "does this node carry a shop" is now a
+// node_shop returns the first Shop stage p's encounter holds, or ok=false for a
+// node that holds no encounter or no Shop within it. A shop's stock is a stage
+// rather than a field on the Node (#134), so "does this node carry a shop" is a
 // question asked of its stage list — which is what the assertions below check.
 //
 // First match wins: no authored recipe carries two Shops, and a recipe that did
-// would be two shops at one node, which is a content question (#138) and not this
+// would be two shops at one node, which is a content question and not this
 // helper's to answer. The scan lives here rather than in the package because the
 // generic walk (#131) reaches each stage through the cursor and asks nothing of
 // the ones it isn't on — leaving these assertions its only caller.
@@ -50,6 +54,32 @@ node_shop :: proc(p: Node) -> (shop: Stage_Shop, ok: bool) {
 		}
 	}
 	return {}, false
+}
+
+// node_port_shop returns the Shop stage p holds **if p is a Port**, or ok=false
+// otherwise — including for a merchant vessel, which carries a Shop but is not one.
+//
+// A port is identified by its encounter **opening** on a Shop. That is a narrowing
+// of what node_shop used to mean here: #137 retired Node_Kind.Port, leaving "holds a
+// Shop" as the definition of a port, and it was a sound one for exactly as long as
+// the Port was the only recipe carrying a Shop at all. #138 authored the merchant
+// vessels, so the old question now answers yes for a Press Gang and a Smuggler's
+// Cove, and every assertion below about *ports* would have quietly started making
+// claims about merchants — that a Press Gang stocks the Chandlery's 12 cards, that
+// there are two of them per zone.
+//
+// Opening on a Shop is exact rather than a heuristic, and it is the same fact the
+// map reads: only_the_port_bucket_opens_on_a_shop pins it in the catalog, precisely
+// because view.odin labels a revealed encounter by its first stage and so a
+// Shop-opening merchant would draw a Port's marker. The two are one rule — what
+// makes a port findable here is what makes it findable on the map.
+node_port_shop :: proc(p: Node) -> (shop: Stage_Shop, ok: bool) {
+	encounter, has_encounter := p.encounter.?
+	if !has_encounter || encounter.count == 0 {
+		return {}, false
+	}
+	s := encounter.stages[0].(Stage_Shop) or_return
+	return s, true
 }
 
 // --- Stakes formulas: zone tier x depth ------------------------------------
@@ -279,11 +309,11 @@ every_stage_spec_authors_a_pool_iff_it_is_a_shop :: proc(t: ^testing.T) {
 	// rather than accidentally the zero pool (#137), and run_bake_stage asserts both
 	// directions. This checks every authored recipe already satisfies it, so the assert
 	// is a statement about the catalog rather than a trap waiting for a real seed.
-	pools := 0
+	named: bit_set[Stock_Pool]
 	for r in ([]([]Recipe){run_recipe_catalog(), run_port_bucket()}) {
 		for recipe in r {
 			for spec in recipe.stages {
-				_, authored := spec.stock.?
+				pool, authored := spec.stock.?
 				testing.expectf(
 					t,
 					authored == (spec.kind == .Shop),
@@ -291,14 +321,52 @@ every_stage_spec_authors_a_pool_iff_it_is_a_shop :: proc(t: ^testing.T) {
 					recipe.name, spec.kind, spec.stock,
 				)
 				if authored {
-					pools += 1
+					named += {pool}
 				}
 			}
 		}
 	}
-	// The Port's Chandlery, and nothing else — #138 is what authors the recipes that
-	// name the specialist holds.
-	testing.expect_value(t, pools, 1)
+	// Every authored hold is reachable. This used to read `pools == 1` — the Port's
+	// Chandlery and nothing else — because #137 authored the four specialist pools
+	// while the catalog still held a single [Fight] and could not name them. #138
+	// authored the merchant vessels, so the wait is over and the property inverts:
+	// a pool no recipe names is content that cannot be reached on any seed, which
+	// is a mistake rather than a stage of the effort.
+	for pool in Stock_Pool {
+		testing.expectf(t, pool in named, "no recipe names the %v pool, so no seed can ever stock it", pool)
+	}
+}
+
+@(test)
+only_the_port_bucket_opens_on_a_shop :: proc(t: ^testing.T) {
+	// #138's authoring discovery, and the reason there is no one-stage merchant.
+	//
+	// Shop is the revealing primitive, and view.odin's node_appearance labels a
+	// revealed encounter by its **first stage**. So any recipe opening on a Shop
+	// draws the same "Shop" marker a Port draws, and the captain cannot tell the
+	// Chandlery's 12 general cards from a specialist's 6 until the voyage there is
+	// already spent. The Port bucket's guaranteed placement is a promise that a Shop
+	// marker is a general market (Stock_Pool); a counterfeit Port breaks it.
+	//
+	// A merchant vessel therefore earns its Shop by putting a stage in front of it —
+	// which is its bucket restated: a Port is guaranteed and general, a merchant is a
+	// windfall you sail into rather than one you can see and route to.
+	//
+	// **This is the rule to revisit first if #139 gives a revealed encounter its
+	// recipe's name on the map.** The whole argument rests on both markers reading
+	// "Shop"; name them and a `[Shop]` merchant stops being a counterfeit, which
+	// would reopen the one-stage bucket's fifth shape.
+	for recipe in run_recipe_catalog() {
+		testing.expectf(
+			t,
+			recipe.stages[0].kind != .Shop,
+			"%q opens on a Shop, so the map draws it as a Port that isn't one",
+			recipe.name,
+		)
+	}
+	for recipe in run_port_bucket() {
+		testing.expectf(t, recipe.stages[0].kind == .Shop, "%q is in the Port bucket but does not open on a Shop", recipe.name)
+	}
 }
 
 // --- Generation structural invariants (swept over several seeds) -----------
@@ -465,10 +533,16 @@ recipe_bucket_membership_is_derived_from_stage_count :: proc(t: ^testing.T) {
 @(test)
 each_zone_deals_only_its_own_stage_count_bucket :: proc(t: ^testing.T) {
 	// ADR-0014's hard mapping (Coastal 1 -> Open_Sea 2 -> Deep 3), asserted where it
-	// actually has to hold: on generated maps. A zone whose bucket is still empty
-	// deals the 1-stage fallback (run_zone_recipe_pool) and is skipped here — the
-	// tripwire below is what makes that skip temporary.
-	catalog := run_recipe_catalog()
+	// actually has to hold: on generated maps.
+	//
+	// **Ports are skipped, and skipping them needs saying out loud now.** The Port
+	// bucket is exempt from the mapping — a Port is one stage even in The Deep — and
+	// this test used to exclude them with `p.kind != .Encounter`, back when
+	// Node_Kind.Port existed to say so. #137 retired that value, and the test kept
+	// passing only because every zone's bucket was empty of multi-stage recipes and
+	// the `len(bucket) == 0` skip below took the whole zone out. #138 filled the
+	// buckets, so the skip is gone and the exemption has to be stated the way
+	// everything else asks it: of the stage list (node_port_shop).
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
@@ -476,12 +550,10 @@ each_zone_deals_only_its_own_stage_count_bucket :: proc(t: ^testing.T) {
 		for p in m.nodes {
 			zone, in_zone := p.zone.?
 			if !in_zone || p.kind != .Encounter {
-				continue // Start/Goal hold nothing; a .Port is bespoke-placed and exempt.
+				continue // Start/Goal hold nothing.
 			}
-			bucket := run_recipe_bucket(catalog, zone_stage_count[zone])
-			defer delete(bucket)
-			if len(bucket) == 0 {
-				continue
+			if _, is_port := node_port_shop(p); is_port {
+				continue // Bespoke-placed and exempt from the zone's stage count.
 			}
 
 			encounter, has_encounter := p.encounter.?
@@ -497,25 +569,114 @@ each_zone_deals_only_its_own_stage_count_bucket :: proc(t: ^testing.T) {
 }
 
 @(test)
-multi_stage_buckets_are_empty_until_the_catalog_is_authored :: proc(t: ^testing.T) {
-	// A tripwire, not a property: the catalog is still the three one-stage recipes
-	// ADR-0014 retired the encounter kinds into, so Open_Sea and The Deep deal
-	// run_zone_recipe_pool's 1-stage fallback rather than their own buckets.
+every_zone_has_a_bucket_to_deal_from :: proc(t: ^testing.T) {
+	// This replaces multi_stage_buckets_are_empty_until_the_catalog_is_authored,
+	// the tripwire that guarded run_zone_recipe_pool's 1-stage fallback while the
+	// catalog held only the three retired encounter kinds. #138 authored the
+	// multi-stage recipes, so both the tripwire and the fallback are gone and the
+	// property inverts: every zone's stage-count bucket must now be *non*-empty.
 	//
-	// **When #138 authors the multi-stage recipes, this test fails — that is its
-	// whole job.** Delete it, and delete the fallback in run_zone_recipe_pool with
-	// it: an empty bucket is a content bug from that point on, and it should assert
-	// rather than quietly deal Coastal's encounters in The Deep.
+	// run_zone_recipe_pool asserts on an empty bucket, so this is what turns
+	// emptying a bucket in catalog.odin from a crash on some seed into a named
+	// test failure.
 	catalog := run_recipe_catalog()
-	for stage_count in 2 ..= ENCOUNTER_MAX_STAGES {
-		bucket := run_recipe_bucket(catalog, stage_count)
+	for zone in Zone {
+		bucket := run_recipe_bucket(catalog, zone_stage_count[zone])
 		defer delete(bucket)
 		testing.expectf(
 			t,
-			len(bucket) == 0,
-			"the %d-stage bucket now holds %d recipes — #138 has landed, so delete this test and run_zone_recipe_pool's fallback",
-			stage_count, len(bucket),
+			len(bucket) > 0,
+			"%v deals %d-stage encounters but the catalog authors none of that length",
+			zone, zone_stage_count[zone],
 		)
+	}
+}
+
+@(test)
+costs_precede_boons_in_every_authored_recipe :: proc(t: ^testing.T) {
+	// ADR-0014's authoring convention, checked against the table rather than
+	// enforced by the type system (#127 chose that deliberately: the gate field can
+	// widen later, and a Stage_Spec that could not express `[Offer, Fight]` could
+	// not express a future recipe that wants it either).
+	//
+	// The reason it matters is that a halt is an **exit**. Fight and Trade are the
+	// two stages that both cost something and can be declined — Leave Combat halts
+	// a Fight, rejecting halts a Trade — so either one sitting *behind* a boon is a
+	// free escape from the price of that boon. `[Offer, Fight]` is the canonical
+	// mistake: skip an item you never had and the fight is dodged for nothing.
+	//
+	// Shop is a boon despite spending treasure: it never halts, so it is not an
+	// exit, and a captain who buys nothing has lost nothing.
+	is_cost :: proc(kind: Stage_Kind) -> bool {
+		switch kind {
+		case .Fight, .Trade:
+			return true
+		case .Offer, .Shop, .Reward:
+			return false
+		}
+		unreachable()
+	}
+
+	for r in run_recipe_catalog() {
+		seen_boon: Maybe(Stage_Kind)
+		for spec in r.stages {
+			if !is_cost(spec.kind) {
+				seen_boon = spec.kind
+				continue
+			}
+			boon, after_a_boon := seen_boon.?
+			testing.expectf(
+				t,
+				!after_a_boon,
+				"%q authors %v after %v: a declinable cost behind a boon is a free escape from paying for it",
+				r.name, spec.kind, boon,
+			)
+		}
+	}
+}
+
+@(test)
+every_bucket_authors_one_recipe_per_shape :: proc(t: ^testing.T) {
+	// Two recipes with the same stage list are the same encounter twice: all
+	// variance below the stage list comes from each primitive's own content roster
+	// (a Fight's archetype, a Trade's axis, an Offer's items), which is drawn per
+	// node and pays no attention to the recipe carrying it. So a duplicate shape
+	// would not be a second encounter — it would be a silent frequency weighting on
+	// the first, since run_make_recipe_bag deals evenly across a pool.
+	//
+	// **Shape means the kind sequence, and a differing stock pool does not rescue a
+	// collision** — which is stricter than it first looks, since a `[Fight, Shop:
+	// Ordnance_Hoy]` and a `[Fight, Shop: Menagerie]` really would be two different
+	// encounters to play. Nothing downstream can tell them apart: a baked Stage_Shop
+	// carries its cards and its count but not the pool that dealt them, and an
+	// Encounter does not carry its recipe's name at all, so the two would be one
+	// indistinguishable node on the map, in a Ghost_Snapshot, and to recipe_name_of
+	// below — which recovers a recipe by matching kinds and has nothing else to
+	// match on.
+	//
+	// So this is a constraint the model imposes rather than one authoring wants, and
+	// it is the same gap #139 named: the recipe's name is dropped at bake time. Give
+	// an Encounter its name and pool-distinguished shapes become authorable — until
+	// then, one recipe per kind sequence.
+	catalog := run_recipe_catalog()
+	for r, i in catalog {
+		for other in catalog[i + 1:] {
+			same := len(r.stages) == len(other.stages)
+			if same {
+				for spec, k in r.stages {
+					if spec.kind != other.stages[k].kind {
+						same = false
+						break
+					}
+				}
+			}
+			testing.expectf(
+				t,
+				!same,
+				"%q and %q author the same stage kinds: nothing downstream can tell them apart, so that is one encounter twice",
+				r.name, other.name,
+			)
+		}
 	}
 }
 
@@ -534,7 +695,7 @@ every_port_holds_the_one_stage_shop_recipe :: proc(t: ^testing.T) {
 		defer run_map_destroy(&m)
 
 		for p in m.nodes {
-			if _, is_port := node_shop(p); !is_port {
+			if _, is_port := node_port_shop(p); !is_port {
 				continue
 			}
 			encounter, has_encounter := p.encounter.?
@@ -562,7 +723,7 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 
 		port_counts: [Zone]int
 		for p in m.nodes {
-			if _, is_port := node_shop(p); !is_port {
+			if _, is_port := node_port_shop(p); !is_port {
 				continue
 			}
 			zone, ok := p.zone.?
@@ -604,7 +765,7 @@ every_port_stocks_its_chandlery_pool_priced_by_tier :: proc(t: ^testing.T) {
 		defer run_map_destroy(&m)
 
 		for p in m.nodes {
-			shop, has_shop := node_shop(p)
+			shop, has_shop := node_port_shop(p)
 			if !has_shop {
 				continue
 			}
@@ -658,7 +819,7 @@ a_chandlery_can_stock_any_roster_item :: proc(t: ^testing.T) {
 		m := run_map_create(u64(seed))
 		defer run_map_destroy(&m)
 		for p in m.nodes {
-			shop, has_shop := node_shop(p)
+			shop, has_shop := node_port_shop(p)
 			if !has_shop {
 				continue
 			}
@@ -717,15 +878,15 @@ distinct_ports_bake_distinct_stock :: proc(t: ^testing.T) {
 		port_ids: [dynamic]Node_ID
 		defer delete(port_ids)
 		for p in m.nodes {
-			if _, is_port := node_shop(p); is_port {
+			if _, is_port := node_port_shop(p); is_port {
 				append(&port_ids, p.id)
 			}
 		}
 
 		for i in 0 ..< len(port_ids) {
 			for j in i + 1 ..< len(port_ids) {
-				a, _ := node_shop(m.nodes[port_ids[i]])
-				b, _ := node_shop(m.nodes[port_ids[j]])
+				a, _ := node_port_shop(m.nodes[port_ids[i]])
+				b, _ := node_port_shop(m.nodes[port_ids[j]])
 				identical := true
 				for pos in 0 ..< a.count {
 					if a.stock[pos].fitting.name != b.stock[pos].fitting.name {
@@ -741,6 +902,20 @@ distinct_ports_bake_distinct_stock :: proc(t: ^testing.T) {
 
 @(test)
 recipe_counts_per_zone_are_as_even_as_the_catalog_split_allows :: proc(t: ^testing.T) {
+	// run_make_recipe_bag deals evenly, so a zone's encounters spread across **its
+	// own bucket** to within one.
+	//
+	// The evenness is measured over the bucket rather than the whole catalog, which
+	// is the correction #138 forces: while every recipe was one stage long and the
+	// buckets were empty, run_zone_recipe_pool's fallback dealt the 1-stage bucket in
+	// every zone, so every recipe was expected in every zone and the catalog was the
+	// right thing to sweep. Now a recipe lives in exactly one zone — a Sea Battle is
+	// Open Sea's and can never be Coastal's — so sweeping the catalog would read
+	// every other bucket's recipes as a zone that deals none of them, which is the
+	// hard mapping working rather than an uneven deal.
+	//
+	// Ports are excluded: they are dealt from their own bucket by their own
+	// placement, so they are not part of the zone's spread.
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
@@ -753,12 +928,18 @@ recipe_counts_per_zone_are_as_even_as_the_catalog_split_allows :: proc(t: ^testi
 				if !in_zone || pz != zone {
 					continue
 				}
+				if _, is_port := node_port_shop(p); is_port {
+					continue
+				}
 				if enc, ok := p.encounter.?; ok {
 					counts[recipe_name_of(enc)] += 1
 				}
 			}
+
+			bucket := run_recipe_bucket(run_recipe_catalog(), zone_stage_count[zone])
+			defer delete(bucket)
 			lo, hi := max(int), 0
-			for r in run_recipe_catalog() {
+			for r in bucket {
 				lo = min(lo, counts[r.name])
 				hi = max(hi, counts[r.name])
 			}
@@ -874,7 +1055,17 @@ the_same_seed_reproduces_an_identical_map :: proc(t: ^testing.T) {
 		testing.expect_value(t, has_a, has_b)
 		if has_a && has_b {
 			testing.expect_value(t, ea.count, eb.count)
-			testing.expect_value(t, only_stage_kind(ea), only_stage_kind(eb))
+			// Every stage, not just the first: this read only_stage_kind while the
+			// catalog was one-stage throughout, and #138's multi-stage recipes are
+			// what its assert was placed to catch.
+			for k in 0 ..< min(ea.count, eb.count) {
+				testing.expectf(
+					t,
+					run_stage_kind(ea.stages[k]) == run_stage_kind(eb.stages[k]),
+					"node %d stage %d differs between two builds of seed 42",
+					pa.id, k,
+				)
+			}
 		}
 		testing.expect(t, slice.equal(a.edges[i], b.edges[i]))
 	}

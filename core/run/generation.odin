@@ -371,22 +371,18 @@ run_recipe_bucket :: proc(pool: []Recipe, stage_count: int) -> []Recipe {
 // catalog recipes whose stage count matches zone_stage_count[zone]. Caller owns
 // the returned slice.
 //
-// **Transitional**: the catalog is still the three one-stage recipes ADR-0014
-// retired the encounter kinds into (catalog.odin), so Open_Sea's and The Deep's
-// buckets are empty and there is nothing to deal them. Rather than assert — which
-// would make the game unplayable past Coastal until #138 authors the multi-stage
-// recipes — an empty bucket falls back to the 1-stage one, which is what those
-// zones deal today anyway. The fallback is the *only* thing standing between this
-// mapping and the real thing, and it must be deleted when #138 fills the buckets:
-// multi_stage_buckets_are_empty_until_the_catalog_is_authored (run_test.odin)
-// fails the moment that happens, so this can't be left behind by accident.
+// An empty bucket is a **content bug** and asserts. It used to fall back to the
+// 1-stage bucket, because the catalog held only the three one-stage recipes
+// ADR-0014 retired the encounter kinds into and asserting would have made the game
+// unplayable past Coastal; #138 authored the multi-stage recipes, so that prop is
+// gone. A zone with nothing to deal now means someone emptied a bucket in
+// catalog.odin, and dealing Coastal's encounters in The Deep would hide that
+// behind a playable-looking map — every_zone_has_a_bucket_to_deal_from names the
+// same fact as a test, so the mistake is caught before the assert ever fires.
 run_zone_recipe_pool :: proc(zone: Zone, catalog: []Recipe) -> []Recipe {
 	bucket := run_recipe_bucket(catalog, zone_stage_count[zone])
-	if len(bucket) > 0 {
-		return bucket
-	}
-	delete(bucket)
-	return run_recipe_bucket(catalog, 1)
+	assert(len(bucket) > 0, "a zone's stage-count bucket is empty: the catalog has no recipe of that length")
+	return bucket
 }
 
 // run_bake_stage builds one authored stage's content at the node's Scaling_Site —
