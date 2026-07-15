@@ -13,7 +13,19 @@ CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE :: 2
 GUN_DECK_OFFENSE_MAGNITUDE :: 5
 CARGO_STACK_COUNT :: 1
 
-STARTING_HP :: 20
+// STARTING_HP is a **scale**, and #151 (ADR-0017) found the old 20 could not
+// express a survivable fight. HP persists all run with no healing and a run meets
+// ~5 fights, so a fight must cost ~20% of the pool; over the ~6 rounds a fight
+// should last (the escape gate is at BASELINE_ROUND_COUNT = 5), that is 0.67 damage
+// a round — below 1, the smallest number the model has. At 20 the only expressible
+// outcomes were a 2-round burst and the 20-round cap, which is exactly what the
+// game did.
+//
+// Everything denominated in HP scales with it: the roster's four Modify_Max_HP
+// items, and Trade's two HP-denominated swing rows (run.odin). **Durability does
+// not** — it is denominated in *raw damage*, which did not move — which is why
+// STARTING_DURABILITY is still 2 and #146's Durability residue is still there.
+STARTING_HP :: 100
 STARTING_DURABILITY :: 2
 STARTING_SPEED :: 4
 STARTING_TREASURE :: 50
@@ -166,7 +178,7 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		// Cargo family carries a stat-modifier without being a cargo filler.
 		{tier = .Splash, fitting = Fitting{name = "Ballast Stones", size = .Small, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Durability, magnitude = 1}}},
 		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_HP, magnitude = 2}}},
+		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_HP, magnitude = 8}}},
 		{tier = .Splash, fitting = Fitting{name = "Boarding Nets", size = .Small, category = .Defensive, tags = {.Crew}, active = Effect{magnitude = 1}}},
 		{tier = .Splash, fitting = Fitting{name = "Barricades", size = .Medium, category = .Defensive, tags = {.Artifact}, active = Effect{magnitude = 2}}},
 		// Synergy over a Tag family: buff per Weapon aboard.
@@ -193,7 +205,7 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		// Stat-modifiers across all three stats.
 		{tier = .Shallow, fitting = Fitting{name = "Reinforced Hull", size = .Medium, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 2}}},
 		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 2}}},
-		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, category = .Defensive, tags = {.Crew}, passive = Effect{kind = .Modify_Max_HP, magnitude = 4}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, category = .Defensive, tags = {.Crew}, passive = Effect{kind = .Modify_Max_HP, magnitude = 16}}},
 		// Synergy composed onto a stat-modifier: +Speed per Small fitting aboard.
 		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1, synergy = Selector(Slot_Size.Small)}}},
 		// Synergy over a Tag family: buff per Weapon.
@@ -218,9 +230,9 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, category = .Defensive, tags = {.Beast}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
 		{tier = .Deep, fitting = Fitting{name = "Adamant Bulwark", size = .Medium, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
 		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 3}}},
-		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Max_HP, magnitude = 8}}},
+		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Max_HP, magnitude = 32}}},
 		// Cargo family, Deep stat-modifier.
-		{tier = .Deep, fitting = Fitting{name = "Treasure Vault", size = .Medium, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_HP, magnitude = 6}}},
+		{tier = .Deep, fitting = Fitting{name = "Treasure Vault", size = .Medium, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_HP, magnitude = 24}}},
 		// Synergy over a Tag family: buff per Crew aboard.
 		{tier = .Deep, fitting = Fitting{name = "Admiral's Guard", size = .Medium, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 3, synergy = Selector(Tag.Crew)}}},
 		// Multi-tag synergy: offense per Weapon, itself a Crew + Weapon.

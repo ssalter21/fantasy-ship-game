@@ -53,8 +53,11 @@ Hostile_Archetype :: struct {
 @(rodata)
 COASTAL_PRIVATEER_ITEMS := [?]string{"Carronade", "Swivel Guns", "Boarding Nets"}
 
+// Three guns as of #151 — the build the name always promised. Swivel Guns is the
+// third; see the entry's own note for why the roster's smallest gun is the one that
+// fits.
 @(rodata)
-BROADSIDE_COMPANY_ITEMS := [?]string{"Naval Gun Crew", "Powder Monkeys", "Boarding Pikes"}
+BROADSIDE_COMPANY_ITEMS := [?]string{"Naval Gun Crew", "Swivel Guns", "Powder Monkeys", "Boarding Pikes"}
 
 @(rodata)
 DEEPWATER_MENAGERIE_ITEMS := [?]string{"Hunter's Pack", "Snapping Eels"}
@@ -110,14 +113,20 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Copper Sheathing", "Swivel Guns"
 // at Coastal, which is the check that catches both degenerate directions below.
 //
 // **Both walls are one-line mistakes here**, which is why that test exists. Damage
-// is `raw - (effective_durability + defense_bonus)` (combat.odin) and the margins are
-// single digits: a starting player's raw is 8 against today's 6 of soak. So ~3 points
-// of stacked +Durability makes a hostile *literally undentable*, and — less obviously
-// — so does buff, which folds into the defender's `defense_bonus` as well as its own
-// offense. That is the trap in every synergy item: Admiral's Guard (+3 per Crew
-// aboard) on a crew build is +12 defence and an unwinnable fight, which is why
-// Boarding Party carries flat War Drums instead. Every entry below therefore keeps
-// (buff + defensive-active + Modify_Durability) at or under the template's own 5.
+// is `raw - (effective_durability + defense_bonus)` (combat.odin), so stacked
+// +Durability still makes a hostile hard to dent, and a build that overshoots the
+// other way sinks a starting player before the escape gate.
+//
+// **The buff trap is gone (#151, ADR-0017), and it was the tighter of the two.**
+// Buff used to fold into the defender's `defense_bonus` as well as its own offense,
+// so Admiral's Guard (+3 per Crew aboard) on a Crew build read +12 *defence* against
+// a starting player's raw of 8 — not a hard fight but a zero, forever, which is why
+// Boarding Party carries flat War Drums instead. Buff now feeds Offensive only, so
+// a Selector item is a hard *hitter* on a hostile rather than an invulnerable one:
+// the constraint became a magnitude the entry can tune rather than a category it
+// could not use. Only `defensive-active + Modify_Durability` counts toward the soak
+// wall now — Boarding Party could take its Guard, at the cost of hitting like a
+// Deep-tier build at Coastal.
 //
 // Magnitudes ride on the items, so the numbers here are ADR-0012's placeholders and
 // move with them; the map's "stakes constant tuning per primitive" fog owns the rest.
@@ -128,10 +137,20 @@ hostile_roster := [?]Hostile_Archetype {
 	// neither side can leave — this is the one that has to be fought out.
 	{name = "Coastal Privateer", speed = 4, items = COASTAL_PRIVATEER_ITEMS[:]},
 	// Every gun aboard makes the crew's guns hit harder: Powder Monkeys buff per
-	// Weapon, and both other items are Weapons (Boarding Pikes and Naval Gun Crew are
-	// multi-tag Crew+Weapon, so they pay into it while reading as boarders). Only two
-	// guns despite the name — see the band note above; a third took it to raw 17 and
-	// a two-round kill.
+	// Weapon, and every other item is a Weapon (Boarding Pikes and Naval Gun Crew are
+	// multi-tag Crew+Weapon, so they pay into it while reading as boarders).
+	//
+	// **Three guns as of #151, and it is this entry that measures the widened band.**
+	// The third gun was unauthorable before: it took the build to a two-round kill,
+	// so the roster's headline weapon-synergy archetype carried two guns and could not
+	// state its own concept. It fits now because the fold left `defense_bonus` — a
+	// starting ship's soak stopped being ~90% of its raw — and because a Coastal
+	// hostile's HP is no longer half the player's, so the fight lasts long enough to
+	// be one. Swivel Guns rather than a Carronade: the roster's *smallest* gun is
+	// what the band holds with margin (a starting player wins at 28 of 100 HP against
+	// this, against 10 of 100 with a Carronade), and the synergy is what makes it
+	// worth carrying — a third Weapon is worth its own 3 *plus* a point on every
+	// Powder Monkeys reading, which is the entry's whole argument.
 	{name = "Broadside Company", speed = 4, items = BROADSIDE_COMPANY_ITEMS[:]},
 	// Beasts, and Hunter's Pack paying per Beast aboard. Two of them, because the
 	// synergy is quadratic in its own family and a third Beast is +3 to the Pack *and*
@@ -142,10 +161,14 @@ hostile_roster := [?]Hostile_Archetype {
 	// Runs dark and runs fast. The trick is placement: two throwaway Mediums push the
 	// Wraith Cannon into the concealed hold, where its Condition_Self_Visibility fires
 	// — the archetype whose build only works because of the *order* of its item list.
-	// Spare Rigging rather than the Ghost Lantern the theme wants: the Lantern's 4 is
-	// *buff*, and buff is soak as well as output, so it bought a three-round kill and
-	// a much harder hostile to dent. Copper Sheathing and the Rigging take it to an
-	// effective 8, so it bolts at BASELINE_ROUND_COUNT: kill it quickly or it is gone.
+	// Spare Rigging rather than the Ghost Lantern the theme wants. The reason has
+	// changed since #151 and the entry is worth revisiting: buff is no longer soak, so
+	// the Lantern would now cost the player HP rather than make the hostile
+	// undentable. It is left as authored because Spare Rigging is what takes it to an
+	// effective 8 — so it bolts the round BASELINE_ROUND_COUNT unlocks, which is the
+	// archetype's whole character (kill it quickly or it is gone) and is exactly what
+	// the widened band made observable: before, the fight ended at round 2 and nothing
+	// ever reached the gate to bolt at.
 	{name = "Smuggler's Run", speed = 5, items = SMUGGLERS_RUN_ITEMS[:]},
 	// Armour: the one build that spends its budget on Modify_Durability instead of
 	// output, so it is a wall you chip rather than one you burst. Held to +3 total —

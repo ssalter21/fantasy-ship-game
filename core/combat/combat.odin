@@ -265,19 +265,40 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		return total
 	}
 
-	// Buff resolves first so its output is available to fold into this same
-	// round's Defensive and Offensive totals below (ADR-0006).
+	// Buff resolves first so its output is available to this same round's
+	// Offensive total below (ADR-0006, as amended by issue #151).
 	for side in Side {
 		round_state[side].buff_output = boosted(combat_phase_output(battle, side, .Buff), .Buff, round_state[side].boost_phase)
 	}
 
-	// Defensive and Offensive share the same shape (phase output + this
-	// round's buff output, then boosted), so they resolve in one loop.
+	// Defensive and Offensive resolve together: each is its own fittings'
+	// output, boosted, and Offensive alone takes this round's buff.
+	//
+	// **Buff feeds Offensive only** (#151). It used to feed `defense_bonus` too,
+	// which made it the one category worth twice its own number: a magnitude spent
+	// on Buff raised your damage *and* lowered your opponent's, so a single item
+	// pushed both walls of the band at once and there was no direction left to tune
+	// it in. It also fabricated soak out of nothing — a ship with no Defensive
+	// fitting still soaked its own buff — which is what pinned soak at ~90% of raw
+	// and made a starting ship unable to sink its own mirror (20 rounds, 1 damage a
+	// round). Decisively: soak is *subtracted* from raw, so soak's vocabulary has to
+	// stay small, and Buff's does not — Admiral's Guard is +3 per Crew aboard, so a
+	// Crew build folded +12 into its own defence and became unbeatable by any
+	// starting ship. Raw can absorb a 12; soak cannot. See the band note on
+	// core/run's hostile_roster.
+	//
+	// **A Boost multiplies its own phase's fittings, and nothing else** — the
+	// buff_output above is already boosted by Boost Buff, so it is added *after*
+	// Boost Offensive rather than inside it. Nesting them (the pre-#151 shape,
+	// `boosted(offensive + buff, .Offensive)`) made Boost Offensive strictly
+	// dominate Boost Buff at 2(O+B) against O+2B, which is a captain's Command that
+	// is never the right answer. Boosting a phase's own fittings is also what
+	// ADR-0006 actually says ("multiplies that phase's fitting output"), so the two
+	// Boosts now answer a real question: press the guns, or press the crew.
 	for side in Side {
-		buff := round_state[side].buff_output
 		boost_phase := round_state[side].boost_phase
-		round_state[side].defense_bonus = boosted(combat_phase_output(battle, side, .Defensive)+buff, .Defensive, boost_phase)
-		round_state[side].raw_damage = boosted(combat_phase_output(battle, side, .Offensive)+buff, .Offensive, boost_phase)
+		round_state[side].defense_bonus = boosted(combat_phase_output(battle, side, .Defensive), .Defensive, boost_phase)
+		round_state[side].raw_damage = boosted(combat_phase_output(battle, side, .Offensive), .Offensive, boost_phase) + round_state[side].buff_output
 	}
 
 	for side in Side {

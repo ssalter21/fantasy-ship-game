@@ -112,8 +112,12 @@ buff_output_adds_into_the_same_rounds_defensive_and_offensive_totals :: proc(t: 
 	testing.expect_value(t, b.hp, 20-13)
 }
 
+// The inverse of the pre-#151 test of the same shape, which pinned buff folding
+// into its own side's Defensive total. It no longer does: soak is subtracted from
+// raw, so soak's vocabulary has to stay small, and Buff's does not (Admiral's
+// Guard is +3 per Crew aboard). See combat_resolve_round's band note.
 @(test)
-buff_output_reduces_incoming_damage_via_the_same_sides_defensive_total :: proc(t: ^testing.T) {
+buff_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
@@ -135,10 +139,33 @@ buff_output_reduces_incoming_damage_via_the_same_sides_defensive_total :: proc(t
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's own defense total = durability(1) + defensive(4) + buff(3) = 8;
-	// B's raw damage = 20, so final = 20 - 8 = 12. Confirms a side's own
-	// buff output folds into its own Defensive total, not just Offensive.
-	testing.expect_value(t, a.hp, 20-12)
+	// A's soak = durability(1) + defensive(4) = 5 — the War Cry's 3 is *not* in it.
+	// B's raw damage = 20, so final = 20 - 5 = 15. (Pre-#151 this was 20 - 8 = 12.)
+	testing.expect_value(t, a.hp, 20-15)
+}
+
+// The same magnitude on a Buff fitting reaches Offensive and nothing else: the
+// half of "buff feeds Offensive only" that says it still feeds Offensive.
+@(test)
+buff_output_still_raises_the_same_sides_offensive_total :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
+	a := ship.Ship{
+		hp = 20, durability = 0, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = warcry},
+			{slot = ship.Slot{size = .Large}, fitting = cannon},
+		},
+	}
+	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+
+	testing.expect_value(t, b.hp, 20-(5+3))
 }
 
 @(test)
@@ -164,8 +191,12 @@ boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^test
 	testing.expect_value(t, a.hp, 20-10)
 }
 
+// Inverted by #151: a Boost multiplies its own phase's fittings, which is what
+// ADR-0006 says ("multiplies that phase's fitting output"). Boosting the combined
+// total instead made Boost Offensive strictly dominate Boost Buff — 2(O+B) always
+// beats O+2B — so one of the captain's five Commands was never the right answer.
 @(test)
-boost_offensive_amplifies_the_phase_output_and_this_rounds_buff_output_together :: proc(t: ^testing.T) {
+boost_offensive_multiplies_the_offensive_fittings_but_not_the_folded_buff :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
@@ -184,14 +215,42 @@ boost_offensive_amplifies_the_phase_output_and_this_rounds_buff_output_together 
 	cmds[.A] = Command(Command_Boost{phase = .Offensive})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// Boost multiplies (cannon(5) + buff(2)) as one combined total, not
-	// just the cannon's own phase output: (5+2)*BOOST_MULTIPLIER = 14.
-	// (A bug that boosted only the cannon would instead give 5*2+2 = 12.)
-	testing.expect_value(t, b.hp, 20-(5+2)*BOOST_MULTIPLIER)
+	// cannon(5)*BOOST_MULTIPLIER + buff(2) = 12. (Pre-#151: (5+2)*2 = 14.)
+	testing.expect_value(t, b.hp, 20-(5*BOOST_MULTIPLIER+2))
 }
 
+// The other half of the same rule, and the reason it is worth having: Boost Buff
+// presses the crew rather than the guns, so the two Boosts answer a real question
+// instead of one dominating the other.
 @(test)
-boost_defensive_amplifies_the_phase_output_and_this_rounds_buff_output_together :: proc(t: ^testing.T) {
+boost_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
+	a := ship.Ship{
+		hp = 20, durability = 0, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = warcry},
+			{slot = ship.Slot{size = .Large}, fitting = cannon},
+		},
+	}
+	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Boost{phase = .Buff})
+	combat_resolve_round(&battle, cmds, &events)
+
+	// cannon(5) + buff(2)*BOOST_MULTIPLIER = 9. Worth less than Boost Offensive's
+	// 12 for *this* build, and worth more for a build whose crew outweighs its guns.
+	testing.expect_value(t, b.hp, 20-(5+2*BOOST_MULTIPLIER))
+}
+
+// Also inverted by #151: Boost Defensive doubles the Defensive fittings alone,
+// since buff no longer reaches soak at all.
+@(test)
+boost_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
@@ -214,9 +273,9 @@ boost_defensive_amplifies_the_phase_output_and_this_rounds_buff_output_together 
 	cmds[.A] = Command(Command_Boost{phase = .Defensive})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's boosted defense total = (shield(4) + buff(3)) * BOOST_MULTIPLIER = 14;
-	// B's raw damage = 20, so final = 20 - 14 = 6.
-	testing.expect_value(t, a.hp, 20-6)
+	// A's boosted soak = shield(4) * BOOST_MULTIPLIER = 8, the War Cry's 3 excluded;
+	// B's raw damage = 20, so final = 20 - 8 = 12. (Pre-#151: (4+3)*2 = 14, so 6.)
+	testing.expect_value(t, a.hp, 20-12)
 }
 
 @(test)
