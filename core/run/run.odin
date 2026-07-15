@@ -58,10 +58,41 @@ FIGHT_OPPONENT_SPEED :: 5
 OFFER_ITEM_QUALITY_PER_TIER :: 15
 OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 
-TRADE_GAIN_DURABILITY_PER_TIER :: 8
-TRADE_GAIN_DURABILITY_PER_DEPTH :: 2
-TRADE_COST_SPEED_PER_TIER :: 1
-TRADE_COST_SPEED_PER_DEPTH :: 1
+// The Trade primitive's stakes constants are **per tradeable stat**, not per
+// trade (issue #136). A Trade is no longer one welded +Durability/-Speed axis
+// with a constant for each of its two sides; it is a roster entry naming two
+// stats (content.odin's Trade_Axis), and each side's magnitude is that stat's
+// swing at this site. So the table below is indexed by what is being traded
+// rather than by which side of which trade it sits on: one swing of Durability
+// costs one swing of Speed because a swing is the unit both are quoted in.
+//
+// That makes this table the trade **exchange rate**, and it is what keeps N
+// stats' worth of roster entries consistently priced against each other from one
+// place — authoring a new axis is naming two stats, never inventing two more
+// constants. It also means every axis is one swing for one swing: there is
+// deliberately no per-entry multiplier to author a deliberately-greedy or
+// generous trade. Nothing has asked for one yet, and a weight field can be added
+// to Trade_Axis later without restructuring a single caller.
+//
+// Durability and Speed keep the exact values the welded axis used
+// (TRADE_GAIN_DURABILITY_* / TRADE_COST_SPEED_*), so the Braced Bulkheads roster
+// entry reproduces today's Bargain number for number. The other three are
+// placeholders on the same footing as every constant in this group — the map's
+// own fog patch ("Stakes constant tuning per primitive ... needs content in
+// place to judge") is what settles them, and this ticket is the content it was
+// waiting for. Their one authored relationship: Max HP's swing is smaller than
+// HP's, because a point of permanent ceiling is worth more than a point of
+// one-off repair.
+TRADE_SWING_HP_PER_TIER :: 4
+TRADE_SWING_HP_PER_DEPTH :: 2
+TRADE_SWING_MAX_HP_PER_TIER :: 2
+TRADE_SWING_MAX_HP_PER_DEPTH :: 1
+TRADE_SWING_DURABILITY_PER_TIER :: 8
+TRADE_SWING_DURABILITY_PER_DEPTH :: 2
+TRADE_SWING_SPEED_PER_TIER :: 1
+TRADE_SWING_SPEED_PER_DEPTH :: 1
+TRADE_SWING_TREASURE_PER_TIER :: 15
+TRADE_SWING_TREASURE_PER_DEPTH :: 5
 
 // Scaling_Site is a node's position on the stakes gradient: the (zone, depth)
 // pair every zone-and-depth-scaled formula below reads. It says *how much is on
@@ -125,16 +156,31 @@ run_offer_item_quality :: proc(site: Scaling_Site) -> int {
 	return run_zone_depth_scaled(site, OFFER_ITEM_QUALITY_PER_TIER, OFFER_ITEM_QUALITY_PER_DEPTH)
 }
 
-// run_trade_gain_durability and run_trade_cost_speed are the Trade primitive's
-// stakes reading — swing size, across the trade's two sides: a deeper trade is a
-// bigger swing (more Durability gained, more Speed spent) than a shallow one in
-// the same zone.
-run_trade_gain_durability :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, TRADE_GAIN_DURABILITY_PER_TIER, TRADE_GAIN_DURABILITY_PER_DEPTH)
-}
-
-run_trade_cost_speed :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, TRADE_COST_SPEED_PER_TIER, TRADE_COST_SPEED_PER_DEPTH)
+// run_trade_swing is the Trade primitive's stakes reading: how much of `stat` one
+// swing is worth at this site. A deeper trade is a bigger swing (more Durability
+// gained, more Speed spent) than a shallow one in the same zone — on *both*
+// sides, since a trade's gain and cost are each a swing of their own stat read
+// off the same site.
+//
+// This is the whole of the Trade primitive's stakes reading: it replaces
+// run_trade_gain_durability / run_trade_cost_speed, which existed only because
+// the axis was welded into Stage_Trade and each side therefore had exactly one
+// stat it could ever be. Keyed by stat rather than by side, one proc answers for
+// every roster entry, and gain and cost are the same question asked twice.
+run_trade_swing :: proc(site: Scaling_Site, stat: Trade_Stat) -> int {
+	switch stat {
+	case .HP:
+		return run_zone_depth_scaled(site, TRADE_SWING_HP_PER_TIER, TRADE_SWING_HP_PER_DEPTH)
+	case .Max_HP:
+		return run_zone_depth_scaled(site, TRADE_SWING_MAX_HP_PER_TIER, TRADE_SWING_MAX_HP_PER_DEPTH)
+	case .Durability:
+		return run_zone_depth_scaled(site, TRADE_SWING_DURABILITY_PER_TIER, TRADE_SWING_DURABILITY_PER_DEPTH)
+	case .Speed:
+		return run_zone_depth_scaled(site, TRADE_SWING_SPEED_PER_TIER, TRADE_SWING_SPEED_PER_DEPTH)
+	case .Treasure:
+		return run_zone_depth_scaled(site, TRADE_SWING_TREASURE_PER_TIER, TRADE_SWING_TREASURE_PER_DEPTH)
+	}
+	unreachable()
 }
 
 // Node_Kind is what a Node is: the Start/home port, a per-zone Port, an

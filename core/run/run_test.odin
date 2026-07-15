@@ -2,6 +2,7 @@ package run
 
 import "../combat"
 import "../ship"
+import "../testutil"
 import "core:slice"
 import "core:testing"
 
@@ -68,14 +69,29 @@ offer_item_quality_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 	expect_rises_by_zone_and_depth(t, run_offer_item_quality)
 }
 
+// The Trade primitive's reading is keyed by stat rather than by side (issue
+// #136), so it can't go through expect_rises_by_zone_and_depth's
+// proc(Scaling_Site) shape. Every stat must scale, not just the two the welded
+// axis happened to name: a roster entry can put any stat on either side, so a
+// stat whose swing ignored the site would be a trade with a stakes-blind half.
 @(test)
-trade_gain_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_trade_gain_durability)
-}
-
-@(test)
-trade_cost_speed_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_trade_cost_speed)
+trade_swing_rises_by_zone_and_depth_for_every_stat :: proc(t: ^testing.T) {
+	for stat in Trade_Stat {
+		testing.expectf(
+			t,
+			run_trade_swing(Scaling_Site{zone = .Deep, depth = 0}, stat) >
+			run_trade_swing(Scaling_Site{zone = .Coastal, depth = 0}, stat),
+			"%v's swing must rise with zone tier",
+			stat,
+		)
+		testing.expectf(
+			t,
+			run_trade_swing(Scaling_Site{zone = .Open_Sea, depth = DEPTH_STEPS}, stat) >
+			run_trade_swing(Scaling_Site{zone = .Open_Sea, depth = 0}, stat),
+			"%v's swing must rise with depth-within-zone",
+			stat,
+		)
+	}
 }
 
 @(test)
@@ -94,8 +110,8 @@ run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t
 the_primitives_readings_of_one_site_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
 	coastal := Scaling_Site{zone = .Coastal, depth = 0}
 	testing.expect(t, run_fight_opponent_hp(coastal) != run_offer_item_quality(coastal))
-	testing.expect(t, run_fight_opponent_hp(coastal) != run_trade_gain_durability(coastal))
-	testing.expect(t, run_offer_item_quality(coastal) != run_trade_gain_durability(coastal))
+	testing.expect(t, run_fight_opponent_hp(coastal) != run_trade_swing(coastal, .Durability))
+	testing.expect(t, run_offer_item_quality(coastal) != run_trade_swing(coastal, .Durability))
 }
 
 // --- Depth normalization: stable endpoints regardless of layer count -------
@@ -803,15 +819,161 @@ run_start_battle_hands_off_to_combat_with_the_ship_and_the_fight_stages_opponent
 	testing.expect_value(t, battle.round, 1)
 }
 
-@(test)
-run_apply_stat_trade_permanently_gains_durability_and_costs_speed :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, durability = 2, speed = 5}
-	trade := Stage_Trade{gain_durability = 3, cost_speed = 1}
+// --- Trade: applying an accepted swap (issue #136) --------------------------
 
-	run_apply_stat_trade(&s, trade, Scaling_Site{zone = .Coastal, depth = 0}, 0)
+// trade_of is a baked Stage_Trade with the magnitudes stated outright, so the
+// apply tests below read as "this much for that much" without a Scaling_Site
+// standing between the test and the numbers it asserts.
+trade_of :: proc(gain: Trade_Stat, gain_amount: int, cost: Trade_Stat, cost_amount: int) -> Stage_Trade {
+	return Stage_Trade{
+		name = "Test Bargain",
+		gain = Trade_Term{stat = gain, amount = gain_amount},
+		cost = Trade_Term{stat = cost, amount = cost_amount},
+	}
+}
+
+@(test)
+run_apply_trade_permanently_swaps_the_cost_stat_for_the_gain_stat :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 5}
+
+	run_apply_trade(&s, trade_of(.Durability, 3, .Speed, 1), Scaling_Site{zone = .Coastal, depth = 0}, 0)
 
 	testing.expect_value(t, s.durability, 5)
 	testing.expect_value(t, s.speed, 4)
+}
+
+// The axis is data now, so the *inverse* trade must work as well as the original
+// — that's the whole of what unwelding bought.
+@(test)
+run_apply_trade_runs_an_axis_in_either_direction :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 5, speed = 4}
+
+	run_apply_trade(&s, trade_of(.Speed, 2, .Durability, 3), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+
+	testing.expect_value(t, s.speed, 6)
+	testing.expect_value(t, s.durability, 2)
+}
+
+@(test)
+run_apply_trade_moves_treasure :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 4, starting_treasure = 50}
+
+	run_apply_trade(&s, trade_of(.Treasure, 15, .Durability, 2), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+
+	testing.expect_value(t, s.starting_treasure, 65)
+	testing.expect_value(t, s.durability, 2)
+}
+
+// Cannibalized Timbers (+HP for -Max HP) is why the pay-then-grant order is
+// load-bearing: selling the ceiling first means the repair caps against the
+// ceiling you just sold. 12 HP of a 20 ceiling, sell 6 of the ceiling, then
+// repair 8 — the repair stops at the new ceiling of 14, not the old 20.
+@(test)
+run_apply_trade_pays_before_granting_so_a_repair_caps_against_the_sold_ceiling :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 12, max_hp = 20}
+
+	run_apply_trade(&s, trade_of(.HP, 8, .Max_HP, 6), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+
+	testing.expect_value(t, s.max_hp, 14)
+	testing.expect_value(t, s.hp, 14)
+}
+
+@(test)
+run_apply_trade_never_overheals :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 18, max_hp = 20, durability = 4}
+
+	run_apply_trade(&s, trade_of(.HP, 10, .Durability, 1), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+
+	testing.expect_value(t, s.hp, 20)
+}
+
+// Gaining Max HP is headroom, not a repair — the two stats stay distinct
+// precisely so an entry can trade one for the other.
+@(test)
+run_apply_trade_gaining_max_hp_raises_the_ceiling_without_filling_it :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 12, max_hp = 20, starting_treasure = 50}
+
+	run_apply_trade(&s, trade_of(.Max_HP, 5, .Treasure, 15), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+
+	testing.expect_value(t, s.max_hp, 25)
+	testing.expect_value(t, s.hp, 12)
+	testing.expect_value(t, s.starting_treasure, 35)
+}
+
+// Spending Max HP below current HP can't leave the ship holding more HP than it
+// can now hold.
+@(test)
+run_apply_trade_paying_max_hp_pulls_current_hp_down_to_the_new_ceiling :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 20, max_hp = 20, speed = 4}
+
+	run_apply_trade(&s, trade_of(.Speed, 2, .Max_HP, 8), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+
+	testing.expect_value(t, s.max_hp, 12)
+	testing.expect_value(t, s.hp, 12)
+}
+
+// --- Trade: affordability (issue #136) --------------------------------------
+
+@(test)
+run_trade_can_accept_refuses_a_cost_that_would_break_the_floor :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 4}
+
+	// Speed floors at 0, so spending exactly all of it is still a trade...
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Durability, 8, .Speed, 4)))
+	// ...but one more than the ship has is not.
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Durability, 8, .Speed, 5)))
+}
+
+// HP and Max HP floor at 1: a trade is a bargain on a menu and must not be able
+// to sink the ship there.
+@(test)
+run_trade_can_accept_never_lets_a_trade_sink_the_ship :: proc(t: ^testing.T) {
+	s := ship.Ship{hp = 10, max_hp = 10, speed = 4}
+
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Speed, 1, .HP, 9)))
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Speed, 1, .HP, 10)))
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Speed, 1, .Max_HP, 9)))
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Speed, 1, .Max_HP, 10)))
+}
+
+// The ADR-0012 constraint the ticket names: a trade reads the **effective** stat,
+// never the raw base field. A fitting granting +3 Durability makes a cost of 5
+// affordable on a base of 2 — and paying it out of the base leaves that base
+// negative, which is fine, because effective (0) is the number combat resolves
+// against and it is still at the floor.
+@(test)
+run_trade_measures_the_cost_against_the_effective_stat_not_the_base_field :: proc(t: ^testing.T) {
+	plating := ship.Fitting{
+		name    = "Test Plating",
+		size    = .Small,
+		passive = ship.Effect{kind = .Modify_Durability, magnitude = 3},
+	}
+	s := ship.Ship{
+		hp = 20, max_hp = 20, durability = 2, speed = 4,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = plating}},
+	}
+	testing.expect_value(t, ship.ship_effective_durability(&s), 5)
+
+	// The base alone (2) could never pay 5; the fitting's contribution is what
+	// makes it affordable.
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Speed, 1, .Durability, 5)))
+	run_apply_trade(&s, trade_of(.Speed, 1, .Durability, 5), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+
+	testing.expect_value(t, s.durability, -3) // the base field went negative...
+	testing.expect_value(t, ship.ship_effective_durability(&s), 0) // ...and effective landed on the floor.
+	testing.expect_value(t, s.speed, 5)
+}
+
+@(test)
+run_apply_trade_asserts_on_a_trade_the_ship_cannot_pay_for :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	s := ship.Ship{hp = 20, max_hp = 20, speed = 4}
+
+	run_apply_trade(&s, trade_of(.Durability, 8, .Speed, 5), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+
+	testing.expect_assert(t, "run_apply_trade on a trade the ship cannot pay for")
 }
 
 @(test)

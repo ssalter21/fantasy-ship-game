@@ -113,10 +113,13 @@ sim_current_encounter :: proc(sim: ^Sim) -> (^run.Encounter, bool) {
 // if the walk is over — the read half of complete-or-halt, and the single answer to
 // "what happens next" that every resolution path routes back through.
 //
-// It loops rather than presenting one stage, because not every stage stops for the
-// captain: a stage that resolves outright (a Trade applies on arrival) advances the
-// cursor and the next stage is entered in the same tick. The loop ends the moment a
-// stage parks in a decision phase, or the cursor runs off the end.
+// It loops rather than presenting one stage, because nothing guarantees a stage stops
+// for the captain: one that resolves outright advances the cursor and the next stage is
+// entered in the same tick. Every primitive authored today parks — the last one that
+// did not was Trade, until #136 gave it accept/reject — but Reward (#132/#133) is
+// specified to resolve outright, so the loop is what that lands into rather than a
+// shape it would have to add. The loop ends the moment a stage parks in a decision
+// phase, or the cursor runs off the end.
 //
 // Finishing marks the node resolved — **node-level, once**, exactly like every other
 // encounter (ADR-0014). This is where Port repeatability dies: a Port is walked and
@@ -189,18 +192,20 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		return nil
 
 	case run.Stage_Trade:
-		// A Trade is not a decision yet: it applies immediately and permanently on
-		// arrival ("no decline"), so it resolves in place and the walk carries straight
-		// on to the next stage. ADR-0014 gives it accept-completes / reject-halts, which
-		// lands with the Trade roster (#136) — a Trade will then park in a decision phase
-		// like any other stage, and this arm returns nil instead. Nothing else moves.
+		// The bargain and the site it was baked from are staged here because the answer
+		// arrives a tick later, and run_apply_trade needs the site to snapshot the node's
+		// own stakes. can_accept is measured now, against the ship as it stands.
 		node := sim.run_map.nodes[sim.current]
 		zone, has_zone := node.zone.?
 		assert(has_zone, "an Encounter node must have a zone")
-		snap := run.run_apply_stat_trade(&sim.player, s, run.Scaling_Site{zone = zone, depth = node.depth}, sim.steps)
-		sim_emit_encounter_resolved(sim, snap, events)
-		append(events, Event(Event_Ship_Updated{ship = sim.player}))
-		return .Completed
+		sim.active_trade = s
+		sim.active_trade_site = run.Scaling_Site{zone = zone, depth = node.depth}
+		append(events, Event(Event_Trade_Presented{
+			trade      = sim.active_trade,
+			can_accept = run.run_trade_can_accept(&sim.player, sim.active_trade),
+		}))
+		sim.phase = .Awaiting_Trade_Choice
+		return nil
 
 	case run.Stage_Reward:
 		// Unreachable until Reward has a payload (#132's answer) and a primitive to

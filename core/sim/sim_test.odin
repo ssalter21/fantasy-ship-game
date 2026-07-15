@@ -12,6 +12,16 @@ import "core:testing"
 // travel options the Sim emits on Event_Travel_Options (issue #83), steering by
 // a battle policy. The chosen seeds are fixed so each scenario reproduces
 // exactly.
+//
+// **A seed names a map, not a scenario.** run_map_create bakes each encounter's
+// content off the same generator it then builds the graph's edges with, so any
+// change to what a stage draws at generation shifts every later draw and reshapes
+// every seed's map. The seeds below were re-picked when the Trade primitive
+// started drawing an axis from its roster (issue #136) — one extra draw per Trade
+// node — and a scenario whose premise stops holding ("this route meets no
+// battles") is re-pointed at a seed where it holds again, not evidence of a
+// regression. Assert on the premise, never on a number a particular map happened
+// to produce.
 
 // first_stage_is reports whether e's stage under the cursor is primitive T — how
 // the scenarios below ask "what does this node do", now that a node holds an
@@ -49,6 +59,48 @@ seed_with_layer_one_stage :: proc($T: typeid) -> (seed: u64, id: Node_ID, ok: bo
 				continue
 			}
 			if enc, has_encounter := p.encounter.?; has_encounter && first_stage_is(enc, T) {
+				return candidate, p.id, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// seed_with_acceptable_layer_one_trade is seed_with_layer_one_stage narrowed to a
+// Trade the *starting ship can actually pay for*, for the scenarios that accept one.
+//
+// Affordability has to be hunted for rather than assumed, because a Trade draws its
+// axis from the roster (issue #136) and two of the six cost Durability — which the
+// starting ship's 2 cannot cover at any zone's swing. An accept is all-or-nothing and
+// sim_process_trade_choice asserts on a bargain the ship cannot pay, so a scenario
+// that hunts only for "a Trade" and then accepts it is one unlucky seed away from
+// failing on a premise it never meant to assert. Asking for the trade it needs is
+// also the honest reading: these scenarios are about the accept path, not about
+// which axes the roster happens to price out of reach (that's the tuning signal
+// #136 left visible on purpose).
+seed_with_acceptable_layer_one_trade :: proc() -> (seed: u64, id: Node_ID, ok: bool) {
+	for candidate in u64(0) ..< 64 {
+		m := run.run_map_create(candidate)
+		defer run.run_map_destroy(&m)
+
+		for p in m.nodes {
+			if p.layer != 1 || p.kind != .Encounter {
+				continue
+			}
+			enc, has_encounter := p.encounter.?
+			if !has_encounter {
+				continue
+			}
+			stage, has_stage := run.run_encounter_current(enc)
+			if !has_stage {
+				continue
+			}
+			trade, is_trade := stage.(run.Stage_Trade)
+			if !is_trade {
+				continue
+			}
+			starting := ship.ship_starting_ship()
+			if run.run_trade_can_accept(&starting, trade) {
 				return candidate, p.id, true
 			}
 		}
@@ -105,6 +157,13 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 		// selection takes nothing, so the scenarios steer purely by travel/battle
 		// policy without an item-and-refit detour muddying their assertions.
 		return Command(Command_Choose_Option{selection = nil})
+	case .Awaiting_Trade_Choice:
+		// Reject every Trade (issue #136), for the same reason the pilot declines
+		// option lists: accepting would swap a stat drawn from the axis roster, so the
+		// ship a scenario ends with would depend on which bargains its route happened
+		// to draw rather than on its travel/battle policy. Accepting is exercised
+		// directly by the trade tests below.
+		return Command(Command_Trade_Choice{accept = false})
 	case .Awaiting_Refit:
 		// The Auto_Pilot declines every option list, so it never opens a refit; the
 		// Phase switch is exhaustive, so finish immediately rather than leaving the
@@ -241,7 +300,7 @@ a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
 	// The graph forces a route through some node per layer, but dodging battles
 	// at every emitted option gets the ship to Goal unscathed — the redesign's
 	// "travel to Goal wins" over a real graph.
-	res := drive_policy(3, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
+	res := drive_policy(4, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect_value(t, res.hp, 20) // untouched: no battle fought
 }
@@ -251,7 +310,7 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	// Fight the first (shallow, Coastal) battle the pilot reaches and boost
 	// Offensive, then dodge the rest: the fresh ship wins it and sails on to
 	// Goal, taking some damage along the way.
-	res := drive_policy(23, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
+	res := drive_policy(11, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
 	testing.expect(t, res.hp < 20) // a real fight cost some HP
@@ -273,29 +332,29 @@ skipping_item_offers_on_the_route_leaves_the_loadout_unchanged :: proc(t: ^testi
 	// each (a nil Command_Choose_Option), so no Refit opens and the starting Gun Deck
 	// still sits in its Large exposed slot at Goal — the retired auto-replace path
 	// would have swapped it.
-	res := drive_policy(3, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
+	res := drive_policy(4, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 }
 
-@(test)
-stat_trades_on_the_route_permanently_change_stats :: proc(t: ^testing.T) {
-	// The battle-dodging route passes through Stat Trades, each applied on arrival
-	// with no decision: Durability rises above its starting 2, Speed falls below
-	// its starting 4.
-	res := drive_policy(3, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
-	testing.expect_value(t, res.status, run.Run_Status.Won)
-	testing.expect(t, res.durability > 2)
-	testing.expect(t, res.speed < 4)
+// --- Trade: accept / reject (issue #136) ------------------------------------
+
+// presented_trade returns the bargain from the last Event_Trade_Presented in
+// events — what the Sim put on screen for the captain to answer.
+presented_trade :: proc(events: []Event) -> (trade: run.Stage_Trade, ok: bool) {
+	for event in events {
+		if e, is_trade := event.(Event_Trade_Presented); is_trade {
+			trade, ok = e.trade, true
+		}
+	}
+	return
 }
 
+// Arriving at a Trade no longer applies it (issue #136): the Sim presents the
+// bargain and waits. This is the change from "applies immediately and permanently
+// on arrival, matching no-decline".
 @(test)
-revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
-	// Retrace is a legal, free routing tool driven straight off the emitted
-	// options: arrive at a Stat Trade, retrace to the already-visited Start (the
-	// Sim offers it as a backward option), then step forward onto that Stat Trade
-	// again. The second arrival must be a no-op, so durability is unchanged by
-	// the revisit.
-	seed, trade, found := seed_with_layer_one_stage(run.Stage_Trade)
+arriving_at_a_trade_presents_the_bargain_instead_of_applying_it :: proc(t: ^testing.T) {
+	seed, trade_node, found := seed_with_layer_one_stage(run.Stage_Trade)
 	testing.expect(t, found)
 
 	sim := sim_create(seed)
@@ -303,26 +362,146 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	// A layer-1 Stat Trade is a Start neighbor, so it appears in the first
-	// emitted option set, and retrace to Start (id 0) and back to it is legal.
-	opts := tick_travel_options(&sim, &events) // run start
-	testing.expect(t, node_id_in(opts, trade))
+	opts := tick_travel_options(&sim, &events)
+	testing.expect(t, node_id_in(opts, trade_node))
 
-	submit_travel(&sim, trade)
-	opts = tick_travel_options(&sim, &events) // arrive at the trade; it fires once
-	dur_after_trade := sim.player.durability
-	testing.expect(t, dur_after_trade > 2) // the trade did fire
+	before := sim.player
+	submit_travel(&sim, trade_node)
+	clear(&events)
+	sim_tick(&sim, &events)
+
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Trade_Choice)
+	trade, presented := presented_trade(events[:])
+	testing.expect(t, presented)
+	testing.expect(t, len(trade.name) > 0)
+
+	// Nothing is paid or granted until the captain answers.
+	testing.expect_value(t, sim.player.durability, before.durability)
+	testing.expect_value(t, sim.player.speed, before.speed)
+	testing.expect_value(t, sim.player.hp, before.hp)
+	testing.expect_value(t, sim.player.starting_treasure, before.starting_treasure)
+}
+
+// Accepting pays the cost. The gain side's arithmetic (caps, floors, ordering)
+// is core/run's business and is covered there; what this asserts is the wiring —
+// that an accept reaches run_apply_trade at all. The cost stat is the roster-
+// independent half: every axis's cost is paid in full, never capped.
+@(test)
+accepting_a_trade_pays_its_cost :: proc(t: ^testing.T) {
+	// An acceptable trade specifically: this asserts the accept path, so a bargain
+	// the ship cannot pay for would fail on the wrong premise.
+	seed, trade_node, found := seed_with_acceptable_layer_one_trade()
+	testing.expect(t, found)
+
+	sim := sim_create(seed)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	opts := tick_travel_options(&sim, &events)
+	testing.expect(t, node_id_in(opts, trade_node))
+
+	submit_travel(&sim, trade_node)
+	clear(&events)
+	sim_tick(&sim, &events)
+	trade, presented := presented_trade(events[:])
+	testing.expect(t, presented)
+
+	cost_before := run.run_trade_stat_reading(&sim.player, trade.cost.stat)
+	testing.expect(t, run.run_trade_can_accept(&sim.player, trade))
+
+	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = true}))
+	tick_travel_options(&sim, &events)
+
+	testing.expect_value(t, run.run_trade_stat_reading(&sim.player, trade.cost.stat), cost_before - trade.cost.amount)
+	testing.expect(t, sim.resolved[trade_node])
+}
+
+// Rejecting halts the encounter: nothing is paid, nothing is granted, and the
+// node still resolves — a rejected bargain is not offered again on a retrace.
+@(test)
+rejecting_a_trade_changes_nothing_and_still_resolves_the_node :: proc(t: ^testing.T) {
+	seed, trade_node, found := seed_with_layer_one_stage(run.Stage_Trade)
+	testing.expect(t, found)
+
+	sim := sim_create(seed)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	opts := tick_travel_options(&sim, &events)
+	testing.expect(t, node_id_in(opts, trade_node))
+
+	submit_travel(&sim, trade_node)
+	sim_tick(&sim, &events)
+	before := sim.player
+
+	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = false}))
+	tick_travel_options(&sim, &events)
+
+	testing.expect_value(t, sim.player.hp, before.hp)
+	testing.expect_value(t, sim.player.max_hp, before.max_hp)
+	testing.expect_value(t, sim.player.durability, before.durability)
+	testing.expect_value(t, sim.player.speed, before.speed)
+	testing.expect_value(t, sim.player.starting_treasure, before.starting_treasure)
+	testing.expect(t, sim.resolved[trade_node])
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+}
+
+@(test)
+revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
+	// Retrace is a legal, free routing tool driven straight off the emitted
+	// options: arrive at a Trade and accept it, retrace to the already-visited
+	// Start (the Sim offers it as a backward option), then step forward onto that
+	// Trade again. The second arrival must be a no-op — no bargain presented, no
+	// stat touched.
+	//
+	// The seed is hunted rather than named (#134): which recipe a seed deals a given
+	// node is a generation detail, so a scenario that needs a Trade beside Start asks
+	// for one instead of pinning a seed that happened to have one. It must be an
+	// acceptable one, since the retrace is only proven a no-op by a trade that fired.
+	seed, trade_node, found := seed_with_acceptable_layer_one_trade()
+	testing.expect(t, found)
+
+	sim := sim_create(seed)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	// A layer-1 Trade is a Start neighbour, so it appears in the first emitted
+	// option set, and retrace to Start (id 0) and back to it is legal.
+	opts := tick_travel_options(&sim, &events) // run start
+	testing.expect(t, node_id_in(opts, trade_node))
+
+	submit_travel(&sim, trade_node)
+	clear(&events)
+	sim_tick(&sim, &events) // arrive at the trade; it presents once
+	trade, presented := presented_trade(events[:])
+	testing.expect(t, presented)
+
+	cost_before := run.run_trade_stat_reading(&sim.player, trade.cost.stat)
+	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = true}))
+	opts = tick_travel_options(&sim, &events)
+
+	ship_after_trade := sim.player
+	testing.expect(t, run.run_trade_stat_reading(&sim.player, trade.cost.stat) < cost_before) // the trade did fire
 	testing.expect(t, node_id_in(opts, 0)) // Start offered as a backward retrace
 
 	submit_travel(&sim, 0)
 	opts = tick_travel_options(&sim, &events) // retrace to Start
-	testing.expect(t, node_id_in(opts, trade)) // the trade offered again, forward
+	testing.expect(t, node_id_in(opts, trade_node)) // the trade offered again, forward
 
-	submit_travel(&sim, trade)
+	submit_travel(&sim, trade_node)
+	clear(&events)
 	tick_travel_options(&sim, &events) // step onto the resolved trade again
 
-	// Re-arriving over the resolved trade changed nothing.
-	testing.expect_value(t, sim.player.durability, dur_after_trade)
+	// Re-arriving over the resolved trade presented nothing and changed nothing.
+	_, presented_again := presented_trade(events[:])
+	testing.expect(t, !presented_again)
+	testing.expect_value(t, sim.player.durability, ship_after_trade.durability)
+	testing.expect_value(t, sim.player.speed, ship_after_trade.speed)
+	testing.expect_value(t, sim.player.hp, ship_after_trade.hp)
+	testing.expect_value(t, sim.player.starting_treasure, ship_after_trade.starting_treasure)
 }
 
 // tick_travel_options clears events, ticks the Sim once, and returns the travel
@@ -889,12 +1068,29 @@ an_offers_options_are_presented_free :: proc(t: ^testing.T) {
 // on whether the walk reached a stage. It stands in for the Reward that #133 will
 // build; "flee a [Fight, Reward] and get no loot" is the same property.
 
-// trade_stage bakes a Trade with a known swing, so a test reads "did the walk reach
-// this stage" straight off the ship's durability.
+// trade_stage bakes a Trade with a known gain and a **free** cost, so a test reads
+// "did the walk reach this stage" straight off the ship's durability without the
+// bargain's own affordability rule (run_trade_can_accept, issue #136) entering into
+// it: a zero-amount cost is always payable, so accepting is always a legal answer and
+// the probe measures the walk and nothing else.
 TRADE_GAIN :: 3
 
 trade_stage :: proc() -> run.Stage_Trade {
-	return run.Stage_Trade{gain_durability = TRADE_GAIN, cost_speed = 0}
+	return run.Stage_Trade {
+		name = "Test Bargain",
+		gain = run.Trade_Term{stat = .Durability, amount = TRADE_GAIN},
+		cost = run.Trade_Term{stat = .Speed, amount = 0},
+	}
+}
+
+// accept_trade answers the Trade the walk is parked on, taking the bargain (issue
+// #136 gave Trade its accept/reject decision). It asserts the phase first, so a test
+// whose walk never reached the Trade fails here — naming the stage it didn't reach —
+// rather than further down on a durability that silently never moved.
+accept_trade :: proc(t: ^testing.T, sim: ^Sim, events: ^[dynamic]Event) {
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Trade_Choice)
+	sim_submit_captain_choice(sim, Command(Command_Trade_Choice{accept = true}))
+	refit_tick(sim, events)
 }
 
 // fight_stage bakes a Fight against a real PvE opponent the player can outrun and
@@ -931,10 +1127,10 @@ fight_round :: proc(sim: ^Sim, events: ^[dynamic]Event) -> bool {
 a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: ^testing.T) {
 	// The headline of the walk: an encounter is an ordered stage list, and completing a
 	// stage advances the cursor to the next one until the list runs out — at which
-	// point the *node* resolves, once. [Trade, Offer, Trade] exercises all of it: two
-	// stages that resolve outright with nothing to ask (so the walk must carry on
-	// within a single tick), separated by one that stops for the captain and resumes
-	// through a Refit.
+	// point the *node* resolves, once. [Trade, Offer, Trade] exercises all of it: three
+	// stages, each stopping for a different decision, so the cursor must carry the walk
+	// across two resumptions — a Trade's accept and an Offer's pick-then-Refit — and
+	// only then run off the end.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
@@ -943,13 +1139,17 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	before := sim.player.durability
 	install_encounter(&sim, 1, trade_stage(), offer_stage(), trade_stage())
 
-	// Arriving fires stage 0 (the Trade applies on arrival) and the walk carries
-	// straight on to stage 1, which stops for a decision.
+	// Arriving enters stage 0, which parks on its bargain.
 	arrive_at(&sim, 1, &events)
+	testing.expect(t, !sim.resolved[1]) // stages remain: the encounter is not over
+
+	// Accepting completes the Trade, and the walk carries straight on to stage 1,
+	// which stops for a decision of its own.
+	accept_trade(t, &sim, &events)
 	testing.expect_value(t, sim.player.durability, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
 	testing.expect(t, has_event(events[:], Event_Options_Presented))
-	testing.expect(t, !sim.resolved[1]) // stages remain: the encounter is not over
+	testing.expect(t, !sim.resolved[1])
 
 	// Picking completes the Offer and opens a Refit; the walk resumes at its finish.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -958,13 +1158,16 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	testing.expect_value(t, sim.player.durability, before + TRADE_GAIN) // stage 2 not reached yet
 
 	submit_refit(&sim, Refit_Finish{})
-	ev := refit_tick(&sim, &events)
+	refit_tick(&sim, &events)
 
-	// The walk reached the last stage, applied it, ran off the end, and resolved.
+	// The walk reached the last stage, which parks like the first did.
+	accept_trade(t, &sim, &events)
+
+	// It ran off the end and resolved.
 	testing.expect_value(t, sim.player.durability, before + 2 * TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
-	testing.expect(t, has_event(ev, Event_Travel_Options))
+	testing.expect(t, has_event(events[:], Event_Travel_Options))
 }
 
 @(test)
@@ -1011,9 +1214,40 @@ picking_from_an_offer_completes_it_and_the_walk_reaches_the_next_stage :: proc(t
 	submit_refit(&sim, Refit_Finish{})
 	refit_tick(&sim, &events)
 
+	// The walk reached the Trade — the thing under test — so answering it is what
+	// turns "reached" into an observable durability change.
+	accept_trade(t, &sim, &events)
+
 	testing.expect_value(t, sim.player.durability, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
+}
+
+@(test)
+rejecting_a_trade_halts_before_a_later_stage :: proc(t: ^testing.T) {
+	// Trade's halt condition (ADR-0014): rejecting halts, so nothing downstream of the
+	// bargain is reached. #136 gave Trade its accept/reject decision and named this
+	// outcome pair, but could not yet enforce it — it predated the cursor, so it marked
+	// the node resolved itself and every recipe was one stage long, which made a halt
+	// and a completion indistinguishable. [Trade, Offer] is what makes the difference
+	// observable, and it is the property #136's own note pointed at: a rejected
+	// [Trade, Reward] must not pay out the Reward.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	install_encounter(&sim, 1, trade_stage(), offer_stage())
+	arrive_at(&sim, 1, &events)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Trade_Choice)
+
+	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = false}))
+	ev := refit_tick(&sim, &events)
+
+	// The halt stopped the walk short: the Offer behind the Trade was never presented.
+	testing.expect(t, !has_event(ev, Event_Options_Presented))
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, sim.resolved[1]) // halted encounters resolve too: the walk is over either way
 }
 
 @(test)
@@ -1073,6 +1307,10 @@ winning_a_fight_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^tes
 	}
 
 	testing.expect(t, !(.A in sim.battle.escaped)) // won it rather than fled it
+
+	// Victory advanced the cursor onto the Trade; accepting is what makes reaching it
+	// visible on the ship.
+	accept_trade(t, &sim, &events)
 	testing.expect_value(t, sim.player.durability, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
@@ -1619,3 +1857,4 @@ the_auto_pilot_declines_every_option_list_without_refitting :: proc(t: ^testing.
 	_, is_finish := cmd.command.(Refit_Finish)
 	testing.expect(t, is_finish) // no loadout edit
 }
+

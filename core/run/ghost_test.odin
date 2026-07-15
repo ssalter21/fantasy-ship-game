@@ -81,19 +81,19 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 }
 
 @(test)
-applying_a_stat_trade_returns_a_post_trade_snapshot :: proc(t: ^testing.T) {
+applying_a_trade_returns_a_post_trade_snapshot :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 5}
-	trade := Stage_Trade{gain_durability = 3, cost_speed = 1}
+	trade := trade_of(.Durability, 3, .Speed, 1)
 	site := Scaling_Site{zone = .Open_Sea, depth = 1}
 
-	snapshot := run_apply_stat_trade(&s, trade, site, 4)
+	snapshot := run_apply_trade(&s, trade, site, 4)
 
 	testing.expect_value(t, snapshot.ship.durability, 5) // post-trade, not pre-trade
 	testing.expect_value(t, snapshot.ship.hp, 20)
 	testing.expect_value(t, snapshot.progress.steps, 4)
-	// The node's own stakes, not the trade's gain_durability wearing a
-	// difficulty's name (ADR-0014): a Trade's swing size is one reading of this
-	// site, and the snapshot records the site it was read from.
+	// The node's own stakes, not one side's magnitude wearing a difficulty's name
+	// (ADR-0014): a Trade's swing size is one reading of this site, and the
+	// snapshot records the site it was read from.
 	testing.expect_value(t, snapshot.progress.site, site)
 }
 

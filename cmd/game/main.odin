@@ -63,6 +63,14 @@ Game_State :: struct {
 	// count). Affordability is read live off state.player.starting_treasure (kept
 	// current by Event_Ship_Updated), so no separate purse field is tracked here.
 	stage_options:    [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option),
+	// active_trade is the bargain the current Trade stage is offering (issue #136),
+	// copied from Event_Trade_Presented; trade_menu_loop renders its two sides and
+	// offers accept-or-reject. trade_can_accept is whether the ship can pay the
+	// cost — taken from the same event rather than re-derived here, since it turns
+	// on the ship's *effective* stats, which state.player's base fields don't give
+	// (the Sim owns that rule, exactly as it owns option affordability).
+	active_trade:     run.Stage_Trade,
+	trade_can_accept: bool,
 	// refit_incoming is the item an open Refit is placing (issue #96), tracked
 	// from Event_Refit_Started and cleared once installed or the refit finishes,
 	// so refit_menu_loop knows whether it is placing an item or just rearranging.
@@ -90,6 +98,8 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	switch awaiting {
 	case .Awaiting_Option_Choice:
 		return option_menu_loop(state)
+	case .Awaiting_Trade_Choice:
+		return trade_menu_loop(state)
 	case .Awaiting_Battle_Command:
 		return battle_menu_loop(state)
 	case .Awaiting_Travel_Choice:
@@ -153,6 +163,13 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		// (refilled, after a buy). The purse it renders comes from
 		// state.player.starting_treasure (kept current by Event_Ship_Updated).
 		state.stage_options = e.options
+
+	case sim.Event_Trade_Presented:
+		// A Trade stage was entered (issue #136): remember the bargain and whether the
+		// ship can pay for it, so trade_menu_loop can render both sides and grey out an
+		// accept the ship can't afford.
+		state.active_trade = e.trade
+		state.trade_can_accept = e.can_accept
 
 	case sim.Event_Purchase_Rejected:
 		play_beat(state, fmt.tprintf("You can't afford %s.", e.option.fitting.name))
