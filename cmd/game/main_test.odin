@@ -335,7 +335,7 @@ fitting_tags_label_lists_every_family :: proc(t: ^testing.T) {
 	testing.expect_value(t, fitting_tags_label(multi.tags), "Crew, Weapon")
 
 	none := ship.Fitting{}
-	testing.expect_value(t, fitting_tags_label(none.tags), "—")
+	testing.expect_value(t, fitting_tags_label(none.tags), "none")
 }
 
 @(test)

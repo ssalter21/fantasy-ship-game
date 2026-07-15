@@ -354,7 +354,7 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	header := "Choose an item to take, or skip."
 	decline_label := "Skip (take nothing)"
 	if priced {
-		header = fmt.tprintf("Shop — treasure: %d. Buy an item, or leave.", state.player.starting_treasure)
+		header = fmt.tprintf("Shop - treasure: %d. Buy an item, or leave.", state.player.starting_treasure)
 		decline_label = "Leave (buy nothing)"
 	}
 
@@ -419,7 +419,7 @@ draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, purse: int)
 
 	title := option.fitting.name
 	if priced {
-		title = fmt.tprintf("%s  —  %d treasure", option.fitting.name, cost)
+		title = fmt.tprintf("%s  -  %d treasure", option.fitting.name, cost)
 	}
 	if affordable {
 		draw_labeled_box(box, title, spec, intent)
@@ -497,7 +497,7 @@ trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
-		draw_scene_contents(state, fmt.tprintf("%s — a permanent trade. Accept, or sail on.", trade.name))
+		draw_scene_contents(state, fmt.tprintf("%s - a permanent trade. Accept, or sail on.", trade.name))
 		draw_trade_accept_box(boxes[accept_index], trade, state.trade_can_accept)
 		draw_labeled_box(boxes[reject_index], "Reject (sail on)", "Nothing changes.", "")
 		rl.EndDrawing()
