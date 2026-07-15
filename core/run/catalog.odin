@@ -49,19 +49,17 @@ package run
 // its bucket restated: a Port is *guaranteed* and therefore general, a merchant is
 // a *windfall* and therefore narrow. only_the_port_bucket_opens_on_a_shop pins it.
 //
-// **This does not make merchants hidden, and ADR-0014 is contradictory about
-// whether they should be** — a contradiction nothing could observe until there was
-// a merchant to look at (#138). run_encounter_reveals asks whether an encounter
-// holds a revealing stage *anywhere*, so every recipe below carrying a Shop is
-// visible before arrival; it is merely labelled by its first stage, so a Press Gang
-// draws a "Battle" marker and a Smuggler's Cove a "Trade" one. Since a plain Sea
-// Battle is hidden, a *visible* Battle marker is an unintended tell that a market
-// waits behind the fight. The ADR says both "visible iff it contains a revealing
-// stage" (which is the code) and "a merchant vessel at sea is a **hidden**
-// encounter that happens to carry a Shop stage" (which is the intent, and which
-// Stock_Pool's narrow-holds argument leans on: nothing is planned around a
-// windfall). Authoring cannot settle that — it is a change to the Sim's hiding
-// contract either way — so it is graduated to its own ticket, not decided here.
+// This rule now does a **second** job, which is why it is load-bearing rather than
+// cosmetic: an encounter reveals iff its first stage reveals (ADR-0016), so
+// "opens on a Shop" ≡ "reveals" ≡ "is a Port", and the same convention that keeps
+// a counterfeit Port off the map is also what makes every merchant below **hidden**.
+// A Port's three facts — visible, guaranteed, general-stocked — collapse to one
+// cause. The original justification above is untouched; this is added to it.
+//
+// It is also why the rule cannot be traded away for a better marker. A `[Shop]`
+// merchant would reveal itself, so it would be something a captain could *route*
+// to — and a merchant is a windfall, not a destination (#154). No amount of naming
+// fixes that, because the objection is no longer about what the marker says.
 //
 // # Sizing
 //
@@ -69,13 +67,19 @@ package run
 // zone's ~15 nodes, so 5-6 means a zone rarely repeats itself while staying small
 // enough to hand-tune.
 //
-// **The 1-stage bucket lands at four, and cannot hold more.** With one stage there
-// is exactly one shape per primitive, so the bucket is capped at five by the
-// alphabet — and the fifth, `[Shop]`, is the Port's, by the rule above. Four is
-// therefore the whole of the 1-stage bucket, not a shortfall against the ~5-6
-// target: a fifth entry could only be a duplicate shape, which is one encounter
-// twice (see every_bucket_authors_one_recipe_per_shape). The 2- and 3-stage
-// buckets, where the shape space opens up, carry six and five.
+// **The 1-stage bucket lands at four, and cannot hold more — permanently.** With
+// one stage there is exactly one shape per primitive, so the bucket is capped at
+// five by the alphabet — and the fifth, `[Shop]`, is the Port's, by the rule above.
+// Four is therefore the whole of the 1-stage bucket, not a shortfall against the
+// ~5-6 target: a fifth entry could only be a duplicate shape, which is one
+// encounter twice (see every_bucket_authors_one_recipe_per_shape).
+//
+// #138 left the fifth shape reserved rather than closed, on the theory that the
+// blocker was an ambiguous marker — a UI accident #139 might fix by naming revealed
+// encounters. **ADR-0016 closed it for good**, and upgraded the reason from a UI
+// accident to a model fact: a `[Shop]` merchant opens on a Shop, so it reveals, so
+// it is plannable, so it is forbidden *regardless of what its marker says*. The 2-
+// and 3-stage buckets, where the shape space opens up, carry six and five.
 
 // --- The 1-stage bucket: Coastal.
 //
@@ -167,9 +171,8 @@ PRIVATEERS_TOLL_STAGES := [?]Stage_Spec{{kind = .Trade}, {kind = .Reward}}
 // ends on a trader's parting gift, and one buys its way past a picket.
 
 // Fight your way into the trading post, then loot what the fight left — the
-// canonical three-stage composition (#138). Reveals itself on the map, because it
-// holds a Shop; see the note on run_encounter_reveals in view.odin about what that
-// currently *shows*.
+// canonical three-stage composition (#138). Hidden on the map like every other
+// merchant: it carries a Shop but does not open on one (ADR-0016).
 @(rodata)
 CONTESTED_ANCHORAGE_STAGES := [?]Stage_Spec {
 	{kind = .Fight},

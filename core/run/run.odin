@@ -345,8 +345,8 @@ run_reward_treasure :: proc(site: Scaling_Site) -> int {
 //
 // `.Port` is **gone**, and its removal is the last weld between a Shop and a node
 // kind. It shrank in three steps: ADR-0014 took its visibility (an encounter is
-// visible because it holds a revealing stage — run_encounter_reveals — not because
-// its kind is exempt), #134 took its content (a Port is a node dealt the [Shop]
+// visible because it opens with a revealing stage — run_encounter_reveals — not
+// because its kind is exempt), #134 took its content (a Port is a node dealt the [Shop]
 // recipe, stocked by the same path as every other node), and #131 took the last
 // thing that read it (the Sim's per-Port shelf state, which had keyed arrival off
 // the kind). That left a value marking only *how a node was placed*, which nothing

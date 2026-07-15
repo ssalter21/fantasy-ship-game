@@ -182,10 +182,11 @@ Stage_Trade :: struct {
 // be redesigned later without dragging Shop along.
 //
 // Shop is the one **revealing** primitive (run_stage_kind_reveals): an encounter
-// holding one is visible on the map before arrival. That is what makes a Port just
-// the [Shop] recipe and a merchant vessel at sea an encounter that happens to carry
-// a Shop stage — same primitive, placed differently, and stocked differently because
-// the recipe names its pool (Stage_Spec.stock, issue #137).
+// that *opens* with one is visible on the map before arrival (ADR-0016). That is
+// what makes a Port just the [Shop] recipe, and a merchant vessel at sea — which
+// puts a stage in front of its Shop — a hidden encounter that happens to carry one:
+// same primitive, placed differently, and stocked differently because the recipe
+// names its pool (Stage_Spec.stock, issue #137).
 //
 // `count` is how many cards this shop's pool actually stocked and `stock` is
 // fixed-size to SHOP_STOCK_MAX — the same count-plus-inline-array shape as Encounter,
@@ -401,15 +402,19 @@ run_stage_kind_reveals :: proc(kind: Stage_Kind) -> bool {
 }
 
 // run_encounter_reveals reports whether an encounter shows itself on the map
-// before arrival: true iff it contains a revealing stage. This is what replaces
-// asking a node whether it is a Port — visibility is a question asked of the
-// stage list, never a node fact, so a Port is just the [Shop] recipe and a
+// before arrival: true iff its **first** stage reveals (ADR-0016). This is what
+// replaces asking a node whether it is a Port — visibility is a question asked of
+// the stage list, never a node fact, so a Port is just the [Shop] recipe and a
 // merchant vessel at sea is a hidden encounter carrying a Shop stage.
+//
+// First stage, not any stage. A revealed node is one the captain can **route to**,
+// and what you would be routing to is what the encounter opens with; a Shop behind
+// a fight is a windfall you meet, not a market you plan for (#154). Scanning the
+// whole list instead revealed every merchant carrying a Shop anywhere, which made
+// a *visible* Battle marker a tell that a market waited behind the fight.
 run_encounter_reveals :: proc(e: Encounter) -> bool {
-	for i in 0 ..< e.count {
-		if run_stage_kind_reveals(run_stage_kind(e.stages[i])) {
-			return true
-		}
+	if e.count == 0 {
+		return false
 	}
-	return false
+	return run_stage_kind_reveals(run_stage_kind(e.stages[0]))
 }

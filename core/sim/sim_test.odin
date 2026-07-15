@@ -620,7 +620,8 @@ the_run_start_broadcast_withholds_hidden_stages_and_reveals_on_arrival :: proc(t
 		}
 		if run.run_encounter_reveals(private) {
 			// A revealing encounter shows itself before arrival: this is a Port, and it
-			// is visible because it holds a Shop stage, not because .Port is exempt.
+			// is visible because it **opens** on a Shop stage (ADR-0016), not because
+			// .Port is exempt. A merchant carries a Shop too and stays masked below.
 			testing.expect(t, public_has)
 			revealing_seen = true
 		} else {
@@ -1529,10 +1530,11 @@ arriving_at_a_generated_port_opens_its_baked_shop :: proc(t: ^testing.T) {
 	// this test isn't about. arrive_at makes the same sim_walk_encounter call
 	// sim_process_travel's arrival makes.
 	//
-	// The node is found by **what it holds** — there is no kind left to find it by,
-	// since #137 retired Node_Kind.Port. That is the same question the walk, the Sim's
-	// mask and the map view all ask, so this test now reaches its port the way the
-	// production code does.
+	// The node is found by **what it opens with** — there is no kind left to find it
+	// by, since #137 retired Node_Kind.Port. That is the same question the walk, the
+	// Sim's mask and the map view all ask, so this test reaches its port the way the
+	// production code does. Since ADR-0016 the question also cannot pick up a merchant
+	// by mistake: revealing ⟺ opening on a Shop ⟺ being a Port.
 	port := Node_ID(-1)
 	for p in sim.run_map.nodes {
 		encounter, has_encounter := p.encounter.?

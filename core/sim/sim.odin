@@ -544,13 +544,19 @@ sim_create :: proc(seed: u64) -> Sim {
 // sim_create time).
 //
 // What gets withheld is asked of the **stage list and nothing else**
-// (run.run_encounter_reveals, ADR-0014): an encounter holding a revealing stage
-// shows itself on the map before arrival, so it passes through unmasked, and a node
-// with no encounter has nothing to withhold. The node *kind* is not consulted at
-// all — that is the point. It is what lets a Port be an ordinary node that happens
+// (run.run_encounter_reveals, ADR-0014/ADR-0016): an encounter whose **first** stage
+// reveals shows itself on the map before arrival, so it passes through unmasked, and
+// a node with no encounter has nothing to withhold. The node *kind* is not consulted
+// at all — that is the point. It is what lets a Port be an ordinary node that happens
 // to carry a [Shop] recipe (visible because Shop reveals, not because .Port is
-// exempt), and what makes a merchant vessel at sea — a hidden encounter carrying a
-// Shop stage — visible on the same rule, with no branch of its own.
+// exempt), and what keeps a merchant vessel at sea — which carries a Shop but puts a
+// stage in front of it — masked on the same rule, with no branch of its own.
+//
+// Since only the Port bucket opens on a Shop (catalog.odin), what survives this mask
+// today is exactly the six Ports plus Start and Goal. That is a *derived* constant,
+// not a stored one: author one [Shop, Fight] and it stops being true, which is why
+// the question is still asked of the stages rather than answered from the kind. See
+// ADR-0016 — that distinction is thinner than it reads, and deliberately kept.
 //
 // Withholding stays a guaranteed data property of the emitted event, not a
 // presentation courtesy (ADR-0009): a masked node's stages are absent from the

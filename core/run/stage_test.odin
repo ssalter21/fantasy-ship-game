@@ -100,25 +100,28 @@ only_a_shop_stage_reveals_its_encounter :: proc(t: ^testing.T) {
 }
 
 @(test)
-an_encounter_reveals_iff_it_contains_a_shop_stage :: proc(t: ^testing.T) {
+an_encounter_reveals_iff_its_first_stage_reveals :: proc(t: ^testing.T) {
 	hidden := Encounter{stages = {0 = Stage_Fight{}, 1 = Stage_Reward{}}, count = 2}
 	testing.expect(t, !run_encounter_reveals(hidden))
 
-	// A Port: the one-stage [Shop] recipe.
+	// A Port: the one-stage [Shop] recipe, and the only shape that opens on a Shop
+	// (only_the_port_bucket_opens_on_a_shop).
 	port := Encounter{stages = {0 = Stage_Shop{}}, count = 1}
 	testing.expect(t, run_encounter_reveals(port))
 
-	// A merchant vessel: a Shop that isn't first, and isn't a Port. Visibility is
-	// asked of the whole stage list, so this reveals too.
+	// A merchant vessel: a Shop behind a stage. Hidden — a market you can plan a
+	// route to is what a Port is for; a merchant is a windfall (ADR-0016). These two
+	// assertions are the whole decision.
 	merchant := Encounter{stages = {0 = Stage_Fight{}, 1 = Stage_Shop{}}, count = 2}
-	testing.expect(t, run_encounter_reveals(merchant))
+	testing.expect(t, !run_encounter_reveals(merchant))
 }
 
 @(test)
 a_stage_past_the_count_never_counts_toward_visibility :: proc(t: ^testing.T) {
-	// count is the authored length; a Shop sitting in an unused slot is not part
-	// of the encounter and must not reveal it.
-	e := Encounter{stages = {0 = Stage_Fight{}, 1 = Stage_Shop{}}, count = 1}
+	// count is the authored length; a Shop sitting in an unused slot is not part of
+	// the encounter and must not reveal it. Under first-stage reveal an unused slot
+	// cannot be read anyway unless the count is zero, which is the case this pins.
+	e := Encounter{stages = {0 = Stage_Shop{}}, count = 0}
 	testing.expect(t, !run_encounter_reveals(e))
 }
 
