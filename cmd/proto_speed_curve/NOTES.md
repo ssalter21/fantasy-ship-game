@@ -1,6 +1,20 @@
 # PROTOTYPE NOTES — #158, the weight→Speed curve
 
-**Throwaway.** Delete `cmd/proto_speed_curve/` once #158 is answered and the ADR lands.
+**Throwaway.** Delete `cmd/proto_speed_curve/` once the ADR lands — but **not yet**: #176
+needs it (see the verdict below).
+
+## VERDICT (decided on #158)
+
+- **The curve is `speed = base + modifiers − weight/10`.** Adopted.
+- **`base` is one constant, and a calibration** — whatever makes the starting ship read
+  `STARTING_SPEED`. The 16 below is an artefact of this file's placeholder weights.
+- **"The archetype authors its purse" is NOT settled.** It collided with #159, which
+  closed 35 seconds later and put hostile ladenness under the *site* (depth-scaled fill)
+  instead. Reconciliation is **#176**, and the straddle-vs-ladenness table this program
+  prints is that ticket's primary evidence — which is why this prototype outlives #158.
+- **#176's first job is one more column**: the player's purse grows with depth too, so
+  both sides may slow together and the straddle may survive a pure depth-scaled fill.
+  This program models the player at a *fixed* 122. That is its main known gap.
 
 Run it: `odin run cmd/proto_speed_curve`. Full output committed alongside as `OUTPUT.txt`.
 
