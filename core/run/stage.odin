@@ -165,7 +165,7 @@ Trade_Term :: struct {
 // The +Durability/-Speed axis this used to weld into its two field *names* is now
 // just one roster entry among several (Braced Bulkheads); what stays fixed is the
 // shape — every trade gains exactly one stat and costs exactly one stat. Both
-// magnitudes are stakes-scaled off the same site (run_trade_swing), so a Deep
+// magnitudes are stakes-scaled off the same zone (run_trade_swing), so a Deep
 // trade is a bigger swing on both sides. `name` is the authored entry's name,
 // carried so presentation can say which bargain this is without reverse-looking-up
 // the roster from a stat pair (two entries could share one).

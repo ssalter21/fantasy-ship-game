@@ -113,25 +113,70 @@ offer_item_quality_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 
 // The Trade primitive's reading is keyed by stat rather than by side (issue
 // #136), so it can't go through expect_rises_by_zone_and_depth's
-// proc(Scaling_Site) shape. Every stat must scale, not just the two the welded
-// axis happened to name: a roster entry can put any stat on either side, so a
-// stat whose swing ignored the site would be a trade with a stakes-blind half.
+// proc(Scaling_Site) shape — and since #146 it reads no depth at all, so half of
+// what that helper checks is not Trade's to answer for. Every stat must still
+// scale by zone: a roster entry can put any stat on either side, so a stat whose
+// swing ignored the gradient would be a trade with a stakes-blind half.
 @(test)
-trade_swing_rises_by_zone_and_depth_for_every_stat :: proc(t: ^testing.T) {
+trade_swing_rises_by_zone_for_every_stat :: proc(t: ^testing.T) {
 	for stat in Trade_Stat {
 		testing.expectf(
 			t,
-			run_trade_swing(Scaling_Site{zone = .Deep, depth = 0}, stat) >
-			run_trade_swing(Scaling_Site{zone = .Coastal, depth = 0}, stat),
+			run_trade_swing(.Deep, stat) > run_trade_swing(.Open_Sea, stat) &&
+			run_trade_swing(.Open_Sea, stat) > run_trade_swing(.Coastal, stat),
 			"%v's swing must rise with zone tier",
 			stat,
 		)
+	}
+}
+
+// The exchange rate's defining property (#146): **one rate, not twelve.** Every
+// row is `tier x rate`, so the ratio between any two stats' swings is the same in
+// every zone — sell a swing of Speed for a swing of Max HP and you get the same
+// bargain wherever you strike it. This is what the depth axis broke and what
+// dropping it repaired: with per-tier and per-depth as independent knobs, the same
+// named entry was fair at the top of a zone and a 1.75x gift at the bottom.
+//
+// Stated as a cross-multiply against Coastal to keep it in integers — a / b == c /
+// d as a*d == c*b — so it asserts the ratios rather than any particular number,
+// and no retune of a single row can satisfy it alone.
+@(test)
+the_swing_table_quotes_one_rate_in_every_zone :: proc(t: ^testing.T) {
+	for x in Trade_Stat {
+		for y in Trade_Stat {
+			for zone in Zone {
+				testing.expectf(
+					t,
+					run_trade_swing(zone, x) * run_trade_swing(.Coastal, y) ==
+					run_trade_swing(zone, y) * run_trade_swing(.Coastal, x),
+					"%v buys a different amount of %v in %v than it does at Coastal",
+					x,
+					y,
+					zone,
+				)
+			}
+		}
+	}
+}
+
+// Braced Bulkheads (+Durability for -Speed) and Stripped Spars (its exact inverse)
+// are both authored on purpose, and an inverse pair turns any inequality between
+// their two rows into a permanent verdict: quote Speed above Durability and Spars
+// is free value while Bulkheads is a trap that exists to be rejected, in every zone,
+// forever. So the two rows must be *equal*, not merely close.
+//
+// This is the test that replaces the_braced_bulkheads_entry_reproduces_the_pre_136_bargain_numbers
+// (#146). That one pinned Durability at 8 against Speed's 1 to prove #136 had added
+// content without retuning — an 8:1 quote on two stats the item roster prices
+// identically, which is exactly the retune this ticket came to do.
+@(test)
+the_durability_and_speed_swings_are_equal_in_every_zone :: proc(t: ^testing.T) {
+	for zone in Zone {
 		testing.expectf(
 			t,
-			run_trade_swing(Scaling_Site{zone = .Open_Sea, depth = DEPTH_STEPS}, stat) >
-			run_trade_swing(Scaling_Site{zone = .Open_Sea, depth = 0}, stat),
-			"%v's swing must rise with depth-within-zone",
-			stat,
+			run_trade_swing(zone, .Durability) == run_trade_swing(zone, .Speed),
+			"%v quotes Durability and Speed differently: one of Braced Bulkheads / Stripped Spars is strictly dominated there",
+			zone,
 		)
 	}
 }
@@ -155,7 +200,7 @@ a_reward_outpays_selling_a_stat_at_the_same_site :: proc(t: ^testing.T) {
 			site := Scaling_Site{zone = zone, depth = depth}
 			testing.expectf(
 				t,
-				run_reward_treasure(site) > run_trade_swing(site, .Treasure),
+				run_reward_treasure(site) > run_trade_swing(site.zone, .Treasure),
 				"a reward at %v must outpay selling a stat there",
 				site,
 			)
@@ -179,8 +224,8 @@ run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t
 the_primitives_readings_of_one_site_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
 	coastal := Scaling_Site{zone = .Coastal, depth = 0}
 	testing.expect(t, run_fight_opponent_hp(coastal) != run_offer_item_quality(coastal))
-	testing.expect(t, run_fight_opponent_hp(coastal) != run_trade_swing(coastal, .Durability))
-	testing.expect(t, run_offer_item_quality(coastal) != run_trade_swing(coastal, .Durability))
+	testing.expect(t, run_fight_opponent_hp(coastal) != run_trade_swing(coastal.zone, .Durability))
+	testing.expect(t, run_offer_item_quality(coastal) != run_trade_swing(coastal.zone, .Durability))
 }
 
 // --- Depth normalization: stable endpoints regardless of layer count -------

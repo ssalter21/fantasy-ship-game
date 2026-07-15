@@ -400,6 +400,12 @@ run_zone_recipe_pool :: proc(zone: Zone, catalog: []Recipe) -> []Recipe {
 // **Only the Shop arm reads `site`-free content, and only the Shop arm reads the
 // spec.** Both are the same fact about the primitive: a shop is a fixed market whose
 // character is authored and whose stakes are the captain's purse, not the node's.
+//
+// The arms below are the gradient's readership written out, and each takes exactly
+// what it reads: Fight, Offer and Reward take the whole `site`, a Trade takes its
+// **zone** alone (#146 — a swing is an exchange rate, and a rate has no room for a
+// depth axis), and a Shop takes none of it. Handing every arm the full site would
+// read tidier and say less.
 run_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Generator) -> Stage {
 	pool, authored_pool := spec.stock.?
 	assert(
@@ -413,7 +419,7 @@ run_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Generator
 	case .Offer:
 		return Stage_Offer{options = run_item_offer_options(site, gen)}
 	case .Trade:
-		return run_make_trade(site, gen)
+		return run_make_trade(site.zone, gen)
 	case .Shop:
 		return run_bake_shop(pool, gen)
 	case .Reward:
