@@ -331,6 +331,8 @@ Event :: union {
 	Event_Battle_Menu,
 	Event_Battle_Event,
 	Event_Ship_Updated,
+	Event_Stage_Entered,
+	Event_Encounter_Halted,
 	Event_Options_Presented,
 	Event_Trade_Presented,
 	Event_Purchase_Rejected,
@@ -411,6 +413,59 @@ Event_Battle_Event :: struct {
 // HP readout.
 Event_Ship_Updated :: struct {
 	ship: ship.Ship,
+}
+
+// Event_Stage_Entered says where the encounter's walk is: the cursor has landed on
+// `index` of `count` stages, and that stage is a `kind` (issue #139). Dispatched by
+// sim_walk_encounter as it enters each stage, before whatever that primitive presents.
+//
+// The **cursor is the fact** here, and it is the one thing about a walk that
+// presentation cannot hold a copy of. Event_Arrived_At_Node already hands over the
+// node's whole Encounter — its stage list is right there, and the map view reads it to
+// label the node (ADR-0016) — but that copy's cursor is frozen at the moment of
+// arrival, because the walk advances the Sim's *private* map. So presentation knows the
+// encounter's shape and needs to be told its position, which is exactly what this
+// carries. It is not a "which screen do I show" signal: that is Phase's job (issue
+// #39), and a stage that presents something presents it on its own event.
+//
+// `kind` and `count` are on it despite being derivable from that copy, because the
+// event stream is itself an artifact — cmd/headless prints every event, and the runs
+// pinned per seed are read by people. `Event_Stage_Entered{kind = .Reward, index = 1,
+// count = 2}` says what happened; a bare index does not, unless the reader
+// cross-references a map they were handed several hundred lines earlier. They cannot
+// drift from the copy either: a walk moves the cursor and nothing else.
+//
+// **Re-entering a stage re-emits this**, which is deliberate and shared with
+// Event_Options_Presented: a Shop's buy routes back through the walk to re-present the
+// refilled shelf, and re-stating "still stage 2 of 3" is the honest account of that.
+Event_Stage_Entered :: struct {
+	kind:  run.Stage_Kind,
+	index: int,
+	count: int,
+}
+
+// Event_Encounter_Halted reports a stage resolving to .Halted (issue #139, ADR-0014):
+// the encounter ends at stage `index` of `count`, and the stages behind it are never
+// reached. `at` is the primitive that halted — a Fight taking ADR-0006's escape, an
+// Offer skipped, a Trade rejected.
+//
+// **Only the halt is announced, and the asymmetry is the point.** A completion needs no
+// event because it is already visible: the next stage arrives and says so, or the walk
+// ends and Event_Travel_Options puts the captain back on the map. A halt is the one
+// outcome with *nothing to show* — the stages that should have followed simply don't —
+// so a captain who flees a [Fight, Reward] watches the loot not happen and has no way
+// to tell "you gave that up" from "the game forgot". That is the difference between
+// learning the rule and filing a bug, and it is why complete-or-halt needs a voice here
+// but not a symmetric pair of events.
+//
+// What was forfeited is *not* carried: presentation names it off the Encounter it was
+// handed at arrival (stages `index+1 ..< count`), the same copy the map view already
+// labels nodes from. `index` and `count` are what pick that range out, and they are all
+// the walk knows that the copy doesn't.
+Event_Encounter_Halted :: struct {
+	at:    run.Stage_Kind,
+	index: int,
+	count: int,
 }
 
 // Event_Options_Presented carries the option list of whichever option-list stage

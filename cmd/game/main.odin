@@ -63,6 +63,13 @@ Game_State :: struct {
 	// count). Affordability is read live off state.player.starting_treasure (kept
 	// current by Event_Ship_Updated), so no separate purse field is tracked here.
 	stage_options:    [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option),
+	// stage_progress is where the current encounter's walk is — the last
+	// Event_Stage_Entered, or nil between encounters (issue #139). It is the **only**
+	// thing presentation knows about the cursor: the encounter's shape comes from the
+	// node handed over on arrival, whose own cursor is a frozen copy, so the walk's
+	// position has to be told rather than read. draw_encounter_strip renders it on every
+	// screen an encounter can be on; a halt's beat reads it to name what was forfeited.
+	stage_progress:   Maybe(sim.Event_Stage_Entered),
 	// active_trade is the bargain the current Trade stage is offering (issue #136),
 	// copied from Event_Trade_Presented; trade_menu_loop renders its two sides and
 	// offers accept-or-reject. trade_can_accept is whether the ship can pay the
@@ -137,6 +144,11 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		// The Sim's legal moves for the upcoming travel decision (issue #83);
 		// travel_menu_loop offers exactly these instead of re-deriving them.
 		state.travel_options = e.options
+		// Being asked where to sail *is* the signal that the walk is over — the Sim emits
+		// this only from Awaiting_Travel_Choice, so it cannot land mid-encounter. So the
+		// strip clears here rather than needing an end-of-walk event of its own (issue
+		// #139).
+		state.stage_progress = nil
 
 	case sim.Event_Arrived_At_Node:
 		state.current_node_id = e.node.id
@@ -156,6 +168,17 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Ship_Updated:
 		state.player = e.ship
+
+	case sim.Event_Stage_Entered:
+		// The cursor moved: remember it so draw_encounter_strip can show the sequence and
+		// where in it the captain is (issue #139).
+		state.stage_progress = e
+		play_stage_entry_beat(state, e)
+
+	case sim.Event_Encounter_Halted:
+		// A halt is the one outcome with nothing to show for itself, so it is said out
+		// loud (issue #139) — see halt_beat_text.
+		play_beat(state, halt_beat_text(state, e))
 
 	case sim.Event_Options_Presented:
 		// A stage that presents an option list was entered, or re-entered from a buy's

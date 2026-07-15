@@ -35,6 +35,92 @@ play_beat :: proc(state: ^Game_State, overlay: string) {
 	}
 }
 
+// play_stage_entry_beat announces a stage the captain would otherwise never see going
+// past (issue #139). The rule is narrow and follows from the walk's own shape: a stage
+// that **parks** for a decision is seen as its own screen — a Fight's battle menu, an
+// Offer's or a Shop's option list, a Trade's bargain — and needs nothing here. Reward is
+// the one primitive that parks nowhere (#133): it pays out and the walk carries straight
+// on, so without a beat the whole of a `[Fight, Reward]`'s loot is a purse that silently
+// grew while the map was coming back up.
+//
+// So: exactly one beat, for exactly the stage with no screen. Not a beat per stage —
+// there is no interstitial "now entering stage 2 of 3", because the strip advancing is
+// that, and a click-through between every pair of stages would tax the multi-stage
+// recipes #138 authored for being longer.
+play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
+	if e.kind != .Reward {
+		return
+	}
+	stage, known := encounter_stage(state, e.index)
+	if !known {
+		return
+	}
+	reward, is_reward := stage.(run.Stage_Reward)
+	if !is_reward {
+		return
+	}
+	// Fires before run_apply_reward's Event_Ship_Updated lands, so the beat reads while
+	// the panel still shows the old purse and the number moves as it clears.
+	play_beat(state, fmt.tprintf("Salvage! You haul aboard %d treasure.", reward.treasure))
+}
+
+// halt_beat_text renders a halt as a consequence rather than a silence (issue #139,
+// ADR-0014): what the captain just did, and what it cost them downstream.
+//
+// The cost is the whole point. Complete-or-halt has no authored gate saying "no loot if
+// you run" — the Reward stage is simply never reached — which is elegant in the model
+// and invisible in play: fleeing a `[Fight, Reward]` looks exactly like a `[Fight]`
+// ending, and a captain who cannot tell those apart has learned nothing except that the
+// game might be broken. So the forfeited stages are named, off the encounter presentation
+// was handed at arrival (the stages behind the cursor, which the Sim's event picks out
+// with index and count).
+halt_beat_text :: proc(state: ^Game_State, e: sim.Event_Encounter_Halted) -> string {
+	forfeited := forfeited_stages_label(state, e)
+	if len(forfeited) == 0 {
+		return fmt.tprintf("%s The encounter ends here.", halt_verb(e.at))
+	}
+	return fmt.tprintf("%s You leave behind: %s.", halt_verb(e.at), forfeited)
+}
+
+// halt_verb says what the captain did to halt the encounter, in that primitive's own
+// terms (issue #139). Shop and Reward are absent because neither can halt: Shop is the
+// one primitive with no halt (a shop cannot be failed) and Reward is a boon with nothing
+// to decline — so reaching them here is a Sim-side impossibility, panicked on rather
+// than given words, the same way sim_stage_decline_outcome refuses a stage that presents
+// no list.
+halt_verb :: proc(at: run.Stage_Kind) -> string {
+	switch at {
+	case .Fight:
+		return "You break off and slip away."
+	case .Offer:
+		return "You take nothing."
+	case .Trade:
+		return "You turn the bargain down."
+	case .Shop, .Reward:
+		panic("an encounter halted on a primitive that has no halt")
+	}
+	unreachable()
+}
+
+// forfeited_stages_label names the stages a halt never reached — everything behind the
+// cursor — as a comma-separated list ("Loot", "Market, Loot"), or "" when the halt was on
+// the last stage and cost nothing downstream (issue #139).
+forfeited_stages_label :: proc(state: ^Game_State, e: sim.Event_Encounter_Halted) -> string {
+	label := ""
+	for i in e.index + 1 ..< e.count {
+		kind, known := encounter_stage_kind(state, i)
+		if !known {
+			continue
+		}
+		if len(label) == 0 {
+			label = stage_kind_label(kind)
+		} else {
+			label = fmt.tprintf("%s, %s", label, stage_kind_label(kind))
+		}
+	}
+	return label
+}
+
 // battle_event_text renders one core/combat Event as a human-readable beat.
 battle_event_text :: proc(event: combat.Event) -> string {
 	switch e in event {

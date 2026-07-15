@@ -1239,6 +1239,106 @@ skipping_an_offer_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	testing.expect(t, sim.resolved[1]) // halted encounters resolve too: the walk is over either way
 }
 
+// entered_stages collects every Event_Stage_Entered in the batch, in order — the walk's
+// account of where its cursor went (issue #139).
+entered_stages :: proc(events: []Event) -> [dynamic]Event_Stage_Entered {
+	entered: [dynamic]Event_Stage_Entered
+	for e in events {
+		if stage, ok := e.(Event_Stage_Entered); ok {
+			append(&entered, stage)
+		}
+	}
+	return entered
+}
+
+// halt_event returns the batch's Event_Encounter_Halted, or ok=false if the walk did not
+// halt in it.
+halt_event :: proc(events: []Event) -> (halt: Event_Encounter_Halted, ok: bool) {
+	for e in events {
+		if h, is_halt := e.(Event_Encounter_Halted); is_halt {
+			return h, true
+		}
+	}
+	return {}, false
+}
+
+@(test)
+the_walk_announces_its_cursor_at_every_stage :: proc(t: ^testing.T) {
+	// Issue #139: presentation is handed the encounter's *shape* on arrival, but the walk
+	// advances the Sim's private map, so where the cursor is has to be said out loud or a
+	// multi-stage encounter reads as unrelated popups. [Offer, Trade] is walked all the
+	// way through, so both stages must announce themselves with their own index.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	install_encounter(&sim, 1, offer_stage(), trade_stage())
+	arrive_at(&sim, 1, &events)
+
+	first := entered_stages(events[:])
+	defer delete(first)
+	testing.expect_value(t, len(first), 1) // the walk parks on the Offer and says so
+	testing.expect_value(t, first[0].kind, run.Stage_Kind.Offer)
+	testing.expect_value(t, first[0].index, 0)
+	testing.expect_value(t, first[0].count, 2)
+
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Finish{})
+	ev := refit_tick(&sim, &events)
+
+	// The Refit's finish resumes the walk, which enters the Trade — the cursor moved, and
+	// the event is the only way presentation could know it.
+	second := entered_stages(ev)
+	defer delete(second)
+	testing.expect_value(t, len(second), 1)
+	testing.expect_value(t, second[0].kind, run.Stage_Kind.Trade)
+	testing.expect_value(t, second[0].index, 1)
+	testing.expect_value(t, second[0].count, 2)
+}
+
+@(test)
+a_halt_is_announced_and_a_completion_is_not :: proc(t: ^testing.T) {
+	// Issue #139's asymmetry, which is the whole design of Event_Encounter_Halted: a
+	// completion shows itself (the next stage arrives, or the map comes back), a halt is
+	// the outcome with *nothing* to show — the stages behind it simply never happen. So
+	// the same [Offer, Trade] must announce the skip and stay silent on the pick.
+	skipped := sim_create(0)
+	defer sim_destroy(&skipped)
+	events: [dynamic]Event
+	defer delete(events)
+
+	install_encounter(&skipped, 1, offer_stage(), trade_stage())
+	arrive_at(&skipped, 1, &events)
+	sim_submit_captain_choice(&skipped, Command(Command_Choose_Option{selection = nil}))
+	ev := refit_tick(&skipped, &events)
+
+	halt, halted := halt_event(ev)
+	testing.expect(t, halted)
+	testing.expect_value(t, halt.at, run.Stage_Kind.Offer)
+	testing.expect_value(t, halt.index, 0) // index and count are what pick the forfeited
+	testing.expect_value(t, halt.count, 2) // stages out: everything after 0, i.e. the Trade
+
+	// And the Trade never announced itself, which is what "the halt cost you something"
+	// means from presentation's side — there is nothing on screen to have shown it.
+	entered := entered_stages(ev)
+	defer delete(entered)
+	testing.expect_value(t, len(entered), 0)
+
+	taken := sim_create(0)
+	defer sim_destroy(&taken)
+	install_encounter(&taken, 1, offer_stage(), trade_stage())
+	arrive_at(&taken, 1, &events)
+	sim_submit_captain_choice(&taken, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	refit_tick(&taken, &events)
+	submit_refit(&taken, Refit_Finish{})
+	ev = refit_tick(&taken, &events)
+
+	_, completion_announced := halt_event(ev)
+	testing.expect(t, !completion_announced)
+}
+
 @(test)
 picking_from_an_offer_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^testing.T) {
 	// The other side of the halt above: a pick **completes** the Offer, so the same
@@ -1323,12 +1423,29 @@ leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	testing.expect(t, combat.combat_may_leave(&sim.battle, .A))
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Leave_Combat{}}))
-	refit_tick(&sim, &events)
+	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
 	testing.expect_value(t, sim.player.starting_treasure, before) // fled: no payout for escaping
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
+
+	// And the escape is **said out loud** (issue #139). The purse above is the model
+	// working; this is the captain being able to tell that it worked. Without it, fleeing
+	// a [Fight, Reward] is indistinguishable from a plain [Fight] ending — the Reward just
+	// silently never happens — which is the difference between learning the rule and
+	// filing a bug. index/count are what let presentation name the Loot as forfeited.
+	halt, halted := halt_event(ev)
+	testing.expect(t, halted)
+	testing.expect_value(t, halt.at, run.Stage_Kind.Fight)
+	testing.expect_value(t, halt.index, 0)
+	testing.expect_value(t, halt.count, 2)
+
+	// The Reward never announced itself either, which is the same fact from the other
+	// side: there was no stage for presentation to have drawn.
+	entered := entered_stages(ev)
+	defer delete(entered)
+	testing.expect_value(t, len(entered), 0)
 }
 
 @(test)
