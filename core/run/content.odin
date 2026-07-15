@@ -51,7 +51,7 @@ Hostile_Archetype :: struct {
 // reused by every node that draws it, so its item list must not be per-node
 // memory. @(rodata) — unlike recipe_catalog these are constant initializers.
 @(rodata)
-COASTAL_PRIVATEER_ITEMS := [?]string{"Carronade", "Swivel Guns", "Boarding Nets"}
+COASTAL_PRIVATEER_ITEMS := [?]string{"Long Nines", "Carronade", "Swivel Guns", "Boarding Nets"}
 
 // Three guns as of #151 — the build the name always promised. Swivel Guns is the
 // third; see the entry's own note for why the roster's smallest gun is the one that
@@ -60,22 +60,22 @@ COASTAL_PRIVATEER_ITEMS := [?]string{"Carronade", "Swivel Guns", "Boarding Nets"
 BROADSIDE_COMPANY_ITEMS := [?]string{"Naval Gun Crew", "Swivel Guns", "Powder Monkeys", "Boarding Pikes"}
 
 @(rodata)
-DEEPWATER_MENAGERIE_ITEMS := [?]string{"Hunter's Pack", "Snapping Eels"}
+DEEPWATER_MENAGERIE_ITEMS := [?]string{"Hunter's Pack", "Snapping Eels", "War Hound"}
 
 @(rodata)
-SMUGGLERS_RUN_ITEMS := [?]string{"Copper Sheathing", "Iron Plating", "Wraith Cannon", "Spare Rigging"}
+SMUGGLERS_RUN_ITEMS := [?]string{"Copper Sheathing", "Iron Plating", "Wraith Cannon", "Spare Rigging", "Ghost Lantern"}
 
 @(rodata)
-IRONCLAD_HULK_ITEMS := [?]string{"Long Nines", "Reinforced Hull", "Ballast Stones"}
+IRONCLAD_HULK_ITEMS := [?]string{"Long Nines", "Ramming Prow", "Reinforced Hull", "Ballast Stones"}
 
 @(rodata)
-BOARDING_PARTY_ITEMS := [?]string{"Naval Gun Crew", "War Drums", "Boarding Pikes"}
+BOARDING_PARTY_ITEMS := [?]string{"Naval Gun Crew", "Admiral's Guard", "Boarding Pikes"}
 
 @(rodata)
 DEATH_THROES_ITEMS := [?]string{"Deck Cannon", "Kraken Spawn", "War Hound"}
 
 @(rodata)
-REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Copper Sheathing", "Swivel Guns", "Spare Rigging"}
+REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", "Swivel Guns", "Spare Rigging"}
 
 // hostile_roster is every hostile in the game, in the same authored-table shape as
 // trade_roster above and catalog.odin's recipe_catalog. Not @(rodata) despite never
@@ -101,32 +101,45 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Copper Sheathing", "Swivel Guns"
 // (Boarding Party), HP-threshold conditionals (Death Throes), and speed
 // stat-modifiers (Reef Skimmer).
 //
-// **The authoring rule: an archetype is character, stakes is power.** Entries are
-// authored to a *comparable* output band, deliberately — this is the Fight analogue
-// of trade_roster's "every axis is one swing for one swing". Archetype and stakes
-// are meant to be independent axes (#135), and an archetype is drawn with no regard
-// to zone, so any build can turn up anywhere; if one build were three times another,
-// the draw would swamp the gradient and which hostile you met would matter more than
-// how deep you were. So no entry is the "Deep" one — depth is the site's job. The
-// band is enforced by test (a_starting_player_can_fight_every_archetype_at_coastal),
-// not by eye: every archetype must be beatable-but-not-trivial for a *starting* ship
-// at Coastal, which is the check that catches both degenerate directions below.
+// **The authoring rule: an archetype is character, stakes is power** — and as of
+// #165 (ADR-0019) the table has a **weight**: an entry is authored at **Open Sea**,
+// the zone where run_fight_opponent_power reads 100%. A captain meets an entry as it
+// is written here in the middle zone, at half of it in the Coastal shallows, and at
+// half again on top in The Deep. Entries stay authored to a *comparable* band — the
+// Fight analogue of trade_roster's "every axis is one swing for one swing" — because
+// an archetype is drawn with no regard to zone, so any build can turn up anywhere and
+// a build three times another would let the draw swamp the gradient. No entry is the
+// "Deep" one: depth is the site's job.
 //
-// **Both walls are one-line mistakes here**, which is why that test exists. Damage
-// is `raw - (effective_durability + defense_bonus)` (combat.odin), so stacked
-// +Durability still makes a hostile hard to dent, and a build that overshoots the
-// other way sinks a starting player before the escape gate.
+// **The band has two walls and the *floor* is the new one** (#165). Damage is
+// `raw - (effective_durability + defense_bonus)`, so the old wall still stands —
+// stacked +Durability makes a hostile hard to dent, and overshooting sinks a starting
+// player before the escape gate. But `max(0, ...)` has a floor as well as a ceiling,
+// and a factor that scales *down* is what walks the roster into it: a starting ship
+// soaks **4**, so an entry authored to deal less than ~10 arrives at Coastal, keeps
+// half of it, and **cannot scratch the player at all** — a fight with no risk in it,
+// which is the same dead node #151 found at the other wall. Both are enforced by
+// test, not by eye: a_starting_player_can_fight_every_archetype_at_coastal bounds the
+// ceiling, and a_starting_player_takes_real_damage_from_every_archetype_at_coastal
+// bounds the floor.
 //
-// **The buff trap is gone (#151, ADR-0017), and it was the tighter of the two.**
-// Buff used to fold into the defender's `defense_bonus` as well as its own offense,
-// so Admiral's Guard (+3 per Crew aboard) on a Crew build read +12 *defence* against
-// a starting player's raw of 8 — not a hard fight but a zero, forever, which is why
-// Boarding Party carries flat War Drums instead. Buff now feeds Offensive only, so
-// a Selector item is a hard *hitter* on a hostile rather than an invulnerable one:
-// the constraint became a magnitude the entry can tune rather than a category it
-// could not use. Only `defensive-active + Modify_Durability` counts toward the soak
-// wall now — Boarding Party could take its Guard, at the cost of hitting like a
-// Deep-tier build at Coastal.
+// **That floor is why the whole table was re-authored up** with #165, and it is the
+// change's honest cost as well as its point. Every entry here was originally written
+// to be survivable by a *starting ship at Coastal* — that was the only test — so the
+// table was authored at **Coastal weight** while the model now reads it as Open Sea
+// weight, and halving an already-Coastal entry put six of the eight under the soak
+// floor. Re-authoring is not decoration: a multiplier needs headroom above soak
+// before it has anywhere to scale down *to*.
+//
+// **The payoff is that the ceiling moved, so builds that were too heavy now fit.**
+// #135 could not author a `Selector` buff onto a hostile at all (Admiral's Guard read
+// +12 *defence* and made the fight arithmetically unwinnable); #151 fixed the
+// category — buff feeds Offensive only, so a Selector is a hard hitter rather than an
+// invulnerable one — but left the magnitude too heavy for a Coastal starting ship,
+// which is why Boarding Party was still carrying flat War Drums. With a way down,
+// +9 of Guard is +4 at Coastal and +15 in The Deep. **Boarding Party finally carries
+// the item two tickets have documented it wanting**, and the constraint that barred
+// it has gone from a category (#135) to a magnitude (#151) to a zone (#165).
 //
 // Magnitudes ride on the items, so the numbers here are ADR-0012's placeholders and
 // move with them; the map's "stakes constant tuning per primitive" fog owns the rest.
@@ -135,6 +148,12 @@ hostile_roster := [?]Hostile_Archetype {
 	// First so the roster opens on something recognisable, and so there is a
 	// baseline the other seven are variations *from*. Speed 4 ties the player's, so
 	// neither side can leave — this is the one that has to be fought out.
+	//
+	// Long Nines joins with #165, into the Large slot the entry had been leaving to
+	// Spoils. There is no cleverness to report: this is the plainest demonstration of
+	// what the way down bought, since "a privateer carries a big gun" needed no
+	// argument and was simply unaffordable while an entry had to survive contact with
+	// a starting ship undiminished.
 	{name = "Coastal Privateer", speed = 4, items = COASTAL_PRIVATEER_ITEMS[:]},
 	// Every gun aboard makes the crew's guns hit harder: Powder Monkeys buff per
 	// Weapon, and every other item is a Weapon (Boarding Pikes and Naval Gun Crew are
@@ -152,42 +171,76 @@ hostile_roster := [?]Hostile_Archetype {
 	// worth carrying — a third Weapon is worth its own 3 *plus* a point on every
 	// Powder Monkeys reading, which is the entry's whole argument.
 	{name = "Broadside Company", speed = 4, items = BROADSIDE_COMPANY_ITEMS[:]},
-	// Beasts, and Hunter's Pack paying per Beast aboard. Two of them, because the
-	// synergy is quadratic in its own family and a third Beast is +3 to the Pack *and*
-	// a whole extra gun. Slow and laden: at 3 it is the archetype a starting player
+	// Beasts, and Hunter's Pack paying per Beast aboard. **Three of them as of #165**,
+	// which is the third Beast the entry's own note had been asking for: the synergy is
+	// quadratic in its own family, so War Hound is +3 to the Pack *and* a whole extra
+	// gun — the reason it was unaffordable before, and the reason it is worth having
+	// now. It is also the entry that most needed the multiplier rather than a bigger
+	// bonus: a Selector build is exactly what an additive share mis-scaled (see
+	// run_fit_hostile_loadout). War Hound's own magnitude is gated below half HP, so
+	// the Pack's count rises immediately and the Hound's gun only joins once the
+	// Menagerie is dying. Slow and laden: at 3 it is the archetype a starting player
 	// can outrun, which is what makes Leave Combat a real option rather than a menu
 	// item nothing satisfies.
 	{name = "Deepwater Menagerie", speed = 3, items = DEEPWATER_MENAGERIE_ITEMS[:]},
 	// Runs dark and runs fast. The trick is placement: two throwaway Mediums push the
 	// Wraith Cannon into the concealed hold, where its Condition_Self_Visibility fires
 	// — the archetype whose build only works because of the *order* of its item list.
-	// Spare Rigging rather than the Ghost Lantern the theme wants. The reason has
-	// changed since #151 and the entry is worth revisiting: buff is no longer soak, so
-	// the Lantern would now cost the player HP rather than make the hostile
-	// undentable. It is left as authored because Spare Rigging is what takes it to an
-	// effective 8 — so it bolts the round BASELINE_ROUND_COUNT unlocks, which is the
-	// archetype's whole character (kill it quickly or it is gone) and is exactly what
-	// the widened band made observable: before, the fight ended at round 2 and nothing
-	// ever reached the gate to bolt at.
+	// Spare Rigging keeps it at an effective 8, so it bolts the round
+	// BASELINE_ROUND_COUNT unlocks, which is the archetype's whole character (kill it
+	// quickly or it is gone) and is what #151's widened band made observable: before,
+	// the fight ended at round 2 and nothing ever reached the gate to bolt at.
+	//
+	// **It takes its Ghost Lantern with #165**, which the entry has been asking for
+	// across two tickets: #135 could not have it because buff was soak and the Lantern
+	// would have made the hostile undentable; #151 killed that reason and said so here
+	// ("the entry is worth revisiting"), but a +4 buff on top of a Wraith Cannon was
+	// still too much ship to meet at Coastal undiminished. Every Small slot on the
+	// template is concealed, so the Lantern's Condition_Self_Visibility fires for the
+	// same reason the Cannon's does — the entry now states its theme twice with one
+	// mechanism, which is what it was for.
 	{name = "Smuggler's Run", speed = 5, items = SMUGGLERS_RUN_ITEMS[:]},
-	// Armour: the one build that spends its budget on Modify_Durability instead of
-	// output, so it is a wall you chip rather than one you burst. Held to +3 total —
-	// see the both-walls note above; a fourth point takes a starting player's damage
-	// to zero. At 2 it is the slowest thing afloat and the easiest to walk away from.
+	// Armour: the build that spends on Modify_Durability, so it is a wall you chip
+	// rather than one you burst. Held to +3 total — see the both-walls note above.
+	// At 2 it is the slowest thing afloat and the easiest to walk away from.
+	//
+	// **It is a ram as of #165, and that is the floor wall in one entry.** Armour was
+	// its whole budget, which left it dealing 8 — and half of 8 is a starting ship's
+	// soak exactly, so a Coastal Hulk was a ten-round grind that could not land a
+	// single point of damage. An archetype whose character is *not hitting you* is the
+	// one a scale-down walks into the floor first. Ramming Prow answers it in
+	// character rather than by bolting a gun on: a ram is what an ironclad is *for*,
+	// it takes the Large slot the entry was leaving to Spoils, and it leaves the
+	// armour untouched — so the wall now hits back instead of being scenery.
 	{name = "Ironclad Hulk", speed = 2, items = IRONCLAD_HULK_ITEMS[:]},
-	// Crew, and the archetype that documents the synergy trap: it wants Admiral's
-	// Guard (+3 per Crew) and cannot have it, because four Crew aboard would be +12
-	// defence and an unwinnable fight. Flat War Drums instead — the build reads the
-	// same and can actually be beaten.
+	// Crew — **and the entry that finally carries Admiral's Guard** (+3 per Crew
+	// aboard, three Crew here, so +9). It is the roster's longest-running argument,
+	// settled: #135 authored flat War Drums instead because buff folded into defence
+	// and +9 of Guard was an unwinnable fight rather than a hard one; #151 removed
+	// that fold and made the bar a *magnitude* rather than a category, but a starting
+	// ship still met the full +9 at Coastal; #165's way down makes it +4 there and +15
+	// in The Deep. Three tickets, and each one moved the obstacle down a level —
+	// category, then magnitude, then zone. This is the archetype the whole
+	// Selector half of ADR-0012's roster was waiting on.
 	{name = "Boarding Party", speed = 4, items = BOARDING_PARTY_ITEMS[:]},
 	// Wakes up when it is dying: two of its three guns are gated on its own HP below
 	// half, so it opens with a single Deck Cannon and turns savage exactly when the
 	// player thinks it is won. The roster's argument that a conditional is a *shape*,
 	// not a discount.
 	{name = "Death Throes", speed = 3, items = DEATH_THROES_ITEMS[:]},
-	// Light guns and two Modify_Speed items — an effective 9, so it is gone the round
-	// it becomes eligible. A nuisance rather than a threat, and the counterpart to the
-	// Hulk: the archetype that leaves *you*.
+	// Two Modify_Speed items on top of a base 6 — an effective 9, so it is gone the
+	// round it becomes eligible. The counterpart to the Hulk: the archetype that
+	// leaves *you*, and the second one #165 found sitting on the floor, for the mirror
+	// reason — its budget went into speed rather than armour, but it was equally not
+	// spent on hitting you, so half of its 7 could not clear a starting ship's soak
+	// either. It is a nuisance by design, and a nuisance that deals nothing at all for
+	// the five rounds before it bolts is not a nuisance, it is a cutscene. The
+	// Carronade is what makes leaving cost the player something.
+	//
+	// The two Modify_Speed items are also this entry's second job: they are why
+	// the_site_never_moves_a_hostiles_speed exists. Both are filed under Category
+	// `.Buff` — a category the site now scales — so this is the build that would break
+	// loudest if ship_fitting_output_scaled ever started touching passives.
 	{name = "Reef Skimmer", speed = 6, items = REEF_SKIMMER_ITEMS[:]},
 }
 
@@ -217,72 +270,83 @@ run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 	}
 }
 
-// run_fit_hostile_loadout fits an archetype's authored items into the one ship
-// template (ADR-0004) and hands the leftovers to ship_fill_empty_slots_with_cargo
-// (issue #91: the opponent's spare slots fill with "Spoils" the way the player's
-// fill with "Cargo"). An or_return chain like core/ship's ship_fit_starting_loadout
-// — a false return means the archetype and the template have drifted out of sync
-// (it asks for more Larges than the template has), a content bug this package's own
-// tests catch, not a runtime condition.
+// run_stakes_scales_category reports whether the site's power reading scales a
+// fitting of this Category — the whole of the rule, which is: **stakes scales what a
+// hostile deals, never what it soaks.**
 //
-// run_offense_share splits a hostile's total offensive uplift across its guns: the
-// share for gun `index` of `count`, with the remainder handed to the earliest guns
-// so the parts always re-sum to `total` exactly. A build with one big gun and a
-// build with three small ones therefore receive the *same* uplift, just cut
-// differently.
+// #135 wrote that rule as "only Offensive fittings take it", and its stated reason
+// was that a bonus on Buff or Defensive would inflate `defense_bonus` and make a
+// deep hostile harder to *hurt* rather than harder to fight. **Half of that reason
+// died with #151** (ADR-0017) and the rule outlived it: Buff no longer feeds
+// `defense_bonus` at all — `raw_damage = boosted(Offensive) + boosted(Buff)` — so a
+// scaled Buff fitting now makes a hostile hit harder, which is exactly what stakes
+// is for. Only the Defensive half of the reason survives, and it survives intact:
+// soak is subtracted from raw, so a site that scaled it would eventually make a
+// hostile impossible to hurt at any magnitude.
 //
-// `count` is never 0: the only caller reads it off the loadout and asks only while
-// placing a gun, so asking at all means there is at least one.
-run_offense_share :: proc(total: int, count: int, index: int) -> int {
-	share := total / count
-	if index < total % count {
-		share += 1
+// Under the old additive bonus this was a rounding error — a flat +2..+9 that Buff
+// happened not to collect. Under a multiplier it is the defect itself: a hostile's
+// unscaled Buff would be a **floor the site cannot lower**, so Boarding Party's War
+// Drums (3) and Broadside Company's Powder Monkeys would stand at full strength in
+// the Coastal shallows while the guns beside them halved — the same "the floor is
+// whatever was authored" complaint this ticket exists to answer, just smaller.
+//
+// Note this is the *category* half of the rule only. Category is a combat phase, and
+// `.Buff` also holds every Modify_Speed item in the roster; it is
+// ship_fitting_output_scaled that declines to touch those, and the reason it must is
+// on that proc.
+run_stakes_scales_category :: proc(category: ship.Category) -> bool {
+	switch category {
+	case .Offensive, .Buff:
+		return true // raw_damage = Offensive + Buff (core/combat, ADR-0017)
+	case .Defensive:
+		return false // soak, and soak's vocabulary has to stay small
 	}
-	return share
+	return false
 }
 
 // run_fit_hostile_loadout fits an archetype's authored items into the one ship
-// template (ADR-0004) and hands the leftovers to ship_fill_empty_slots_with_cargo
-// (issue #91: the opponent's spare slots fill with "Spoils" the way the player's
-// fill with "Cargo"). An or_return chain like core/ship's ship_fit_starting_loadout
-// — a false return means the archetype and the template have drifted out of sync
-// (it asks for more Larges than the template has), a content bug this package's own
-// tests catch, not a runtime condition.
+// template (ADR-0004), each scaled to this site's power reading, and hands the
+// leftovers to ship_fill_empty_slots_with_cargo (issue #91: the opponent's spare
+// slots fill with "Spoils" the way the player's fill with "Cargo"). An or_return
+// chain like core/ship's ship_fit_starting_loadout — a false return means the
+// archetype and the template have drifted out of sync (it asks for more Larges than
+// the template has), a content bug this package's own tests catch, not a runtime
+// condition.
 //
-// **The stakes bonus is a total, shared across the archetype's Offensive fittings**
-// — not applied to each. This is what actually makes archetype and stakes
-// independent axes (#135), and it is the subtle half of the ticket. Per-fitting, a
-// build's *gun count* would multiply the site's reading: at Coastal's deepest node a
-// two-gun build would take twice the uplift of a one-gun build, so which archetype
-// you drew would move the hostile's power more than how deep you were — the
-// gradient swamped by the draw. Sharing one total keeps the site's reading worth the
-// same wherever it lands, so the archetype decides only the *shape* of the output.
-// It also means a one-Offensive-fitting archetype reproduces the retired template's
-// numbers exactly, which is why FIGHT_OPPONENT_OFFENSE_* needed no retune.
+// **`power_percent` is a factor applied per fitting, and the per-fitting part is
+// free** — which is the whole of what #165 bought. #135 could not apply its bonus
+// per fitting, because an *additive* bonus lets gun count multiply the site's
+// reading: a three-gun build would collect three times a one-gun build's uplift, so
+// which archetype you drew would move a hostile's power more than how deep you were
+// — the gradient swamped by the draw. It therefore shared **one total** across the
+// guns (run_offense_share, now deleted), and paid for that with the machinery.
 //
-// **And only Offensive fittings take it.** A bonus on a Buff or Defensive fitting
-// inflates `defense_bonus`, which is subtracted from the *player's* damage
-// (combat.odin), so scaling those would mean a deeper node makes a hostile harder to
-// *hurt* rather than harder to fight — and, a couple of tiers in, impossible to hurt
-// at all. Stakes moves output; the archetype decides what soaks.
-run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_Archetype, offense_bonus: int) -> bool {
-	guns := 0
+// A multiplier is **scale-invariant**, so the dilemma dissolves rather than moving:
+// three guns at 50% is the same proportion as one gun at 50%, and the count cannot
+// swamp anything it no longer touches.
+//
+// **And the shared total did not achieve its own goal anyway** — #165 measured it.
+// A share lands on an *authored magnitude*, upstream of effect_magnitude's synergy
+// seam, so a Selector multiplies the share by its match count: Deepwater Menagerie's
+// Hunter's Pack (+3 per Beast, two Beasts aboard) turned the site's Deep reading of
+// 9 into **14 points of output** where every flat build got 9, and Death Throes —
+// whose guns are gated on its own HP — banked 3 of it until it was dying. The site's
+// reading was worth 56% more to a synergy build than to a flat one, and #135's
+// `the_stakes_uplift_is_the_same_total_for_every_archetype` could not see it because
+// it sums authored magnitudes rather than resolving output. So the independence
+// property this machinery existed to protect was **already broken by exactly the
+// mechanism it was protecting against**, one level down: not count-of-guns, but
+// count-of-Beasts. The multiplier is the first shape that actually holds it, and
+// holds it through a selector for the same structural reason.
+run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_Archetype, power_percent: int) -> bool {
 	for name in archetype.items {
 		item, found := ship.ship_item_by_name(name)
 		assert(found, "hostile archetype names an item that is not in the roster")
-		if item.fitting.category == .Offensive {
-			guns += 1
-		}
-	}
-
-	gun_index := 0
-	for name in archetype.items {
-		item, _ := ship.ship_item_by_name(name)
 
 		fitting := item.fitting
-		if fitting.category == .Offensive {
-			fitting = ship.ship_fitting_scaled(fitting, run_offense_share(offense_bonus, guns, gun_index))
-			gun_index += 1
+		if run_stakes_scales_category(fitting.category) {
+			fitting = ship.ship_fitting_output_scaled(fitting, power_percent)
 		}
 		ship.ship_fit_first_empty_slot(layout, fitting) or_return
 	}
@@ -314,7 +378,7 @@ run_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
 
 	layout := ship.ship_template_layout()
 	assert(
-		run_fit_hostile_loadout(layout, archetype, run_fight_opponent_offense(site)),
+		run_fit_hostile_loadout(layout, archetype, run_fight_opponent_power(site)),
 		"hostile archetype loadout: a fitting failed to fit the ship template",
 	)
 

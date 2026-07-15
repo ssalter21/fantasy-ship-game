@@ -319,6 +319,44 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 	return f
 }
 
+// ship_fitting_output_scaled returns a copy of base with its combat **output**
+// scaled to `percent` percent of what was authored — the multiplicative sibling of
+// ship_fitting_scaled's additive bonus, and the shape core/run's Fight stakes reads
+// with (issue #165: an additive bonus can only ever add, so it gives a gradient no
+// way *down*). 100 returns the fitting as authored; 50 halves what it deals.
+//
+// **Only an active Phase_Contribution effect moves, and that is the definition of
+// output rather than a courtesy.** combat_phase_output sums exactly these; the
+// Modify_* kinds act through the effective-stat readers instead
+// (ship_effective_speed and friends), so a fitting's Speed / Durability / Max HP
+// contribution is not output and is left exactly as authored. That distinction is
+// load-bearing for the hostile roster: Category is a combat *phase*, so `.Buff`
+// holds both the buff phase's fittings (Powder Monkeys) and every Modify_Speed item
+// in the roster (Spare Rigging, Copper Sheathing, Outriggers, Enchanted Keel) — and
+// a hostile's Speed is its archetype's axis, explicitly not a stakes reading
+// (core/run's Hostile_Archetype.speed). A caller that scales a whole category
+// therefore cannot be trusted to have meant the speed items; this proc is what makes
+// "scale its output" mean only that.
+//
+// Rounds half-up, so a scale-down cannot silently disarm the roster's smallest
+// fittings: Powder Monkeys' magnitude of 1 at 50% is 1, not 0. Any percent >= 50
+// holds that for every authored magnitude.
+//
+// The percent lands on the **authored magnitude**, ahead of effect_magnitude's
+// synergy and conditional seams, which is what makes the scaling proportional to
+// what the fitting deals rather than to the build around it: a Selector's
+// per-match magnitude scales and its match count does not, so `(m x pct) x count`
+// is `pct x (m x count)`. An additive bonus has no such property — it is
+// multiplied by the count (see run_fit_hostile_loadout).
+ship_fitting_output_scaled :: proc(base: Fitting, percent: int) -> Fitting {
+	f := base
+	if effect, ok := f.active.?; ok && effect.kind == .Phase_Contribution {
+		effect.magnitude = Magnitude((int(effect.magnitude) * percent + 50) / 100)
+		f.active = effect
+	}
+	return f
+}
+
 // ship_fitting_cargo builds one of the ship template's default cargo fillers
 // (issue #23: "cargo fills the concealed slots by default"). name lets a
 // caller flavor multiple cargo instances (e.g. a PvE opponent's "Spoils")

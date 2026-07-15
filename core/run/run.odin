@@ -57,16 +57,30 @@ FIGHT_OPPONENT_HP_PER_DEPTH :: 12
 FIGHT_OPPONENT_DURABILITY_PER_TIER :: 1
 FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
 
-// The offense reading kept its pre-roster values (#135), and that is a property
-// rather than an accident: it is a hostile's **total** offensive uplift, shared out
-// across whatever Offensive fittings its archetype carries (run_fit_hostile_loadout),
-// so it means the same thing it did when the one opponent template had exactly one
-// Upgraded Gun Deck to spend it on. An archetype with a single gun reproduces the
-// retired template's numbers exactly. Had the bonus gone per-fitting instead, these
-// two constants would have had to be retuned against the *average gun count* of the
-// roster — i.e. re-tuned again every time an entry was authored.
-FIGHT_OPPONENT_OFFENSE_PER_TIER :: 2
-FIGHT_OPPONENT_OFFENSE_PER_DEPTH :: 1
+// The power reading is a **percent**, not a bonus (#165, ADR-0019) — the one
+// reading in this group that multiplies rather than adds, and the only one that
+// needs to. Every other primitive's reading is a quantity the site *grants*
+// (treasure, item quality, a swing), so zero is a coherent floor and adding is the
+// whole of what it does. A hostile is not granted: it arrives already authored, and
+// what the site decides is **how much of it lands here**. An additive bonus cannot
+// say "less than what was authored", so the gradient's floor was whatever #135
+// happened to author zone-blind — and since the draw reads no zone, that floor was
+// the first thing a starting ship met (#165 measured a run dying at fight two).
+//
+// **zone_tier's 1/2/3 puts 100% at Open Sea, and that is read off rather than
+// chosen.** A multiplier is proportional to tier, so PER_TIER *is* the Coastal
+// factor and the middle zone lands on twice it. 50 therefore says: the roster is
+// authored at **Open Sea weight** — an archetype meets a captain as its entry
+// describes it in the middle zone, at half that in the Coastal shallows, and at half
+// again on top in The Deep. That is a claim the roster can be read against
+// (hostile_roster's band note), which is what an exchange rate has and a bare bonus
+// never did (#146 made the same move for Trade).
+//
+// The depth row survives here, unlike Trade's (#146): a percent is not denominated
+// in a stat, so there is no base for DEPTH_STEPS to overrun — 5 points of percent
+// is a fifth of a Coastal factor, not a fifth of a hull.
+FIGHT_OPPONENT_POWER_PERCENT_PER_TIER :: 50
+FIGHT_OPPONENT_POWER_PERCENT_PER_DEPTH :: 5
 
 // FIGHT_OPPONENT_SPEED is **gone** (#135) — a hostile's Speed is its archetype's
 // (content.odin's Hostile_Archetype.speed), not the site's. It was never a stakes
@@ -258,9 +272,9 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 // stats so a deeper fight isn't HP-pool-only: run_fight_opponent_hp is the
 // opponent's HP baseline, run_fight_opponent_durability its flat
 // incoming-damage reduction (core/combat's durability stat), and
-// run_fight_opponent_offense the bonus added to each of its Offensive fittings
-// (issue #23; #135 made it per-fitting when the one Gun Deck became a roster
-// loadout). All three rise by zone tier and by depth-within-zone.
+// run_fight_opponent_power the percent its archetype's output is scaled to
+// (issue #23; #165 turned that last one from a bonus into a factor). All three
+// rise by zone tier and by depth-within-zone.
 //
 // These three are the whole of what stakes says about a hostile. Its Speed and its
 // loadout are its **archetype's** (content.odin's Hostile_Archetype) — the two axes
@@ -274,8 +288,11 @@ run_fight_opponent_durability :: proc(site: Scaling_Site) -> int {
 	return run_zone_depth_scaled(site, FIGHT_OPPONENT_DURABILITY_PER_TIER, FIGHT_OPPONENT_DURABILITY_PER_DEPTH)
 }
 
-run_fight_opponent_offense :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, FIGHT_OPPONENT_OFFENSE_PER_TIER, FIGHT_OPPONENT_OFFENSE_PER_DEPTH)
+// run_fight_opponent_power is a **percent** — 100 means "the archetype exactly as
+// authored" — where the other two readings are quantities. See the constants above
+// for why the Fight primitive is the one that multiplies.
+run_fight_opponent_power :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, FIGHT_OPPONENT_POWER_PERCENT_PER_TIER, FIGHT_OPPONENT_POWER_PERCENT_PER_DEPTH)
 }
 
 // run_offer_item_quality is the Offer primitive's stakes reading: a deeper

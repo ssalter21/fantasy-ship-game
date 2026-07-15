@@ -103,7 +103,7 @@ fight_opponent_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 
 @(test)
 fight_opponent_offense_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_fight_opponent_offense)
+	expect_rises_by_zone_and_depth(t, run_fight_opponent_power)
 }
 
 @(test)
