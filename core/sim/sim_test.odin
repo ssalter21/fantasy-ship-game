@@ -79,6 +79,11 @@ seed_with_layer_one_stage :: proc($T: typeid) -> (seed: u64, id: Node_ID, ok: bo
 // which axes the roster happens to price out of reach (that's the tuning signal
 // #136 left visible on purpose).
 seed_with_acceptable_layer_one_trade :: proc() -> (seed: u64, id: Node_ID, ok: bool) {
+	// Affordability is read against the ship every run starts with, so the yardstick
+	// is the same for every candidate: build it once and own its layout here.
+	starting := ship.ship_starting_ship()
+	defer delete(starting.layout)
+
 	for candidate in u64(0) ..< 64 {
 		m := run.run_map_create(candidate)
 		defer run.run_map_destroy(&m)
@@ -99,7 +104,6 @@ seed_with_acceptable_layer_one_trade :: proc() -> (seed: u64, id: Node_ID, ok: b
 			if !is_trade {
 				continue
 			}
-			starting := ship.ship_starting_ship()
 			if run.run_trade_can_accept(&starting, trade) {
 				return candidate, p.id, true
 			}

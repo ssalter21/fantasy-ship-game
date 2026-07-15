@@ -169,7 +169,7 @@ run_trade_roster :: proc() -> []Trade_Axis {
 // arrival.
 //
 // Both terms read the *same* site, so stakes move the whole trade together: a
-// Deep Reinforced Hull gains more Durability and costs more Speed than a Coastal
+// Deep Braced Bulkheads gains more Durability and costs more Speed than a Coastal
 // one, rather than scaling only the half that used to have a constant.
 run_make_trade :: proc(site: Scaling_Site, gen: rand.Generator) -> Stage_Trade {
 	roster := run_trade_roster()
