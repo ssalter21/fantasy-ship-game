@@ -242,37 +242,30 @@ run_reward_treasure :: proc(site: Scaling_Site) -> int {
 	return run_zone_depth_scaled(site, REWARD_TREASURE_PER_TIER, REWARD_TREASURE_PER_DEPTH)
 }
 
-// Node_Kind is what a Node is: the Start/home port, a per-zone Port, an
-// Encounter, or the Goal.
+// Node_Kind is what a Node is: the Start, an Encounter, or the Goal — ADR-0014's
+// end state, reached in issue #137.
 //
-// ADR-0014 keeps this enum but shrinks what it means. It **survives** because
-// Start and Goal are genuine landmarks — fixed, terminal, carrying no encounter —
-// and that is a fact about the node's place in the graph, not about content, so
-// nothing in the stage list can express it. What it stops carrying is content:
-// `.Port` was the only kind that said what a node *holds* rather than where it
-// sits, and stage-derived visibility (run_encounter_reveals) replaces it — a Port
-// is an Encounter holding the [Shop] recipe, visible because Shop reveals, not
-// because it is exempt. The end state is `Start | Encounter | Goal`.
+// It **survives** because Start and Goal are genuine landmarks: fixed, terminal,
+// carrying no encounter. That is a fact about a node's place in the graph rather
+// than about its content, so nothing in a stage list can express it. What it no
+// longer carries is content of any kind.
 //
-// `.Port` is still here, but it no longer says what a node holds: the Port
-// bucket (issue #134) places Ports as [Shop] encounters like any other content,
-// so a Port's shop is its stage and `.Port` is down to a marker for *how the node
-// was placed* — bespoke, off the zone's stage-count draw. What still reads it is
-// the Sim's per-Port shop path, which keys arrival off the kind because its
-// cross-visit shelf state has nowhere else to hang yet; collapsing that (issue
-// #137) is what deletes this value for good. Nothing new should key off it.
+// `.Port` is **gone**, and its removal is the last weld between a Shop and a node
+// kind. It shrank in three steps: ADR-0014 took its visibility (an encounter is
+// visible because it holds a revealing stage — run_encounter_reveals — not because
+// its kind is exempt), #134 took its content (a Port is a node dealt the [Shop]
+// recipe, stocked by the same path as every other node), and #131 took the last
+// thing that read it (the Sim's per-Port shelf state, which had keyed arrival off
+// the kind). That left a value marking only *how a node was placed*, which nothing
+// asked and which quietly implied a Port was a different sort of place than the
+// merchant vessel carrying the same primitive. Generation still places Ports
+// bespokely (generation.odin's step 3) — it just tracks them in the local `placed`
+// list for as long as that matters, which is until their recipes are dealt, rather
+// than staining the node with it for the rest of the run.
 Node_Kind :: enum {
 	Start,
-	Port,
 	Encounter,
 	Goal,
-}
-
-// run_node_is_port reports whether p functions as a port — true for both
-// .Start (the home port) and .Port (each zone's ports), so a caller doesn't
-// need to special-case .Start itself just to ask "is this node a port".
-run_node_is_port :: proc(p: Node) -> bool {
-	return p.kind == .Start || p.kind == .Port
 }
 
 // Node_ID identifies a node in a Map's nodes slice by position (ADR-0011:

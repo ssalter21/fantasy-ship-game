@@ -31,20 +31,26 @@ import "../run"
 // sim_walk_encounter rather than reaching for a travel choice itself. That is why
 // "what happens after this stage" has exactly one answer: whatever the cursor is on.
 
-// Deck_Position identifies a card by its position in a Shop stage's baked deck
-// (ADR-0011: distinct from a plain int so a deck position can't be silently swapped
+// Stock_Position identifies a card by its position in a Shop stage's baked stock
+// (ADR-0011: distinct from a plain int so a stock position can't be silently swapped
 // with an Option_Index — the shelf-slot index into the *same* shop — or any other
-// index). It indexes run.Stage_Shop.deck; the shop the ship is currently in tracks
+// index). It indexes run.Stage_Shop.stock; the shop the ship is currently in tracks
 // its shelf by it (Shop_Visit).
-Deck_Position :: distinct int
+Stock_Position :: distinct int
 
 // Shop_Visit is the working state of the Shop stage under the cursor: `slots` holds
-// the deck position currently shown in each shelf slot (nil past the deck's tail —
-// the graceful short-deck case, unreachable at the real roster size against a fixed
-// purse), `next_draw` is the next deck position to draw when a slot refills after a
-// buy, and `purchases` counts the buys made at this shop so far, driving the depth
-// surcharge (issue #124, shop_visit_price). `open` is false until the cursor lands on
-// a Shop and sim_deal_shop_visit deals its shelf.
+// the stock position currently shown in each shelf slot (nil once the stock behind
+// the shelf runs out), `next_draw` is the next stock position to draw when a slot
+// refills after a buy, and `purchases` counts the buys made at this shop so far,
+// driving the depth surcharge (issue #124, shop_visit_price). `open` is false until
+// the cursor lands on a Shop and sim_deal_shop_visit deals its shelf.
+//
+// A nil slot used to be the "graceful short-deck case, unreachable at the real
+// roster size" — a shop's stock was the whole 50-item roster, so nothing could
+// empty one. Issue #137 made it **reachable and deliberate**: a shop's stock is its
+// pool's authored depth, and a narrow merchant hold (six cards against a shelf of
+// five) can be bought out inside one visit. Running a shop dry is now content, not
+// a defensive branch.
 //
 // It is **one visit, not a row per node** — the change that retires ADR-0013's
 // cross-visit persistence (issue #131). The old port_shelves array kept every Port's
@@ -61,8 +67,8 @@ Deck_Position :: distinct int
 // re-examining whether the deck-plus-window shape still earns its keep, and recording
 // the ADR-0013 supersession.)
 Shop_Visit :: struct {
-	slots:     [run.SHOP_SHELF_SIZE]Maybe(Deck_Position),
-	next_draw: Deck_Position,
+	slots:     [run.SHOP_SHELF_SIZE]Maybe(Stock_Position),
+	next_draw: Stock_Position,
 	purchases: int,
 	open:      bool,
 }
@@ -87,11 +93,11 @@ shop_visit_price :: proc(base_cost: int, purchases: int) -> int {
 	return base_cost + SHOP_DEPTH_SURCHARGE_STEP * purchases
 }
 
-// shop_visit_draw_next hands out the next undrawn deck position and advances the
-// cursor, or nil once the deck is exhausted (issue #123) — the one place the
+// shop_visit_draw_next hands out the next undrawn stock position and advances the
+// cursor, or nil once the shop's stock is exhausted (issue #123) — the one place the
 // draw-or-exhaust decision lives, shared by the opening deal and each buy's refill.
-shop_visit_draw_next :: proc(visit: ^Shop_Visit, deck_len: int) -> Maybe(Deck_Position) {
-	if int(visit.next_draw) >= deck_len {
+shop_visit_draw_next :: proc(visit: ^Shop_Visit, stock_count: int) -> Maybe(Stock_Position) {
+	if int(visit.next_draw) >= stock_count {
 		return nil
 	}
 	pos := visit.next_draw
@@ -314,7 +320,7 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		// re-enters this same stage and re-presents it refilled — the multi-buy loop,
 		// now a property of where the cursor is rather than of a remembered origin.
 		sim.shop_visit.purchases += 1 // this shop is one item deeper; the next buy here costs more
-		sim.shop_visit.slots[selection] = shop_visit_draw_next(&sim.shop_visit, len(s.deck))
+		sim.shop_visit.slots[selection] = shop_visit_draw_next(&sim.shop_visit, s.count)
 
 	case run.Stage_Fight, run.Stage_Trade, run.Stage_Reward:
 		panic("an option was taken from a stage that presents no option list")
@@ -367,7 +373,7 @@ sim_stage_shop_options :: proc(sim: ^Sim, shop: run.Stage_Shop) {
 		if !filled {
 			continue
 		}
-		card := shop.deck[pos]
+		card := shop.stock[pos]
 		sim.stage_options[i] = Stage_Option {
 			fitting = card.fitting,
 			cost    = shop_visit_price(card.cost, sim.shop_visit.purchases),
@@ -376,13 +382,14 @@ sim_stage_shop_options :: proc(sim: ^Sim, shop: run.Stage_Shop) {
 }
 
 // sim_deal_shop_visit lays out a shop's opening shelf (issue #123): the top
-// SHOP_SHELF_SIZE cards off the deck, one per slot, with next_draw left pointing at
-// the first still-undrawn card. A deck shorter than the shelf (never at the real
-// roster size) leaves the tail slots nil. Called once per Shop stage, as the cursor
-// lands on it.
+// SHOP_SHELF_SIZE cards of its stock, one per slot, with next_draw left pointing at
+// the first still-undrawn card. A shop stocking fewer cards than the shelf shows
+// leaves the tail slots nil — reachable since #137 gave pools an authored depth,
+// though no pool authors one that shallow today. Called once per Shop stage, as the
+// cursor lands on it.
 sim_deal_shop_visit :: proc(visit: ^Shop_Visit, shop: run.Stage_Shop) {
 	for i in 0 ..< run.SHOP_SHELF_SIZE {
-		visit.slots[i] = shop_visit_draw_next(visit, len(shop.deck))
+		visit.slots[i] = shop_visit_draw_next(visit, shop.count)
 	}
 	visit.open = true
 }

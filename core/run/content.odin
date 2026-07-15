@@ -333,11 +333,15 @@ run_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM
 
 // run_shuffled_roster_indices returns the roster's indices
 // (0..<ship.ITEM_ROSTER_SIZE) in a per-seed-reproducible shuffled order — the
-// shared front half of sampling N distinct roster items, used by both the Offer
-// stage (run_item_offer_options) and the Shop stage (run_port_shop). Each takes
-// the first N and maps them its own way: an offer scales the fitting by node
-// stakes, a shop prices it by tier. Consolidating the shuffle here keeps the two
-// samplers from drifting (issue #98).
+// front half of sampling N distinct roster items for the Offer stage
+// (run_item_offer_options), which takes the first ITEM_OFFER_OPTION_COUNT.
+//
+// The Shop stage used to share this (issue #98, when both sampled the whole
+// roster) and no longer does: a shop draws from its **stock pool**, not the
+// roster (issue #137), so it shuffles that pool's candidate subset instead
+// (run_bake_shop). The two samplers have deliberately diverged — an Offer's pool
+// *is* the roster because an offer is what the sea happens to wash up, while a
+// shop is a business that chose what to carry.
 run_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SIZE]int {
 	indices: [ship.ITEM_ROSTER_SIZE]int
 	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
@@ -430,29 +434,192 @@ run_make_trade :: proc(site: Scaling_Site, gen: rand.Generator) -> Stage_Trade {
 	}
 }
 
-// run_port_shop bakes a Shop stage's deck (#123, ADR-0013): the *full* roster
-// shuffled into a per-seed-reproducible order (run_shuffled_roster_indices, off
-// the map generator's RNG so decks vary node to node yet reproduce per seed),
-// each card priced by its Tier (ship.ship_item_cost). Unlike an Offer the fitting
-// is stocked as-authored, not stakes-scaled: a shop's variance is which items and
-// what they cost, and cost already rises with tier, so layering a quality bonus
-// on top would double-count the tier. Baked at generation time so a Shop carries
-// its whole deck as content, like an Offer carries its options; the shelf window
-// and draw-down are runtime concerns the Sim owns. Every card is distinct — the
-// deck is a permutation of the roster — so a shelf drawn off it never repeats an
-// item within one stage.
+// Stock_Pool names one authored entry in the Shop primitive's content roster
+// (issue #137): what kind of business this shop is. It is the Shop analogue of
+// Hostile_Archetype and Trade_Axis — the content that stops every shop in the game
+// from being the same shop — with one decisive difference: **an archetype and an
+// axis are drawn, a stock pool is named by the recipe** (Stage_Spec.stock).
 //
-// Still named for the Port because a Port is the only thing that carries a shop
-// today; once Ports are the [Shop] recipe (#134/#137) the stage's stock pool is
-// what varies, which is #137's half.
-run_port_shop :: proc(gen: rand.Generator) -> Stage_Shop {
-	roster := ship.ship_item_roster()
-	order := run_shuffled_roster_indices(gen)
+// That difference is the whole of what makes a Port and a merchant vessel stock
+// differently, and it is deliberate. A Fight draws its archetype with no regard to
+// where it is because archetype and stakes are independent axes (#135) — any build
+// may turn up anywhere. A Shop cannot work that way, because the two things
+// carrying Shop stages are not interchangeable:
+//
+//   - A **Port** is *guaranteed*: the Port bucket places exactly PORTS_PER_ZONE of
+//     them in every zone (generation.odin), so every run has six, and routing to one
+//     is a plan the map always honours. That promise is only worth making if a Port
+//     is a dependable general market — a Port that could roll a six-card specialist
+//     hold would make "go and restock" a gamble, which is the one thing the bespoke
+//     placement exists to prevent.
+//   - A **merchant vessel** is a *windfall*: it competes for slots in its zone's
+//     stage-count bucket, so it may not appear at all. A windfall can afford to be
+//     narrow and strange, because nothing is planned around it.
+//
+// Drawing the pool freely would make which-shop-is-this a per-node accident and
+// leave that asymmetry inexpressible. Naming it on the recipe is what lets "Port"
+// mean *the general store* and a merchant vessel mean *a hold full of one thing*.
+Stock_Pool :: enum {
+	Chandlery,
+	Ordnance_Hoy,
+	Press_Gang,
+	Menagerie,
+	Curiosity_Dealer,
+}
 
-	shop: Stage_Shop
-	for roster_index, deck_pos in order {
-		item := roster[roster_index]
-		shop.deck[deck_pos] = Shop_Item{fitting = item.fitting, cost = ship.ship_item_cost(item.tier)}
+// Stock is what one Stock_Pool is made of: the two things a shop's stock varies by
+// (issue #137 asked which of pool subset / size / tier weighting / price "stocking
+// differently" means, and this type is the answer — **subset and size**).
+//
+// **Subset, via `families`** — the shop's character. The Tag families are the
+// roster's own authored family axis (ADR-0012), and they are what reads as a kind
+// of business: a hold of Weapons is an ordnance hoy, a hold of Beasts is a
+// menagerie. Filtering on Tag rather than Category (Buff/Defensive/Offensive) is
+// deliberate: Category is a *combat phase*, so a "Defensive shop" describes when its
+// wares fire, not what they are, and no chandler ever sorted a warehouse that way.
+//
+// **Size, via `depth`** — how many cards deep the hold is, and the only reason a
+// shop can be exhausted. With the shelf window at SHOP_SHELF_SIZE, a visit reaches
+// `depth` cards at most, so this is what separates a Port you cannot empty from a
+// merchant you can (see the table below).
+//
+// **Not tier weighting, and not price.** Tier weighting is the stakes question, and
+// Shop deliberately reads no stakes at all (run.odin's scaling group says why: the
+// gradient a shop faces is the purse the captain brings). Price is economy tuning,
+// which this map rules out of scope — and a per-pool discount would collide with
+// #124's depth surcharge, the one price knob that already exists.
+//
+// `families` is a **Maybe**, and nil means *no filter* rather than *every family*.
+// A chandlery is defined by not being choosy, so it must keep stocking a sixth Tag
+// the day one is authored, without this table being edited to remember it. It also
+// keeps the whole-roster case from quietly depending on every roster item carrying
+// a tag (they all do today — see every_roster_item_carries_a_tag_family — but that
+// is the Offer's business, not a fact a chandlery should rest on).
+Stock :: struct {
+	name:     string,
+	families: Maybe(bit_set[ship.Tag]),
+	depth:    int,
+}
+
+// stock_pools is every shop in the game, in the same authored-table shape as
+// hostile_roster, trade_roster, and catalog.odin's recipe_catalog. @(rodata): like
+// trade_roster these entries are constant initializers, so the table can live in
+// read-only memory.
+//
+// **Only Chandlery is reachable today.** The Port recipe names it (catalog.odin) and
+// no other recipe carries a Shop, so the four specialist holds below are authored
+// content waiting on the recipes that will name them — issue #138, which owns the
+// catalog. This is the same split #135 made: it authored eight hostile archetypes
+// while the catalog still held a single [Fight]. Authoring a merchant-vessel recipe
+// here instead would deal it into a zone's stage-count bucket and reshape every
+// seed's map, which is #138's call to make and not this ticket's.
+//
+// **Depth is authored per pool, and it is the whole difference in feel.** What matters
+// is not the number itself but the **reserve** it leaves behind the shelf — depth minus
+// SHOP_SHELF_SIZE — because that is what a purchase draws on. A visit sees the shelf
+// and refills a bought slot from the reserve; when the reserve is gone, buying starts
+// leaving bare slots and the shop visibly shrinks.
+//
+//   - Chandlery's 12 leaves a reserve of **7**. The starting purse of 50 buys about
+//     three cards even at the cheapest tier (10, then #124's surcharge makes it 15, 20),
+//     so the shelf is still full when the money runs out — the captain gives up before
+//     the shop does. It is not infinite: buying all 12 out at the cheapest tier costs
+//     10+15+…+65 = 450, nine times what a run starts with, so emptying a Port means
+//     arriving with a fortune and spending the lot on trinkets.
+//   - A specialist's 6 leaves a reserve of **1**. The *second* purchase of a visit
+//     already bares a slot. That is the difference, and it lands within the two or
+//     three buys a real visit makes rather than at some theoretical exhaustion — which
+//     is exactly what a single ship's hold should feel like next to a town's warehouse.
+//
+// Both are pinned by test (a_chandlerys_reserve_outlasts_the_purse_a_captain_brings,
+// a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied), because the interesting
+// quantity is a difference of two constants against a third and no one will notice by
+// eye when the surcharge moves.
+@(rodata)
+stock_pools := [Stock_Pool]Stock {
+	// The Port's pool, and the only one a recipe names today. No filter at all: a
+	// chandlery is the general store, which is the promise the Port bucket's
+	// guaranteed placement is making.
+	.Chandlery = {name = "Chandlery", families = nil, depth = 12},
+	// Guns. The largest specialist pool (15 Weapon items) and the most obvious
+	// merchant: a powder hoy running ordnance between ports.
+	.Ordnance_Hoy = {name = "Ordnance Hoy", families = bit_set[ship.Tag]{.Weapon}, depth = 6},
+	// Hands. Crew is the family the roster's biggest synergy trap sits in
+	// (Admiral's Guard, +3 per Crew aboard — see hostile_roster), so a hold that
+	// sells nothing but Crew is the one shop that can build that trap on purpose.
+	.Press_Gang = {name = "Press Gang", families = bit_set[ship.Tag]{.Crew}, depth = 6},
+	// Beasts. The smallest candidate family (10), so its 6 is over half the pool —
+	// two menageries in one run would visibly repeat, which is the honest cost of a
+	// narrow family and a reason #138 may want it rare.
+	.Menagerie = {name = "Menagerie", families = bit_set[ship.Tag]{.Beast}, depth = 6},
+	// Oddities. Artifact is the family with no unifying mechanic — it is the
+	// roster's "everything else" — so this is the specialist whose stock is
+	// unpredictable in kind rather than uniform.
+	.Curiosity_Dealer = {name = "Curiosity Dealer", families = bit_set[ship.Tag]{.Artifact}, depth = 6},
+}
+
+// run_stock_pool returns one pool's authored stock. The Shop half of the same
+// authored-content rule catalog.odin states for recipes and trade_roster for trades:
+// the shops in the game are this table and nothing else.
+run_stock_pool :: proc(pool: Stock_Pool) -> Stock {
+	return stock_pools[pool]
+}
+
+// run_stock_candidates returns the roster indices a pool is allowed to stock, in
+// roster order, and how many there are — the filter half of run_bake_shop, split out
+// so the pool table can be checked against the roster by test without baking a shop.
+//
+// An unfiltered pool (families = nil) yields the whole roster in order, untouched.
+// That is not just a convenience: it is what keeps a Chandlery's shuffle identical to
+// the pre-#137 whole-roster deck's, so Ports generate exactly the stock they always
+// did and the seed-pinned maps do not move.
+//
+// A filtered pool keeps an item if it carries **any** of the pool's families — a
+// multi-tag item (Naval Gun Crew is Crew+Weapon) is stocked by both an Ordnance Hoy
+// and a Press Gang, the same way selector_matches counts it under each of its tags
+// (ADR-0012).
+run_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZE]int, count: int) {
+	roster := ship.ship_item_roster()
+	families, filtered := stock.families.?
+	for item, i in roster {
+		if filtered && item.fitting.tags & families == {} {
+			continue
+		}
+		indices[count] = i
+		count += 1
+	}
+	return
+}
+
+// run_bake_shop bakes a Shop stage's stock from its authored pool (issue #137,
+// superseding ADR-0013's whole-roster deck): the pool's candidates shuffled into a
+// per-seed-reproducible order off the map generator's RNG — so stock varies node to
+// node yet reproduces per seed, like an Offer's items and a Fight's archetype — cut
+// off at the pool's authored depth, each card priced by its Tier
+// (ship.ship_item_cost). Every card is distinct, being a sample of a permutation, so
+// a shelf drawn off it never repeats an item within one visit.
+//
+// **It takes no Scaling_Site, and that is the point** — Shop is the one primitive
+// that ignores its own node's stakes. An Offer scales its items' magnitudes by the
+// site; a shop stocks them exactly as authored. ADR-0013 justified that by
+// double-counting *tier* (cost already rises with tier, so a quality bonus on top
+// would charge once and pay twice), and that still holds, but the stronger reason
+// arrived with #133: **Reward's payout is site-scaled** (20/tier + 5/depth), so depth
+// already means "more treasure". A shop that also improved with depth would compound
+// the same progression from both ends — richer captain *and* better shelf. So the
+// market is a fixed market, and the gradient a shop faces is the purse the captain
+// brings to it. That is why this proc has no `site` parameter to ignore.
+run_bake_shop :: proc(pool: Stock_Pool, gen: rand.Generator) -> Stage_Shop {
+	stock := run_stock_pool(pool)
+	roster := ship.ship_item_roster()
+
+	candidates, n := run_stock_candidates(stock)
+	rand.shuffle(candidates[:n], gen)
+
+	shop := Stage_Shop{count = min(stock.depth, n)}
+	for i in 0 ..< shop.count {
+		item := roster[candidates[i]]
+		shop.stock[i] = Shop_Item{fitting = item.fitting, cost = ship.ship_item_cost(item.tier)}
 	}
 	return shop
 }

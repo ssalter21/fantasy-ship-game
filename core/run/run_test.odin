@@ -3,6 +3,7 @@ package run
 import "../combat"
 import "../ship"
 import "../testutil"
+import "core:math/rand"
 import "core:slice"
 import "core:testing"
 
@@ -167,11 +168,137 @@ depth_normalization_maps_shallow_and_deep_to_stable_endpoints :: proc(t: ^testin
 }
 
 @(test)
-run_node_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal :: proc(t: ^testing.T) {
-	testing.expect(t, run_node_is_port(Node{kind = .Start}))
-	testing.expect(t, run_node_is_port(Node{kind = .Port}))
-	testing.expect(t, !run_node_is_port(Node{kind = .Encounter}))
-	testing.expect(t, !run_node_is_port(Node{kind = .Goal}))
+node_kind_says_only_where_a_node_sits_never_what_it_holds :: proc(t: ^testing.T) {
+	// The end state ADR-0014 named and #137 reached: Start | Encounter | Goal. Start
+	// and Goal are landmarks by graph *position*, which no stage list can express;
+	// everything else is an Encounter, and what it holds is asked of its stages.
+	//
+	// This replaces run_node_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal.
+	// That proc — and the .Port value it read — had no caller outside its own test by
+	// the time #137 arrived: #131 took the Sim's last read of the kind, and #134 made a
+	// port's shop its [Shop] stage. This asserts the enum stays shut, so a future
+	// content-bearing kind has to argue with a failing test first.
+	testing.expect_value(t, len(Node_Kind), 3)
+	testing.expect_value(t, max(Node_Kind), Node_Kind.Goal)
+}
+
+@(test)
+every_stock_pool_is_authored_against_the_real_roster :: proc(t: ^testing.T) {
+	// The stock-pool table is authored data (#137), so its invariants are checked here
+	// rather than by the compiler — the same treatment
+	// every_hostile_archetype_is_built_from_real_roster_items gives the hostile roster.
+	//
+	// A pool that asked for more cards than its families can supply would silently
+	// stock less than it claims (run_bake_shop clamps to the candidate count), and a
+	// pool deeper than SHOP_STOCK_MAX would not fit a Stage_Shop at all.
+	for pool in Stock_Pool {
+		stock := run_stock_pool(pool)
+		testing.expectf(t, stock.name != "", "stock pool %v has no name", pool)
+		testing.expectf(t, stock.depth > 0, "stock pool %v stocks nothing", pool)
+		testing.expectf(
+			t,
+			stock.depth <= SHOP_STOCK_MAX,
+			"stock pool %v is %d cards deep, past the SHOP_STOCK_MAX of %d a Stage_Shop can hold",
+			pool, stock.depth, SHOP_STOCK_MAX,
+		)
+
+		_, n := run_stock_candidates(stock)
+		testing.expectf(
+			t,
+			n >= stock.depth,
+			"stock pool %v wants %d cards but its families supply only %d",
+			pool, stock.depth, n,
+		)
+	}
+
+	// The Chandlery is the general store: no filter at all, so its candidates are the
+	// whole roster. Authoring it as "every family" instead would pass every assertion
+	// above and still quietly drop a sixth Tag the day one is added.
+	chandlery := run_stock_pool(.Chandlery)
+	_, families_filtered := chandlery.families.?
+	testing.expect(t, !families_filtered)
+	_, chandlery_candidates := run_stock_candidates(chandlery)
+	testing.expect_value(t, chandlery_candidates, ship.ITEM_ROSTER_SIZE)
+}
+
+@(test)
+a_specialist_pool_stocks_only_its_own_families :: proc(t: ^testing.T) {
+	// The filter is the whole mechanism (#137) and **nothing else exercises it**: the
+	// Chandlery applies no filter, and it is the only pool a recipe names until #138
+	// authors the merchant vessels. So bake each pool directly rather than through a
+	// generated map, or the specialist holds would ship untested.
+	state := rand.create(7)
+	gen := rand.default_random_generator(&state)
+
+	for pool in Stock_Pool {
+		stock := run_stock_pool(pool)
+		families, filtered := stock.families.?
+		if !filtered {
+			continue // the Chandlery, checked by every_stock_pool_is_authored_against_the_real_roster
+		}
+
+		shop := run_bake_shop(pool, gen)
+		testing.expectf(t, shop.count == stock.depth, "%v stocked %d cards, want %d", pool, shop.count, stock.depth)
+		for i in 0 ..< shop.count {
+			card := shop.stock[i]
+			testing.expectf(
+				t,
+				card.fitting.tags & families != {},
+				"%v stocks %q, which carries %v and none of the pool's %v",
+				pool, card.fitting.name, card.fitting.tags, families,
+			)
+		}
+	}
+}
+
+@(test)
+a_pool_stocks_a_multi_tag_item_under_each_of_its_families :: proc(t: ^testing.T) {
+	// A multi-tag item belongs to *both* its families (ADR-0012 — selector_matches
+	// counts it under each), so an Ordnance Hoy and a Press Gang can both stock the
+	// Crew+Weapon items. That is a deliberate consequence of "keep it if it carries
+	// **any** of the pool's families" and it is what keeps the specialist pools from
+	// carving the roster into disjoint slices with the cross-family items falling
+	// between them.
+	weapon, weapon_n := run_stock_candidates(run_stock_pool(.Ordnance_Hoy))
+	crew, crew_n := run_stock_candidates(run_stock_pool(.Press_Gang))
+
+	shared := 0
+	for i in 0 ..< weapon_n {
+		for j in 0 ..< crew_n {
+			if weapon[i] == crew[j] {
+				shared += 1
+			}
+		}
+	}
+	testing.expectf(t, shared > 0, "no roster item is both Crew and Weapon, so this test no longer proves anything")
+}
+
+@(test)
+every_stage_spec_authors_a_pool_iff_it_is_a_shop :: proc(t: ^testing.T) {
+	// Stage_Spec.stock is a Maybe so that a pool is explicitly absent on a non-Shop
+	// rather than accidentally the zero pool (#137), and run_bake_stage asserts both
+	// directions. This checks every authored recipe already satisfies it, so the assert
+	// is a statement about the catalog rather than a trap waiting for a real seed.
+	pools := 0
+	for r in ([]([]Recipe){run_recipe_catalog(), run_port_bucket()}) {
+		for recipe in r {
+			for spec in recipe.stages {
+				_, authored := spec.stock.?
+				testing.expectf(
+					t,
+					authored == (spec.kind == .Shop),
+					"recipe %q authors a %v stage with stock = %v; only a Shop draws from a pool",
+					recipe.name, spec.kind, spec.stock,
+				)
+				if authored {
+					pools += 1
+				}
+			}
+		}
+	}
+	// The Port's Chandlery, and nothing else — #138 is what authors the recipes that
+	// name the specialist holds.
+	testing.expect_value(t, pools, 1)
 }
 
 // --- Generation structural invariants (swept over several seeds) -----------
@@ -305,9 +432,9 @@ recipe_bucket_membership_is_derived_from_stage_count :: proc(t: ^testing.T) {
 	// with nothing authored to say so and nowhere to say it wrong. Checked against a
 	// synthetic catalog rather than the real one, because the real one is still
 	// one-stage-only (#138) and would leave the 2- and 3-stage cases untested.
-	one := [?]Stage_Kind{.Fight}
-	two := [?]Stage_Kind{.Fight, .Reward}
-	three := [?]Stage_Kind{.Offer, .Fight, .Reward}
+	one := [?]Stage_Spec{{kind = .Fight}}
+	two := [?]Stage_Spec{{kind = .Fight}, {kind = .Reward}}
+	three := [?]Stage_Spec{{kind = .Offer}, {kind = .Fight}, {kind = .Reward}}
 	catalog := [?]Recipe {
 		{name = "one-a", stages = one[:]},
 		{name = "three", stages = three[:]},
@@ -397,12 +524,17 @@ every_port_holds_the_one_stage_shop_recipe :: proc(t: ^testing.T) {
 	// The Port bucket's bespoke placement (#134): a Port is [Shop] — one stage even
 	// in The Deep, where the zone mapping would otherwise demand three — and it is
 	// visible on the map because Shop reveals, not because its node kind exempts it.
+	//
+	// A port is found by **what it holds**, not by its kind: #137 retired Node_Kind.Port,
+	// so "is this a port" is asked of the stage list, exactly as the Sim's mask and the
+	// map view ask it. Only the Port bucket authors a Shop today, so holding one is
+	// what being a port means.
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
 		for p in m.nodes {
-			if p.kind != .Port {
+			if _, is_port := node_shop(p); !is_port {
 				continue
 			}
 			encounter, has_encounter := p.encounter.?
@@ -430,7 +562,7 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 
 		port_counts: [Zone]int
 		for p in m.nodes {
-			if p.kind != .Port {
+			if _, is_port := node_shop(p); !is_port {
 				continue
 			}
 			zone, ok := p.zone.?
@@ -455,59 +587,98 @@ each_zone_has_exactly_two_ports_within_its_own_phase :: proc(t: ^testing.T) {
 }
 
 @(test)
-every_port_bakes_a_full_roster_deck_priced_by_tier :: proc(t: ^testing.T) {
-	// #123, ADR-0013: every port bakes a Shop whose deck is the *full* roster — a
-	// permutation, so every roster item appears exactly once — each card priced at
-	// its tier; no other node carries a shop. Unchanged by #134 except in where the
-	// deck lives: it is the port's [Shop] stage's baked content now, dealt with its
-	// recipe, so this asserts the fold from the old step-6 stocking pass preserved
-	// the deck's shape.
-	roster := ship.ship_item_roster()
+every_port_stocks_its_chandlery_pool_priced_by_tier :: proc(t: ^testing.T) {
+	// #137: a port's shop stocks the **Chandlery** pool — the one pool with no family
+	// filter, so its candidates are the whole roster — cut to that pool's authored
+	// depth, each card priced at its tier and every card distinct.
+	//
+	// This replaces the pre-#137 assertion that a port's deck *was* the full roster (a
+	// permutation of all ITEM_ROSTER_SIZE items). That deck existed because ADR-0013's
+	// draw-down persisted across every visit in the run; walked-once encounters (#131)
+	// left ~37 of its 50 cards unreachable on every shop of every map. What survives is
+	// the property that actually mattered: distinct cards, tier prices, and a shuffle
+	// that is a pure function of the seed.
+	chandlery := run_stock_pool(.Chandlery)
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
 		for p in m.nodes {
 			shop, has_shop := node_shop(p)
-			if p.kind != .Port {
-				testing.expectf(t, !has_shop, "seed %d: a %v node carries a shop", seed, p.kind)
+			if !has_shop {
 				continue
 			}
-			testing.expectf(t, has_shop, "seed %d: port %d carries no shop", seed, p.id)
 			testing.expectf(
 				t,
-				len(shop.deck) == ship.ITEM_ROSTER_SIZE,
-				"seed %d: port %d deck has %d cards, want the full roster of %d",
-				seed, p.id, len(shop.deck), ship.ITEM_ROSTER_SIZE,
+				shop.count == chandlery.depth,
+				"seed %d: port %d stocks %d cards, want the Chandlery's %d",
+				seed, p.id, shop.count, chandlery.depth,
 			)
 
-			// The deck is a permutation of the roster: every roster item is present
-			// exactly once, and each card is priced at its own tier.
-			for r in roster {
-				seen := 0
-				for card in shop.deck {
-					if card.fitting.name != r.fitting.name {
-						continue
-					}
-					seen += 1
+			// Every card is a real roster item at its own tier's price, and no card
+			// repeats — the stock is a sample of a permutation, so a shelf drawn off it
+			// never offers the same item twice in one visit.
+			for i in 0 ..< shop.count {
+				card := shop.stock[i]
+				item, found := ship.ship_item_by_name(card.fitting.name)
+				testing.expectf(t, found, "seed %d: port %d stocks %q, which is not a roster item", seed, p.id, card.fitting.name)
+				testing.expectf(
+					t,
+					card.cost == ship.ship_item_cost(item.tier),
+					"seed %d: port %d card %s priced %d, want %d for tier %v",
+					seed, p.id, card.fitting.name, card.cost, ship.ship_item_cost(item.tier), item.tier,
+				)
+				for j in i + 1 ..< shop.count {
 					testing.expectf(
 						t,
-						card.cost == ship.ship_item_cost(r.tier),
-						"seed %d: port %d card %s priced %d, want %d for tier %v",
-						seed, p.id, card.fitting.name, card.cost, ship.ship_item_cost(r.tier), r.tier,
+						card.fitting.name != shop.stock[j].fitting.name,
+						"seed %d: port %d stocks %s at both position %d and %d",
+						seed, p.id, card.fitting.name, i, j,
 					)
 				}
-				testing.expectf(t, seen == 1, "seed %d: port %d holds %s %d times, want exactly once", seed, p.id, r.fitting.name, seen)
 			}
 		}
 	}
 }
 
 @(test)
-a_ports_deck_is_deterministic_per_seed :: proc(t: ^testing.T) {
-	// #123, ADR-0013: a deck is a pure function of the run seed (no runtime RNG), so
-	// the same seed reproduces every Port's deck card-for-card — a seed's shops are
-	// fully determined before play, like the rest of map generation.
+a_chandlery_can_stock_any_roster_item :: proc(t: ^testing.T) {
+	// The Chandlery is the *general* store, which is the promise the Port bucket's
+	// guaranteed placement makes (#137). "No filter" has to mean the whole roster is
+	// reachable, not merely that a lot of it is — so sweep the seeds and check every
+	// roster item turns up in some port's stock.
+	//
+	// This is the assertion that would fail if the Chandlery were authored as "every
+	// Tag family" instead of as nil: a sixth Tag, or a tagless item, would silently
+	// drop out of the general store and only this sweep would notice.
+	seen: map[string]bool
+	defer delete(seen)
+
+	for seed in 0 ..< 60 {
+		m := run_map_create(u64(seed))
+		defer run_map_destroy(&m)
+		for p in m.nodes {
+			shop, has_shop := node_shop(p)
+			if !has_shop {
+				continue
+			}
+			for i in 0 ..< shop.count {
+				seen[shop.stock[i].fitting.name] = true
+			}
+		}
+	}
+
+	for r in ship.ship_item_roster() {
+		testing.expectf(t, seen[r.fitting.name], "no port in 60 seeds ever stocked %q, which a chandlery should be able to carry", r.fitting.name)
+	}
+}
+
+@(test)
+a_ports_stock_is_deterministic_per_seed :: proc(t: ^testing.T) {
+	// #123, ADR-0013: a shop's stock is a pure function of the run seed (no runtime
+	// RNG), so the same seed reproduces every Port's stock card-for-card — a seed's
+	// shops are fully determined before play, like the rest of map generation. #137
+	// shrank the stock to its pool's depth without touching that property.
 	a := run_map_create(42)
 	defer run_map_destroy(&a)
 	b := run_map_create(42)
@@ -519,22 +690,26 @@ a_ports_deck_is_deterministic_per_seed :: proc(t: ^testing.T) {
 			continue
 		}
 		sb, _ := node_shop(b.nodes[i])
-		for pos in 0 ..< len(sa.deck) {
+		testing.expect_value(t, sa.count, sb.count)
+		for pos in 0 ..< sa.count {
 			testing.expectf(
 				t,
-				sa.deck[pos].fitting.name == sb.deck[pos].fitting.name && sa.deck[pos].cost == sb.deck[pos].cost,
-				"port %d deck position %d differs between two builds of seed 42", pa.id, pos,
+				sa.stock[pos].fitting.name == sb.stock[pos].fitting.name && sa.stock[pos].cost == sb.stock[pos].cost,
+				"port %d stock position %d differs between two builds of seed 42", pa.id, pos,
 			)
 		}
 	}
 }
 
 @(test)
-distinct_ports_bake_distinct_decks :: proc(t: ^testing.T) {
-	// #123, ADR-0013: each Port owns a distinct deck — run variety comes from
-	// checking Port against Port — so two Ports' decks must not be identically
-	// ordered. Decks are independent shuffles of the same roster (a permutation
-	// collision is a ~1/ITEM_ROSTER_SIZE! event, i.e. never), so any two differ.
+distinct_ports_bake_distinct_stock :: proc(t: ^testing.T) {
+	// #123, ADR-0013: each Port owns distinct stock — run variety comes from checking
+	// Port against Port — so two Ports must not stock the same cards in the same
+	// order. Each is an independent shuffle of the same candidate pool, so a
+	// collision across a Chandlery's 12 positions is a ~1/(50·49·…·39) event, i.e.
+	// never. This is the property #137's shrink most had to preserve: the Ports of one
+	// run are still worth comparing, even though each now holds a twelfth of what it
+	// used to.
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
@@ -542,7 +717,7 @@ distinct_ports_bake_distinct_decks :: proc(t: ^testing.T) {
 		port_ids: [dynamic]Node_ID
 		defer delete(port_ids)
 		for p in m.nodes {
-			if p.kind == .Port {
+			if _, is_port := node_shop(p); is_port {
 				append(&port_ids, p.id)
 			}
 		}
@@ -552,13 +727,13 @@ distinct_ports_bake_distinct_decks :: proc(t: ^testing.T) {
 				a, _ := node_shop(m.nodes[port_ids[i]])
 				b, _ := node_shop(m.nodes[port_ids[j]])
 				identical := true
-				for pos in 0 ..< len(a.deck) {
-					if a.deck[pos].fitting.name != b.deck[pos].fitting.name {
+				for pos in 0 ..< a.count {
+					if a.stock[pos].fitting.name != b.stock[pos].fitting.name {
 						identical = false
 						break
 					}
 				}
-				testing.expectf(t, !identical, "seed %d: ports %d and %d bake identical decks", seed, port_ids[i], port_ids[j])
+				testing.expectf(t, !identical, "seed %d: ports %d and %d bake identical stock", seed, port_ids[i], port_ids[j])
 			}
 		}
 	}
@@ -603,8 +778,8 @@ recipe_name_of :: proc(e: Encounter) -> string {
 			continue
 		}
 		matched := true
-		for kind, i in r.stages {
-			if run_stage_kind(e.stages[i]) != kind {
+		for spec, i in r.stages {
+			if run_stage_kind(e.stages[i]) != spec.kind {
 				matched = false
 				break
 			}

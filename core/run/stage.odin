@@ -51,12 +51,41 @@ Stage_Kind :: enum {
 // that many distinct items.
 ITEM_OFFER_OPTION_COUNT :: 3
 
-// SHOP_SHELF_SIZE is how many deck cards a Shop stage shows at once — the shelf
-// window onto the top of the deck (ADR-0013's "a shelf of the top 5"). The deck
-// itself is the full roster (Stage_Shop.deck); this is only how much of it is
-// visible/buyable at any moment. Must stay <= ship.ITEM_ROSTER_SIZE so a full
-// shelf can be drawn.
+// SHOP_SHELF_SIZE is how many cards a Shop stage shows at once — the window onto
+// the top of its stock (ADR-0013's "a shelf of the top 5"). This is only how much
+// of the stock is visible/buyable at any moment; buying refills the slot from the
+// stock behind it.
+//
+// **The window survives the loss of cross-visit persistence** (issue #137), which
+// is not obvious — ADR-0013's original reason for it was draw-down *across* visits,
+// and #131 retired that. It earns its place for a different reason now: #124's depth
+// surcharge, which charges more for each successive buy at one shop, only means
+// something if buying reveals something new. Show the whole stock at once and the
+// surcharge degenerates into a flat "buying more costs more" tax on a menu the
+// captain has already read. Behind a window it is the price of *digging* — spend a
+// little to see what else is in the hold — which is the decision the shop is for.
+//
+// A constant rather than a per-pool authored knob: how much of any shop you can take
+// in at a glance is a property of looking at shops, not of which shop it is. What
+// varies per pool is what is behind the window (Stock.depth).
 SHOP_SHELF_SIZE :: 5
+
+// SHOP_STOCK_MAX is the hard cap on how many cards one Shop stage holds — the
+// deepest hold any authored pool asks for (content.odin's stock_pools), checked
+// against that table by test the way ENCOUNTER_MAX_STAGES is checked against the
+// recipes. The cap is what lets a Stage_Shop store its stock inline: no owned heap,
+// so a Map full of shops frees with its nodes.
+//
+// This is what is left of ADR-0013's **deck**, and the shrink is the point (issue
+// #137). The deck was the *entire* ITEM_ROSTER_SIZE roster, sized that way because
+// a Port's draw-down persisted across every visit in the run and so had a whole run
+// to chew through it. Walked-once encounters (#131) killed that: one visit reaches
+// SHOP_SHELF_SIZE cards plus one per purchase, and the purse caps purchases in the
+// low teens, so ~37 of those 50 cards were baked into every shop on every map and
+// could never be looked at. A shop's stock is now what a shop actually has.
+//
+// Must stay >= SHOP_SHELF_SIZE so the deepest pool can fill a shelf.
+SHOP_STOCK_MAX :: 12
 
 // Shop_Item is one purchasable card in a Shop stage: the roster `fitting` on
 // offer and its `cost` in treasure. Cost is stored as a plain int, priced once at
@@ -146,19 +175,26 @@ Stage_Trade :: struct {
 	cost: Trade_Term,
 }
 
-// Stage_Shop sells from a seed-baked deck of the full roster, each card priced by
-// tier (run_port_shop), against the ship's starting treasure. Leaving completes
-// the stage — a shop cannot be failed, so Shop is the one primitive with no halt.
-// It is its own primitive rather than Offer-with-a-price precisely so the Item
-// Offer can be redesigned later without dragging Shop along.
+// Stage_Shop sells from a seed-baked stock, each card priced by tier
+// (run_bake_shop), against the ship's starting treasure. Leaving completes the
+// stage — a shop cannot be failed, so Shop is the one primitive with no halt. It is
+// its own primitive rather than Offer-with-a-price precisely so the Item Offer can
+// be redesigned later without dragging Shop along.
 //
 // Shop is the one **revealing** primitive (run_stage_kind_reveals): an encounter
-// holding one is visible on the map before arrival. That is what makes a Port
-// just the [Shop] recipe and a merchant vessel at sea a hidden encounter that
-// happens to carry a Shop stage — same primitive, placed differently. A
-// fixed-size array: no owned heap.
+// holding one is visible on the map before arrival. That is what makes a Port just
+// the [Shop] recipe and a merchant vessel at sea an encounter that happens to carry
+// a Shop stage — same primitive, placed differently, and stocked differently because
+// the recipe names its pool (Stage_Spec.stock, issue #137).
+//
+// `count` is how many cards this shop's pool actually stocked and `stock` is
+// fixed-size to SHOP_STOCK_MAX — the same count-plus-inline-array shape as Encounter,
+// and for the same reason: no owned heap. Slots from count to the cap are unused. A
+// shop whose count is small enough can be **bought out** within a single visit, which
+// is the whole mechanical difference between a merchant's hold and a Port's warehouse.
 Stage_Shop :: struct {
-	deck: [ship.ITEM_ROSTER_SIZE]Shop_Item,
+	stock: [SHOP_STOCK_MAX]Shop_Item,
+	count: int,
 }
 
 // Stage_Reward grants treasure outright and always completes — the "then loot it"
@@ -257,20 +293,47 @@ Encounter :: struct {
 	cursor: int,
 }
 
-// Recipe is the authored unit of encounter content (ADR-0014): a name plus the
-// ordered primitives its stages are drawn from. `Sea Battle = [Fight, Reward]`.
-// Generation picks a whole recipe and bakes each stage's content from that
-// stage's own roster — it never composes a stage list, because mix-and-match is a
-// developer authoring tool, not a runtime generative system.
+// Stage_Spec is one authored step of a Recipe: a primitive, plus whatever that
+// primitive needs *authored* rather than drawn. It is the alphabet a recipe is
+// written in — Stage_Kind is the letter, this is the letter as written down.
 //
-// `stages` holds primitives, not baked Stages: a recipe is static authored data
-// reused by every node that draws it, while the content is per-node. Which bucket
-// a recipe belongs to is **derived** from its stage count and never authored —
-// there is deliberately no bucket field, so a recipe cannot be filed in the wrong
-// bucket because it isn't filed at all.
+// This widens ADR-0014's "a recipe is a name plus an order over primitives"
+// (issue #137). A bare Stage_Kind could not express the one thing a Shop needs
+// from its recipe: **which stock pool it sells from**. Every other primitive draws
+// its content freely — a Fight's archetype, a Trade's axis and an Offer's items are
+// all sampled off the map RNG with no regard to the recipe carrying them — but a
+// Port and a merchant vessel must not stock alike (Stock_Pool says why at length),
+// and nothing about a Shop stage on its own knows which of the two it is in.
+//
+// `stock` is a **Maybe**, and the Maybe is doing real work: it is set on a Shop spec
+// and nil on every other, so a pool is explicitly absent rather than accidentally
+// the zero pool. `{kind = .Fight}` cannot be read as "a Fight that sells a chandlery's
+// wares"; it carries no pool at all. run_bake_stage asserts both directions, and
+// every_stage_spec_authors_a_pool_iff_it_is_a_shop checks the catalog against it.
+//
+// It stays deliberately narrow. This is *not* the orthogonal trait-modifier layer
+// ADR-0014 ruled out, and it is not an invitation for every primitive to grow an
+// authoring knob: a field belongs here only when a primitive genuinely cannot draw
+// the thing for itself, which so far is one field on one primitive.
+Stage_Spec :: struct {
+	kind:  Stage_Kind,
+	stock: Maybe(Stock_Pool),
+}
+
+// Recipe is the authored unit of encounter content (ADR-0014): a name plus the
+// ordered stages it is written as. `Sea Battle = [Fight, Reward]`. Generation picks
+// a whole recipe and bakes each stage's content from that stage's own roster — it
+// never composes a stage list, because mix-and-match is a developer authoring tool,
+// not a runtime generative system.
+//
+// `stages` holds authored specs, not baked Stages: a recipe is static authored data
+// reused by every node that draws it, while the content is per-node. Which bucket a
+// recipe belongs to is **derived** from its stage count and never authored — there is
+// deliberately no bucket field, so a recipe cannot be filed in the wrong bucket
+// because it isn't filed at all.
 Recipe :: struct {
 	name:   string,
-	stages: []Stage_Kind,
+	stages: []Stage_Spec,
 }
 
 // run_encounter_from_recipe bakes one authored recipe into a node's Encounter:
@@ -284,8 +347,8 @@ run_encounter_from_recipe :: proc(r: Recipe, site: Scaling_Site, gen: rand.Gener
 	assert(len(r.stages) <= ENCOUNTER_MAX_STAGES, "a recipe authored more stages than an Encounter can hold")
 
 	e := Encounter{count = len(r.stages)}
-	for kind, i in r.stages {
-		e.stages[i] = run_bake_stage(kind, site, gen)
+	for spec, i in r.stages {
+		e.stages[i] = run_bake_stage(spec, site, gen)
 	}
 	return e
 }

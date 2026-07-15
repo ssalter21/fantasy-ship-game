@@ -29,13 +29,13 @@ package run
 // `stages` slice points at static data — a recipe is authored once and reused by
 // every node that draws it, so it owns no per-node memory.
 @(rodata)
-SEA_BATTLE_STAGES := [?]Stage_Kind{.Fight}
+SEA_BATTLE_STAGES := [?]Stage_Spec{{kind = .Fight}}
 
 @(rodata)
-DERELICT_STAGES := [?]Stage_Kind{.Offer}
+DERELICT_STAGES := [?]Stage_Spec{{kind = .Offer}}
 
 @(rodata)
-BARGAIN_STAGES := [?]Stage_Kind{.Trade}
+BARGAIN_STAGES := [?]Stage_Spec{{kind = .Trade}}
 
 // recipe_catalog is every encounter in the game — the authored table
 // run_recipe_catalog hands out, in the same package-level-table shape as
@@ -58,10 +58,16 @@ run_recipe_catalog :: proc() -> []Recipe {
 // PORT_STAGES backs the Port recipe. A Port is not a kind of place any more — it
 // is `[Shop]`, an encounter like any other, visible on the map only because Shop
 // is the revealing primitive (run_stage_kind_reveals). What still makes it a Port
-// is *where* it is put: two per zone, off the entrance layer (generation.odin's
-// step 3). Placement is the whole of its bespokeness.
+// is *where* it is put — two per zone, off the entrance layer (generation.odin's
+// step 3) — and, since issue #137, *what it sells*: the Chandlery pool, the one
+// pool with no family filter at all.
+//
+// Those two are the same fact stated twice, which is why the recipe names the pool
+// rather than drawing it. Bespoke placement guarantees six Ports per run, so routing
+// to one is a plan the map always honours; that promise is only worth making if what
+// you find there is a general market. See Stock_Pool.
 @(rodata)
-PORT_STAGES := [?]Stage_Kind{.Shop}
+PORT_STAGES := [?]Stage_Spec{{kind = .Shop, stock = .Chandlery}}
 
 // port_bucket is the Port bucket's pool: the recipes eligible for the two
 // bespoke port placements in each zone. A bucket is a pool plus a placement rule

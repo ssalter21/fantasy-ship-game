@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. **Supersedes ADR-0013** (a Port shop's cross-visit persistence drops; the multi-buy-until-you-leave loop within one visit survives). **Amends ADR-0009's wording**: its difficulty gradient is renamed **stakes**, and its per-zone encounter-kind bag becomes a **recipe bag**. ADR-0009's topology, movement, port placement, encounter-fires-once, and presentation decisions carry forward unchanged, as do ADR-0012's roster/tags/effects/Refit decisions and ADR-0006's combat resolution.
+Accepted. **Amended by ADR-0015**, which widens "a recipe is a name plus an order over primitives" to a name plus an order over stage *specs* (a primitive plus what it cannot draw for itself — today, a Shop's stock pool), retires `Node_Kind.Port` to reach the `Start | Encounter | Goal` end state named below, and records the Shop decisions this ADR left open. **Supersedes ADR-0013** (a Port shop's cross-visit persistence drops; the multi-buy-until-you-leave loop within one visit survives) — completed by ADR-0015. **Amends ADR-0009's wording**: its difficulty gradient is renamed **stakes**, and its per-zone encounter-kind bag becomes a **recipe bag**. ADR-0009's topology, movement, port placement, encounter-fires-once, and presentation decisions carry forward unchanged, as do ADR-0012's roster/tags/effects/Refit decisions and ADR-0006's combat resolution.
 
 ## Context
 

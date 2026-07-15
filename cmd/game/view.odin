@@ -61,28 +61,38 @@ zone_tint :: proc(zone: Maybe(run.Zone)) -> rl.Color {
 }
 
 // node_appearance picks the marker colour and label for a node (issue #71).
-// An unvisited Encounter is a generic zone-tinted marker with no label — its
-// content is hidden until arrival (the Sim's hiding contract). Once visited, an
-// Encounter shows its revealed first stage's colour and label; landmarks
-// (Start/Port/Goal) are always fully labelled.
+// An Encounter whose content is still hidden is a generic zone-tinted marker with
+// no label (the Sim's hiding contract); one that has been visited, or that reveals
+// itself before arrival, shows its first stage's colour and label. The Start and
+// Goal landmarks are always fully labelled.
 //
-// Labelling by the first stage is what today's one-stage recipes allow
-// (catalog.odin); rendering an arbitrary stage sequence — including a halt read
-// as a consequence rather than a bug — is issue #139.
+// **Revealing is asked of the stage list, never of the node kind** (ADR-0014,
+// run_encounter_reveals). This used to read `case .Port` — a port was labelled
+// because of what kind of node it was — and issue #137 deleted that value, so the
+// question is now the same one the Sim's mask asks. A Port and a merchant vessel
+// both carry a Shop, so both label themselves before arrival, on one rule with no
+// branch of its own.
+//
+// That does mean a port now reads **"Shop"** rather than "Port": the label comes
+// from the stage, and the recipe's name ("Port", and whatever #138 calls its
+// merchants) is not carried on a baked Encounter for the map to read. Naming a
+// revealed encounter properly is issue #139's, along with rendering an arbitrary
+// stage sequence — labelling by the first stage is only what today's one-stage
+// recipes allow.
 node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:
 		return rl.SKYBLUE, "Start"
-	case .Port:
-		return rl.SKYBLUE, "Port"
 	case .Goal:
 		return rl.GOLD, "Goal"
 	case .Encounter:
-		if !visited {
-			// Content hidden: generic zone-tinted marker, no label.
+		// A masked node arrives with no encounter at all, so there is nothing to
+		// label; an unvisited one that does not reveal itself keeps its content back
+		// until arrival.
+		encounter, has_encounter := p.encounter.?
+		if !has_encounter || (!visited && !run.run_encounter_reveals(encounter)) {
 			return zone_tint(p.zone), ""
 		}
-		encounter, _ := p.encounter.?
 		stage, has_stage := run.run_encounter_current(encounter)
 		if !has_stage {
 			return rl.GRAY, ""

@@ -152,7 +152,7 @@ a_recipes_bucket_is_derived_from_its_stage_count_not_authored :: proc(t: ^testin
 	one := Recipe{name = "One", stages = SEA_BATTLE_STAGES[:]}
 	testing.expect_value(t, len(one.stages), 1)
 
-	two := Recipe{name = "Two", stages = []Stage_Kind{.Fight, .Reward}}
+	two := Recipe{name = "Two", stages = []Stage_Spec{{kind = .Fight}, {kind = .Reward}}}
 	testing.expect_value(t, len(two.stages), 2)
 }
 
@@ -161,7 +161,7 @@ run_encounter_from_recipe_bakes_every_authored_stage_in_order :: proc(t: ^testin
 	state := rand.create(0)
 	gen := rand.default_random_generator(&state)
 
-	r := Recipe{name = "Blockade", stages = []Stage_Kind{.Fight, .Offer, .Reward}}
+	r := Recipe{name = "Blockade", stages = []Stage_Spec{{kind = .Fight}, {kind = .Offer}, {kind = .Reward}}}
 	e := run_encounter_from_recipe(r, Scaling_Site{zone = .Deep, depth = 1}, gen)
 	defer for i in 0 ..< e.count {
 		if fight, is_fight := e.stages[i].(Stage_Fight); is_fight {
@@ -171,8 +171,8 @@ run_encounter_from_recipe_bakes_every_authored_stage_in_order :: proc(t: ^testin
 
 	testing.expect_value(t, e.count, 3)
 	testing.expect_value(t, e.cursor, 0) // a fresh encounter starts on its first stage
-	for kind, i in r.stages {
-		testing.expectf(t, run_stage_kind(e.stages[i]) == kind, "stage %d: baked out of authored order", i)
+	for spec, i in r.stages {
+		testing.expectf(t, run_stage_kind(e.stages[i]) == spec.kind, "stage %d: baked out of authored order", i)
 	}
 
 	// Baked content, not a bare number resolved later: the Fight carries a real
@@ -193,7 +193,7 @@ a_bare_reward_recipe_bakes_its_payout_from_the_site :: proc(t: ^testing.T) {
 	gen := rand.default_random_generator(&state)
 
 	site := Scaling_Site{zone = .Open_Sea, depth = 2}
-	r := Recipe{name = "Drifting Salvage", stages = []Stage_Kind{.Reward}}
+	r := Recipe{name = "Drifting Salvage", stages = []Stage_Spec{{kind = .Reward}}}
 	e := run_encounter_from_recipe(r, site, gen)
 
 	testing.expect_value(t, e.count, 1)
@@ -237,7 +237,7 @@ run_encounter_from_recipe_rejects_a_recipe_past_the_stage_cap :: proc(t: ^testin
 
 	state := rand.create(0)
 	gen := rand.default_random_generator(&state)
-	r := Recipe{name = "Too Long", stages = []Stage_Kind{.Trade, .Trade, .Trade, .Trade}}
+	r := Recipe{name = "Too Long", stages = []Stage_Spec{{kind = .Trade}, {kind = .Trade}, {kind = .Trade}, {kind = .Trade}}}
 
 	testing.expect_assert(t, "a recipe authored more stages than an Encounter can hold")
 	run_encounter_from_recipe(r, Scaling_Site{zone = .Coastal, depth = 0}, gen)
