@@ -3,49 +3,297 @@ package run
 import "../ship"
 import "core:math/rand"
 
-// run_make_opponent_ship computes a Ship Battle opponent's baseline stats
-// (hp, durability, speed) from the node's Scaling_Site — the numeric half of a
-// hand-authored PvE opponent (issue #23). run_pve_opponent layers a
-// hand-authored layout on top of these same stats; this proc has no
-// layout/captain of its own and is not itself a complete opponent.
+// Hostile_Archetype is one authored entry in the Fight primitive's content roster
+// (issue #135, ADR-0014's "Fight gains a hostile roster"): a named hostile build,
+// the items it carries, and how fast it sails. It carries no HP, no Durability and
+// no magnitudes — those are the node's stakes — so an archetype is authored purely
+// as *what kind of ship this is*, and the site decides how much of it there is.
+//
+// This is the type that retires the one-opponent template. Every battle in the
+// game used to be the same ship — Captain's Quarters, Top Crew, an Upgraded Gun
+// Deck, Spoils in the rest — with bigger numbers the deeper you went. There was no
+// hostile roster, there was a hostile *template*. An archetype is now a roster row,
+// and the hostiles in the game are that table.
+//
+// `items` names roster items by their authored name (ship_item_by_name) rather
+// than restating their magnitudes: a hostile is built out of the *same* ~50 items
+// the player can be offered (ADR-0012), so the two halves of the game cannot drift
+// apart, and an item's tags/synergies/conditions work aboard a hostile exactly as
+// they do aboard the player. Names are checked by test, not by the compiler — see
+// every_hostile_archetype_is_built_from_real_roster_items.
+//
+// **Order is authoring.** Items are placed first-empty-fit (ship_fit_first_empty_slot)
+// and the template lists its slots exposed-first within each size, so an item's
+// position in this list decides whether it ends up on deck or in the hold — which
+// in turn decides whether a Condition_Self_Visibility or Selector(Visibility.Concealed)
+// effect fires. Smuggler's Run authors two throwaway Mediums ahead of its Wraith
+// Cannon for exactly this reason.
+Hostile_Archetype :: struct {
+	name: string,
+	// speed is the archetype's base Speed — the one Fight stat the stakes group
+	// explicitly disowns ("Speed is not a stakes reading", run.odin), and so the
+	// one it is free to claim. It replaces the flat FIGHT_OPPONENT_SPEED, which
+	// pinned every hostile in the game at 5 against a starting player's 4.
+	//
+	// That flat 5 was quietly load-bearing, and wrong in both directions: it meant
+	// *every* hostile was escape-eligible at BASELINE_ROUND_COUNT and so bolted
+	// (combat_scripted_command), while the player — slower than everything — could
+	// never take Leave Combat at all, and the roster's Condition_Opponent_Slower
+	// items (Storm Sails) could never fire. Spreading speed across the roster is
+	// what makes all three live: a Hulk at 2 is a hostile you may walk away from, a
+	// Reef Skimmer at 6 is one that will leave *you*.
+	speed: int,
+	items: []string,
+}
+
+// The backing arrays for each archetype's item list. Package-level for the same
+// reason catalog.odin's stage arrays are: an archetype is static authored data
+// reused by every node that draws it, so its item list must not be per-node
+// memory. @(rodata) — unlike recipe_catalog these are constant initializers.
+@(rodata)
+COASTAL_PRIVATEER_ITEMS := [?]string{"Carronade", "Swivel Guns", "Boarding Nets"}
+
+@(rodata)
+BROADSIDE_COMPANY_ITEMS := [?]string{"Naval Gun Crew", "Powder Monkeys", "Boarding Pikes"}
+
+@(rodata)
+DEEPWATER_MENAGERIE_ITEMS := [?]string{"Hunter's Pack", "Snapping Eels"}
+
+@(rodata)
+SMUGGLERS_RUN_ITEMS := [?]string{"Copper Sheathing", "Iron Plating", "Wraith Cannon", "Spare Rigging"}
+
+@(rodata)
+IRONCLAD_HULK_ITEMS := [?]string{"Long Nines", "Reinforced Hull", "Ballast Stones"}
+
+@(rodata)
+BOARDING_PARTY_ITEMS := [?]string{"Naval Gun Crew", "War Drums", "Boarding Pikes"}
+
+@(rodata)
+DEATH_THROES_ITEMS := [?]string{"Deck Cannon", "Kraken Spawn", "War Hound"}
+
+@(rodata)
+REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Copper Sheathing", "Swivel Guns", "Spare Rigging"}
+
+// hostile_roster is every hostile in the game, in the same authored-table shape as
+// trade_roster above and catalog.odin's recipe_catalog. Not @(rodata) despite never
+// being written: taking a slice of the backing arrays above is not a constant
+// initializer, so the entries fill at program init (the same reason recipe_catalog
+// isn't).
+//
+// **Size — eight.** A run traverses only ~3-4 nodes per zone (~11-14 of 50), so
+// this is sized like trade_roster (six) but deliberately larger, for two reasons.
+// Fight is the primitive that appears in the *most* recipes — it is [Fight] today
+// and the spine of [Fight, Reward], this effort's headline recipe (#138) — so a run
+// meets more Fights than Trades, and six would repeat inside a single zone. And a
+// hostile is the most-*looked-at* content in the game: you stare at its layout for a
+// whole battle, where a Trade is one line you read and answer. The bar for "I have
+// seen this before" is far lower, so the roster has to be wider to clear it. Eight
+// is also the smallest size that puts one build behind each of the roster's effect
+// themes below; fewer would leave whole item families with no hostile that uses them.
+//
+// **Coverage.** One build per idea, spanning what ADR-0012's items can actually do:
+// plain flat guns (Coastal Privateer), a Tag synergy (Broadside Company on Weapon,
+// Deepwater Menagerie on Beast), concealment — both the condition and the placement
+// trick (Smuggler's Run), stat-modifier armour (Ironclad Hulk), a Crew build
+// (Boarding Party), HP-threshold conditionals (Death Throes), and speed
+// stat-modifiers (Reef Skimmer).
+//
+// **The authoring rule: an archetype is character, stakes is power.** Entries are
+// authored to a *comparable* output band, deliberately — this is the Fight analogue
+// of trade_roster's "every axis is one swing for one swing". Archetype and stakes
+// are meant to be independent axes (#135), and an archetype is drawn with no regard
+// to zone, so any build can turn up anywhere; if one build were three times another,
+// the draw would swamp the gradient and which hostile you met would matter more than
+// how deep you were. So no entry is the "Deep" one — depth is the site's job. The
+// band is enforced by test (a_starting_player_can_fight_every_archetype_at_coastal),
+// not by eye: every archetype must be beatable-but-not-trivial for a *starting* ship
+// at Coastal, which is the check that catches both degenerate directions below.
+//
+// **Both walls are one-line mistakes here**, which is why that test exists. Damage
+// is `raw - (effective_durability + defense_bonus)` (combat.odin) and the margins are
+// single digits: a starting player's raw is 8 against today's 6 of soak. So ~3 points
+// of stacked +Durability makes a hostile *literally undentable*, and — less obviously
+// — so does buff, which folds into the defender's `defense_bonus` as well as its own
+// offense. That is the trap in every synergy item: Admiral's Guard (+3 per Crew
+// aboard) on a crew build is +12 defence and an unwinnable fight, which is why
+// Boarding Party carries flat War Drums instead. Every entry below therefore keeps
+// (buff + defensive-active + Modify_Durability) at or under the template's own 5.
+//
+// Magnitudes ride on the items, so the numbers here are ADR-0012's placeholders and
+// move with them; the map's "stakes constant tuning per primitive" fog owns the rest.
+hostile_roster := [?]Hostile_Archetype {
+	// The retired template's honest successor: guns, no tricks, no synergy to read.
+	// First so the roster opens on something recognisable, and so there is a
+	// baseline the other seven are variations *from*. Speed 4 ties the player's, so
+	// neither side can leave — this is the one that has to be fought out.
+	{name = "Coastal Privateer", speed = 4, items = COASTAL_PRIVATEER_ITEMS[:]},
+	// Every gun aboard makes the crew's guns hit harder: Powder Monkeys buff per
+	// Weapon, and both other items are Weapons (Boarding Pikes and Naval Gun Crew are
+	// multi-tag Crew+Weapon, so they pay into it while reading as boarders). Only two
+	// guns despite the name — see the band note above; a third took it to raw 17 and
+	// a two-round kill.
+	{name = "Broadside Company", speed = 4, items = BROADSIDE_COMPANY_ITEMS[:]},
+	// Beasts, and Hunter's Pack paying per Beast aboard. Two of them, because the
+	// synergy is quadratic in its own family and a third Beast is +3 to the Pack *and*
+	// a whole extra gun. Slow and laden: at 3 it is the archetype a starting player
+	// can outrun, which is what makes Leave Combat a real option rather than a menu
+	// item nothing satisfies.
+	{name = "Deepwater Menagerie", speed = 3, items = DEEPWATER_MENAGERIE_ITEMS[:]},
+	// Runs dark and runs fast. The trick is placement: two throwaway Mediums push the
+	// Wraith Cannon into the concealed hold, where its Condition_Self_Visibility fires
+	// — the archetype whose build only works because of the *order* of its item list.
+	// Spare Rigging rather than the Ghost Lantern the theme wants: the Lantern's 4 is
+	// *buff*, and buff is soak as well as output, so it bought a three-round kill and
+	// a much harder hostile to dent. Copper Sheathing and the Rigging take it to an
+	// effective 8, so it bolts at BASELINE_ROUND_COUNT: kill it quickly or it is gone.
+	{name = "Smuggler's Run", speed = 5, items = SMUGGLERS_RUN_ITEMS[:]},
+	// Armour: the one build that spends its budget on Modify_Durability instead of
+	// output, so it is a wall you chip rather than one you burst. Held to +3 total —
+	// see the both-walls note above; a fourth point takes a starting player's damage
+	// to zero. At 2 it is the slowest thing afloat and the easiest to walk away from.
+	{name = "Ironclad Hulk", speed = 2, items = IRONCLAD_HULK_ITEMS[:]},
+	// Crew, and the archetype that documents the synergy trap: it wants Admiral's
+	// Guard (+3 per Crew) and cannot have it, because four Crew aboard would be +12
+	// defence and an unwinnable fight. Flat War Drums instead — the build reads the
+	// same and can actually be beaten.
+	{name = "Boarding Party", speed = 4, items = BOARDING_PARTY_ITEMS[:]},
+	// Wakes up when it is dying: two of its three guns are gated on its own HP below
+	// half, so it opens with a single Deck Cannon and turns savage exactly when the
+	// player thinks it is won. The roster's argument that a conditional is a *shape*,
+	// not a discount.
+	{name = "Death Throes", speed = 3, items = DEATH_THROES_ITEMS[:]},
+	// Light guns and two Modify_Speed items — an effective 9, so it is gone the round
+	// it becomes eligible. A nuisance rather than a threat, and the counterpart to the
+	// Hulk: the archetype that leaves *you*.
+	{name = "Reef Skimmer", speed = 6, items = REEF_SKIMMER_ITEMS[:]},
+}
+
+// run_hostile_roster returns every authored hostile archetype. run_pve_opponent
+// deals from this rather than building one hardcoded loadout, so the set of
+// hostiles in the game is this table and nothing else — the Fight half of the same
+// authored-content rule catalog.odin states for recipes and trade_roster for trades.
+run_hostile_roster :: proc() -> []Hostile_Archetype {
+	return hostile_roster[:]
+}
+
+// run_make_opponent_ship computes a Ship Battle opponent's stakes-scaled stats (hp,
+// durability) from the node's Scaling_Site — the numeric half of a PvE opponent
+// (issue #23). run_pve_opponent layers an archetype's loadout and speed on top of
+// these; this proc has no layout/captain/speed of its own and is not itself a
+// complete opponent.
+//
+// Speed left this proc with issue #135: hp and durability are the site's readings,
+// but speed is the archetype's (see Hostile_Archetype.speed), so a stats-from-site
+// helper has nothing to say about it.
 run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 	hp := run_fight_opponent_hp(site)
 	return ship.Ship{
 		hp         = hp,
 		max_hp     = hp,
 		durability = run_fight_opponent_durability(site),
-		speed      = FIGHT_OPPONENT_SPEED,
 	}
 }
 
-// run_pve_opponent builds a full Ship Battle opponent (issue #23): the one
-// ship template (ADR-0004), filled with the same starting-fitting roster
-// used everywhere else in this slice — base Captain's Quarters and Top
-// Crew, and an Upgraded Gun Deck scaled by this node's zone/depth. hp and
-// durability reuse run_make_opponent_ship's existing zone-and-depth-scaled
-// formulas rather than duplicating them. Carries no captain — a captain is a
-// player-side, run-start choice (CONTEXT.md), not opponent content. Caller
-// owns the returned Ship's layout slice.
-// run_fit_pve_opponent_loadout fits the opponent's fixed combat loadout into
-// the template's exposed slots and hands the rest to
-// ship_fill_empty_slots_with_cargo (issue #54: an or_return chain replacing
-// hand-threaded ok/assert pairs, mirroring core/ship's
-// ship_fit_starting_loadout — a false return means the template and this
-// roster have drifted out of sync). Issue #91: the opponent's spare slots fill
-// with "Spoils" cargo the same way the player's fill with "Cargo".
-run_fit_pve_opponent_loadout :: proc(layout: []ship.Layout_Slot, bonus: int) -> bool {
-	ship.ship_fit(&layout[0], ship.ship_fitting_captains_quarters()) or_return
-	ship.ship_fit(&layout[1], ship.ship_fitting_top_crew()) or_return
-	ship.ship_fit(&layout[2], ship.ship_fitting_upgraded_gun_deck(bonus)) or_return
+// run_fit_hostile_loadout fits an archetype's authored items into the one ship
+// template (ADR-0004) and hands the leftovers to ship_fill_empty_slots_with_cargo
+// (issue #91: the opponent's spare slots fill with "Spoils" the way the player's
+// fill with "Cargo"). An or_return chain like core/ship's ship_fit_starting_loadout
+// — a false return means the archetype and the template have drifted out of sync
+// (it asks for more Larges than the template has), a content bug this package's own
+// tests catch, not a runtime condition.
+//
+// run_offense_share splits a hostile's total offensive uplift across its guns: the
+// share for gun `index` of `count`, with the remainder handed to the earliest guns
+// so the parts always re-sum to `total` exactly. A build with one big gun and a
+// build with three small ones therefore receive the *same* uplift, just cut
+// differently.
+//
+// `count` is never 0: the only caller reads it off the loadout and asks only while
+// placing a gun, so asking at all means there is at least one.
+run_offense_share :: proc(total: int, count: int, index: int) -> int {
+	share := total / count
+	if index < total % count {
+		share += 1
+	}
+	return share
+}
+
+// run_fit_hostile_loadout fits an archetype's authored items into the one ship
+// template (ADR-0004) and hands the leftovers to ship_fill_empty_slots_with_cargo
+// (issue #91: the opponent's spare slots fill with "Spoils" the way the player's
+// fill with "Cargo"). An or_return chain like core/ship's ship_fit_starting_loadout
+// — a false return means the archetype and the template have drifted out of sync
+// (it asks for more Larges than the template has), a content bug this package's own
+// tests catch, not a runtime condition.
+//
+// **The stakes bonus is a total, shared across the archetype's Offensive fittings**
+// — not applied to each. This is what actually makes archetype and stakes
+// independent axes (#135), and it is the subtle half of the ticket. Per-fitting, a
+// build's *gun count* would multiply the site's reading: at Coastal's deepest node a
+// two-gun build would take twice the uplift of a one-gun build, so which archetype
+// you drew would move the hostile's power more than how deep you were — the
+// gradient swamped by the draw. Sharing one total keeps the site's reading worth the
+// same wherever it lands, so the archetype decides only the *shape* of the output.
+// It also means a one-Offensive-fitting archetype reproduces the retired template's
+// numbers exactly, which is why FIGHT_OPPONENT_OFFENSE_* needed no retune.
+//
+// **And only Offensive fittings take it.** A bonus on a Buff or Defensive fitting
+// inflates `defense_bonus`, which is subtracted from the *player's* damage
+// (combat.odin), so scaling those would mean a deeper node makes a hostile harder to
+// *hurt* rather than harder to fight — and, a couple of tiers in, impossible to hurt
+// at all. Stakes moves output; the archetype decides what soaks.
+run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_Archetype, offense_bonus: int) -> bool {
+	guns := 0
+	for name in archetype.items {
+		item, found := ship.ship_item_by_name(name)
+		assert(found, "hostile archetype names an item that is not in the roster")
+		if item.fitting.category == .Offensive {
+			guns += 1
+		}
+	}
+
+	gun_index := 0
+	for name in archetype.items {
+		item, _ := ship.ship_item_by_name(name)
+
+		fitting := item.fitting
+		if fitting.category == .Offensive {
+			fitting = ship.ship_fitting_scaled(fitting, run_offense_share(offense_bonus, guns, gun_index))
+			gun_index += 1
+		}
+		ship.ship_fit_first_empty_slot(layout, fitting) or_return
+	}
 	return ship.ship_fill_empty_slots_with_cargo(layout, "Spoils")
 }
 
-run_pve_opponent :: proc(site: Scaling_Site) -> ship.Ship {
+// run_pve_opponent builds a full Ship Battle opponent by drawing one archetype from
+// the hostile roster (#135) and baking it at this node's stakes: the archetype
+// supplies the loadout and speed, the site supplies hp, durability, and the
+// offensive bonus. Draws off the map generator's RNG (`gen`) — so *which* hostile a
+// node holds is reproducible per seed yet varies node to node, exactly like an
+// Offer's items, a Shop's deck and a Trade's axis — and is called from
+// run_bake_stage at generation time. Nothing rolls on arrival (ADR-0013).
+//
+// The draw reads no zone: archetype and stakes are independent axes, so a Deep node
+// gets a *tougher* hostile, not a different pool of them. Whether some archetypes
+// should be zone-gated after all is the catalog's own eligibility question (the
+// map's "per-zone eligibility beyond stage count" fog), not this draw's.
+//
+// Carries no captain — a captain is a player-side, run-start choice (CONTEXT.md),
+// not opponent content. Caller owns the returned Ship's layout slice; run_map_destroy
+// frees it per Fight stage.
+run_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
+	roster := run_hostile_roster()
+	archetype := roster[rand.int_max(len(roster), gen)]
+
 	s := run_make_opponent_ship(site)
+	s.speed = archetype.speed
 
 	layout := ship.ship_template_layout()
-	bonus := run_fight_opponent_offense(site)
-	assert(run_fit_pve_opponent_loadout(layout, bonus), "PvE opponent loadout: a fitting failed to fit its template slot")
+	assert(
+		run_fit_hostile_loadout(layout, archetype, run_fight_opponent_offense(site)),
+		"hostile archetype loadout: a fitting failed to fit the ship template",
+	)
 
 	s.layout = layout
 	return s

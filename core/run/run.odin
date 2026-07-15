@@ -51,9 +51,24 @@ FIGHT_OPPONENT_HP_PER_TIER :: 10
 FIGHT_OPPONENT_HP_PER_DEPTH :: 3
 FIGHT_OPPONENT_DURABILITY_PER_TIER :: 1
 FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
+
+// The offense reading kept its pre-roster values (#135), and that is a property
+// rather than an accident: it is a hostile's **total** offensive uplift, shared out
+// across whatever Offensive fittings its archetype carries (run_fit_hostile_loadout),
+// so it means the same thing it did when the one opponent template had exactly one
+// Upgraded Gun Deck to spend it on. An archetype with a single gun reproduces the
+// retired template's numbers exactly. Had the bonus gone per-fitting instead, these
+// two constants would have had to be retuned against the *average gun count* of the
+// roster — i.e. re-tuned again every time an entry was authored.
 FIGHT_OPPONENT_OFFENSE_PER_TIER :: 2
 FIGHT_OPPONENT_OFFENSE_PER_DEPTH :: 1
-FIGHT_OPPONENT_SPEED :: 5
+
+// FIGHT_OPPONENT_SPEED is **gone** (#135) — a hostile's Speed is its archetype's
+// (content.odin's Hostile_Archetype.speed), not the site's. It was never a stakes
+// reading; the comment below said so while the constant sat in this group anyway.
+// Pinned flat at 5 against a starting player's 4, it also meant every hostile in the
+// game was escape-eligible at the baseline round and none could ever be escaped
+// from.
 
 OFFER_ITEM_QUALITY_PER_TIER :: 15
 OFFER_ITEM_QUALITY_PER_DEPTH :: 5
@@ -158,9 +173,14 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 // stats so a deeper fight isn't HP-pool-only: run_fight_opponent_hp is the
 // opponent's HP baseline, run_fight_opponent_durability its flat
 // incoming-damage reduction (core/combat's durability stat), and
-// run_fight_opponent_offense its Gun Deck output bonus (issue #23). All three
-// rise by zone tier and by depth-within-zone. Speed is not a stakes reading —
-// FIGHT_OPPONENT_SPEED is flat.
+// run_fight_opponent_offense the bonus added to each of its Offensive fittings
+// (issue #23; #135 made it per-fitting when the one Gun Deck became a roster
+// loadout). All three rise by zone tier and by depth-within-zone.
+//
+// These three are the whole of what stakes says about a hostile. Its Speed and its
+// loadout are its **archetype's** (content.odin's Hostile_Archetype) — the two axes
+// are independent, so the site decides how much hostile there is and the roster
+// decides which one it is.
 run_fight_opponent_hp :: proc(site: Scaling_Site) -> int {
 	return run_zone_depth_scaled(site, FIGHT_OPPONENT_HP_PER_TIER, FIGHT_OPPONENT_HP_PER_DEPTH)
 }

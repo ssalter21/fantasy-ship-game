@@ -242,6 +242,50 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 	}
 }
 
+// ship_item_by_name finds a roster item by its authored name — the lookup that
+// lets a content table elsewhere name the items it is built from ("Long Nines")
+// instead of duplicating their magnitudes or pointing at roster indices. A linear
+// scan of ITEM_ROSTER_SIZE, called only at map generation, so the roster stays a
+// plain authored table with no lookup structure to keep in sync with it.
+//
+// The (T, bool) return is the house idiom for a fallible read, but a miss here is
+// a *content* bug — an author's typo — not a runtime condition, so callers assert
+// rather than handle it. core/run's hostile roster (#135) is checked name by name
+// by its own test, which is what turns "this compiles" into "these items exist".
+ship_item_by_name :: proc(name: string) -> (item: Roster_Item, ok: bool) {
+	for candidate in ship_item_roster() {
+		if candidate.fitting.name == name {
+			return candidate, true
+		}
+	}
+	return {}, false
+}
+
+// ship_fit_first_empty_slot fits `fitting` into the first still-empty slot whose
+// size matches it, reporting false if the layout has no room left for that size.
+// It is what lets a caller author a loadout as an ordered *list of fittings*
+// rather than as slot assignments — the hostile roster (#135) names the items an
+// archetype carries and leaves placement to this, so an archetype survives a
+// template resize (ship_template_layout) without re-indexing every entry.
+//
+// **First-empty is a content-visible rule, not an implementation detail.** The
+// template lists its slots exposed-first within each size, so earlier items in a
+// loadout land in exposed slots and later ones fall back to the concealed hold.
+// Since visibility drives real effects — Condition_Self_Visibility, a
+// Selector(Visibility.Concealed) synergy — *order is authoring*: an archetype that
+// wants its Wraith Cannon concealed authors two other Medium items ahead of it.
+ship_fit_first_empty_slot :: proc(layout: []Layout_Slot, fitting: Fitting) -> bool {
+	for &layout_slot in layout {
+		if _, occupied := layout_slot.fitting.?; occupied {
+			continue
+		}
+		if ship_fit(&layout_slot, fitting) {
+			return true
+		}
+	}
+	return false
+}
+
 // ship_fitting_scaled returns a copy of base with `bonus` added to its effect
 // magnitude — the Item Offer's zone-and-depth quality knob applied to a roster
 // item (issue #96), the roster analogue of ship_fitting_upgraded's per-node

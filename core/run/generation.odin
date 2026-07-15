@@ -391,12 +391,13 @@ run_zone_recipe_pool :: proc(zone: Zone, catalog: []Recipe) -> []Recipe {
 // RNG stream. Nothing rolls on arrival.
 //
 // This is where each primitive's content roster hangs: a Trade draws its swap
-// from the axis roster (run_make_trade, #136). The hostile roster that replaces
-// the Fight's single hand-authored template (#135) lands here the same way.
+// from the axis roster (run_make_trade, #136), and a Fight draws its opponent from
+// the hostile roster (run_pve_opponent, #135) — the two that closed ADR-0014's
+// "two of the three kinds have no variance" gap.
 run_bake_stage :: proc(kind: Stage_Kind, site: Scaling_Site, gen: rand.Generator) -> Stage {
 	switch kind {
 	case .Fight:
-		return Stage_Fight{depth = site.depth, opponent = run_pve_opponent(site)}
+		return Stage_Fight{depth = site.depth, opponent = run_pve_opponent(site, gen)}
 	case .Offer:
 		return Stage_Offer{options = run_item_offer_options(site, gen)}
 	case .Trade:
