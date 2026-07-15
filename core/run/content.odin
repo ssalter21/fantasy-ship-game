@@ -9,26 +9,13 @@ import "core:math/rand"
 // hand-authored layout on top of these same stats; this proc has no
 // layout/captain of its own and is not itself a complete opponent.
 run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
-	hp := run_ship_battle_difficulty(site)
+	hp := run_fight_opponent_hp(site)
 	return ship.Ship{
 		hp         = hp,
 		max_hp     = hp,
-		durability = run_ship_battle_opponent_durability(site),
-		speed      = SHIP_BATTLE_OPPONENT_SPEED,
+		durability = run_fight_opponent_durability(site),
+		speed      = FIGHT_OPPONENT_SPEED,
 	}
-}
-
-// PVE_OPPONENT_OFFENSE_BONUS_PER_TIER/PER_DEPTH scale a PvE opponent's Gun
-// Deck output by zone tier and depth-within-zone (issue #23), reusing the
-// same run_zone_depth_scaled shape as every other zone-and-depth-scaled placeholder in
-// run.odin — so a deeper Ship Battle node hits harder, not just soaks more
-// HP and Durability (already covered by run_ship_battle_difficulty and
-// run_ship_battle_opponent_durability).
-PVE_OPPONENT_OFFENSE_BONUS_PER_TIER :: 2
-PVE_OPPONENT_OFFENSE_BONUS_PER_DEPTH :: 1
-
-run_pve_opponent_offense_bonus :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, PVE_OPPONENT_OFFENSE_BONUS_PER_TIER, PVE_OPPONENT_OFFENSE_BONUS_PER_DEPTH)
 }
 
 // run_pve_opponent builds a full Ship Battle opponent (issue #23): the one
@@ -57,19 +44,21 @@ run_pve_opponent :: proc(site: Scaling_Site) -> ship.Ship {
 	s := run_make_opponent_ship(site)
 
 	layout := ship.ship_template_layout()
-	bonus := run_pve_opponent_offense_bonus(site)
+	bonus := run_fight_opponent_offense(site)
 	assert(run_fit_pve_opponent_loadout(layout, bonus), "PvE opponent loadout: a fitting failed to fit its template slot")
 
 	s.layout = layout
 	return s
 }
 
-// ITEM_OFFER_QUALITY_DIVISOR converts a node's zone-scaled quality placeholder
-// (run_item_offer_quality) into a flat magnitude bonus added to each offered
+// OFFER_ITEM_QUALITY_DIVISOR converts a node's Offer quality reading
+// (run_offer_item_quality) into a flat magnitude bonus added to each offered
 // item (issue #96): a smaller, more legible number than raw quality while still
 // scaling with it — the same knob the old Upgrade Offer applied to its three
-// fixed variants, now spread across the roster items on offer.
-ITEM_OFFER_QUALITY_DIVISOR :: 5
+// fixed variants, now spread across the roster items on offer. Not a stakes
+// constant — it converts a reading rather than scaling by tier/depth — so it
+// stays here with its consumer rather than joining the scaling group.
+OFFER_ITEM_QUALITY_DIVISOR :: 5
 
 // run_item_offer_options picks the distinct roster items an Item Offer node
 // presents (issue #96, ADR-0012): it samples ITEM_OFFER_OPTION_COUNT distinct
@@ -80,7 +69,7 @@ ITEM_OFFER_QUALITY_DIVISOR :: 5
 // content, like a Ship Battle carries its opponent. Retires run_upgrade_offer_options'
 // fixed three-upgrade menu.
 run_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM_OFFER_OPTION_COUNT]ship.Fitting {
-	bonus := run_item_offer_quality(site) / ITEM_OFFER_QUALITY_DIVISOR
+	bonus := run_offer_item_quality(site) / OFFER_ITEM_QUALITY_DIVISOR
 	roster := ship.ship_item_roster()
 	indices := run_shuffled_roster_indices(gen)
 

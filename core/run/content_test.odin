@@ -17,13 +17,13 @@ run_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T
 }
 
 @(test)
-run_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_ship_battle_formulas :: proc(t: ^testing.T) {
+run_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_fight_formulas :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Deep, depth = 2}
 	opponent := run_pve_opponent(site)
 	defer delete(opponent.layout)
 
-	testing.expect_value(t, opponent.hp, run_ship_battle_difficulty(site))
-	testing.expect_value(t, opponent.durability, run_ship_battle_opponent_durability(site))
+	testing.expect_value(t, opponent.hp, run_fight_opponent_hp(site))
+	testing.expect_value(t, opponent.durability, run_fight_opponent_durability(site))
 }
 
 @(test)
