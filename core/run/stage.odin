@@ -108,10 +108,6 @@ Shop_Item :: struct {
 // its loadout and speed, scaled at this node's stakes for its hp, durability and
 // offensive output.
 Stage_Fight :: struct {
-	// depth is this node's normalized depth-within-zone (0..DEPTH_STEPS),
-	// retained so run_finish_ship_battle can rebuild the node's Scaling_Site —
-	// its original stakes — without reading it off the battle-worn opponent.
-	depth:    int,
 	opponent: ship.Ship,
 }
 

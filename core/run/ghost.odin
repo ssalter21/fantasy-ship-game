@@ -36,9 +36,13 @@ Ghost_Progress :: struct {
 // *aliases* s.layout rather than owning a copy. It is a borrowed description
 // valid only as long as s and its layout are — a caller that must hand the
 // snapshot out past s's lifetime (core/sim, via Event_Encounter_Resolved)
-// owns it with run_ghost_snapshot_capture. The encounter-resolution procs
-// return one of these so the Sim owns the single arena-backed capture
-// (issue #82).
+// owns it with run_ghost_snapshot_capture.
+//
+// One caller: core/sim's sim_emit_encounter_resolved, which pairs it with the
+// capture immediately (issue #82's borrowed-vs-owned handoff, now in one place).
+// No stage-apply proc in this package returns a snapshot — a ghost is captured
+// once per encounter, at the end of the node's walk, not per stage that changes
+// the ship (issue #162, ADR-0008 as amended; see encounter.odin's header).
 run_ghost_snapshot_of :: proc(s: ^ship.Ship, steps: int, site: Scaling_Site) -> Ghost_Snapshot {
 	snap_ship := s^
 	snap_ship.hp = ship.ship_effective_max_hp(s)

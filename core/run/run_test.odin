@@ -1319,6 +1319,65 @@ run_start_battle_hands_off_to_combat_with_the_ship_and_the_fight_stages_opponent
 	testing.expect_value(t, battle.round, 1)
 }
 
+// battle_ended_with is an ended Battle whose escape record is stated outright, so
+// the outcome tests below read as "this ending means that outcome" without
+// resolving real rounds to arrange one. The ships are incidental — an ended
+// battle's outcome is read off `escaped` alone.
+battle_ended_with :: proc(escaped: bit_set[combat.Side], player: ^ship.Ship, fight: ^Stage_Fight) -> combat.Battle {
+	battle := run_start_battle(player, fight)
+	battle.ended = true
+	battle.escaped = escaped
+	return battle
+}
+
+@(test)
+run_finish_ship_battle_completes_the_fight_when_nobody_escaped :: proc(t: ^testing.T) {
+	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
+	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	battle := battle_ended_with({}, &player, &fight)
+
+	// Victory, and also a round-cap stalemate: both are the fight being over.
+	testing.expect_value(t, run_finish_ship_battle(&battle), Stage_Outcome.Completed)
+}
+
+@(test)
+run_finish_ship_battle_halts_the_encounter_when_the_captain_took_leave_combat :: proc(t: ^testing.T) {
+	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
+	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	battle := battle_ended_with({.A}, &player, &fight)
+
+	// Fight's halt condition (ADR-0014): flee a [Fight, Reward] and the loot stage
+	// downstream of the Fight is never reached, with no authored gate saying so.
+	testing.expect_value(t, run_finish_ship_battle(&battle), Stage_Outcome.Halted)
+}
+
+@(test)
+run_finish_ship_battle_completes_the_fight_when_the_opponent_escaped :: proc(t: ^testing.T) {
+	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
+	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	battle := battle_ended_with({.B}, &player, &fight)
+
+	// Side.B fleeing is not the captain declining the fight, so it reads as the fight
+	// being over rather than as a halt — the asymmetry that makes the halt *the
+	// captain's* choice, and the reason this is read off `escaped` per side rather
+	// than off "did anyone escape".
+	testing.expect_value(t, run_finish_ship_battle(&battle), Stage_Outcome.Completed)
+}
+
+@(test)
+run_finish_ship_battle_on_a_battle_that_has_not_ended_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+
+	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
+	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	battle := run_start_battle(&player, &fight)
+
+	testing.expect_assert(t, "run_finish_ship_battle called before the battle ended")
+	run_finish_ship_battle(&battle)
+}
+
 // --- Trade: applying an accepted swap (issue #136) --------------------------
 
 // trade_of is a baked Stage_Trade with the magnitudes stated outright, so the
@@ -1336,7 +1395,7 @@ trade_of :: proc(gain: Trade_Stat, gain_amount: int, cost: Trade_Stat, cost_amou
 run_apply_trade_permanently_swaps_the_cost_stat_for_the_gain_stat :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 5}
 
-	run_apply_trade(&s, trade_of(.Durability, 3, .Speed, 1), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.Durability, 3, .Speed, 1))
 
 	testing.expect_value(t, s.durability, 5)
 	testing.expect_value(t, s.speed, 4)
@@ -1348,7 +1407,7 @@ run_apply_trade_permanently_swaps_the_cost_stat_for_the_gain_stat :: proc(t: ^te
 run_apply_trade_runs_an_axis_in_either_direction :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20, max_hp = 20, durability = 5, speed = 4}
 
-	run_apply_trade(&s, trade_of(.Speed, 2, .Durability, 3), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.Speed, 2, .Durability, 3))
 
 	testing.expect_value(t, s.speed, 6)
 	testing.expect_value(t, s.durability, 2)
@@ -1358,7 +1417,7 @@ run_apply_trade_runs_an_axis_in_either_direction :: proc(t: ^testing.T) {
 run_apply_trade_moves_treasure :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20, max_hp = 20, durability = 4, starting_treasure = 50}
 
-	run_apply_trade(&s, trade_of(.Treasure, 15, .Durability, 2), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.Treasure, 15, .Durability, 2))
 
 	testing.expect_value(t, s.starting_treasure, 65)
 	testing.expect_value(t, s.durability, 2)
@@ -1372,7 +1431,7 @@ run_apply_trade_moves_treasure :: proc(t: ^testing.T) {
 run_apply_trade_pays_before_granting_so_a_repair_caps_against_the_sold_ceiling :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 12, max_hp = 20}
 
-	run_apply_trade(&s, trade_of(.HP, 8, .Max_HP, 6), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.HP, 8, .Max_HP, 6))
 
 	testing.expect_value(t, s.max_hp, 14)
 	testing.expect_value(t, s.hp, 14)
@@ -1382,7 +1441,7 @@ run_apply_trade_pays_before_granting_so_a_repair_caps_against_the_sold_ceiling :
 run_apply_trade_never_overheals :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 18, max_hp = 20, durability = 4}
 
-	run_apply_trade(&s, trade_of(.HP, 10, .Durability, 1), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.HP, 10, .Durability, 1))
 
 	testing.expect_value(t, s.hp, 20)
 }
@@ -1393,7 +1452,7 @@ run_apply_trade_never_overheals :: proc(t: ^testing.T) {
 run_apply_trade_gaining_max_hp_raises_the_ceiling_without_filling_it :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 12, max_hp = 20, starting_treasure = 50}
 
-	run_apply_trade(&s, trade_of(.Max_HP, 5, .Treasure, 15), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.Max_HP, 5, .Treasure, 15))
 
 	testing.expect_value(t, s.max_hp, 25)
 	testing.expect_value(t, s.hp, 12)
@@ -1406,7 +1465,7 @@ run_apply_trade_gaining_max_hp_raises_the_ceiling_without_filling_it :: proc(t: 
 run_apply_trade_paying_max_hp_pulls_current_hp_down_to_the_new_ceiling :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20, max_hp = 20, speed = 4}
 
-	run_apply_trade(&s, trade_of(.Speed, 2, .Max_HP, 8), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.Speed, 2, .Max_HP, 8))
 
 	testing.expect_value(t, s.max_hp, 12)
 	testing.expect_value(t, s.hp, 12)
@@ -1457,7 +1516,7 @@ run_trade_measures_the_cost_against_the_effective_stat_not_the_base_field :: pro
 	// The base alone (2) could never pay 5; the fitting's contribution is what
 	// makes it affordable.
 	testing.expect(t, run_trade_can_accept(&s, trade_of(.Speed, 1, .Durability, 5)))
-	run_apply_trade(&s, trade_of(.Speed, 1, .Durability, 5), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.Speed, 1, .Durability, 5))
 
 	testing.expect_value(t, s.durability, -3) // the base field went negative...
 	testing.expect_value(t, ship.ship_effective_durability(&s), 0) // ...and effective landed on the floor.
@@ -1471,7 +1530,7 @@ run_apply_trade_asserts_on_a_trade_the_ship_cannot_pay_for :: proc(t: ^testing.T
 	}
 	s := ship.Ship{hp = 20, max_hp = 20, speed = 4}
 
-	run_apply_trade(&s, trade_of(.Durability, 8, .Speed, 5), Scaling_Site{zone = .Coastal, depth = 0}, 0)
+	run_apply_trade(&s, trade_of(.Durability, 8, .Speed, 5))
 
 	testing.expect_assert(t, "run_apply_trade on a trade the ship cannot pay for")
 }

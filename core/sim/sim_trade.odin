@@ -5,11 +5,15 @@ import "../run"
 // sim_process_trade_choice applies a submitted Command_Trade_Choice (issue #136,
 // ADR-0014), resolving the Trade stage under the cursor.
 //
-// Accepting applies the swap permanently (run_apply_trade), emits the resolved
-// encounter's Ghost_Snapshot plus the updated ship, and **completes** the stage.
-// Rejecting changes nothing and emits neither — there is no post-trade ship to
-// report and no resolution to snapshot, because nothing was traded — and **halts**
-// the encounter.
+// Accepting applies the swap permanently (run_apply_trade), emits the updated
+// ship, and **completes** the stage. Rejecting changes nothing and so reports
+// nothing — there is no post-trade ship to report, because nothing was traded —
+// and **halts** the encounter.
+//
+// Neither emits a Ghost_Snapshot: the node's ghost is captured once, where its walk
+// ends (issue #162), so an accepted Trade mid-recipe no longer emits one of its own
+// and a rejected one is snapshotted all the same — the halt lands in that same
+// branch, and a captain who walked away from a bargain is still a ship.
 //
 // That outcome pair is now threaded through the cursor rather than described and
 // dropped. #136 could only say what accept and reject meant: it predated the generic
@@ -35,8 +39,7 @@ sim_process_trade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		run.run_trade_can_accept(&sim.player, sim.active_trade),
 		"Command_Trade_Choice accepted a trade the ship cannot pay for",
 	)
-	snap := run.run_apply_trade(&sim.player, sim.active_trade, sim.active_trade_site, sim.steps)
-	sim_emit_encounter_resolved(sim, snap, events)
+	run.run_apply_trade(&sim.player, sim.active_trade)
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 
 	sim_advance_stage(sim, .Completed, events)

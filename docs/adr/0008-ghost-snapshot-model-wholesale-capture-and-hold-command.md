@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Its **Capture cadence** paragraph is amended by **ADR-0018**, which restates "after every encounter *point* resolves" in the stage model's terms (once, at the end of the node's walk; a halt emits, a sinking does not) and **strikes its Port exception** — a Port is a `[Shop]` recipe now (ADR-0014), so a Port visit does change ship state. The rest of this ADR stands: one struct with two producers, the snapshot's shape, HP-always-resets-to-max, and the scripted opponent's `Hold` policy. `Progress.difficulty_rating` and its `zone` field are retired in favour of `progress.site` (ADR-0014, issue #130).
 
 ## Context
 

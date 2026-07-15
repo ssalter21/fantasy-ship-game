@@ -149,6 +149,18 @@ sim_current_site :: proc(sim: ^Sim) -> run.Scaling_Site {
 // Halting finishes the walk too — run_encounter_resolve_stage jumps the cursor to the
 // end — so a captain who flees a [Fight, Reward] never reaches the loot, with no
 // authored gate saying so.
+//
+// Finishing is also where the node's Ghost_Snapshot is captured (issue #162,
+// ADR-0008 as amended): a ghost is an opponent — the build a captain left this node
+// with — so it is one per encounter, taken where the walk ends and the ship is
+// whatever the whole node made of it. That the emit and `resolved` are set in the
+// same breath is the point: Event_Encounter_Resolved's "resolved" and the Sim's are
+// now one fact, where the retired per-apply-proc emits fired at three moments when
+// this flag was still false. A **halt** emits — the cursor jumps to the end and
+// lands here, and a fled ship is a real ship a lobby can serve. A **sinking** does
+// not: the walk stops dead in sim_process_battle_round, the node is never resolved,
+// and this branch is never reached (Event_Run_Ended already marks the death).
+// Landmarks emit nothing — !has_encounter returns above, before the loop.
 sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	encounter, has_encounter := sim_current_encounter(sim)
 	if !has_encounter {
@@ -160,6 +172,7 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		stage, walking := run.run_encounter_current(encounter^)
 		if !walking {
 			sim.resolved[sim.current] = true
+			sim_emit_encounter_resolved(sim, events)
 			sim.phase = .Awaiting_Travel_Choice
 			return
 		}
@@ -224,11 +237,10 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		return nil
 
 	case run.Stage_Trade:
-		// The bargain and the site it was baked from are staged here because the answer
-		// arrives a tick later, and run_apply_trade needs the site to snapshot the node's
-		// own stakes. can_accept is measured now, against the ship as it stands.
+		// The bargain is staged here because the answer arrives a tick later, so the
+		// stage's baked content has to outlive the entry. can_accept is measured now,
+		// against the ship as it stands.
 		sim.active_trade = s
-		sim.active_trade_site = sim_current_site(sim)
 		append(events, Event(Event_Trade_Presented{
 			trade      = sim.active_trade,
 			can_accept = run.run_trade_can_accept(&sim.player, sim.active_trade),
@@ -242,13 +254,12 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		// sim_walk_encounter's loop carries straight on to whatever follows it. This is
 		// the case that loop was built for — every other primitive stops for a decision.
 		//
-		// Both events fire because a Reward is a resolution like any other: the snapshot
-		// records what the ship looked like having taken it, and Event_Ship_Updated is
-		// how presentation learns the purse moved (ADR-0001 — it learns nothing except
-		// through Events). Same order as an accepted Trade, the other stage that grants
-		// on resolution.
-		snap := run.run_apply_reward(&sim.player, s, sim_current_site(sim), sim.steps)
-		sim_emit_encounter_resolved(sim, snap, events)
+		// Event_Ship_Updated is how presentation learns the purse moved (ADR-0001 — it
+		// learns nothing except through Events), and it is the *only* event a payout
+		// owes: the node's ghost is captured once, where the walk ends, so a Reward
+		// mid-recipe no longer emits one of its own (issue #162). Same as an accepted
+		// Trade, the other stage that grants on resolution.
+		run.run_apply_reward(&sim.player, s)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		return .Completed
 	}

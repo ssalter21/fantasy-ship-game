@@ -184,13 +184,6 @@ Sim :: struct {
 	// has to outlive the entry. A plain value, not a Maybe: it is only ever read while
 	// the phase says a trade is on screen.
 	active_trade:      run.Stage_Trade,
-	// active_trade_site is the site of the node the active trade sits on, kept so
-	// the accepted trade's Ghost_Snapshot records the node's own stakes (ADR-0014).
-	// The trade's magnitudes were already baked from it at generation, but a
-	// Stage_Trade carries the magnitudes, not the site they came from — mirroring
-	// Stage_Fight.depth, which exists so run_finish_ship_battle can rebuild its
-	// site the same way.
-	active_trade_site: run.Scaling_Site,
 	// refit_pending is the incoming fitting an open Refit (Awaiting_Refit) was
 	// opened to place (issue #95): set by sim_open_refit, consumed when a
 	// Refit_Install lands it in a slot, and discarded (nil) when the refit
@@ -564,6 +557,15 @@ Event_Refit_Finished :: struct {}
 // valid for as long as the Sim itself and reclaimed in one shot by
 // sim_destroy, not owned or freed per-recipient. A sink that needs a snapshot
 // to outlive the Sim must copy it out explicitly.
+//
+// **Once per encounter** — per *node*, not per stage (issue #162, ADR-0008 as
+// amended): the ship the captain leaves the node with, whatever the whole stage
+// list made of it. So a [Fight, Reward] emits one snapshot, taken post-loot; an
+// Offer or a Shop emits one carrying what was taken aboard; a halt emits one (the
+// fled ship is a real ship); and a **sinking emits none**, because the walk stops
+// dead and the node is never resolved. Snapshot count per run is therefore the
+// number of encounter nodes resolved, and Event_Ship_Updated — not this — is what
+// reports each individual change on the way through.
 Event_Encounter_Resolved :: struct {
 	snapshot: run.Ghost_Snapshot,
 }
@@ -742,17 +744,22 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	sim.awaiting_decision = false
 }
 
-// sim_emit_encounter_resolved is the single place the Sim captures a resolved
-// encounter's Ghost_Snapshot onto its run-scoped arena and emits it (issue
-// #82, ADR-0008). The run-side resolution procs (run_finish_ship_battle,
-// run_apply_trade) return a borrowed-layout
-// snapshot; run_ghost_snapshot_capture clones that snapshot's layout under the
-// arena so it outlives the tick (issue #52) and lives as long as the Sim.
-// Concentrating the arena/temp-allocator ritual here is why the per-encounter
-// make-scratch / scope-arena / forward dance no longer repeats at each
-// resolution site.
-sim_emit_encounter_resolved :: proc(sim: ^Sim, snap: run.Ghost_Snapshot, events: ^[dynamic]Event) {
+// sim_emit_encounter_resolved captures the ship the captain is leaving this node
+// with as a Ghost_Snapshot on the Sim's run-scoped arena, and emits it (issue #82,
+// ADR-0008). run_ghost_snapshot_of describes the ship with a *borrowed* layout;
+// run_ghost_snapshot_capture clones that layout under the arena so it outlives the
+// tick (issue #52) and lives as long as the Sim. Concentrating the arena ritual
+// here is why the make-scratch / scope-arena / forward dance appears once.
+//
+// Called from exactly one place — sim_walk_encounter, as the cursor runs off the
+// end of the node's stage list (issue #162) — so run_ghost_snapshot_of has one call
+// site and both halves of #82's borrowed-vs-owned handoff sit in one proc. That is
+// also why it takes no site or step count: at the walk's end the node the ship is
+// standing at *is* the node being snapshotted, so the two are simply at hand.
+sim_emit_encounter_resolved :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	context.allocator = sim_arena_allocator(sim)
-	captured := run.run_ghost_snapshot_capture(snap)
+	captured := run.run_ghost_snapshot_capture(
+		run.run_ghost_snapshot_of(&sim.player, sim.steps, sim_current_site(sim)),
+	)
 	append(events, Event(Event_Encounter_Resolved{snapshot = captured}))
 }
