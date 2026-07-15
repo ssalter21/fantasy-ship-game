@@ -47,28 +47,24 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	switch awaiting {
 	case .Awaiting_Battle_Command:
 		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command_Hold{}})
-	case .Awaiting_Item_Choice:
-		// Skip the Item Offer (issue #96): a nil selection takes no item and opens
-		// no refit, so the auto-player never has to drive a loadout edit.
-		return sim.Command(sim.Command_Pick_Item{selection = nil})
+	case .Awaiting_Option_Choice:
+		// Decline every option list (issue #131) — skip an Offer's items, leave a
+		// Shop's shelf. A nil selection takes nothing and opens no refit, so the
+		// scripted auto-player never has to spend treasure or drive a loadout edit; it
+		// just walks through.
+		return sim.Command(sim.Command_Choose_Option{selection = nil})
 	case .Awaiting_Trade_Choice:
 		// Reject every Trade (issue #136): the scripted auto-player's job is to walk
 		// a route to Goal deterministically, and accepting would swap a stat the
 		// route's bargains happened to draw. Rejecting changes nothing, so the run
 		// stays a pure function of the graph.
 		return sim.Command(sim.Command_Trade_Choice{accept = false})
-	case .Awaiting_Shop_Choice:
-		// Leave every Port shop (issue #123): a nil selection buys nothing and opens
-		// no refit, so the scripted auto-player never has to spend treasure or drive
-		// the buy-refit-return loop — it just walks through the port.
-		return sim.Command(sim.Command_Buy_Item{selection = nil})
 	case .Awaiting_Travel_Choice:
 		return sim.Command(sim.Command_Travel_To{node_id = headless_next_node(state)})
 	case .Awaiting_Refit:
-		// The auto-player skips Item Offers and leaves shops, so it never opens a
-		// refit; were one ever open, this scripted driver just finishes it rather than
-		// editing the loadout (finishing a shop-opened refit returns to the shop,
-		// which it then leaves).
+		// The auto-player declines every option list, so it never opens a refit; were
+		// one ever open, this scripted driver just finishes it rather than editing the
+		// loadout (finishing a shop's refit returns to the shop, which it then leaves).
 		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
 	case .Ended:
 		panic("get_captain_choice called while the sim isn't awaiting a decision")
@@ -113,9 +109,8 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Battle_Menu:
 	case sim.Event_Battle_Event:
 	case sim.Event_Ship_Updated:
-	case sim.Event_Item_Offer_Presented:
+	case sim.Event_Options_Presented:
 	case sim.Event_Trade_Presented:
-	case sim.Event_Shop_Presented:
 	case sim.Event_Purchase_Rejected:
 	case sim.Event_Refit_Started:
 	case sim.Event_Fitting_Installed:

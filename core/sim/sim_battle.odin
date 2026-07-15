@@ -47,6 +47,27 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	snap := run.run_finish_ship_battle(&sim.battle, &sim.player, &sim.active_encounter, zone, sim.steps)
 	sim_emit_encounter_resolved(sim, snap, events)
 
-	sim.resolved[sim.current] = true
-	sim.phase = .Awaiting_Travel_Choice
+	// Sinking is **neither** outcome (ADR-0014): the run is over by permadeath
+	// (ADR-0006), so the walk stops dead rather than completing the Fight and applying
+	// whatever came after it to a sunk ship — a [Fight, Reward] must not pay out to a
+	// captain who went down with it. sim_tick's status check ends the run on the way
+	// out of this tick, and it is deliberately not consulted here: the walk stopping
+	// and the run ending are separate facts, and only one of them is this proc's.
+	if !run.run_can_travel(&sim.player) {
+		return
+	}
+
+	// Otherwise Fight's halt condition is **Leave Combat** (ADR-0014): the captain took
+	// ADR-0006's Speed-gated escape, so the encounter ends here and nothing downstream
+	// of the Fight is reached — flee a [Fight, Reward] and the loot stage never fires,
+	// with no authored gate saying so. Every other ending completes it: victory
+	// obviously, but also a round-cap stalemate, and the opponent's *own* escape —
+	// Side.B fleeing is not the captain declining the fight, so it reads as the fight
+	// being over rather than as a halt.
+	outcome := run.Stage_Outcome.Completed
+	if .A in sim.battle.escaped {
+		outcome = .Halted
+	}
+	sim_advance_stage(sim, outcome)
+	sim_walk_encounter(sim, events)
 }

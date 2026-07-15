@@ -3,29 +3,21 @@ package sim
 import "../run"
 
 // sim_process_trade_choice applies a submitted Command_Trade_Choice (issue #136,
-// ADR-0014), resolving the Trade the ship arrived at. Arriving already triggered
-// the encounter (no decline), so making the choice — accept or reject — *is* the
-// resolution: the node is marked resolved either way, so re-arriving after a
-// retrace never re-offers the bargain.
+// ADR-0014), resolving the Trade stage under the cursor.
 //
-// Accepting applies the swap permanently (run_apply_trade) and emits the
-// resolved encounter's Ghost_Snapshot plus the updated ship. Rejecting changes
-// nothing and emits neither: there is no post-trade ship to report and no
-// resolution to snapshot, because nothing was traded.
+// Accepting applies the swap permanently (run_apply_trade), emits the resolved
+// encounter's Ghost_Snapshot plus the updated ship, and **completes** the stage.
+// Rejecting changes nothing and emits neither — there is no post-trade ship to
+// report and no resolution to snapshot, because nothing was traded — and **halts**
+// the encounter.
 //
-// This replaces the arrival-time apply that used to sit inline in
-// sim_process_travel. A Trade was the one encounter that mutated the ship without
-// ever asking — "a single fixed trade-off rather than a choice among options", so
-// it applied itself and returned straight to travel. Now it asks first, which is
-// what makes accept/reject the stage's complete-or-halt outcome rather than a
-// distinction with nothing behind it.
-//
-// **Complete-or-halt is not yet threaded through the cursor.** Accept means
-// Completed and reject means Halted (ADR-0014), but the Sim still fires only a
-// node's first stage — the generic stage walk is issue #131 — and every catalog
-// recipe is one stage long, so both outcomes end the encounter here and the
-// distinction is invisible. It starts mattering the moment a recipe puts a stage
-// *after* a Trade: a rejected [Trade, Reward] must not pay out the Reward.
+// That outcome pair is now threaded through the cursor rather than described and
+// dropped. #136 could only say what accept and reject meant: it predated the generic
+// walk (issue #131), so it marked the node resolved itself and every catalog recipe
+// was one stage long, which made the distinction invisible. It is visible now — a
+// rejected [Trade, Reward] halts and never pays out the Reward, with no authored gate
+// saying so — and neither outcome touches `resolved` here, because sim_walk_encounter
+// is the only writer of it.
 sim_process_trade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	assert(has_pending, "sim_process_trade_choice called without a pending command")
@@ -33,10 +25,9 @@ sim_process_trade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	assert(ok, "sim_process_trade_choice called without a pending Command_Trade_Choice")
 	sim.pending_command = nil
 
-	sim.resolved[sim.current] = true
-	sim.phase = .Awaiting_Travel_Choice
-
 	if !cmd.accept {
+		sim_advance_stage(sim, .Halted)
+		sim_walk_encounter(sim, events)
 		return
 	}
 
@@ -47,4 +38,7 @@ sim_process_trade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	snap := run.run_apply_trade(&sim.player, sim.active_trade, sim.active_trade_site, sim.steps)
 	sim_emit_encounter_resolved(sim, snap, events)
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
+
+	sim_advance_stage(sim, .Completed)
+	sim_walk_encounter(sim, events)
 }

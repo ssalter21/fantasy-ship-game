@@ -223,23 +223,38 @@ ITEM_OFFER_BOX_W :: 340
 ITEM_OFFER_BOX_H :: 62
 ITEM_OFFER_Y0 :: 296
 
-// item_offer_menu_loop blocks until the player picks one of the offered roster
-// items or skips (issue #96, ADR-0012), then returns a Command_Pick_Item — a
-// selected Option_Index for a pick, or a nil selection for a skip. Each item box
-// shows the item's size, phase, tags, and effect intent (the acceptance
-// criteria's "tags, phase, size, and effect intent"), so the choice is informed.
-// A pick opens a Refit (the Sim's response); this loop only reports the choice.
-item_offer_menu_loop :: proc(state: ^Game_State) -> sim.Command {
+// option_menu_loop is the one option-list screen (issue #131): it blocks until the
+// player takes one of the presented options or declines, then returns a
+// Command_Choose_Option — a selected Option_Index for a take, or a nil selection to
+// decline. It is a single loop because the Sim now presents a single list
+// (Event_Options_Presented): an Item Offer and a shop shelf were never two screens,
+// only two sets of options, one of which carries prices.
+//
+// It therefore reads what it is rendering off the options themselves rather than
+// being told: a list holding any priced option is a shop, so it shows the purse and
+// offers to Leave; an unpriced one is an Offer, and offers to Skip. Each box shows
+// the item's size, phase, tags, and effect intent (#96's "tags, phase, size, and
+// effect intent"), plus a price where there is one, so the choice is informed. A card
+// the player can't currently afford is drawn dimmed but still clickable — the Sim
+// owns affordability and bounces an unaffordable buy back as Event_Purchase_Rejected
+// (a beat), so the menu never gates the click itself.
+//
+// A box index is its option's Option_Index, so an empty position (a shelf slot past
+// the deck's end, or a slot past a narrower stage's count) is drawn as a
+// non-clickable gap rather than skipped, keeping indices aligned with the Sim's list.
+option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
-		// No live window (e.g. under `odin test`): skip rather than open a refit
-		// the test harness can't drive.
-		return sim.Command(sim.Command_Pick_Item{selection = nil})
+		// No live window (e.g. under `odin test`): decline rather than take an option
+		// and open a refit the test harness can't drive.
+		return sim.Command(sim.Command_Choose_Option{selection = nil})
 	}
-	options := state.item_offer_options
+	options := state.stage_options
+	priced := option_list_is_priced(options)
 
-	// One clickable box per option, plus a trailing Skip box. The boxes are laid
-	// out once; rendering (rich multi-line text) and hit-testing both read them.
-	boxes: [run.ITEM_OFFER_OPTION_COUNT + 1]rl.Rectangle
+	// One clickable box per option position, plus a trailing decline box. The boxes
+	// are laid out once; rendering (rich multi-line text) and hit-testing both read
+	// them.
+	boxes: [sim.STAGE_OPTION_MAX + 1]rl.Rectangle
 	for i in 0 ..< len(boxes) {
 		boxes[i] = rl.Rectangle {
 			x      = SHIP_PANEL_X,
@@ -248,15 +263,24 @@ item_offer_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			height = ITEM_OFFER_BOX_H,
 		}
 	}
-	skip_index := len(boxes) - 1
+	decline_index := len(boxes) - 1
+
+	header := "Choose an item to take, or skip."
+	decline_label := "Skip (take nothing)"
+	if priced {
+		header = fmt.tprintf("Shop — treasure: %d. Buy an item, or leave.", state.player.starting_treasure)
+		decline_label = "Leave (buy nothing)"
+	}
 
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
-		draw_scene_contents(state, "Choose an item to take, or skip.")
-		for option, i in options {
-			draw_item_offer_box(boxes[i], option)
+		draw_scene_contents(state, header)
+		for slot, i in options {
+			if option, filled := slot.?; filled {
+				draw_option_box(boxes[i], option, state.player.starting_treasure)
+			}
 		}
-		draw_labeled_box(boxes[skip_index], "Skip (take nothing)", "", "")
+		draw_labeled_box(boxes[decline_index], decline_label, "", "")
 		rl.EndDrawing()
 		free_all(context.temp_allocator)
 
@@ -266,105 +290,60 @@ item_offer_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 				if !rl.CheckCollisionPointRec(mouse, box) {
 					continue
 				}
-				if i == skip_index {
-					return sim.Command(sim.Command_Pick_Item{selection = nil})
+				if i == decline_index {
+					return sim.Command(sim.Command_Choose_Option{selection = nil})
 				}
-				return sim.Command(sim.Command_Pick_Item{selection = sim.Option_Index(i)})
-			}
-		}
-	}
-	// Window closing without a pick: skip cleanly.
-	return sim.Command(sim.Command_Pick_Item{selection = nil})
-}
-
-// draw_item_offer_box renders one offered item as a titled box with its spec
-// (size · phase · tags) and effect-intent detail lines (issue #96).
-draw_item_offer_box :: proc(box: rl.Rectangle, f: ship.Fitting) {
-	spec, intent := fitting_summary_lines(f)
-	draw_labeled_box(box, f.name, spec, intent)
-}
-
-// shop_menu_loop is the Port shop screen (issue #123, ADR-0013): it blocks until
-// the player buys one shelf card or leaves, then returns a Command_Buy_Item — a
-// selected Option_Index for a buy, or a nil selection to leave. The shelf is a
-// window onto the Port's persistent deck; buying opens a Refit and, on its finish,
-// the Sim returns here with the shelf refilled (a fresh Event_Shop_Presented), so
-// a player keeps buying until they Leave. Each card box shows the same size / phase
-// / tags / effect intent as an Item Offer plus the card's price; a card the player
-// can't currently afford is drawn dimmed but still clickable — the Sim owns
-// affordability and bounces an unaffordable buy back as Event_Purchase_Rejected (a
-// beat), so the menu never has to gate the click itself. A box index is its shelf
-// slot's Option_Index, so an empty tail slot (nil card, only past the deck's end —
-// never at the real roster size) is drawn as a non-clickable gap to keep indices
-// aligned with the Sim's shelf.
-shop_menu_loop :: proc(state: ^Game_State) -> sim.Command {
-	if !rl.IsWindowReady() {
-		// No live window (e.g. under `odin test`): leave rather than buy a card and
-		// open a refit the test harness can't drive.
-		return sim.Command(sim.Command_Buy_Item{selection = nil})
-	}
-	shelf := state.shop_shelf
-
-	// One box per shelf slot, plus a trailing Leave box — laid out once, read by
-	// both rendering and hit-testing (mirrors item_offer_menu_loop).
-	boxes: [run.SHOP_SHELF_SIZE + 1]rl.Rectangle
-	for i in 0 ..< len(boxes) {
-		boxes[i] = rl.Rectangle {
-			x      = SHIP_PANEL_X,
-			y      = f32(ITEM_OFFER_Y0 + i * (ITEM_OFFER_BOX_H + 6)),
-			width  = ITEM_OFFER_BOX_W,
-			height = ITEM_OFFER_BOX_H,
-		}
-	}
-	leave_index := len(boxes) - 1
-
-	for !rl.WindowShouldClose() {
-		rl.BeginDrawing()
-		draw_scene_contents(state, fmt.tprintf("Port shop — treasure: %d. Buy an item, or leave.", state.player.starting_treasure))
-		for slot, i in shelf {
-			if card, filled := slot.?; filled {
-				draw_shop_item_box(boxes[i], card, card.cost <= state.player.starting_treasure)
-			}
-		}
-		draw_labeled_box(boxes[leave_index], "Leave (buy nothing)", "", "")
-		rl.EndDrawing()
-		free_all(context.temp_allocator)
-
-		if rl.IsMouseButtonPressed(.LEFT) {
-			mouse := rl.GetMousePosition()
-			for box, i in boxes {
-				if !rl.CheckCollisionPointRec(mouse, box) {
+				// A click on an empty position takes nothing — the Sim has no option
+				// there; ignore it so only real options and the decline are actionable.
+				if _, filled := options[i].?; !filled {
 					continue
 				}
-				if i == leave_index {
-					return sim.Command(sim.Command_Buy_Item{selection = nil})
-				}
-				// A click on an empty tail slot buys nothing — the Sim has no card
-				// there; ignore it so only real cards and Leave are actionable.
-				if _, filled := shelf[i].?; !filled {
-					continue
-				}
-				return sim.Command(sim.Command_Buy_Item{selection = sim.Option_Index(i)})
+				return sim.Command(sim.Command_Choose_Option{selection = sim.Option_Index(i)})
 			}
 		}
 	}
-	// Window closing without a pick: leave cleanly.
-	return sim.Command(sim.Command_Buy_Item{selection = nil})
+	// Window closing without a choice: decline cleanly.
+	return sim.Command(sim.Command_Choose_Option{selection = nil})
 }
 
-// draw_shop_item_box renders one stocked item as a titled box (issue #98): the
-// name and price on the title line, then the same size · phase · tags spec and
-// effect-intent lines an Item Offer shows. `affordable` dims the whole box when
-// the item costs more than the current purse, so an unaffordable buy reads as such
-// before the click (the Sim still enforces it).
-draw_shop_item_box :: proc(box: rl.Rectangle, item: run.Shop_Item, affordable: bool) {
-	spec, intent := fitting_summary_lines(item.fitting)
-	fill := affordable ? rl.LIGHTGRAY : rl.Color{210, 210, 210, 255}
-	rl.DrawRectangleRec(box, fill)
+// option_list_is_priced reports whether any option on the list carries a price — how
+// the menu tells a shop's shelf from an Offer's items without the Sim having to say
+// which primitive it is (issue #131). Costs are per-option, so this asks the list
+// rather than assuming the stage.
+option_list_is_priced :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) -> bool {
+	for slot in options {
+		if option, filled := slot.?; filled {
+			if _, has_cost := option.cost.?; has_cost {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// draw_option_box renders one presented option as a titled box: its name — with the
+// price alongside where it has one — then its size · phase · tags spec and
+// effect-intent lines (issues #96/#98). A priced option costing more than `purse` is
+// dimmed, so an unaffordable buy reads as such before the click (the Sim still
+// enforces it); a free option is never dimmed, having nothing to afford.
+draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, purse: int) {
+	spec, intent := fitting_summary_lines(option.fitting)
+	cost, priced := option.cost.?
+	affordable := !priced || cost <= purse
+
+	title := option.fitting.name
+	if priced {
+		title = fmt.tprintf("%s  —  %d treasure", option.fitting.name, cost)
+	}
+	if affordable {
+		draw_labeled_box(box, title, spec, intent)
+		return
+	}
+
+	rl.DrawRectangleRec(box, rl.Color{210, 210, 210, 255})
 	rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)
-	text := affordable ? rl.BLACK : rl.GRAY
 	x := i32(box.x + 8)
-	rl.DrawText(fmt.ctprintf("%s  —  %d treasure", item.fitting.name, item.cost), x, i32(box.y + 6), 16, text)
+	rl.DrawText(fmt.ctprintf("%s", title), x, i32(box.y + 6), 16, rl.GRAY)
 	rl.DrawText(fmt.ctprintf("%s", spec), x, i32(box.y + 26), 12, rl.DARKGRAY)
 	rl.DrawText(fmt.ctprintf("%s", intent), x, i32(box.y + 42), 12, rl.DARKGRAY)
 }

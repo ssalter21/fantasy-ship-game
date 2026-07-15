@@ -54,25 +54,23 @@ Game_State :: struct {
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
 	may_leave:        bool,
-	// item_offer_options are the items the current Item Offer is presenting
-	// (issue #96), copied from Event_Item_Offer_Presented; item_offer_menu_loop
-	// renders and offers them.
-	item_offer_options: [run.ITEM_OFFER_OPTION_COUNT]ship.Fitting,
-	// active_trade is the bargain the current Trade is offering (issue #136),
+	// stage_options is the option list the current stage is presenting (issue #131),
+	// copied from Event_Options_Presented; option_menu_loop renders each filled
+	// position and offers a take-or-decline choice. One field, not the offer/shelf
+	// pair it replaces: an Item Offer's items and a shop's shelf cards are one list,
+	// differing only in whether an option carries a price. A nil position holds no
+	// option (a shelf slot past the deck's tail, or a slot past a narrower stage's
+	// count). Affordability is read live off state.player.starting_treasure (kept
+	// current by Event_Ship_Updated), so no separate purse field is tracked here.
+	stage_options:    [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option),
+	// active_trade is the bargain the current Trade stage is offering (issue #136),
 	// copied from Event_Trade_Presented; trade_menu_loop renders its two sides and
 	// offers accept-or-reject. trade_can_accept is whether the ship can pay the
 	// cost — taken from the same event rather than re-derived here, since it turns
 	// on the ship's *effective* stats, which state.player's base fields don't give
-	// (the Sim owns that rule, exactly as it owns shop affordability).
+	// (the Sim owns that rule, exactly as it owns option affordability).
 	active_trade:     run.Stage_Trade,
 	trade_can_accept: bool,
-	// shop_shelf is the current shelf window of the Port the ship is at (issue
-	// #123), copied from Event_Shop_Presented; shop_menu_loop renders each filled
-	// slot's card with prices and offers a buy-or-leave choice. A nil slot is past
-	// the deck's tail (never at the real roster size). Affordability is read live
-	// off state.player.starting_treasure (kept current by Event_Ship_Updated), so
-	// no separate purse field is tracked here.
-	shop_shelf:       [run.SHOP_SHELF_SIZE]Maybe(run.Shop_Item),
 	// refit_incoming is the item an open Refit is placing (issue #96), tracked
 	// from Event_Refit_Started and cleared once installed or the refit finishes,
 	// so refit_menu_loop knows whether it is placing an item or just rearranging.
@@ -98,12 +96,10 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	}
 
 	switch awaiting {
-	case .Awaiting_Item_Choice:
-		return item_offer_menu_loop(state)
+	case .Awaiting_Option_Choice:
+		return option_menu_loop(state)
 	case .Awaiting_Trade_Choice:
 		return trade_menu_loop(state)
-	case .Awaiting_Shop_Choice:
-		return shop_menu_loop(state)
 	case .Awaiting_Battle_Command:
 		return battle_menu_loop(state)
 	case .Awaiting_Travel_Choice:
@@ -161,25 +157,22 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Ship_Updated:
 		state.player = e.ship
 
-	case sim.Event_Item_Offer_Presented:
-		state.item_offer_options = e.options
+	case sim.Event_Options_Presented:
+		// A stage that presents an option list was entered, or re-entered from a buy's
+		// refit (issue #131): remember its list so option_menu_loop can render it
+		// (refilled, after a buy). The purse it renders comes from
+		// state.player.starting_treasure (kept current by Event_Ship_Updated).
+		state.stage_options = e.options
 
 	case sim.Event_Trade_Presented:
-		// Arrived at a Trade (issue #136): remember the bargain and whether the ship
-		// can pay for it, so trade_menu_loop can render both sides and grey out an
+		// A Trade stage was entered (issue #136): remember the bargain and whether the
+		// ship can pay for it, so trade_menu_loop can render both sides and grey out an
 		// accept the ship can't afford.
 		state.active_trade = e.trade
 		state.trade_can_accept = e.can_accept
 
-	case sim.Event_Shop_Presented:
-		// Arrived at a Port shop, or returned to it from a buy's refit (issue #123):
-		// remember its current shelf so shop_menu_loop can render it (refilled after a
-		// buy). The purse it renders comes from state.player.starting_treasure (kept
-		// current by Event_Ship_Updated).
-		state.shop_shelf = e.shelf
-
 	case sim.Event_Purchase_Rejected:
-		play_beat(state, fmt.tprintf("You can't afford %s.", e.item.fitting.name))
+		play_beat(state, fmt.tprintf("You can't afford %s.", e.option.fitting.name))
 
 	case sim.Event_Refit_Started:
 		// Opening a Refit (issue #96): remember the item being placed (nil for a
