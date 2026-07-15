@@ -303,8 +303,13 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 }
 
 // fitting_tags_label renders a fitting's tag families as a comma-separated list
-// ("Crew, Weapon"), or "—" when it carries none. Used by the Item Offer and
+// ("Crew, Weapon"), or "none" when it carries none. Used by the Item Offer and
 // Refit screens (issue #96) to show which families an item belongs to.
+//
+// "none" rather than an em-dash: rl.DrawText's built-in font only carries
+// codepoints 32-255, so a "—" (U+2014) rasterises as "?" (issue #168). A "·"
+// (U+00B7) is inside that range and draws fine — the limit is Latin-1, not
+// ASCII. Anything above U+00FF needs a real font loaded first.
 fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 	label := ""
 	for tag in ship.Tag {
@@ -317,7 +322,7 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 			label = fmt.tprintf("%s, %v", label, tag)
 		}
 	}
-	return len(label) > 0 ? label : "—"
+	return len(label) > 0 ? label : "none"
 }
 
 // fitting_effect_intent renders a one-line, human-readable summary of what a
