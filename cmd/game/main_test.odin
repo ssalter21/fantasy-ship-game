@@ -38,7 +38,7 @@ dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^t
 	dispatch(&state, sim.Event(sim.Event_Battle_Menu{may_leave = true}))
 	dispatch(&state, sim.Event(sim.Event_Battle_Event{inner = combat.Event(combat.Event_Battle_Ended{reason = .Destroyed})}))
 	dispatch(&state, sim.Event(sim.Event_Ship_Updated{ship = state.player}))
-	dispatch(&state, sim.Event(sim.Event_Item_Offer_Presented{}))
+	dispatch(&state, sim.Event(sim.Event_Options_Presented{}))
 	dispatch(&state, sim.Event(sim.Event_Refit_Started{incoming = ship.ship_fitting_gun_deck()}))
 	dispatch(&state, sim.Event(sim.Event_Fitting_Installed{slot = 0, fitting = ship.ship_fitting_gun_deck()}))
 	dispatch(&state, sim.Event(sim.Event_Refit_Finished{}))
@@ -70,15 +70,15 @@ battle_menu_loop_falls_back_to_hold_without_a_live_window :: proc(t: ^testing.T)
 }
 
 @(test)
-item_offer_menu_loop_falls_back_to_skip_without_a_live_window :: proc(t: ^testing.T) {
+option_menu_loop_falls_back_to_declining_without_a_live_window :: proc(t: ^testing.T) {
 	state := Game_State{}
 
-	cmd := item_offer_menu_loop(&state)
+	cmd := option_menu_loop(&state)
 
-	pick, ok := cmd.(sim.Command_Pick_Item)
+	choice, ok := cmd.(sim.Command_Choose_Option)
 	testing.expect(t, ok)
-	_, has_selection := pick.selection.?
-	testing.expect(t, !has_selection) // nil selection == skip
+	_, has_selection := choice.selection.?
+	testing.expect(t, !has_selection) // nil selection == decline: skip an Offer, leave a Shop
 }
 
 @(test)

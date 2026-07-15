@@ -180,9 +180,13 @@ Node_ID :: distinct int
 
 // Node is a single node on the run's procedurally-generated map (ADR-0009).
 // zone is nil for Start and Goal, which sit
-// outside the three stakes bands. encounter is set only when
-// kind == .Encounter; shop is set only on a .Port node (#98) and collapses into a
-// Shop stage once a Port is the [Shop] recipe (#134/#137). layer/lane are the
+// outside the three stakes bands. encounter holds the node's stage list.
+//
+// shop is a **transitional** field, set only on a .Port node (#98) and living only
+// between generation and the Sim: sim_adopt_port_shops moves it into a one-stage
+// [Shop] Encounter at run start and clears it, so nothing downstream of sim_create
+// ever sees it set (#131). It disappears once the Port bucket bakes the [Shop]
+// recipe at generation (#134/#137) and the adoption goes with it. layer/lane are the
 // node's position in the layered forward graph — layer is its column (Start = 0,
 // rising toward Goal), lane its row within that column; presentation derives
 // screen coordinates from them, so Nodes still carry no screen coordinates of

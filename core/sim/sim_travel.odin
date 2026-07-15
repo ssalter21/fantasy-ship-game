@@ -1,24 +1,26 @@
 package sim
 
-import "../combat"
 import "../run"
 
 // sim_process_travel applies a submitted Command_Travel_To (issue #24):
-// arrives at the target node, and if it's an as-yet-unresolved Encounter,
-// triggers that encounter ("auto-triggers, no decline"). The very first call
-// — before any travel choice has been submitted — has nothing to apply yet
-// and just announces the run's starting state, broadcasting the masked
-// public map (graph shape + landmarks, non-revealing encounters' stages withheld
+// arrives at the target node, and if it holds an as-yet-unresolved Encounter,
+// hands off to the stage walk that fires it ("auto-triggers, no decline"). The
+// very first call — before any travel choice has been submitted — has nothing to
+// apply yet and just announces the run's starting state, broadcasting the masked
+// public map (graph shape + landmarks, hidden encounters' stages withheld
 // — the hiding contract) rather than the private run_map.
 //
 // Travel is gated by run_travel_options' legality rule (forward and lateral
 // neighbors always, backward neighbors only by retrace to an already-visited
 // node): an illegal destination is a driver bug and asserts, matching the
-// assert-on-driver-bug style of the phase checks. An Encounter node's effect
-// still fires only once — resolved[] tracks that, so re-arriving after a
-// retrace is a no-op. A .Port node instead opens its shop (issue #98) on every
-// arrival, since a Port is a revisitable landmark whose stock never resolves;
-// Start (the home port) carries no shop and stays a pure pass-through waypoint.
+// assert-on-driver-bug style of the phase checks. An encounter fires only once —
+// resolved[] tracks that, so re-arriving after a retrace is a no-op.
+//
+// **Every** encounter, Port included (issue #131). Ports used to re-open their shop
+// on each arrival, exempt from resolved[] as revisitable landmarks; ADR-0014 drops
+// that, so a Port is walked and resolved like anything else and its stock is not
+// something to come back to. Start and Goal are still pass-through waypoints, but by
+// carrying no encounter rather than by being asked what kind they are.
 sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	if !has_pending {
@@ -45,62 +47,13 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event(Event_Arrived_At_Node{node = node}))
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 
-	// A Port opens its shop every arrival (issue #98) — no resolved[] gate, since
-	// a Port never resolves. sim_open_shop no-ops a shopless port (Start), leaving
-	// the ship at a travel choice.
-	if node.kind == .Port {
-		sim_open_shop(sim, node, events)
+	// An arrival hands off to the generic stage walk and asks nothing about what
+	// kind of node this is (issue #131): the walk finds no encounter at a landmark
+	// and leaves the ship at a travel choice, so Start and Goal need no branch of
+	// their own — and neither does a Port, which is now just a node carrying a
+	// [Shop] recipe (sim_adopt_port_shops).
+	if already_resolved {
 		return
 	}
-
-	if already_resolved || node.kind != .Encounter {
-		return
-	}
-
-	encounter, _ := node.encounter.?
-
-	// An Encounter is an ordered stage list walked by a cursor (ADR-0014), but
-	// this still fires only its first stage: the generic walk — advancing the
-	// cursor on a completed stage, stopping on a halted one, and collapsing these
-	// per-primitive phases into one path — is issue #131. Every recipe in today's
-	// catalog is one stage long (catalog.odin), so first-stage-only and the real
-	// walk agree exactly; the assert is what fails loudly if a multi-stage recipe
-	// (#138) lands before the walk does.
-	assert(encounter.count == 1, "sim fires only an encounter's first stage until the generic stage walk lands (#131)")
-	stage, _ := run.run_encounter_current(encounter)
-
-	switch s in stage {
-	case run.Stage_Fight:
-		sim.active_encounter = s
-		sim.battle = run.run_start_battle(&sim.player, &sim.active_encounter)
-		append(events, Event(Event_Ship_Battle_Sighted{opponent = sim.active_encounter.opponent}))
-		append(events, Event(Event_Battle_Menu{may_leave = combat.combat_may_leave(&sim.battle, .A)}))
-		sim.phase = .Awaiting_Battle_Command
-
-	case run.Stage_Offer:
-		sim.item_offer_options = s.options
-		append(events, Event(Event_Item_Offer_Presented{options = sim.item_offer_options}))
-		sim.phase = .Awaiting_Item_Choice
-
-	case run.Stage_Trade:
-		zone, has_zone := node.zone.?
-		assert(has_zone, "an Encounter node must have a zone")
-		site := run.Scaling_Site{zone = zone, depth = node.depth}
-		snap := run.run_apply_stat_trade(&sim.player, s, site, sim.steps)
-		sim_emit_encounter_resolved(sim, snap, events)
-		append(events, Event(Event_Ship_Updated{ship = sim.player}))
-		sim.resolved[cmd.node_id] = true
-
-	case run.Stage_Shop:
-		// Unreachable until Ports are placed as the [Shop] recipe (#134) and the
-		// Sim's per-Port shop state collapses into the stage (#137) — today a shop
-		// hangs off a .Port node, handled above, and no catalog recipe authors a
-		// Shop stage.
-		assert(false, "a Shop stage on an Encounter node needs the Port bucket (#134) and the Shop stage's Sim path (#137)")
-
-	case run.Stage_Reward:
-		// Unreachable until Reward has a payload (#132) and a primitive to spend it
-		// (#133); no catalog recipe authors one yet.
-		assert(false, "a Reward stage needs its grant decided (#132) and its primitive built (#133)")
-	}
+	sim_walk_encounter(sim, events)
 }

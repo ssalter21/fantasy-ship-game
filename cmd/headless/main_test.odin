@@ -49,16 +49,16 @@ get_captain_choice_holds_when_awaiting_a_battle_command :: proc(t: ^testing.T) {
 }
 
 @(test)
-get_captain_choice_skips_the_offer_when_awaiting_an_item_choice :: proc(t: ^testing.T) {
+get_captain_choice_declines_when_awaiting_an_option_choice :: proc(t: ^testing.T) {
 	state := Headless_State{}
 	defer delete(state.events)
 
-	cmd := get_captain_choice(&state, .Awaiting_Item_Choice)
+	cmd := get_captain_choice(&state, .Awaiting_Option_Choice)
 
-	pick, ok := cmd.(sim.Command_Pick_Item)
+	choice, ok := cmd.(sim.Command_Choose_Option)
 	testing.expect(t, ok)
-	_, has_selection := pick.selection.?
-	testing.expect(t, !has_selection) // nil selection == skip
+	_, has_selection := choice.selection.?
+	testing.expect(t, !has_selection) // nil selection == decline: skip an Offer, leave a Shop
 }
 
 @(test)
