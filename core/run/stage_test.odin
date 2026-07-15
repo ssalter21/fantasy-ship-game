@@ -183,6 +183,30 @@ run_encounter_from_recipe_bakes_every_authored_stage_in_order :: proc(t: ^testin
 }
 
 @(test)
+a_bare_reward_recipe_bakes_its_payout_from_the_site :: proc(t: ^testing.T) {
+	// Drifting salvage — free treasure — is a legal recipe, and that is a feature
+	// (#133): a Reward has nothing to decline, so an encounter that is only a Reward is
+	// coherent rather than an encounter with no interaction. Nothing authors it in the
+	// catalog yet (#138 owns that, and adding an entry would reshape every seed's map),
+	// so this pins that the model already builds and bakes one.
+	state := rand.create(0)
+	gen := rand.default_random_generator(&state)
+
+	site := Scaling_Site{zone = .Open_Sea, depth = 2}
+	r := Recipe{name = "Drifting Salvage", stages = []Stage_Kind{.Reward}}
+	e := run_encounter_from_recipe(r, site, gen)
+
+	testing.expect_value(t, e.count, 1)
+	reward, is_reward := e.stages[0].(Stage_Reward)
+	testing.expect(t, is_reward)
+
+	// The payout is content baked at generation, and it is this node's own reading of
+	// the gradient — no runtime roll decides it on arrival.
+	testing.expect_value(t, reward.treasure, run_reward_treasure(site))
+	testing.expect(t, reward.treasure > 0)
+}
+
+@(test)
 run_encounter_from_recipe_bakes_stakes_scaled_content :: proc(t: ^testing.T) {
 	// Each bake gets its own generator off the same seed, so both draw the same
 	// axis from the trade roster (#136) and the site is the only difference

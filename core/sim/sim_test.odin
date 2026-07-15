@@ -1093,6 +1093,16 @@ accept_trade :: proc(t: ^testing.T, sim: ^Sim, events: ^[dynamic]Event) {
 	refit_tick(sim, events)
 }
 
+// REWARD_PAYOUT is the treasure the tests' Reward stages grant. A round number
+// unlike any real site's payout, so a purse that moved by it moved because the
+// Reward paid out and not because some other stage happened to land on the same
+// figure.
+REWARD_PAYOUT :: 37
+
+reward_stage :: proc() -> run.Stage_Reward {
+	return run.Stage_Reward{treasure = REWARD_PAYOUT}
+}
+
 // fight_stage bakes a Fight against a real PvE opponent the player can outrun and
 // out-last, so a test can drive the battle to whichever ending it wants: a slow
 // opponent (Leave Combat unlocks at the baseline round) with `hp` to choose between
@@ -1254,17 +1264,17 @@ rejecting_a_trade_halts_before_a_later_stage :: proc(t: ^testing.T) {
 leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	// Fight's halt condition (ADR-0014): **Leave Combat halts** — ADR-0006's
 	// Speed-gated escape ends the encounter, not just the battle. This is the property
-	// the whole stage model was built to express: flee the blockade and you don't get
-	// the loot, with no authored gate saying so. The Trade stands in for the Reward
-	// #133 will build.
+	// the whole stage model was built to express, and it is now stated in the terms it
+	// was always meant to be: **no payout for escaping**. The Trade stood in here until
+	// #133 built the Reward; the real [Fight, Reward] is the literal case.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	before := sim.player.durability
-	install_encounter(&sim, 1, fight_stage(&sim, 10_000), trade_stage()) // too tough to sink quickly
+	before := sim.player.starting_treasure
+	install_encounter(&sim, 1, fight_stage(&sim, 10_000), reward_stage()) // too tough to sink quickly
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
@@ -1282,7 +1292,89 @@ leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
-	testing.expect_value(t, sim.player.durability, before) // fled: the Trade was never reached
+	testing.expect_value(t, sim.player.starting_treasure, before) // fled: no payout for escaping
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, sim.resolved[1])
+}
+
+@(test)
+a_reward_pays_out_and_completes_without_stopping_for_the_captain :: proc(t: ^testing.T) {
+	// The Reward primitive whole (#132, #133): a bare [Reward] — drifting salvage — is
+	// a legal encounter, its treasure lands in the purse, and it never parks. Every
+	// other primitive stops for a decision; a boon has nothing to decline, so arriving
+	// *is* the interaction and the walk runs off the end in the same tick.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	before := sim.player.starting_treasure
+	install_encounter(&sim, 1, reward_stage())
+	arrive_at(&sim, 1, &events)
+
+	testing.expect_value(t, sim.player.starting_treasure, before + REWARD_PAYOUT)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice) // never parked
+	testing.expect(t, sim.resolved[1])
+
+	// Presentation learns the purse moved only through Events (ADR-0001), and a Reward
+	// is a resolution like any other, so it snapshots too.
+	testing.expect(t, has_event(events[:], Event_Ship_Updated))
+	testing.expect(t, has_event(events[:], Event_Encounter_Resolved))
+}
+
+@(test)
+winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testing.T) {
+	// The other side of leaving_combat_halts_before_a_later_stage, and the encounter
+	// the whole model exists to express: [Fight, Reward] means "win, then loot" with no
+	// authored gate saying so. Victory completes the Fight, so the walk carries on to
+	// the Reward, which pays out and resolves the node without a further decision.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	before := sim.player.starting_treasure
+	install_encounter(&sim, 1, fight_stage(&sim, 1), reward_stage()) // 1 HP: sinks in a round
+	arrive_at(&sim, 1, &events)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
+
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
+	refit_tick(&sim, &events)
+
+	testing.expect(t, sim.battle.ended)
+	testing.expect_value(t, sim.player.starting_treasure, before + REWARD_PAYOUT)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, sim.resolved[1])
+}
+
+@(test)
+a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
+	// #132's "a Reward reads its own node, never its neighbours", made observable:
+	// [Offer, Reward] — the Derelict — pays out with no opponent anywhere in the
+	// encounter to have looted. Had the payout been derived from the beaten ship's
+	// "Spoils" cargo (which the naming invites), this recipe would have nothing to read
+	// and the primitive would only work behind a Fight, which is exactly the coupling
+	// composable stages exist to avoid.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	before := sim.player.starting_treasure
+	install_encounter(&sim, 1, offer_stage(), reward_stage())
+	arrive_at(&sim, 1, &events)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
+	testing.expect_value(t, sim.player.starting_treasure, before) // stage 1 not reached yet
+
+	// Picking completes the Offer and opens a Refit; the walk resumes at its finish and
+	// runs through the Reward without stopping again.
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	submit_refit(&sim, Refit_Finish{})
+	refit_tick(&sim, &events)
+
+	testing.expect_value(t, sim.player.starting_treasure, before + REWARD_PAYOUT)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
 }

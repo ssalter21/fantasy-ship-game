@@ -95,6 +95,33 @@ trade_swing_rises_by_zone_and_depth_for_every_stat :: proc(t: ^testing.T) {
 }
 
 @(test)
+reward_treasure_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	// #133's acceptance in one line: a Deep reward outweighs a Coastal one.
+	expect_rises_by_zone_and_depth(t, run_reward_treasure)
+}
+
+@(test)
+a_reward_outpays_selling_a_stat_at_the_same_site :: proc(t: ^testing.T) {
+	// The placeholder's one authored relationship (#132): a Reward pays more than a
+	// Trade's Treasure swing, because a swing is what a stat fetches when sold and a
+	// Reward is earned by the stage in front of it. If this inverts, [Fight, Reward] is
+	// a worse Bargain — risk the run, or sell some Speed for more. Asserted at every
+	// site rather than one, since the two read the same gradient through different
+	// constants and could cross over at depth.
+	for zone in Zone {
+		for depth in 0 ..= DEPTH_STEPS {
+			site := Scaling_Site{zone = zone, depth = depth}
+			testing.expectf(
+				t,
+				run_reward_treasure(site) > run_trade_swing(site, .Treasure),
+				"a reward at %v must outpay selling a stat there",
+				site,
+			)
+		}
+	}
+}
+
+@(test)
 run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Deep, depth = 2}
 	opponent := run_make_opponent_ship(site)

@@ -109,17 +109,32 @@ sim_current_encounter :: proc(sim: ^Sim) -> (^run.Encounter, bool) {
 	return encounter, ok
 }
 
+// sim_current_site is the stakes of the node the ship is standing at (ADR-0014) —
+// what the stage under the cursor was baked against, and what its resolution stamps
+// onto its Ghost_Snapshot. A node holding an encounter always has a zone, so a
+// missing one is a generation bug rather than a case to handle.
+//
+// Every stage that resolves at arrival needs this and none of them needs it
+// differently, so it is asked here once rather than reassembled from node.zone and
+// node.depth at each primitive's arm.
+sim_current_site :: proc(sim: ^Sim) -> run.Scaling_Site {
+	node := sim.run_map.nodes[sim.current]
+	zone, has_zone := node.zone.?
+	assert(has_zone, "an Encounter node must have a zone")
+	return run.Scaling_Site{zone = zone, depth = node.depth}
+}
+
 // sim_walk_encounter presents the stage under the cursor, or finishes the encounter
 // if the walk is over — the read half of complete-or-halt, and the single answer to
 // "what happens next" that every resolution path routes back through.
 //
 // It loops rather than presenting one stage, because nothing guarantees a stage stops
 // for the captain: one that resolves outright advances the cursor and the next stage is
-// entered in the same tick. Every primitive authored today parks — the last one that
-// did not was Trade, until #136 gave it accept/reject — but Reward (#132/#133) is
-// specified to resolve outright, so the loop is what that lands into rather than a
-// shape it would have to add. The loop ends the moment a stage parks in a decision
-// phase, or the cursor runs off the end.
+// entered in the same tick. Reward is that stage (#133) — a boon has nothing to
+// decline, so it pays out and the walk carries straight on to whatever follows it,
+// which is how [Fight, Reward] resolves the node the moment the battle is won. Every
+// other primitive parks. The loop ends the moment a stage parks in a decision phase, or
+// the cursor runs off the end.
 //
 // Finishing marks the node resolved — **node-level, once**, exactly like every other
 // encounter (ADR-0014). This is where Port repeatability dies: a Port is walked and
@@ -195,11 +210,8 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		// The bargain and the site it was baked from are staged here because the answer
 		// arrives a tick later, and run_apply_trade needs the site to snapshot the node's
 		// own stakes. can_accept is measured now, against the ship as it stands.
-		node := sim.run_map.nodes[sim.current]
-		zone, has_zone := node.zone.?
-		assert(has_zone, "an Encounter node must have a zone")
 		sim.active_trade = s
-		sim.active_trade_site = run.Scaling_Site{zone = zone, depth = node.depth}
+		sim.active_trade_site = sim_current_site(sim)
 		append(events, Event(Event_Trade_Presented{
 			trade      = sim.active_trade,
 			can_accept = run.run_trade_can_accept(&sim.player, sim.active_trade),
@@ -208,10 +220,20 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		return nil
 
 	case run.Stage_Reward:
-		// Unreachable until Reward has a payload (#132's answer) and a primitive to
-		// spend it (#133); no catalog recipe authors one yet. It will resolve outright
-		// like a Trade — a boon has nothing to decline — so it returns .Completed here.
-		assert(false, "a Reward stage needs its grant decided (#132) and its primitive built (#133)")
+		// The one primitive that parks nowhere (#132, #133): a boon has nothing to
+		// decline, so it pays out and hands back .Completed in the same breath, and
+		// sim_walk_encounter's loop carries straight on to whatever follows it. This is
+		// the case that loop was built for — every other primitive stops for a decision.
+		//
+		// Both events fire because a Reward is a resolution like any other: the snapshot
+		// records what the ship looked like having taken it, and Event_Ship_Updated is
+		// how presentation learns the purse moved (ADR-0001 — it learns nothing except
+		// through Events). Same order as an accepted Trade, the other stage that grants
+		// on resolution.
+		snap := run.run_apply_reward(&sim.player, s, sim_current_site(sim), sim.steps)
+		sim_emit_encounter_resolved(sim, snap, events)
+		append(events, Event(Event_Ship_Updated{ship = sim.player}))
+		return .Completed
 	}
 	unreachable()
 }

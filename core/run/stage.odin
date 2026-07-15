@@ -159,13 +159,30 @@ Stage_Shop :: struct {
 	deck: [ship.ITEM_ROSTER_SIZE]Shop_Item,
 }
 
-// Stage_Reward grants something outright and always completes — the "then loot
-// it" half of [Fight, Reward], and the reason a halt has to keep what earlier
-// stages already granted. It carries no content yet: **what** a Reward grants is
-// still open (issue #132), and the primitive that spends that answer is issue
-// #133. The arm exists here because the primitive set is closed and this ticket
-// fixes it; its payload lands with the decision.
-Stage_Reward :: struct {}
+// Stage_Reward grants treasure outright and always completes — the "then loot it"
+// half of [Fight, Reward], and the reason a halt has to keep what earlier stages
+// already granted.
+//
+// **Treasure, and only treasure** (issue #132). Not items: that is Offer's job, and
+// a Reward that could grant one would leave [Fight, Reward] and [Fight, Offer]
+// differing only in whether the captain got to choose — a distinction Offer already
+// expresses. Not cargo-as-a-separate-thing either: money takes space, so treasure
+// and cargo are one thing rather than two candidates; #143 is where the purse
+// becomes literal slots, and Reward ships against the plain int until then.
+//
+// `treasure` is baked at generation from the node's own Scaling_Site
+// (run_reward_treasure) — a plain int, so it needs no runtime RNG, holds no
+// function pointer, and copies into a Ghost_Snapshot like every other stage's
+// content (ADR-0012).
+//
+// Reward is a **boon**: it has nothing to decline, so it is the one primitive that
+// resolves without stopping for the captain (sim_enter_stage returns .Completed for
+// it outright). That is why a bare [Reward] — drifting salvage, free treasure — is
+// a coherent recipe rather than an encounter with no interaction: the interaction
+// is arriving.
+Stage_Reward :: struct {
+	treasure: int,
+}
 
 // Stage is one step of an encounter: a primitive plus the content it was baked
 // with. A closed union (ADR-0014's closed alphabet) — every consumer switches

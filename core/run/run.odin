@@ -41,11 +41,11 @@ DEPTH_STEPS :: 3
 
 // The stakes constants below belong to **stage primitives**, not to encounter
 // kinds (ADR-0014): one gradient, read differently by each primitive — Fight as
-// opponent power, Offer as item quality, Trade as swing size. Grouping them by
-// primitive is what lets a recipe compose stages without asking which kind of
-// encounter it is. Shop and Reward have no per-tier/per-depth constants yet: a
-// Shop prices by item tier (ship_item_cost), and Reward has no implementation to
-// tune — both land here when they gain one.
+// opponent power, Offer as item quality, Trade as swing size, Reward as treasure.
+// Grouping them by primitive is what lets a recipe compose stages without asking
+// which kind of encounter it is. Shop still has no per-tier/per-depth constants:
+// it prices by item tier (ship_item_cost), and lands here if that stops being
+// enough.
 
 FIGHT_OPPONENT_HP_PER_TIER :: 10
 FIGHT_OPPONENT_HP_PER_DEPTH :: 3
@@ -93,6 +93,30 @@ TRADE_SWING_SPEED_PER_TIER :: 1
 TRADE_SWING_SPEED_PER_DEPTH :: 1
 TRADE_SWING_TREASURE_PER_TIER :: 15
 TRADE_SWING_TREASURE_PER_DEPTH :: 5
+
+// The Reward primitive's stakes constants are its treasure payout (issue #132) —
+// the whole of what a Reward is tuned by, since treasure is the whole of what it
+// grants. #130 recorded that "Reward has nothing to tune" and left it out of this
+// group; that held only while the primitive was an empty arm, and #132 superseded
+// it by giving Reward something to grant.
+//
+// Anchored against the Treasure *swing* above, and deliberately a little above it:
+// the swing is the price a stat fetches when sold (run_trade_swing is the exchange
+// rate between stats), so quoting the payout against it is what makes "is looting
+// worth it" a question with an answer. It pays **more** than selling a stat because
+// a Reward is usually earned by whatever stage precedes it — a Fight risks the run,
+// a Trade only costs a stat — and a payout that undercut the safest way to raise
+// money would make [Fight, Reward] a worse Bargain. Kept as its own constants rather
+// than derived from the swing, because a primitive owns its stakes constants
+// (ADR-0014) and tuning one must not silently move the other.
+//
+// Placeholders on the same footing as every constant in this group. For scale: at
+// the starting purse of 50 against item costs of 10/25/45, a Coastal reward is a
+// Small item and a Deep one is a Large item with change — which is the point of
+// #132's answer, since a Shop stage the player cannot afford to meet is a worse
+// Offer.
+REWARD_TREASURE_PER_TIER :: 20
+REWARD_TREASURE_PER_DEPTH :: 5
 
 // Scaling_Site is a node's position on the stakes gradient: the (zone, depth)
 // pair every zone-and-depth-scaled formula below reads. It says *how much is on
@@ -181,6 +205,21 @@ run_trade_swing :: proc(site: Scaling_Site, stat: Trade_Stat) -> int {
 		return run_zone_depth_scaled(site, TRADE_SWING_TREASURE_PER_TIER, TRADE_SWING_TREASURE_PER_DEPTH)
 	}
 	unreachable()
+}
+
+// run_reward_treasure is the Reward primitive's stakes reading: the treasure a
+// Reward at this site pays out (issue #132). A Deep reward outweighs a Coastal
+// one, and a deeper node in a zone outpays a shallower one.
+//
+// It reads **this node's own site and nothing else** — in particular not the
+// opponent a preceding Fight staged. Reading the neighbour would couple Reward to
+// Fight and leave `[Offer, Reward]` undefined, since there is no opponent there to
+// count; a primitive that reads the stage before it stops working the moment it is
+// composed differently, which is the whole thing composable stages exist to avoid.
+// The opponent's "Spoils" cargo (run_fit_pve_opponent_loadout) stays flavour until
+// #143 makes treasure literally cargo.
+run_reward_treasure :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, REWARD_TREASURE_PER_TIER, REWARD_TREASURE_PER_DEPTH)
 }
 
 // Node_Kind is what a Node is: the Start/home port, a per-zone Port, an

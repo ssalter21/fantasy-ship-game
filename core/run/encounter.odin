@@ -176,3 +176,21 @@ run_apply_trade :: proc(s: ^ship.Ship, trade: Stage_Trade, site: Scaling_Site, s
 
 	return run_ghost_snapshot_of(s, steps, site)
 }
+
+// run_apply_reward pays a Reward stage's treasure into the ship's purse (issues
+// #132, #133) and returns a post-payout Ghost_Snapshot (ADR-0008) carrying the
+// node's own stakes.
+//
+// The amount is not computed here — it was baked into the stage at generation
+// (run_bake_stage), so this is only the application, like every other proc in this
+// file. `site` is the node's, for the snapshot alone.
+//
+// Unconditional, and that is the primitive: a Reward is a boon with nothing to
+// decline, so unlike run_apply_trade there is no affordability gate to assert and
+// no caller-side choice to have been made first. It always completes
+// (Stage_Outcome.Completed), which is what makes [Fight, Reward] read as "win, then
+// loot" with no authored gate — the halt on fleeing is Fight's, not Reward's.
+run_apply_reward :: proc(s: ^ship.Ship, reward: Stage_Reward, site: Scaling_Site, steps: int) -> Ghost_Snapshot {
+	s.starting_treasure += reward.treasure
+	return run_ghost_snapshot_of(s, steps, site)
+}
