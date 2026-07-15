@@ -382,13 +382,12 @@ run_item_offer_options_scale_up_with_a_deeper_node :: proc(t: ^testing.T) {
 // roster only ever yields one distinct bargain, nothing was unwelded.
 @(test)
 run_make_trade_draws_more_than_one_distinct_axis_across_seeds :: proc(t: ^testing.T) {
-	site := Scaling_Site{zone = .Open_Sea, depth = 1}
 	seen: map[string]bool
 	defer delete(seen)
 
 	for seed in u64(0) ..< 50 {
 		state := rand.create(seed)
-		trade := run_make_trade(site, rand.default_random_generator(&state))
+		trade := run_make_trade(.Open_Sea, rand.default_random_generator(&state))
 		seen[trade.name] = true
 	}
 
@@ -400,40 +399,37 @@ run_make_trade_draws_more_than_one_distinct_axis_across_seeds :: proc(t: ^testin
 // content like every other stage's.
 @(test)
 run_make_trade_is_reproducible_per_seed :: proc(t: ^testing.T) {
-	site := Scaling_Site{zone = .Deep, depth = 2}
-
 	a_state := rand.create(11)
 	b_state := rand.create(11)
-	a := run_make_trade(site, rand.default_random_generator(&a_state))
-	b := run_make_trade(site, rand.default_random_generator(&b_state))
+	a := run_make_trade(.Deep, rand.default_random_generator(&a_state))
+	b := run_make_trade(.Deep, rand.default_random_generator(&b_state))
 
 	testing.expect_value(t, a, b)
 }
 
-// Both sides read the same Scaling_Site, so stakes move the whole trade — not
-// just the half that used to own a constant.
+// Both sides read the same zone, so stakes move the whole trade — not just the
+// half that used to own a constant.
 @(test)
-run_make_trade_scales_both_sides_with_the_site :: proc(t: ^testing.T) {
+run_make_trade_scales_both_sides_with_the_zone :: proc(t: ^testing.T) {
 	shallow_state := rand.create(3)
 	deep_state := rand.create(3)
-	shallow := run_make_trade(Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&shallow_state))
-	deep := run_make_trade(Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}, rand.default_random_generator(&deep_state))
+	shallow := run_make_trade(.Coastal, rand.default_random_generator(&shallow_state))
+	deep := run_make_trade(.Deep, rand.default_random_generator(&deep_state))
 
 	testing.expect_value(t, shallow.name, deep.name) // same seed, same axis drawn
 	testing.expect(t, deep.gain.amount > shallow.gain.amount)
 	testing.expect(t, deep.cost.amount > shallow.cost.amount)
 }
 
-// A baked trade's magnitudes are exactly its two stats' swings at that site —
-// the roster entry contributes the stats, the site contributes the numbers.
+// A baked trade's magnitudes are exactly its two stats' swings in that zone —
+// the roster entry contributes the stats, the zone contributes the numbers.
 @(test)
 run_make_trade_reads_each_side_as_that_stats_swing :: proc(t: ^testing.T) {
-	site := Scaling_Site{zone = .Open_Sea, depth = 2}
 	state := rand.create(5)
-	trade := run_make_trade(site, rand.default_random_generator(&state))
+	trade := run_make_trade(.Open_Sea, rand.default_random_generator(&state))
 
-	testing.expect_value(t, trade.gain.amount, run_trade_swing(site, trade.gain.stat))
-	testing.expect_value(t, trade.cost.amount, run_trade_swing(site, trade.cost.stat))
+	testing.expect_value(t, trade.gain.amount, run_trade_swing(.Open_Sea, trade.gain.stat))
+	testing.expect_value(t, trade.cost.amount, run_trade_swing(.Open_Sea, trade.cost.stat))
 }
 
 // Every entry is a real swap: a trade that gains and costs the same stat is a
@@ -465,26 +461,84 @@ the_trade_roster_gains_every_stat_and_costs_every_stat_but_hp :: proc(t: ^testin
 	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_HP, .Durability, .Speed, .Treasure})
 }
 
-// The pre-#136 Bargain was +Durability for -Speed, scaled by
-// TRADE_GAIN_DURABILITY_* / TRADE_COST_SPEED_*. Those constants became the
-// Durability and Speed rows of the swing table unchanged, so the Braced Bulkheads
-// entry must still produce the old numbers exactly — the roster is new content,
-// not a retune of the content that was already there.
+// baked_trade is a roster axis priced at a zone — exactly what run_make_trade
+// builds once the draw has picked the axis, without the draw. It lets the
+// takeability tests below ask about a *named* entry rather than whichever one a
+// seed happened to deal.
+baked_trade :: proc(axis: Trade_Axis, zone: Zone) -> Stage_Trade {
+	return trade_of(axis.gain, run_trade_swing(zone, axis.gain), axis.cost, run_trade_swing(zone, axis.cost))
+}
+
+// #146's headline: **an entry no ship can pay for is authored content the player
+// cannot reach.** Two of the six were exactly that before the retune — Stripped
+// Spars and Scrapped Armour cost 8 Durability at Coastal against a hull that has
+// 2, so a Bargain node's only answer was reject, in a run that traverses ~3-4
+// nodes per zone.
+//
+// Asserted against a **bare starting ship**, which is the strongest form of the
+// claim and the honest one for these two zones: a Bargain is a 1-stage recipe, so
+// Coastal deals it to a captain who has bought nothing yet. If this is too strict
+// it is the swing table that is wrong, not the test.
 @(test)
-the_braced_bulkheads_entry_reproduces_the_pre_136_bargain_numbers :: proc(t: ^testing.T) {
-	site := Scaling_Site{zone = .Open_Sea, depth = 2}
+every_trade_roster_entry_is_takeable_by_a_starting_ship_outside_the_deep :: proc(t: ^testing.T) {
+	for axis in run_trade_roster() {
+		for zone in ([]Zone{.Coastal, .Open_Sea}) {
+			s := ship.ship_starting_ship()
+			defer delete(s.layout)
 
-	// The old formulas, inlined: zone_tier * per_tier + depth * per_depth.
-	old_gain_durability := zone_tier[site.zone] * 8 + site.depth * 2
-	old_cost_speed := zone_tier[site.zone] * 1 + site.depth * 1
+			testing.expectf(
+				t,
+				run_trade_can_accept(&s, baked_trade(axis, zone)),
+				"%v is a dead node in %v: a starting ship cannot pay %v of %v",
+				axis.name,
+				zone,
+				run_trade_swing(zone, axis.cost),
+				axis.cost,
+			)
+		}
+	}
+}
 
-	testing.expect_value(t, run_trade_swing(site, .Durability), old_gain_durability)
-	testing.expect_value(t, run_trade_swing(site, .Speed), old_cost_speed)
+// The residue of the retune, pinned rather than papered over (#146). A Deep
+// Durability swing is 3 against a bare hull's 2, so the two Durability-costing
+// entries ask for one bought point of armour before The Deep will take them — one
+// Iron Plating, 10 treasure, the cheapest item in the game, against four
+// guaranteed Ports and a zone of Rewards behind you.
+//
+// That is content rather than a dead node: you cannot strip armour you never
+// bought, and Scrapped Armour's whole proposition is selling the armour you have.
+// It is also the last of the starting-Durability-of-2 problem — the stat's range
+// is set by combat's single-digit band (#135), which is #151's to widen, not this
+// table's. **If #151 raises the base, this test should fail**, and the right
+// response is to delete it: it exists to say that the gap is one plating wide and
+// known, not that it should stay.
+@(test)
+the_deep_asks_one_point_of_armour_before_it_will_buy_a_ships_armour :: proc(t: ^testing.T) {
+	for axis in run_trade_roster() {
+		if axis.cost != .Durability {
+			continue
+		}
 
-	braced := run_trade_roster()[0]
-	testing.expect_value(t, braced.name, "Braced Bulkheads")
-	testing.expect_value(t, braced.gain, Trade_Stat.Durability)
-	testing.expect_value(t, braced.cost, Trade_Stat.Speed)
+		bare := ship.ship_starting_ship()
+		defer delete(bare.layout)
+		testing.expectf(
+			t,
+			!run_trade_can_accept(&bare, baked_trade(axis, .Deep)),
+			"%v is takeable in The Deep by a bare hull — the residue this test documents is gone, so delete it",
+			axis.name,
+		)
+
+		plated := ship.ship_starting_ship()
+		defer delete(plated.layout)
+		plated.durability += 1 // what one Iron Plating buys
+
+		testing.expectf(
+			t,
+			run_trade_can_accept(&plated, baked_trade(axis, .Deep)),
+			"%v needs more than a single plating in The Deep",
+			axis.name,
+		)
+	}
 }
 
 // effect_strength reads the magnitude of whichever effect a roster item carries,

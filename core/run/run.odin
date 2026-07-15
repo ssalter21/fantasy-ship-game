@@ -89,25 +89,88 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // generous trade. Nothing has asked for one yet, and a weight field can be added
 // to Trade_Axis later without restructuring a single caller.
 //
-// Durability and Speed keep the exact values the welded axis used
-// (TRADE_GAIN_DURABILITY_* / TRADE_COST_SPEED_*), so the Braced Bulkheads roster
-// entry reproduces today's Bargain number for number. The other three are
-// placeholders on the same footing as every constant in this group — the map's
-// own fog patch ("Stakes constant tuning per primitive ... needs content in
-// place to judge") is what settles them, and this ticket is the content it was
-// waiting for. Their one authored relationship: Max HP's swing is smaller than
-// HP's, because a point of permanent ceiling is worth more than a point of
-// one-off repair.
+// # A swing is one of the zone's stat fittings (issue #146)
+//
+// These are the one group in this file whose constants are **not independent**.
+// Every other primitive's reading answers only to itself — if a hostile's HP is
+// too low, raise it. A rate table is a set of *ratios*, so a row can only be read
+// against the other rows, and the anchor they are all read against is the item
+// roster: ADR-0012 already prices each stat in treasure, by tier, and a Shop is
+// where a captain actually converts one into the other. That price list says a
+// point of Durability and a point of Speed cost exactly the same (Iron Plating
+// +1 Durability and Spare Rigging +1 Speed are both Splash, both 10; Reinforced
+// Hull +2 and Copper Sheathing +2 are both Shallow, both 25; Dragon Turtle +3 and
+// Enchanted Keel +3 are both Deep, both 45), and that a point of Max HP is worth
+// about half of either (Salt Provisions +2 Max HP for the same 10).
+//
+// zone_tier's 1/2/3 is that same ladder, so the table below is the ladder read
+// off: **one swing at zone tier N is one tier-N stat fitting.** Coastal trades in
+// Iron Plating and Spare Rigging (1) and Salt Provisions (2); The Deep trades in
+// Dragon Turtle and Enchanted Keel (3) and Treasure Vault (6). That is what makes
+// a bargain legible as well as fair — a Deep trade moves a Deep item's worth of
+// stat — and it hands a Trade its reason to exist next to a Shop, since it quotes
+// the shop's price and **costs no slot**.
+//
+// Durability's 8 was the one row that lied, and its provenance is the whole
+// explanation: it was the *gain* side of the welded axis, where being generous was
+// the point, while Speed's 1 was the *cost* side, where being honest was. A welded
+// axis only ever has to work in one direction, so exactly one of its two rows had
+// to be wrong the moment #136 let a roster entry run it backwards. Eight points of
+// Durability is not a fitting, it is an armoured fleet — 96 treasure of armour on a
+// starting purse of 50 — so Stripped Spars and Scrapped Armour could never be paid.
+//
+// # Why no PER_DEPTH row (issue #146)
+//
+// There isn't one, and this is arithmetic rather than taste. A swing has to be
+// payable out of the stat, and the roster costs Durability (Stripped Spars,
+// Scrapped Armour) against a **starting Durability of 2**. So Durability's Coastal
+// swing can be at most 2 — and since depth spans DEPTH_STEPS, any per-depth
+// constant at all adds 3 across a zone, more than the entire stat. **The depth axis
+// is wider than the stat it would scale.** Durability's row is therefore pinned to
+// tier alone; the two rows must then match (see below), which pins Speed; and a
+// rate is only a rate if every row scales together, which pins the rest. One
+// frozen row freezes the table.
+//
+// Dropping it is a repair, not a loss. With per-tier and per-depth as independent
+// knobs the table quoted a *different rate at every depth*: Lightened Hold swapped
+// 1 Speed for 2 Max HP at the top of Coastal (fair) and 4 Speed for 5 Max HP at
+// the bottom of it (a 1.75x gift), for the same named bargain, invisibly. Now every
+// row is `tier x rate`, so the ratios between stats are the same at all twelve
+// sites by construction — one rate, not twelve, which is the only thing an exchange
+// rate can mean. Trade keeps a real gradient in the tier ladder's 3x spread; what
+// it loses is the half of the gradient it had no room for.
+//
+// **Durability and Speed must be equal, not merely close.** The roster authors
+// Braced Bulkheads (+Durability for -Speed) and Stripped Spars (its exact inverse)
+// on purpose — "the entry that proves the axis is a space and not a point". An
+// inverse pair makes any inequality between two rows a permanent verdict: quote
+// Speed above Durability and Spars is free value while Bulkheads is a trap that
+// exists to be rejected, at every site, forever. The shop's price list happens to
+// say the same thing, so this is a discovered equality rather than a chosen one.
+//
+// The residue: a Deep Durability swing is 3 against a bare hull's 2, so the two
+// Durability-costing entries need a single Iron Plating (10 treasure, the cheapest
+// item in the game) before The Deep will take them. That is content, not a dead
+// node — you cannot strip armour you never bought — and it is the last of the
+// starting-Durability-of-2 problem, which is combat's band to widen (#151) and not
+// this table's. If Durability ever gets a range, this table gets a resolution finer
+// than a zone, and the depth axis becomes expressible again.
+//
+// HP is the one row with no anchor, because nothing else in the game heals and so
+// nothing prices a repair. It keeps #136's authored relationship instead — twice
+// Max HP's, since a point of permanent ceiling is worth more than a point of
+// one-off repair — which Cannibalized Timbers spends as a flat 2 HP per Max HP at
+// every zone. Treasure keeps its 15: it is anchored the other way, to Reward's
+// payout (#133's `a_reward_outpays_selling_a_stat_at_the_same_site`), and the
+// item ladder's own non-linearity (10/25/45 against zone_tier's 1/2/3) is economy
+// tuning this map rules out of scope. That leaves Treasure quoting ~1.36x the
+// other rows at Coastal and meeting them exactly at The Deep — the known residual,
+// and #124's business rather than this table's.
 TRADE_SWING_HP_PER_TIER :: 4
-TRADE_SWING_HP_PER_DEPTH :: 2
 TRADE_SWING_MAX_HP_PER_TIER :: 2
-TRADE_SWING_MAX_HP_PER_DEPTH :: 1
-TRADE_SWING_DURABILITY_PER_TIER :: 8
-TRADE_SWING_DURABILITY_PER_DEPTH :: 2
+TRADE_SWING_DURABILITY_PER_TIER :: 1
 TRADE_SWING_SPEED_PER_TIER :: 1
-TRADE_SWING_SPEED_PER_DEPTH :: 1
 TRADE_SWING_TREASURE_PER_TIER :: 15
-TRADE_SWING_TREASURE_PER_DEPTH :: 5
 
 // The Reward primitive's stakes constants are its treasure payout (issue #132) —
 // the whole of what a Reward is tuned by, since treasure is the whole of what it
@@ -201,28 +264,36 @@ run_offer_item_quality :: proc(site: Scaling_Site) -> int {
 }
 
 // run_trade_swing is the Trade primitive's stakes reading: how much of `stat` one
-// swing is worth at this site. A deeper trade is a bigger swing (more Durability
-// gained, more Speed spent) than a shallow one in the same zone — on *both*
-// sides, since a trade's gain and cost are each a swing of their own stat read
-// off the same site.
+// swing is worth in this zone. A Deep trade is a bigger swing (more Durability
+// gained, more Speed spent) than a Coastal one — on *both* sides, since a trade's
+// gain and cost are each a swing of their own stat read off the same zone.
 //
 // This is the whole of the Trade primitive's stakes reading: it replaces
 // run_trade_gain_durability / run_trade_cost_speed, which existed only because
 // the axis was welded into Stage_Trade and each side therefore had exactly one
 // stat it could ever be. Keyed by stat rather than by side, one proc answers for
 // every roster entry, and gain and cost are the same question asked twice.
-run_trade_swing :: proc(site: Scaling_Site, stat: Trade_Stat) -> int {
+//
+// **It takes a Zone rather than a Scaling_Site, and that is the point** — Trade
+// reads half the gradient, so it is handed half. The swing table is an exchange
+// rate and a rate has no room for a second axis (see TRADE_SWING_* above: the
+// depth axis spans more than a starting ship's entire Durability), so a `site`
+// here would be a parameter this proc had to ignore. run_bake_shop set the
+// precedent in #137 by taking no site at all; this is the same argument one notch
+// weaker. It is also what makes the decision unbreakable rather than a row of
+// zeroes someone could refill: there is no depth to read.
+run_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 	switch stat {
 	case .HP:
-		return run_zone_depth_scaled(site, TRADE_SWING_HP_PER_TIER, TRADE_SWING_HP_PER_DEPTH)
+		return zone_tier[zone] * TRADE_SWING_HP_PER_TIER
 	case .Max_HP:
-		return run_zone_depth_scaled(site, TRADE_SWING_MAX_HP_PER_TIER, TRADE_SWING_MAX_HP_PER_DEPTH)
+		return zone_tier[zone] * TRADE_SWING_MAX_HP_PER_TIER
 	case .Durability:
-		return run_zone_depth_scaled(site, TRADE_SWING_DURABILITY_PER_TIER, TRADE_SWING_DURABILITY_PER_DEPTH)
+		return zone_tier[zone] * TRADE_SWING_DURABILITY_PER_TIER
 	case .Speed:
-		return run_zone_depth_scaled(site, TRADE_SWING_SPEED_PER_TIER, TRADE_SWING_SPEED_PER_DEPTH)
+		return zone_tier[zone] * TRADE_SWING_SPEED_PER_TIER
 	case .Treasure:
-		return run_zone_depth_scaled(site, TRADE_SWING_TREASURE_PER_TIER, TRADE_SWING_TREASURE_PER_DEPTH)
+		return zone_tier[zone] * TRADE_SWING_TREASURE_PER_TIER
 	}
 	unreachable()
 }

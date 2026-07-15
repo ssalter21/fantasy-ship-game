@@ -416,21 +416,27 @@ run_trade_roster :: proc() -> []Trade_Axis {
 // run_make_trade bakes a Trade stage (issue #136): it draws one axis from the
 // roster off the map generator's RNG — so which bargain a node offers is
 // reproducible per seed yet varies node to node, like an Offer's items and a
-// Shop's deck — and reads each side's magnitude as that stat's swing at this
-// node's site. Called from run_bake_stage at generation time; nothing rolls on
+// Shop's deck — and reads each side's magnitude as that stat's swing in this
+// node's zone. Called from run_bake_stage at generation time; nothing rolls on
 // arrival.
 //
-// Both terms read the *same* site, so stakes move the whole trade together: a
+// Both terms read the *same* zone, so stakes move the whole trade together: a
 // Deep Braced Bulkheads gains more Durability and costs more Speed than a Coastal
 // one, rather than scaling only the half that used to have a constant.
-run_make_trade :: proc(site: Scaling_Site, gen: rand.Generator) -> Stage_Trade {
+//
+// It takes a Zone rather than the node's full Scaling_Site because a swing is
+// zone-scaled and nothing else (#146: an exchange rate has no room for a second
+// axis — see TRADE_SWING_* in run.odin). So a Trade is the one primitive that
+// reads *part* of its node's stakes; the Shop arm beside it in run_bake_stage
+// reads none.
+run_make_trade :: proc(zone: Zone, gen: rand.Generator) -> Stage_Trade {
 	roster := run_trade_roster()
 	axis := roster[rand.int_max(len(roster), gen)]
 
 	return Stage_Trade{
 		name = axis.name,
-		gain = Trade_Term{stat = axis.gain, amount = run_trade_swing(site, axis.gain)},
-		cost = Trade_Term{stat = axis.cost, amount = run_trade_swing(site, axis.cost)},
+		gain = Trade_Term{stat = axis.gain, amount = run_trade_swing(zone, axis.gain)},
+		cost = Trade_Term{stat = axis.cost, amount = run_trade_swing(zone, axis.cost)},
 	}
 }
 
