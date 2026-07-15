@@ -99,6 +99,89 @@ run_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SI
 	return indices
 }
 
+// Trade_Axis is one authored entry in the Trade primitive's content roster
+// (issue #136): a named bargain, and the two stats it swaps. It carries no
+// magnitudes — those are each stat's swing at the node's site (run_trade_swing),
+// so an axis is authored purely as "what for what" and the site decides how big.
+//
+// This is the type that unwelds Stage_Trade's +Durability/-Speed: the axis used
+// to *be* the struct's two field names, so every trade in the game was one point
+// in the space CONTEXT.md described. An axis is now a roster row, and the space
+// is the roster.
+Trade_Axis :: struct {
+	name: string,
+	gain: Trade_Stat,
+	cost: Trade_Stat,
+}
+
+// trade_roster is every trade in the game, in the same authored-table shape as
+// catalog.odin's recipe_catalog and generation.odin's tuning knobs. @(rodata):
+// unlike recipe_catalog these entries are constant initializers (no slices of
+// other arrays), so the table can live in read-only memory.
+//
+// **Size — six.** A run traverses only ~3-4 nodes per zone (~11-14 of 50), and a
+// Trade is one recipe among the catalog's three, so a single run meets a handful
+// of trades at most. Six is the smallest size that still makes a *run* mostly
+// non-repeating while making consecutive runs visibly different — the roster's
+// actual job. Going wider buys variance the player never lives long enough to
+// see; going narrower (four, say) and a single run would routinely draw the same
+// bargain twice, which is exactly the sameness this ticket exists to kill.
+//
+// **Coverage.** Every stat is gained by some entry and — except HP — spent by
+// some entry. HP is deliberately gain-only: nothing else in the game heals
+// (combat is the only writer of Ship.hp, and it only ever subtracts), which makes
+// repair the scarcest thing a trade can offer. Costing HP is available in the
+// model (run_trade_pay handles it, floored) but unauthored: a trade that damages
+// you is a Fight without the fight, and it is the one cost that could end a run
+// on a menu.
+// Names are checked against core/ship's fitting roster and deliberately don't
+// collide with it: a Trade is not a thing you install, and "Reinforced Hull"
+// already names a Medium Defensive fitting the player can be holding while a
+// trade is on screen.
+@(rodata)
+trade_roster := [?]Trade_Axis {
+	// The welded axis, now merely the first row. Durability and Speed kept their
+	// old constants, so this entry reproduces the pre-#136 Bargain exactly.
+	{name = "Braced Bulkheads", gain = .Durability, cost = .Speed},
+	// The inverse — the entry that proves the axis is a space and not a point.
+	{name = "Stripped Spars", gain = .Speed, cost = .Durability},
+	// Patch the damage you have by permanently lowering the ceiling. The one
+	// entry that trades HP against Max HP, which is why both are distinct stats.
+	{name = "Cannibalized Timbers", gain = .HP, cost = .Max_HP},
+	{name = "Lightened Hold", gain = .Speed, cost = .Max_HP},
+	{name = "Scrapped Armour", gain = .Treasure, cost = .Durability},
+	{name = "Shipwright's Bargain", gain = .Max_HP, cost = .Treasure},
+}
+
+// run_trade_roster returns every authored trade axis. run_make_trade deals from
+// this rather than reading a hardcoded pair off Stage_Trade's fields, so the set
+// of trades in the game is this table and nothing else — the Trade half of the
+// same authored-content rule catalog.odin states for recipes.
+run_trade_roster :: proc() -> []Trade_Axis {
+	return trade_roster[:]
+}
+
+// run_make_trade bakes a Trade stage (issue #136): it draws one axis from the
+// roster off the map generator's RNG — so which bargain a node offers is
+// reproducible per seed yet varies node to node, like an Offer's items and a
+// Shop's deck — and reads each side's magnitude as that stat's swing at this
+// node's site. Called from run_bake_stage at generation time; nothing rolls on
+// arrival.
+//
+// Both terms read the *same* site, so stakes move the whole trade together: a
+// Deep Reinforced Hull gains more Durability and costs more Speed than a Coastal
+// one, rather than scaling only the half that used to have a constant.
+run_make_trade :: proc(site: Scaling_Site, gen: rand.Generator) -> Stage_Trade {
+	roster := run_trade_roster()
+	axis := roster[rand.int_max(len(roster), gen)]
+
+	return Stage_Trade{
+		name = axis.name,
+		gain = Trade_Term{stat = axis.gain, amount = run_trade_swing(site, axis.gain)},
+		cost = Trade_Term{stat = axis.cost, amount = run_trade_swing(site, axis.cost)},
+	}
+}
+
 // run_port_shop bakes a Shop stage's deck (#123, ADR-0013): the *full* roster
 // shuffled into a per-seed-reproducible order (run_shuffled_roster_indices, off
 // the map generator's RNG so decks vary node to node yet reproduce per seed),

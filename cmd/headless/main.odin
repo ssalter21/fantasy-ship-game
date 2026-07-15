@@ -51,6 +51,12 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 		// Skip the Item Offer (issue #96): a nil selection takes no item and opens
 		// no refit, so the auto-player never has to drive a loadout edit.
 		return sim.Command(sim.Command_Pick_Item{selection = nil})
+	case .Awaiting_Trade_Choice:
+		// Reject every Trade (issue #136): the scripted auto-player's job is to walk
+		// a route to Goal deterministically, and accepting would swap a stat the
+		// route's bargains happened to draw. Rejecting changes nothing, so the run
+		// stays a pure function of the graph.
+		return sim.Command(sim.Command_Trade_Choice{accept = false})
 	case .Awaiting_Shop_Choice:
 		// Leave every Port shop (issue #123): a nil selection buys nothing and opens
 		// no refit, so the scripted auto-player never has to spend treasure or drive
@@ -108,6 +114,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Battle_Event:
 	case sim.Event_Ship_Updated:
 	case sim.Event_Item_Offer_Presented:
+	case sim.Event_Trade_Presented:
 	case sim.Event_Shop_Presented:
 	case sim.Event_Purchase_Rejected:
 	case sim.Event_Refit_Started:
