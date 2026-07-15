@@ -32,12 +32,23 @@ only_stage :: proc(e: Encounter, $T: typeid) -> (stage: T, ok: bool) {
 // that holds no encounter or no Shop within it. A Port's stock is a stage rather
 // than a field on the Node (#134), so "does this node carry a shop" is now a
 // question asked of its stage list — which is what the assertions below check.
+//
+// First match wins: no authored recipe carries two Shops, and a recipe that did
+// would be two shops at one node, which is a content question (#138) and not this
+// helper's to answer. The scan lives here rather than in the package because the
+// generic walk (#131) reaches each stage through the cursor and asks nothing of
+// the ones it isn't on — leaving these assertions its only caller.
 node_shop :: proc(p: Node) -> (shop: Stage_Shop, ok: bool) {
 	encounter, has_encounter := p.encounter.?
 	if !has_encounter {
 		return {}, false
 	}
-	return run_encounter_shop(encounter)
+	for i in 0 ..< encounter.count {
+		if s, is_shop := encounter.stages[i].(Stage_Shop); is_shop {
+			return s, true
+		}
+	}
+	return {}, false
 }
 
 // --- Stakes formulas: zone tier x depth ------------------------------------

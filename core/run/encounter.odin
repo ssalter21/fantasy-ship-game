@@ -162,7 +162,7 @@ run_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 // before anything is applied.
 //
 // **Cost is paid before the gain is granted**, which is load-bearing for
-// Cannibalized Hull (+HP for -Max HP): lowering the ceiling first means the repair
+// Cannibalized Timbers (+HP for -Max HP): lowering the ceiling first means the repair
 // caps against the ceiling the player just sold, not the one they had. Any trade
 // whose two stats don't interact is unaffected by the order.
 //
