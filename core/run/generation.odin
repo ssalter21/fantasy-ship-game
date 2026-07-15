@@ -156,7 +156,6 @@ run_map_create :: proc(seed: u64) -> Map {
 			}
 			placed[count] = id
 			count += 1
-			nodes[id].kind = .Port
 		}
 
 		// Deal this zone's two ports their recipes and bake them, the same way
@@ -175,14 +174,21 @@ run_map_create :: proc(seed: u64) -> Map {
 	// stakes-scaled content. Generation picks whole authored recipes — it never
 	// composes a stage list (ADR-0014).
 	for zone in Zone {
-		// enc_ids collects the plain int indices of this zone's encounter nodes;
+		// enc_ids collects the plain int indices of this zone's still-empty nodes;
 		// the generator works in raw indices internally and only Node.id is the
 		// distinct Node_ID, so convert here rather than threading Node_ID through
 		// the index arithmetic (ADR-0011 boundary note, issue #112).
+		//
+		// "Still empty" is what skips the ports step 3 just dealt, and it replaces
+		// asking whether the node's kind is .Port (issue #137 retired that value).
+		// Asking whether a node already holds content is the better question anyway:
+		// a node is dealt a recipe because it has none, not because of how it was
+		// placed. Start and Goal are excluded by having no zone.
 		enc_ids: [dynamic]int
 		for p in nodes {
 			pz, in_zone := p.zone.?
-			if in_zone && pz == zone && p.kind == .Encounter {
+			_, has_encounter := p.encounter.?
+			if in_zone && pz == zone && !has_encounter {
 				append(&enc_ids, int(p.id))
 			}
 		}
@@ -383,19 +389,29 @@ run_zone_recipe_pool :: proc(zone: Zone, catalog: []Recipe) -> []Recipe {
 	return run_recipe_bucket(catalog, 1)
 }
 
-// run_bake_stage builds one stage's stakes-scaled content for the given
-// primitive, at the node's Scaling_Site — the per-primitive half of
-// run_encounter_from_recipe, which walks a recipe and calls this for each
-// authored stage. Takes `gen` so the primitives that sample the roster (an
-// Offer's items, a Shop's deck) draw reproducibly from the same map-generation
-// RNG stream. Nothing rolls on arrival.
+// run_bake_stage builds one authored stage's content at the node's Scaling_Site —
+// the per-primitive half of run_encounter_from_recipe, which walks a recipe and
+// calls this for each of its Stage_Specs. Takes `gen` so the primitives that sample
+// a pool (an Offer's items, a Shop's stock) draw reproducibly from the same
+// map-generation RNG stream. Nothing rolls on arrival.
 //
-// This is where each primitive's content roster hangs: a Trade draws its swap
-// from the axis roster (run_make_trade, #136), and a Fight draws its opponent from
-// the hostile roster (run_pve_opponent, #135) — the two that closed ADR-0014's
-// "two of the three kinds have no variance" gap.
-run_bake_stage :: proc(kind: Stage_Kind, site: Scaling_Site, gen: rand.Generator) -> Stage {
-	switch kind {
+// This is where each primitive's content roster hangs: a Trade draws its swap from
+// the axis roster (run_make_trade, #136), a Fight draws its opponent from the hostile
+// roster (run_pve_opponent, #135) — the two that closed ADR-0014's "two of the three
+// kinds have no variance" gap — and a Shop draws its stock from the pool its recipe
+// named (run_bake_shop, #137), the one roster that is chosen rather than sampled.
+//
+// **Only the Shop arm reads `site`-free content, and only the Shop arm reads the
+// spec.** Both are the same fact about the primitive: a shop is a fixed market whose
+// character is authored and whose stakes are the captain's purse, not the node's.
+run_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Generator) -> Stage {
+	pool, authored_pool := spec.stock.?
+	assert(
+		authored_pool == (spec.kind == .Shop),
+		"a Stage_Spec authors a stock pool iff it is a Shop: no other primitive has one to draw from",
+	)
+
+	switch spec.kind {
 	case .Fight:
 		return Stage_Fight{depth = site.depth, opponent = run_pve_opponent(site, gen)}
 	case .Offer:
@@ -403,7 +419,7 @@ run_bake_stage :: proc(kind: Stage_Kind, site: Scaling_Site, gen: rand.Generator
 	case .Trade:
 		return run_make_trade(site, gen)
 	case .Shop:
-		return run_port_shop(gen)
+		return run_bake_shop(pool, gen)
 	case .Reward:
 		// A Reward's payout is fixed here, at generation, from this node's own site
 		// (#132/#133) — the amount is content like an Offer's items, not a number

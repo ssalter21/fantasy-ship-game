@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted. Amends ADR-0012's "Acquisition — Item Offer and Port shop" decision. Everything else in ADR-0012 (the roster, tags, effects, manual loadout, tiers) carries forward unchanged, as does the fixed-purse economy. This ADR only revises *how a Port shop presents and dispenses its stock* — the shape of the interaction, not the roster it draws from.
+**Superseded by ADR-0014 and ADR-0015.** ADR-0014 dropped this ADR's cross-visit persistence (an encounter is walked once, so there is no second visit to persist into); ADR-0015 dropped its whole-roster deck for authored stock pools and recorded what survives. Of the four decisions below, two are dead: "the deck and purchases persist across visits", and the deck being the full roster. Two survive, but **on different reasons than the ones given here** — multi-buy-per-visit is now a property of where the stage cursor is, and the shelf window is now justified by the cost escalation this ADR deferred (shipped as #124) rather than by draw-down. Read ADR-0015 for the current shape; this remains as the record of why the shop stopped being a flat static shelf.
+
+Originally accepted, amending ADR-0012's "Acquisition — Item Offer and Port shop" decision. Everything else in ADR-0012 (the roster, tags, effects, manual loadout, tiers) carries forward unchanged, as does the fixed-purse economy. This ADR only revises *how a Port shop presents and dispenses its stock* — the shape of the interaction, not the roster it draws from.
 
 ## Context
 
