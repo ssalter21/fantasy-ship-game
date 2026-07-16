@@ -195,8 +195,9 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // Max HP's row is still read straight off that price list: 8/16/24 against Salt
 // Provisions, Ship's Surgeon and Treasure Vault, exactly as 2/4/6 was before. HP's
 // row keeps its "twice Max HP's" relationship for the same reason it always had it.
-// The other three rows are untouched — Durability and Speed are denominated in raw
-// damage, Treasure in treasure, and neither scale moved.
+// The other rows are untouched — Durability is denominated in raw damage, Treasure
+// in treasure, and neither scale moved. (Speed's row is gone entirely: Speed left
+// the Trade vocabulary with ADR-0020/#180, so there is no swing to quote for it.)
 //
 // **#151 did not reopen the depth axis**, contrary to what the note above hoped:
 // the band widened through the buff fold and the HP scale rather than through
@@ -205,7 +206,6 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 TRADE_SWING_HP_PER_TIER :: 16
 TRADE_SWING_MAX_HP_PER_TIER :: 8
 TRADE_SWING_DURABILITY_PER_TIER :: 1
-TRADE_SWING_SPEED_PER_TIER :: 1
 TRADE_SWING_TREASURE_PER_TIER :: 15
 
 // The Reward primitive's stakes constants are its treasure payout (issue #132) —
@@ -330,8 +330,6 @@ run_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 		return zone_tier[zone] * TRADE_SWING_MAX_HP_PER_TIER
 	case .Durability:
 		return zone_tier[zone] * TRADE_SWING_DURABILITY_PER_TIER
-	case .Speed:
-		return zone_tier[zone] * TRADE_SWING_SPEED_PER_TIER
 	case .Treasure:
 		return zone_tier[zone] * TRADE_SWING_TREASURE_PER_TIER
 	}

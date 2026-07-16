@@ -32,7 +32,26 @@ CARGO_STACK_COUNT :: 1
 // STARTING_DURABILITY is still 2 and #146's Durability residue is still there.
 STARTING_HP :: 100
 STARTING_DURABILITY :: 2
+
+// STARTING_SPEED is the Speed the starting ship **reads**, not a field it carries
+// (ADR-0020, #158): Speed is derived now — `base + Σ modifiers − weight/10` — so
+// STARTING_SPEED stopped being the Speed a ship *has* and became the Speed it
+// *reads*. It is the calibration target BASE_SPEED is solved against, and the
+// reference the (out-of-scope) forward-ported straddle test pins the player's
+// purse to (#177). Nothing initialises a ship's raw speed field to it any more.
 STARTING_SPEED :: 4
+
+// BASE_SPEED is the uniform `base` term every ship's Speed is read from (ADR-0020,
+// #158/#180): `effective = BASE_SPEED + Σ Modify_Speed − weight/10`. It is a
+// **calibration, not a free parameter** — BASE_SPEED = STARTING_SPEED + the
+// starting ship's weight / 10 = 4 + 120/10 — chosen so the starting ship (its
+// loadout plus the 50-treasure purse) reads exactly STARTING_SPEED, empty holds
+// read 9, and a full hold reads 0 ("sails in"). The 16 is a **placeholder**: it
+// re-points when ship_fitting_weight's per-size band is replaced by authored
+// per-item weights (#143 fog). Uniform across ships (#158): the same base is set
+// on the player and on every hostile, whose Speed then falls out of its weight
+// like the player's. starting_ship_reads_the_starting_speed pins the calibration.
+BASE_SPEED :: 16
 
 // STARTING_CARGO is the treasure a fresh ship is stowed with, and
 // CAPTAIN_STARTING_CARGO the extra the one captain (Odessa) names on top
@@ -463,7 +482,7 @@ ship_starting_ship :: proc() -> Ship {
 		hp         = STARTING_HP,
 		max_hp     = STARTING_HP,
 		durability = STARTING_DURABILITY,
-		speed      = STARTING_SPEED,
+		speed      = BASE_SPEED,
 		layout     = layout,
 		captain    = captain,
 	}

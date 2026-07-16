@@ -445,8 +445,6 @@ trade_stat_label :: proc(stat: run.Trade_Stat) -> string {
 		return "Max HP"
 	case .Durability:
 		return "Durability"
-	case .Speed:
-		return "Speed"
 	case .Treasure:
 		return "treasure"
 	}
@@ -454,7 +452,7 @@ trade_stat_label :: proc(stat: run.Trade_Stat) -> string {
 }
 
 // trade_term_line renders one side of a bargain as a signed, named quantity —
-// "+8 Durability", "-1 Speed". A Trade_Term stores only the positive magnitude
+// "+8 Durability", "-15 treasure". A Trade_Term stores only the positive magnitude
 // (the side it sits on carries the direction), so the sign is supplied here at
 // the point the player reads it.
 trade_term_line :: proc(term: run.Trade_Term, sign: string) -> string {

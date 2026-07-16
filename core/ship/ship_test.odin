@@ -484,8 +484,12 @@ effective_stats_equal_the_raw_fields_when_no_stat_modifier_is_installed :: proc(
 		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},
 	}
 
+	// A plain fitting adds no stat modifier, so Durability and Max HP read their
+	// raw fields. Speed is different now (ADR-0020): every fitting has weight, so
+	// effective Speed is base − weight/10, not the raw field. The Large Cannon
+	// weighs 38, so 4 − 3.
 	testing.expect_value(t, ship_effective_durability(&s), 2)
-	testing.expect_value(t, ship_effective_speed(&s), 4)
+	testing.expect_value(t, ship_effective_speed(&s), 4 - ship_weight(s) / 10)
 	testing.expect_value(t, ship_effective_max_hp(&s), 20)
 }
 
@@ -522,8 +526,38 @@ stat_modifiers_stack_across_slots_and_span_max_hp_and_speed :: proc(t: ^testing.
 	}
 
 	testing.expect_value(t, ship_effective_durability(&s), 1 + 3 + 2)
-	testing.expect_value(t, ship_effective_speed(&s), 5 + 4)
+	// base 5 + Modify_Speed 4, minus the four Small fittings' weight/10 (ADR-0020).
+	testing.expect_value(t, ship_effective_speed(&s), 5 + 4 - ship_weight(s) / 10)
 	testing.expect_value(t, ship_effective_max_hp(&s), 20 + 10)
+}
+
+// The calibration BASE_SPEED is solved against (ADR-0020, #158): the starting ship
+// — its loadout plus the 50-treasure purse — reads exactly STARTING_SPEED. If
+// ship_fitting_weight's band or BASE_SPEED drifts, this is what catches it.
+@(test)
+the_starting_ship_reads_the_starting_speed :: proc(t: ^testing.T) {
+	s := ship_starting_ship()
+	defer delete(s.layout)
+	testing.expect_value(t, ship_effective_speed(&s), STARTING_SPEED)
+}
+
+// The weight-floor invariant (ADR-0020, #175): `base − weight/10 >= 0` for the ship
+// at its realistic maximum fill — every cargo slot of the starting loadout full.
+// The starting ship lands on 0 *exactly* (capacity 90 − starting purse 50 = the
+// 40-point budget), which is the destination's "getting rich makes you catchable"
+// as arithmetic — never a live clamp, so an empty hold reads well above 0.
+@(test)
+a_full_hold_floors_the_starting_ship_speed_at_zero_never_below :: proc(t: ^testing.T) {
+	s := ship_starting_ship()
+	defer delete(s.layout)
+
+	ship_stow_treasure(s.layout, ship_cargo_capacity(s)) // fill every cargo slot
+	full := ship_effective_speed(&s)
+	testing.expect(t, full >= 0)
+	testing.expect_value(t, full, 0)
+
+	ship_stow_treasure(s.layout, 0) // empty every hold
+	testing.expect(t, ship_effective_speed(&s) > full) // emptiness is what varies
 }
 
 @(test)

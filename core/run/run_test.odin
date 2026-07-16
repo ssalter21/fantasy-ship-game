@@ -159,28 +159,6 @@ the_swing_table_quotes_one_rate_in_every_zone :: proc(t: ^testing.T) {
 	}
 }
 
-// Braced Bulkheads (+Durability for -Speed) and Stripped Spars (its exact inverse)
-// are both authored on purpose, and an inverse pair turns any inequality between
-// their two rows into a permanent verdict: quote Speed above Durability and Spars
-// is free value while Bulkheads is a trap that exists to be rejected, in every zone,
-// forever. So the two rows must be *equal*, not merely close.
-//
-// This is the test that replaces the_braced_bulkheads_entry_reproduces_the_pre_136_bargain_numbers
-// (#146). That one pinned Durability at 8 against Speed's 1 to prove #136 had added
-// content without retuning — an 8:1 quote on two stats the item roster prices
-// identically, which is exactly the retune this ticket came to do.
-@(test)
-the_durability_and_speed_swings_are_equal_in_every_zone :: proc(t: ^testing.T) {
-	for zone in Zone {
-		testing.expectf(
-			t,
-			run_trade_swing(zone, .Durability) == run_trade_swing(zone, .Speed),
-			"%v quotes Durability and Speed differently: one of Braced Bulkheads / Stripped Spars is strictly dominated there",
-			zone,
-		)
-	}
-}
-
 @(test)
 reward_treasure_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 	// #133's acceptance in one line: a Deep reward outweighs a Coastal one.
@@ -1393,23 +1371,23 @@ trade_of :: proc(gain: Trade_Stat, gain_amount: int, cost: Trade_Stat, cost_amou
 
 @(test)
 run_apply_trade_permanently_swaps_the_cost_stat_for_the_gain_stat :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 5}
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 2}
 
-	run_apply_trade(&s, trade_of(.Durability, 3, .Speed, 1))
+	run_apply_trade(&s, trade_of(.Durability, 3, .Max_HP, 1))
 
 	testing.expect_value(t, s.durability, 5)
-	testing.expect_value(t, s.speed, 4)
+	testing.expect_value(t, s.max_hp, 19)
 }
 
 // The axis is data now, so the *inverse* trade must work as well as the original
 // — that's the whole of what unwelding bought.
 @(test)
 run_apply_trade_runs_an_axis_in_either_direction :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 5, speed = 4}
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 5}
 
-	run_apply_trade(&s, trade_of(.Speed, 2, .Durability, 3))
+	run_apply_trade(&s, trade_of(.Max_HP, 2, .Durability, 3))
 
-	testing.expect_value(t, s.speed, 6)
+	testing.expect_value(t, s.max_hp, 22)
 	testing.expect_value(t, s.durability, 2)
 }
 
@@ -1471,9 +1449,9 @@ run_apply_trade_gaining_max_hp_raises_the_ceiling_without_filling_it :: proc(t: 
 // can now hold.
 @(test)
 run_apply_trade_paying_max_hp_pulls_current_hp_down_to_the_new_ceiling :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, speed = 4}
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 1}
 
-	run_apply_trade(&s, trade_of(.Speed, 2, .Max_HP, 8))
+	run_apply_trade(&s, trade_of(.Durability, 2, .Max_HP, 8))
 
 	testing.expect_value(t, s.max_hp, 12)
 	testing.expect_value(t, s.hp, 12)
@@ -1483,24 +1461,24 @@ run_apply_trade_paying_max_hp_pulls_current_hp_down_to_the_new_ceiling :: proc(t
 
 @(test)
 run_trade_can_accept_refuses_a_cost_that_would_break_the_floor :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 2, speed = 4}
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 4}
 
-	// Speed floors at 0, so spending exactly all of it is still a trade...
-	testing.expect(t, run_trade_can_accept(&s, trade_of(.Durability, 8, .Speed, 4)))
+	// Durability floors at 0, so spending exactly all of it is still a trade...
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Max_HP, 8, .Durability, 4)))
 	// ...but one more than the ship has is not.
-	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Durability, 8, .Speed, 5)))
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Max_HP, 8, .Durability, 5)))
 }
 
 // HP and Max HP floor at 1: a trade is a bargain on a menu and must not be able
 // to sink the ship there.
 @(test)
 run_trade_can_accept_never_lets_a_trade_sink_the_ship :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 10, max_hp = 10, speed = 4}
+	s := ship.Ship{hp = 10, max_hp = 10, durability = 1}
 
-	testing.expect(t, run_trade_can_accept(&s, trade_of(.Speed, 1, .HP, 9)))
-	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Speed, 1, .HP, 10)))
-	testing.expect(t, run_trade_can_accept(&s, trade_of(.Speed, 1, .Max_HP, 9)))
-	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Speed, 1, .Max_HP, 10)))
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Durability, 1, .HP, 9)))
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Durability, 1, .HP, 10)))
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Durability, 1, .Max_HP, 9)))
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Durability, 1, .Max_HP, 10)))
 }
 
 // The ADR-0012 constraint the ticket names: a trade reads the **effective** stat,
@@ -1516,19 +1494,19 @@ run_trade_measures_the_cost_against_the_effective_stat_not_the_base_field :: pro
 		passive = ship.Effect{kind = .Modify_Durability, magnitude = 3},
 	}
 	s := ship.Ship{
-		hp = 20, max_hp = 20, durability = 2, speed = 4,
+		hp = 20, max_hp = 20, durability = 2,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = plating}},
 	}
 	testing.expect_value(t, ship.ship_effective_durability(&s), 5)
 
 	// The base alone (2) could never pay 5; the fitting's contribution is what
 	// makes it affordable.
-	testing.expect(t, run_trade_can_accept(&s, trade_of(.Speed, 1, .Durability, 5)))
-	run_apply_trade(&s, trade_of(.Speed, 1, .Durability, 5))
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Max_HP, 1, .Durability, 5)))
+	run_apply_trade(&s, trade_of(.Max_HP, 1, .Durability, 5))
 
 	testing.expect_value(t, s.durability, -3) // the base field went negative...
 	testing.expect_value(t, ship.ship_effective_durability(&s), 0) // ...and effective landed on the floor.
-	testing.expect_value(t, s.speed, 5)
+	testing.expect_value(t, s.max_hp, 21)
 }
 
 @(test)
@@ -1536,9 +1514,9 @@ run_apply_trade_asserts_on_a_trade_the_ship_cannot_pay_for :: proc(t: ^testing.T
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
-	s := ship.Ship{hp = 20, max_hp = 20, speed = 4}
+	s := ship.Ship{hp = 20, max_hp = 20, durability = 2}
 
-	run_apply_trade(&s, trade_of(.Durability, 8, .Speed, 5))
+	run_apply_trade(&s, trade_of(.Max_HP, 8, .Durability, 5))
 
 	testing.expect_assert(t, "run_apply_trade on a trade the ship cannot pay for")
 }

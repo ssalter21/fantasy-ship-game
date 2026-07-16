@@ -392,16 +392,19 @@ man_the_sails_grants_a_speed_boost_for_this_round_only :: proc(t: ^testing.T) {
 }
 
 @(test)
-jettison_cargo_empties_the_slot_and_grants_a_permanent_speed_boost :: proc(t: ^testing.T) {
-	cargo := ship.Fitting{name = "Rations", is_cargo = true, stack_count = 3}
+jettison_cargo_empties_the_slot_and_speeds_the_ship_up_by_shedding_weight :: proc(t: ^testing.T) {
+	// A full Small hold weighs 10 (ADR-0020), so it costs its ship 1 Speed
+	// (weight/10). Heaving it makes the ship read 1 faster — emergent from the
+	// lighter hull, not a granted bonus (JETTISON_SPEED_BONUS is retired, #158).
+	cargo := ship.Fitting{name = "Rations", size = .Small, is_cargo = true, stack_count = 10}
 	a := ship.Ship{
 		hp = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
 	}
 	b := ship.Ship{hp = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
-	defer delete(battle.jettisoned[.A])
-	defer delete(battle.jettisoned[.B])
+
+	testing.expect_value(t, combat_effective_speed(&battle, .A), 4) // laden: 5 − 10/10
 
 	events: [dynamic]Event
 	defer delete(events)
@@ -411,9 +414,7 @@ jettison_cargo_empties_the_slot_and_grants_a_permanent_speed_boost :: proc(t: ^t
 
 	_, still_occupied := a.layout[0].fitting.?
 	testing.expect(t, !still_occupied)
-	testing.expect_value(t, combat_effective_speed(&battle, .A), 5+JETTISON_SPEED_BONUS)
-	testing.expect_value(t, len(battle.jettisoned[.A]), 1)
-	testing.expect_value(t, battle.jettisoned[.A][0].name, "Rations")
+	testing.expect_value(t, combat_effective_speed(&battle, .A), 5) // lighter by the hold
 
 	jettison_event_found := false
 	for event in events {
@@ -425,10 +426,11 @@ jettison_cargo_empties_the_slot_and_grants_a_permanent_speed_boost :: proc(t: ^t
 	}
 	testing.expect(t, jettison_event_found)
 
-	// The boost persists into the next round too (permanent, not temporary).
+	// The gain persists — the hold is gone for good, so the next round still reads
+	// the lighter ship (nothing settles or restores the heaved cargo).
 	next_cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, next_cmds, &events)
-	testing.expect_value(t, combat_effective_speed(&battle, .A), 5+JETTISON_SPEED_BONUS)
+	testing.expect_value(t, combat_effective_speed(&battle, .A), 5)
 }
 
 @(test)
@@ -749,17 +751,20 @@ find_battle_ended :: proc(events: []Event) -> (Event_Battle_Ended, bool) {
 	return {}, false
 }
 
+// Heaved cargo is destroyed, never settled (ADR-0020, #159): there is no
+// post-battle settlement to hand it back, so the ship's purse just falls by the
+// hold and stays fallen — win or lose. The literal "claimed by the opponent"
+// reading was retired because it would make jettison free whenever you win.
 @(test)
-jettisoned_cargo_is_lost_when_the_jettisoning_side_escapes :: proc(t: ^testing.T) {
-	cargo := ship.Fitting{name = "Rations", is_cargo = true, stack_count = 1}
+jettisoned_cargo_is_destroyed_with_nothing_to_settle :: proc(t: ^testing.T) {
+	cargo := ship.Fitting{name = "Rations", size = .Small, is_cargo = true, stack_count = 10}
 	a := ship.Ship{
-		hp = 20, speed = 10,
+		hp = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
 	}
 	b := ship.Ship{hp = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
-	defer delete(battle.jettisoned[.A])
-	battle.round = BASELINE_ROUND_COUNT
+	testing.expect_value(t, ship.ship_treasure(a), 10)
 
 	events: [dynamic]Event
 	defer delete(events)
@@ -767,41 +772,8 @@ jettisoned_cargo_is_lost_when_the_jettisoning_side_escapes :: proc(t: ^testing.T
 	cmds[.A] = Command(Command_Jettison_Cargo{slot_index = 0})
 	combat_resolve_round(&battle, cmds, &events)
 
-	next_cmds: [Side]Maybe(Command)
-	next_cmds[.A] = Command(Command_Leave_Combat{})
-	combat_resolve_round(&battle, next_cmds, &events)
-
-	spoils, lost := combat_settle_jettisoned_cargo(&battle, .A)
-	testing.expect(t, lost)
-	testing.expect_value(t, len(spoils), 0)
-}
-
-@(test)
-jettisoned_cargo_is_claimed_by_the_opponent_when_the_ship_is_destroyed :: proc(t: ^testing.T) {
-	cargo := ship.Fitting{name = "Rations", is_cargo = true, stack_count = 1}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 25}}
-	a := ship.Ship{
-		hp = 20, speed = 5,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
-	}
-	b := ship.Ship{
-		hp = 20, speed = 5,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
-	}
-	battle := combat_battle_create(&a, &b)
-	defer delete(battle.jettisoned[.A])
-
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Jettison_Cargo{slot_index = 0})
-	combat_resolve_round(&battle, cmds, &events)
-
-	testing.expect(t, battle.ended)
-	spoils, lost := combat_settle_jettisoned_cargo(&battle, .A)
-	testing.expect(t, !lost)
-	testing.expect_value(t, len(spoils), 1)
-	testing.expect_value(t, spoils[0].name, "Rations")
+	// The purse is lighter, and there is no settlement path to give it back.
+	testing.expect_value(t, ship.ship_treasure(a), 0)
 }
 
 @(test)
