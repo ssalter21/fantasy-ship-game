@@ -10,14 +10,11 @@ import rl "vendor:raylib"
 
 BEAT_MAX_SECONDS :: 1.2
 
-// play_beat runs a short blocking render loop showing overlay until the
-// player clicks/presses a key or a short timer elapses (ADR-0002's "UI
-// plays this back with animation" — the minimal version: a readable pause
-// rather than a frame-by-frame animation). Clones overlay into a
-// persistent-allocator copy up front: callers commonly pass a
-// fmt.tprintf/battle_event_text result (temp-allocator memory), and this
-// loop's own draw_scene call frees the temp allocator every frame, which
-// would otherwise corrupt overlay after the first frame.
+// play_beat blocks in a short render loop showing overlay until the player
+// clicks/presses a key or BEAT_MAX_SECONDS elapses (ADR-0002). It clones overlay
+// first because callers commonly pass temp-allocator memory (fmt.tprintf/
+// battle_event_text) and this loop's own draw_scene frees the temp allocator every
+// frame, which would corrupt a borrowed overlay after the first frame.
 play_beat :: proc(state: ^Game_State, overlay: string) {
 	if !rl.IsWindowReady() {
 		return
@@ -35,18 +32,11 @@ play_beat :: proc(state: ^Game_State, overlay: string) {
 	}
 }
 
-// play_stage_entry_beat announces a stage the captain would otherwise never see going
-// past (issue #139). The rule is narrow and follows from the walk's own shape: a stage
-// that **parks** for a decision is seen as its own screen — a Fight's battle menu, an
-// Offer's or a Shop's option list, a Trade's bargain — and needs nothing here. Reward is
-// the one primitive that parks nowhere (#133): it pays out and the walk carries straight
-// on, so without a beat the whole of a `[Fight, Reward]`'s loot is cargo that silently
-// grew while the map was coming back up.
-//
-// So: exactly one beat, for exactly the stage with no screen. Not a beat per stage —
-// there is no interstitial "now entering stage 2 of 3", because the strip advancing is
-// that, and a click-through between every pair of stages would tax the multi-stage
-// recipes #138 authored for being longer.
+// play_stage_entry_beat announces a Reward stage (issue #139). Reward is the one stage
+// primitive that parks on no screen of its own — a Fight, Offer, Shop, or Trade each
+// present their own menu — so it pays out and the walk carries straight on, and without
+// this beat its loot is cargo that grew silently. Exactly one beat, only for the stage
+// with no screen.
 play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
 	if e.kind != .Reward {
 		return
@@ -59,11 +49,8 @@ play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
 	if !is_reward {
 		return
 	}
-	// Fires before voyage_apply_reward's Event_Ship_Updated lands, so the beat reads while
-	// the panel still shows the old cargo and the number moves as it clears. That timing
-	// is also why the spill is computed here from state.player: a Reward changes no slots,
-	// so the pre-payout capacity is the real one, and the overflow (#157) is exactly the
-	// cargo the incoming reward can't fit — surfaced rather than lost silently (#201).
+	// Computed from state.player pre-payout: a Reward changes no slots, so current capacity
+	// is the real one and the overflow (#157) is exactly the cargo the reward can't fit.
 	spilled := max(
 		0,
 		ship.ship_cargo(state.player) + reward.cargo - ship.ship_cargo_capacity(state.player),
@@ -71,11 +58,8 @@ play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
 	play_beat(state, fmt.tprintf("Salvage! You haul aboard %d cargo.%s", reward.cargo, spill_note(spilled)))
 }
 
-// spill_note is the clause a payout beat appends when cargo fell overboard: a
-// hold at capacity keeps nothing more, so a payout above it is lost (#157), and
-// #196 makes that the mainline result of winning a Fight. Said out loud in the
-// glossary's terms — a full hold — so cargo that grew by less than the payout
-// reads as the ceiling doing its job, not as a bug. Empty when nothing spilled.
+// spill_note is the clause a payout beat appends when a full hold sent cargo overboard
+// (#157); empty when nothing spilled.
 spill_note :: proc(spilled: int) -> string {
 	if spilled <= 0 {
 		return ""
@@ -83,26 +67,19 @@ spill_note :: proc(spilled: int) -> string {
 	return fmt.tprintf(" %d spills overboard — your hold is full.", spilled)
 }
 
-// wreck_loot_beat_text names a won Fight's payout the way play_stage_entry_beat names
-// a Reward's (issue #201): a wreck's hold is loot with no screen of its own, so without
-// a beat the whole of it is cargo that silently grew while the map came back up — the
-// same gap #139 closed for the Reward stage. `gross` is the wreck's whole hold and
-// `spilled` (from Event_Wreck_Looted) the part that overflowed the player's capacity,
-// the mainline case here (#176/#196), surfaced with the shared spill_note.
+// wreck_loot_beat_text renders a won Fight's payout beat (issue #201): `gross` is the
+// wreck's whole hold, `spilled` (from Event_Wreck_Looted) the part that overflowed the
+// player's capacity.
 wreck_loot_beat_text :: proc(gross: int, spilled: int) -> string {
 	return fmt.tprintf("You loot the wreck: %d cargo.%s", gross, spill_note(spilled))
 }
 
-// halt_beat_text renders a halt as a consequence rather than a silence (issue #139,
-// ADR-0014): what the captain just did, and what it cost them downstream.
-//
-// The cost is the whole point. Complete-or-halt has no authored gate saying "no loot if
-// you run" — the Reward stage is simply never reached — which is elegant in the model
-// and invisible in play: fleeing a `[Fight, Reward]` looks exactly like a `[Fight]`
-// ending, and a captain who cannot tell those apart has learned nothing except that the
-// game might be broken. So the forfeited stages are named, off the encounter presentation
-// was handed at arrival (the stages behind the cursor, which the Sim's event picks out
-// with index and count).
+// halt_beat_text renders a halt as its consequence (issue #139, ADR-0014): what the
+// captain did to halt, and the downstream stages it forfeited. Naming the forfeited
+// stages is the point — complete-or-halt has no "no loot if you run" gate (the Reward
+// stage is simply never reached), so a fled `[Fight, Reward]` would otherwise read
+// identically to a plain `[Fight]` ending. The stages are those behind the cursor, which
+// the Sim's event picks out with index and count.
 halt_beat_text :: proc(state: ^Game_State, e: sim.Event_Encounter_Halted) -> string {
 	forfeited := forfeited_stages_label(state, e)
 	if len(forfeited) == 0 {
@@ -111,12 +88,10 @@ halt_beat_text :: proc(state: ^Game_State, e: sim.Event_Encounter_Halted) -> str
 	return fmt.tprintf("%s You leave behind: %s.", halt_verb(e.at), forfeited)
 }
 
-// halt_verb says what the captain did to halt the encounter, in that primitive's own
-// terms (issue #139). Shop and Reward are absent because neither can halt: Shop is the
-// one primitive with no halt (a shop cannot be failed) and Reward is a boon with nothing
-// to decline — so reaching them here is a Sim-side impossibility, panicked on rather
-// than given words, the same way sim_stage_decline_outcome refuses a stage that presents
-// no list.
+// halt_verb says what the captain did to halt, in that primitive's own terms (issue
+// #139). Shop and Reward can't halt — a shop can't be failed, a Reward has nothing to
+// decline — so reaching them here is a Sim-side impossibility, panicked on rather than
+// given words.
 halt_verb :: proc(at: voyage.Stage_Kind) -> string {
 	switch at {
 	case .Fight:
@@ -132,8 +107,7 @@ halt_verb :: proc(at: voyage.Stage_Kind) -> string {
 }
 
 // forfeited_stages_label names the stages a halt never reached — everything behind the
-// cursor — as a comma-separated list ("Loot", "Market, Loot"), or "" when the halt was on
-// the last stage and cost nothing downstream (issue #139).
+// cursor — as a comma-separated list, or "" when the halt was on the last stage.
 forfeited_stages_label :: proc(state: ^Game_State, e: sim.Event_Encounter_Halted) -> string {
 	label := ""
 	for i in e.index + 1 ..< e.count {
@@ -160,8 +134,6 @@ battle_event_text :: proc(event: combat.Event) -> string {
 	case combat.Event_Cargo_Jettisoned:
 		return fmt.tprintf("%v jettisons %s!", e.side, e.fitting.name)
 	case combat.Event_Cargo_Reallocated:
-		// Names the shift and pointedly claims no Speed change (#200): reallocation
-		// shifts no weight, so the round was spent buying jettison precision, not Speed.
 		return fmt.tprintf("%v shifts %d cargo between holds.", e.side, e.amount)
 	case combat.Event_Battle_Ended:
 		switch e.reason {
@@ -219,16 +191,13 @@ draw_buttons :: proc(buttons: []Button) {
 
 // travel_menu_loop blocks until the player clicks one of the currently-legal
 // destination nodes (the ones draw_map rings and numbers), then returns a
-// Command_Travel_To (ADR-0002). Clicks on non-reachable nodes are ignored, so
-// the graph's connectivity is the actual constraint on movement — the UI
+// Command_Travel_To (ADR-0002). Clicks on non-reachable nodes are ignored: the UI
 // offers exactly the moves the Sim emitted on Event_Travel_Options
-// (state.travel_options), the same set the Sim gates travel on (issues #71,
-// #83), no longer re-derived here.
+// (state.travel_options), the same set the Sim gates travel on.
 travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
-		// No live window (e.g. under `odin test`): the specific id isn't
-		// submitted to a real gated session, so any emitted option is a safe
-		// placeholder; fall back to option 0 when none were recorded.
+		// No live window (e.g. under `odin test`): the session isn't gated, so any
+		// emitted option is a safe placeholder; fall back to the current node when none.
 		if len(state.travel_options) > 0 {
 			return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
 		}
@@ -246,21 +215,18 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			}
 		}
 	}
-	// The window is closing without a pick. state.travel_options is the Sim's
-	// emitted legal set for the current node — always non-empty at a travel
-	// decision (every non-Haven node has a forward edge) — so return its first
-	// entry: a legal move that winds the voyage down cleanly on quit, not the old
-	// illegal self-move. The assert makes that invariant load-bearing rather
-	// than risking an out-of-bounds index if it were ever violated.
+	// Window closing without a pick: return the first emitted option — a legal move that
+	// winds the voyage down cleanly on quit. travel_options is always non-empty at a
+	// travel decision (every non-Haven node has a forward edge); the assert makes that
+	// invariant load-bearing rather than risking an out-of-bounds index.
 	assert(len(state.travel_options) > 0, "travel_menu_loop reached a travel decision with no emitted options")
 	return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
 }
 
 // Battle_Menu_Action is what clicking a battle-menu button does: submit a finished
-// combat command, or drive the two-click Reallocate selection — pick a source hold,
-// or cancel back to the command list (#200). Reallocate is the one battle command
-// that needs two clicks (source then destination), so a click can change the menu's
-// mode instead of returning a command.
+// combat command, or drive the two-click Reallocate selection (pick a source hold, or
+// cancel back to the command list). Reallocate is the one battle command needing two
+// clicks, so a click can change the menu's mode instead of returning a command.
 Battle_Menu_Action_Kind :: enum {
 	Submit,
 	Select_Source,
@@ -273,11 +239,9 @@ Battle_Menu_Action :: struct {
 	slot:    ship.Slot_Index, // the source, meaningful when kind == .Select_Source
 }
 
-// battle_reallocate_can_receive reports whether cargo can be poured into slot `i`:
-// an empty slot (any size) can, a partly-full cargo fitting can, but a full cargo
-// fitting or a non-cargo fitting cannot. Mirrors combat_apply_reallocate's
-// destination rule so the battle menu offers only destinations that would move
-// cargo (#200) — the combat layer then asserts rather than validates.
+// battle_reallocate_can_receive reports whether cargo can be poured into slot `i`.
+// Mirrors combat_apply_reallocate's destination rule so the battle menu offers only
+// destinations that would move cargo — the combat layer then asserts rather than validates.
 battle_reallocate_can_receive :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 	layout_slot := s.layout[i]
 	fitting, has_fitting := layout_slot.fitting.?
@@ -291,8 +255,8 @@ battle_reallocate_can_receive :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool 
 }
 
 // battle_reallocate_can_give reports whether slot `i` can be a Reallocate source: it
-// holds cargo with cargo and some *other* slot can receive it, so offering it as a
-// source always leads to a legal move (#200) rather than a dead-end selection.
+// holds cargo and some other slot can receive it, so offering it always leads to a legal
+// move rather than a dead-end selection.
 battle_reallocate_can_give :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 	fitting, has_fitting := s.layout[i].fitting.?
 	if !has_fitting || !fitting.is_cargo || fitting.stack_count < 1 {
@@ -307,19 +271,16 @@ battle_reallocate_can_give :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 	return false
 }
 
-// battle_menu_loop blocks until the player picks a battle action (Press one of the
-// three phases, Man the Sails, Jettison a cargo slot, Reallocate cargo between two
-// holds, or Break Off if may_break_off — ADR-0006's one-decision-per-round menu), then
-// returns a Command_Battle_Choice.
+// battle_menu_loop blocks until the player picks a battle action, then returns a
+// Command_Battle_Choice (ADR-0006's one-decision-per-round menu).
 //
 // It owns its own frame loop (like option_menu_loop and refit_menu_loop) rather than
-// delegating to button_menu_loop, because Reallocate takes two clicks — a source hold
-// then a destination — and the menu shows a different button list in each mode. The
-// half-made selection (reallocate_from) is a local: the loop blocks until one whole
-// command is chosen, so unlike a Refit's move it never has to outlive the call, and no
-// Game_State field tracks it. Buttons are rebuilt each frame in the temp allocator and
-// the picked action is copied out before free_all, so the per-frame free that
-// draw_ship_panel relies on can't corrupt them (the labels live exactly one frame).
+// delegating, because Reallocate takes two clicks — a source hold then a destination —
+// and the menu shows a different button list in each mode. The half-made selection
+// (reallocate_from) is a local, not a Game_State field: the loop blocks until one whole
+// command is chosen, so unlike a Refit's move it never outlives the call. Buttons are
+// rebuilt each frame in the temp allocator and the picked action is copied out before
+// free_all, so the per-frame free draw_ship_panel relies on can't corrupt them.
 battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
@@ -415,31 +376,25 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
 }
 
-// ITEM_OFFER_BOX_H / _W and the offer column origin size the Item Offer's
-// option boxes (issue #96): each item gets a box tall enough for a name line
-// plus two detail lines, stacked under the ship panel with a Skip box last.
+// ITEM_OFFER_BOX_* and the offer column origin size the Item Offer's option boxes: each
+// is tall enough for a name line plus two detail lines, stacked under the ship panel.
 ITEM_OFFER_BOX_W :: 340
 ITEM_OFFER_BOX_H :: 62
 ITEM_OFFER_Y0 :: 296
 
 // option_menu_loop is the one option-list screen (issue #131): it blocks until the
-// player takes one of the presented options or declines, then returns a
-// Command_Choose_Option — a selected Option_Index for a take, or a nil selection to
-// decline. It is a single loop because the Sim now presents a single list
-// (Event_Options_Presented): an Item Offer and a shop shelf were never two screens,
-// only two sets of options, one of which carries prices.
+// player takes a presented option or declines, then returns a Command_Choose_Option —
+// an Option_Index for a take, or nil to decline. One loop serves both Item Offer and
+// shop shelf, since the Sim presents a single list (Event_Options_Presented) that
+// differs only in whether options carry prices.
 //
-// It therefore reads what it is rendering off the options themselves rather than
-// being told: a list holding any priced option is a shop, so it shows the cargo and
-// offers to Leave; an unpriced one is an Offer, and offers to Skip. Each box shows
-// the item's size, phase, tags, and effect intent (#96's "tags, phase, size, and
-// effect intent"), plus a price where there is one, so the choice is informed. A card
-// the player can't currently afford is drawn dimmed but still clickable — the Sim
-// owns affordability and bounces an unaffordable buy back as Event_Purchase_Rejected
-// (a beat), so the menu never gates the click itself.
+// It reads what it's rendering off the options themselves: any priced option makes it a
+// shop (show cargo, offer Leave); an unpriced list is an Offer (offer Skip). An
+// unaffordable card is drawn dimmed but still clickable — the Sim owns affordability and
+// bounces an unaffordable buy back as Event_Purchase_Rejected, so the menu never gates
+// the click itself.
 //
-// A box index is its option's Option_Index, so an empty position (a shelf slot past
-// the deck's end, or a slot past a narrower stage's count) is drawn as a
+// A box index is its option's Option_Index, so an empty position is drawn as a
 // non-clickable gap rather than skipped, keeping indices aligned with the Sim's list.
 option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
@@ -505,10 +460,9 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	return sim.Command(sim.Command_Choose_Option{selection = nil})
 }
 
-// option_list_is_priced reports whether any option on the list carries a price — how
-// the menu tells a shop's shelf from an Offer's items without the Sim having to say
-// which primitive it is (issue #131). Costs are per-option, so this asks the list
-// rather than assuming the stage.
+// option_list_is_priced reports whether any option carries a price — how the menu tells
+// a shop's shelf from an Offer's items without the Sim naming the primitive. Costs are
+// per-option, so it asks the list rather than assuming the stage.
 option_list_is_priced :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) -> bool {
 	for slot in options {
 		if option, filled := slot.?; filled {
@@ -520,11 +474,10 @@ option_list_is_priced :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Opt
 	return false
 }
 
-// draw_option_box renders one presented option as a titled box: its name — with the
-// price alongside where it has one — then its size · phase · tags spec and
-// effect-intent lines (issues #96/#98). A priced option costing more than `cargo` is
-// dimmed, so an unaffordable buy reads as such before the click (the Sim still
-// enforces it); a free option is never dimmed, having nothing to afford.
+// draw_option_box renders one presented option as a titled box: its name (with the price
+// alongside where it has one), then its size · phase · tags spec and effect-intent lines.
+// A priced option costing more than `cargo` is dimmed so an unaffordable buy reads as
+// such before the click; a free option is never dimmed.
 draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, cargo: int) {
 	spec, intent := fitting_summary_lines(option.fitting)
 	cost, priced := option.cost.?
@@ -547,9 +500,8 @@ draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, cargo: int)
 	rl.DrawText(fmt.ctprintf("%s", intent), x, i32(box.y + 42), 12, rl.DARKGRAY)
 }
 
-// trade_stat_label names a tradeable stat for the player (issue #136). The enum's
-// own spelling is close but not presentable (Max_Hull), and a Trade is the first
-// screen that shows a stat by name rather than as a labeled row of the ship panel.
+// trade_stat_label names a tradeable stat for the player (issue #136): the enum's own
+// spelling (Max_Hull) isn't presentable.
 trade_stat_label :: proc(stat: voyage.Trade_Stat) -> string {
 	switch stat {
 	case .Hull:
@@ -564,28 +516,23 @@ trade_stat_label :: proc(stat: voyage.Trade_Stat) -> string {
 	return "?"
 }
 
-// trade_term_line renders one side of a bargain as a signed, named quantity —
-// "+8 Durability", "-15 cargo". A Trade_Term stores only the positive magnitude
-// (the side it sits on carries the direction), so the sign is supplied here at
-// the point the player reads it.
+// trade_term_line renders one side of a bargain as a signed, named quantity. A Trade_Term
+// stores only the positive magnitude (the side it sits on carries the direction), so the
+// sign is supplied here at the point the player reads it.
 trade_term_line :: proc(term: voyage.Trade_Term, sign: string) -> string {
 	return fmt.tprintf("%s%d %s", sign, term.amount, trade_stat_label(term.stat))
 }
 
-// trade_menu_loop is the Trade screen (issue #136, ADR-0014): it blocks until the
-// player accepts or rejects the bargain, then returns a Command_Trade_Choice.
-// Accepting applies the swap permanently and completes the stage; rejecting halts
-// the encounter, changing nothing. Both sides are rendered as signed named
-// quantities so the swap is legible before it is permanent.
+// trade_menu_loop is the Trade screen (issue #136, ADR-0014): it blocks until the player
+// accepts or rejects the bargain, then returns a Command_Trade_Choice. Accepting applies
+// the swap permanently and completes the stage; rejecting halts the encounter, changing
+// nothing.
 //
-// An accept the ship can't pay for (state.trade_can_accept, straight off
-// Event_Trade_Presented) is drawn dimmed and is **not** clickable. This is the
-// opposite of the shop's unaffordable card, which stays clickable and bounces off
-// the Sim as a rejected purchase: a shop has an Event_Purchase_Rejected to say no
-// with and stays open for another choice, whereas a Trade's only other answer is
-// to reject it — so a Sim-side refusal would have nowhere to return to, and
-// submitting one is a driver bug the Sim asserts on rather than a rejection it
-// reports.
+// An unaffordable accept (state.trade_can_accept, off Event_Trade_Presented) is drawn
+// dimmed and is **not** clickable — the opposite of the shop's unaffordable card. A shop
+// has an Event_Purchase_Rejected to say no with and stays open for another choice; a
+// Trade's only other answer is to reject, so a Sim-side refusal would have nowhere to
+// return to, and submitting one is a driver bug the Sim asserts on.
 trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		// No live window (e.g. under `odin test`): reject rather than permanently
@@ -628,10 +575,10 @@ trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	return sim.Command(sim.Command_Trade_Choice{accept = false})
 }
 
-// draw_trade_accept_box renders the bargain's accept option: what it gives against
-// what it takes, dimmed when the ship can't pay the cost (issue #136). Mirrors
-// draw_shop_item_box's affordable/unaffordable treatment, so "you can't pay for
-// this" looks the same wherever the player meets it.
+// draw_trade_accept_box renders the bargain's accept option — what it gives against what
+// it takes — dimmed when the ship can't pay the cost. Mirrors the shop card's
+// affordable/unaffordable treatment, so "you can't pay for this" looks the same wherever
+// the player meets it.
 draw_trade_accept_box :: proc(box: rl.Rectangle, trade: voyage.Stage_Trade, can_accept: bool) {
 	fill := can_accept ? rl.LIGHTGRAY : rl.Color{210, 210, 210, 255}
 	rl.DrawRectangleRec(box, fill)
@@ -645,9 +592,8 @@ draw_trade_accept_box :: proc(box: rl.Rectangle, trade: voyage.Stage_Trade, can_
 	rl.DrawText(fmt.ctprintf("Cost %s", trade_term_line(trade.cost, "-")), x, i32(box.y + 42), 12, rl.DARKGRAY)
 }
 
-// draw_labeled_box draws a bordered box with a bold-ish title line and up to two
-// smaller detail lines (issue #96) — shared by the Item Offer options and the
-// Skip box. Empty detail strings are skipped.
+// draw_labeled_box draws a bordered box with a title line and up to two smaller detail
+// lines, shared by the Item Offer options and the Skip box. Empty detail strings are skipped.
 draw_labeled_box :: proc(box: rl.Rectangle, title: string, line1: string, line2: string) {
 	rl.DrawRectangleRec(box, rl.LIGHTGRAY)
 	rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)
@@ -661,19 +607,18 @@ draw_labeled_box :: proc(box: rl.Rectangle, title: string, line1: string, line2:
 	}
 }
 
-// refit_menu_loop is the manual-loadout screen (issue #96, ADR-0012's Refit): it
-// blocks until the player commits one loadout operation, then returns that
-// single Command_Refit — run_session ticks it and re-enters this loop for the
-// next, so a whole loadout edit is a sequence of these calls. The interaction:
-//   - With an item pending (just picked from an Item Offer): click an empty slot
-//     to Install it there, or a filled slot to Replace its occupant (the swapped-
-//     out fitting is discarded, no inventory) — the place-or-swap path.
-//   - With nothing pending (rearranging): click a filled slot to select it, then
-//     an empty slot to Move it there (or the same slot again to cancel).
-//   - Finish ends the refit (discarding any still-unplaced item — no inventory).
-// The exact-size fit rule is the Sim's to enforce, not the menu's to predict: the
-// menu emits the Install/Replace/Move command and an illegal one comes back as
-// Event_Refit_Rejected (a beat), leaving the layout untouched (issue #111).
+// refit_menu_loop is the manual-loadout screen (issue #96, ADR-0012's Refit): it blocks
+// until the player commits one loadout operation, then returns that single Command_Refit —
+// run_session ticks it and re-enters for the next, so a whole loadout edit is a sequence
+// of these calls. The interaction:
+//   - With an item pending (just picked from an Item Offer): click an empty slot to
+//     Install it, or a filled slot to Replace its occupant (discarded — no inventory).
+//   - With nothing pending (rearranging): click a filled slot to select it, then an empty
+//     slot to Move it there (or the same slot again to cancel).
+//   - Finish ends the refit (discarding any still-unplaced item).
+// The exact-size fit rule is the Sim's, not the menu's to predict: the menu emits the
+// Install/Replace/Move command and an illegal one comes back as Event_Refit_Rejected,
+// leaving the layout untouched (issue #111).
 refit_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
@@ -716,10 +661,9 @@ refit_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
 }
 
-// refit_click maps a click on slot box `i` (or the Finish box) to the loadout
-// operation it commits, or updates the in-progress move selection and reports
-// "not ready" so refit_menu_loop keeps blocking (issue #96). See refit_menu_loop
-// for the interaction rules this encodes.
+// refit_click maps a click on slot box `i` (or the Finish box) to the loadout operation
+// it commits, or updates the in-progress move selection and reports "not ready" so
+// refit_menu_loop keeps blocking. See refit_menu_loop for the interaction rules.
 refit_click :: proc(state: ^Game_State, i: int, finish_index: int) -> (sim.Command, bool) {
 	if i == finish_index {
 		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}}), true
@@ -730,11 +674,9 @@ refit_click :: proc(state: ^Game_State, i: int, finish_index: int) -> (sim.Comma
 
 	if _, has_incoming := state.refit_incoming.?; has_incoming {
 		// Placing an item: an empty slot installs it, a filled slot swaps it in
-		// (Refit_Replace, discarding the occupant — no inventory). Whether the item
-		// actually fits the slot is the Sim's call, not the menu's: it routes both
-		// commands through ADR-0004's fit rule and bounces a size mismatch back as
-		// Event_Refit_Rejected. The menu only names the slot and picks the operation
-		// from whether it is filled — it never re-checks the fit here (issue #111).
+		// (Refit_Replace, discarding the occupant — no inventory). Fit is the Sim's call,
+		// not the menu's (ADR-0004); the menu picks the operation from whether the slot is
+		// filled and never re-checks the fit here.
 		if occupied {
 			return sim.Command(sim.Command_Refit{command = sim.Refit_Replace{slot = slot}}), true
 		}
@@ -762,8 +704,8 @@ refit_click :: proc(state: ^Game_State, i: int, finish_index: int) -> (sim.Comma
 	return sim.Command(sim.Command_Refit{command = sim.Refit_Move{from = from, to = slot}}), true
 }
 
-// refit_prompt is the one-line instruction at the bottom of the refit screen,
-// reflecting what the next click will do given the current mode (issue #96).
+// refit_prompt is the one-line instruction at the bottom of the refit screen, reflecting
+// what the next click will do in the current mode.
 refit_prompt :: proc(state: ^Game_State) -> string {
 	if incoming, has_incoming := state.refit_incoming.?; has_incoming {
 		return fmt.tprintf("Placing %s: click an empty %v slot to install, or a filled %v slot to swap.", incoming.name, incoming.size, incoming.size)
@@ -775,9 +717,8 @@ refit_prompt :: proc(state: ^Game_State) -> string {
 	return "Refit: click a filled slot to move it, or Finish."
 }
 
-// draw_refit_incoming draws the pending item's details above the slot list, so
-// the player can see the tags/phase/size/effect intent of what they are placing
-// (issue #96); nothing is drawn during a rearrange-only refit.
+// draw_refit_incoming draws the pending item's details (tags/phase/size/effect intent)
+// above the slot list; nothing is drawn during a rearrange-only refit.
 draw_refit_incoming :: proc(state: ^Game_State) {
 	incoming, has_incoming := state.refit_incoming.?
 	if !has_incoming {
@@ -789,8 +730,8 @@ draw_refit_incoming :: proc(state: ^Game_State) {
 	rl.DrawText(fmt.ctprintf("%s   %s", spec, intent), x, 282, 12, rl.DARKGRAY)
 }
 
-// draw_refit_boxes draws the clickable slot rows and the Finish box (issue #96),
-// highlighting a slot currently selected as a move source.
+// draw_refit_boxes draws the clickable slot rows and the Finish box, highlighting a slot
+// currently selected as a move source.
 draw_refit_boxes :: proc(state: ^Game_State, boxes: []rl.Rectangle, finish_index: int) {
 	for box, i in boxes {
 		if i == finish_index {
