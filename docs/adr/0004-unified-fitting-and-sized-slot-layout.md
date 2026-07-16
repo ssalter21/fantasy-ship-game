@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, partially amended by ADR-0012 (build variance). The "Deferred/out of scope" note below — no fitting roster beyond the three starting fittings plus their upgraded variants — is retired there. The slot / unified-fitting / exact-size-fit-rule model carries forward unchanged; ADR-0012 extends the fitting with tags, data-driven context-sensitive effects, and stat-modifiers on top of it.
+Accepted, partially amended by ADR-0012 (build variance). The "Deferred/out of scope" note below — no fitting roster beyond the three starting fittings plus their upgraded variants — is retired there. The slot / unified-fitting / exact-size-fit-rule model carries forward unchanged; ADR-0012 extends the fitting with tags, data-driven context-sensitive effects, and stat-modifiers on top of it. **Further amended by ADR-0020** (the weight economy): **cargo stops being effect-less.** This ADR calls cargo "the one special case: stackable and effect-less" — under ADR-0020 a cargo fitting **is the ship's money**, so it has an effect (it is the treasure), and it is the one fitting whose **weight is its contents rather than its size** (an empty hold weighs nothing). Cargo still contributes nothing to a combat *phase*, but it is no longer inert. The slot/fit-rule model is otherwise untouched. See ADR-0020.
 
 ## Context
 

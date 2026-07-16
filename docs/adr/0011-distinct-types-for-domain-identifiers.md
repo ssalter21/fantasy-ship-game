@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (implemented by issue #54)
+Accepted (implemented by issue #54). **Applied by ADR-0020** (the weight economy), which decided — deliberately, as this ADR asks any effort touching confusable quantities to — that **weight and treasure do *not* earn `distinct` types**. The effort's founding hazard *was* the bug class this ADR guards against (two number systems denominated incompatibly, ~5× apart, and nothing caught it), but the fix was to make treasure, capacity, and weight **the same scale** (a treasure weighs exactly 1), so "money is weight" is true at the value level — a cargo fitting's treasure count and its weight contribution are the same integer, and a `distinct` split would force a conversion at the one seam the model exists to make seamless. They were made *commensurable*, which is the opposite of what a `distinct` type enforces. The single genuine scale change, weight → Speed, is the `/10` divisor in one place; Speed stays `int` per this ADR's own stat carve-out. See ADR-0020.
 
 ## Context
 
