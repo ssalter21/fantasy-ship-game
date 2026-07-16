@@ -1,4 +1,4 @@
-package run
+package voyage
 
 // Travel legality: the rules deciding which of a Node's edges a ship may
 // actually traverse from where it stands, given where it has already been.

@@ -2,7 +2,7 @@ package main
 
 import "core:testing"
 import combat "../../core/combat"
-import run "../../core/run"
+import voyage "../../core/voyage"
 import ship "../../core/ship"
 import sim "../../core/sim"
 
@@ -23,8 +23,8 @@ get_captain_choice_returns_a_default_travel_choice_without_a_live_window :: proc
 
 @(test)
 dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^testing.T) {
-	voyage_map := run.voyage_map_create(0)
-	defer run.voyage_map_destroy(&voyage_map)
+	voyage_map := voyage.voyage_map_create(0)
+	defer voyage.voyage_map_destroy(&voyage_map)
 
 	state := Game_State{}
 	defer delete(state.visited)
@@ -56,7 +56,7 @@ dispatch_does_not_crash_on_an_encounter_resolved_event_without_a_live_window :: 
 	// The snapshot's layout is arena-owned by the Sim (issue #52) — dispatch
 	// takes no ownership of it, so this just confirms handling the variant
 	// doesn't crash.
-	dispatch(&state, sim.Event(sim.Event_Encounter_Resolved{snapshot = run.Ghost_Snapshot{}}))
+	dispatch(&state, sim.Event(sim.Event_Encounter_Resolved{snapshot = voyage.Ghost_Snapshot{}}))
 }
 
 @(test)
@@ -172,8 +172,8 @@ refit_click_maps_clicks_to_loadout_operations :: proc(t: ^testing.T) {
 
 // encounter_of bakes a stage list into an Encounter, as generation would from a recipe
 // — the shorthand the #139 view tests are written in.
-encounter_of :: proc(stages: ..run.Stage) -> run.Encounter {
-	e := run.Encounter{count = len(stages)}
+encounter_of :: proc(stages: ..voyage.Stage) -> voyage.Encounter {
+	e := voyage.Encounter{count = len(stages)}
 	for stage, i in stages {
 		e.stages[i] = stage
 	}
@@ -182,8 +182,8 @@ encounter_of :: proc(stages: ..run.Stage) -> run.Encounter {
 
 // node_of is an Encounter node holding that stage list, as presentation is handed one on
 // Event_Arrived_At_Node (or, for a revealing encounter, at voyage start).
-node_of :: proc(stages: ..run.Stage) -> run.Node {
-	return run.Node{kind = .Encounter, zone = run.Zone.Coastal, encounter = encounter_of(..stages)}
+node_of :: proc(stages: ..voyage.Stage) -> voyage.Node {
+	return voyage.Node{kind = .Encounter, zone = voyage.Zone.Coastal, encounter = encounter_of(..stages)}
 }
 
 @(test)
@@ -193,7 +193,7 @@ a_revealed_encounter_is_labelled_a_port_not_its_primitive :: proc(t: ^testing.T)
 	// *opens* on a Shop is a Port — ADR-0016's "opens on a Shop" ≡ "reveals" ≡ "is a
 	// Port" — so the map says what the captain is looking at rather than which primitive
 	// generation baked.
-	_, label := node_appearance(node_of(run.Stage_Shop{}), false)
+	_, label := node_appearance(node_of(voyage.Stage_Shop{}), false)
 	testing.expect_value(t, label, "Port")
 }
 
@@ -202,7 +202,7 @@ node_appearance_renders_the_mask_it_was_given_and_never_re_derives_it :: proc(t:
 	// ADR-0009's hiding contract is the Sim's to keep: a hidden encounter's stages are
 	// simply absent from the payload (sim_mask_encounters), so there is nothing here to
 	// leak and nothing to decide.
-	masked := run.Node{kind = .Encounter, zone = run.Zone.Coastal}
+	masked := voyage.Node{kind = .Encounter, zone = voyage.Zone.Coastal}
 	_, label := node_appearance(masked, false)
 	testing.expect_value(t, label, "")
 
@@ -211,7 +211,7 @@ node_appearance_renders_the_mask_it_was_given_and_never_re_derives_it :: proc(t:
 	// should never reach the view unvisited — but the view asks voyage_encounter_reveals,
 	// the same predicate the mask does, so handed the stages anyway it agrees rather than
 	// inventing a second rule that could drift.
-	_, label = node_appearance(node_of(run.Stage_Fight{}, run.Stage_Shop{}), false)
+	_, label = node_appearance(node_of(voyage.Stage_Fight{}, voyage.Stage_Shop{}), false)
 	testing.expect_value(t, label, "")
 }
 
@@ -227,9 +227,9 @@ a_node_is_labelled_by_the_stage_it_opens_with_not_by_its_cursor :: proc(t: ^test
 	// could not drift because one was reading a constant. This pins the rule that was
 	// always meant, against a cursor deliberately walked off the end: a fought-out
 	// [Fight, Reward] is a Battle on the map, not a blank, and not "Loot".
-	walked := encounter_of(run.Stage_Fight{}, run.Stage_Reward{})
+	walked := encounter_of(voyage.Stage_Fight{}, voyage.Stage_Reward{})
 	walked.cursor = walked.count
-	node := run.Node{kind = .Encounter, zone = run.Zone.Coastal, encounter = walked}
+	node := voyage.Node{kind = .Encounter, zone = voyage.Zone.Coastal, encounter = walked}
 
 	_, label := node_appearance(node, true)
 	testing.expect_value(t, label, "Battle")
@@ -237,7 +237,7 @@ a_node_is_labelled_by_the_stage_it_opens_with_not_by_its_cursor :: proc(t: ^test
 
 @(test)
 a_visited_node_keeps_its_marker_faded :: proc(t: ^testing.T) {
-	fought := node_of(run.Stage_Fight{})
+	fought := node_of(voyage.Stage_Fight{})
 
 	color, label := node_appearance(fought, true)
 	testing.expect_value(t, label, "Battle") // where you have been, and what it was
@@ -251,22 +251,22 @@ a_halt_beat_names_the_stages_it_forfeits :: proc(t: ^testing.T) {
 	// Issue #139's central AC: fleeing a [Fight, Reward] must *visibly* cost the reward.
 	// The model says so by never reaching the stage, which is silent; this is the line
 	// that makes the silence legible.
-	nodes := [1]run.Node{node_of(run.Stage_Fight{}, run.Stage_Reward{})}
-	state := Game_State{voyage_map = run.Map{nodes = nodes[:]}}
+	nodes := [1]voyage.Node{node_of(voyage.Stage_Fight{}, voyage.Stage_Reward{})}
+	state := Game_State{voyage_map = voyage.Map{nodes = nodes[:]}}
 
 	text := halt_beat_text(&state, sim.Event_Encounter_Halted{at = .Fight, index = 0, count = 2})
 	testing.expect_value(t, text, "You break off and slip away. You leave behind: Loot.")
 
 	// A halt on the *last* stage forfeits nothing downstream, so it says so instead of
 	// naming an empty list — skipping a one-stage Offer must not read as a loss.
-	skipped := [1]run.Node{node_of(run.Stage_Offer{})}
-	state = Game_State{voyage_map = run.Map{nodes = skipped[:]}}
+	skipped := [1]voyage.Node{node_of(voyage.Stage_Offer{})}
+	state = Game_State{voyage_map = voyage.Map{nodes = skipped[:]}}
 	text = halt_beat_text(&state, sim.Event_Encounter_Halted{at = .Offer, index = 0, count = 1})
 	testing.expect_value(t, text, "You take nothing. The encounter ends here.")
 
 	// Everything behind the cursor is named, not just the next one.
-	deep := [1]run.Node{node_of(run.Stage_Trade{}, run.Stage_Shop{}, run.Stage_Reward{})}
-	state = Game_State{voyage_map = run.Map{nodes = deep[:]}}
+	deep := [1]voyage.Node{node_of(voyage.Stage_Trade{}, voyage.Stage_Shop{}, voyage.Stage_Reward{})}
+	state = Game_State{voyage_map = voyage.Map{nodes = deep[:]}}
 	text = halt_beat_text(&state, sim.Event_Encounter_Halted{at = .Trade, index = 0, count = 3})
 	testing.expect_value(t, text, "You turn the bargain down. You leave behind: Market, Loot.")
 }
@@ -299,10 +299,10 @@ only_a_stage_with_no_screen_of_its_own_gets_an_entry_beat :: proc(t: ^testing.T)
 	// cargo that silently grew. Under `odin test` play_beat is a no-op, so this pins the
 	// selection rule rather than the render: every kind is handled, and only Reward looks
 	// its content up.
-	nodes := [1]run.Node{node_of(run.Stage_Reward{cargo = 30})}
-	state := Game_State{voyage_map = run.Map{nodes = nodes[:]}}
+	nodes := [1]voyage.Node{node_of(voyage.Stage_Reward{cargo = 30})}
+	state := Game_State{voyage_map = voyage.Map{nodes = nodes[:]}}
 
-	for kind in run.Stage_Kind {
+	for kind in voyage.Stage_Kind {
 		play_stage_entry_beat(&state, sim.Event_Stage_Entered{kind = kind, index = 0, count = 1})
 	}
 

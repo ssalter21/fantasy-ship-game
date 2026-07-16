@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 import combat "../../core/combat"
-import run "../../core/run"
+import voyage "../../core/voyage"
 import sim "../../core/sim"
 
 main :: proc() {
@@ -29,7 +29,7 @@ main :: proc() {
 // not to derive legality.
 Headless_State :: struct {
 	events:         [dynamic]sim.Event,
-	voyage_map:        run.Map, // borrowed from Event_Voyage_Started (the masked public map)
+	voyage_map:        voyage.Map, // borrowed from Event_Voyage_Started (the masked public map)
 	current:        sim.Node_ID,
 	travel_options: []sim.Node_ID, // borrowed from the latest Event_Travel_Options
 }

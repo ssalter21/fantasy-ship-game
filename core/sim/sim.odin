@@ -1,14 +1,14 @@
 package sim
 
 import "../combat"
-import "../run"
+import "../voyage"
 import "../ship"
 import "core:math/rand"
 import "core:mem"
 import "core:mem/virtual"
 
 // Phase is what kind of captain decision Sim is (or is about to be) awaiting
-// (issue #24 — wiring core/run/core/combat under the shared run_session
+// (issue #24 — wiring core/voyage/core/combat under the shared run_session
 // loop, ADR-0002). run_session passes sim.phase into
 // Input_Source.get_captain_choice (issue #39) so adapters route to the
 // right decision UI directly instead of re-deriving it from the Event
@@ -71,10 +71,10 @@ Phase :: enum {
 
 // Node_ID identifies a node in voyage_map.nodes by position — used across the Sim
 // boundary via Command_Travel_To and Event_Travel_Options. It is an alias of
-// run.Node_ID (issue #112): run owns the Map, so it owns the canonical distinct
-// type (see run.odin for the ADR-0011 rationale); aliasing here means one
+// voyage.Node_ID (issue #112): run owns the Map, so it owns the canonical distinct
+// type (see voyage.odin for the ADR-0011 rationale); aliasing here means one
 // distinct type crosses the run/sim boundary with no int conversion.
-Node_ID :: run.Node_ID
+Node_ID :: voyage.Node_ID
 
 // Option_Index identifies one of an option-list stage's presented options by
 // position (issue #54: distinct from a plain int for the same reason as Node_ID,
@@ -88,7 +88,7 @@ Option_Index :: distinct int
 // (Event_Options_Presented, Sim.stage_options). Derived from the primitives'
 // own counts rather than picked, so a roomier stage can never quietly overflow
 // the array the Sim stages it in: a Shop's shelf is the widest today.
-STAGE_OPTION_MAX :: max(run.ITEM_OFFER_OPTION_COUNT, run.SHOP_SHELF_SIZE)
+STAGE_OPTION_MAX :: max(voyage.ITEM_OFFER_OPTION_COUNT, voyage.SHOP_SHELF_SIZE)
 
 // Stage_Option is one line of an option-list stage's presented list (issue #131):
 // the `fitting` on offer, and what it `cost`s in cargo — nil when the option is
@@ -113,7 +113,7 @@ Sim :: struct {
 	// fully deterministic), but the field/seed stays since ADR-0001 commits
 	// to it as Sim's shape, not something this ticket revisits.
 	rng:               rand.Default_Random_State,
-	voyage_map:           run.Map,
+	voyage_map:           voyage.Map,
 	// public_nodes is the masked view of voyage_map.nodes the Sim broadcasts at voyage
 	// start (the hiding contract): a copy that nils every hidden encounter's stage
 	// list while preserving graph shape and landmarks, so presentation cannot leak
@@ -123,7 +123,7 @@ Sim :: struct {
 	// is revealed per-node on arrival via Event_Arrived_At_Node, which carries the
 	// full Node. The edges it pairs with are shared (borrowed) from voyage_map. See
 	// sim_mask_encounters.
-	public_nodes:      []run.Node,
+	public_nodes:      []voyage.Node,
 	player:            ship.Ship,
 	current:           Node_ID, // index into voyage_map.nodes; Start is always 0
 	// resolved is parallel to voyage_map.nodes; true once the encounter at that node has
@@ -150,12 +150,12 @@ Sim :: struct {
 	// Sim already computed instead of re-deriving legality off a shadow map.
 	travel_options:    [dynamic]Node_ID,
 	steps:             int, // Ghost_Snapshot progress counter, +1 per travel
-	status:            run.Voyage_Status,
+	status:            voyage.Voyage_Status,
 	phase:             Phase,
 	awaiting_decision: bool,
 	pending_command:   Maybe(Command),
 	battle:            combat.Battle,
-	active_encounter:  run.Stage_Fight,
+	active_encounter:  voyage.Stage_Fight,
 	// stage_options is the option list the stage under the cursor is presenting
 	// (issue #131) — an Offer's items or a Shop's shelf, staged the same way because
 	// they are the same decision. Filled by sim_enter_stage as the cursor lands on an
@@ -183,7 +183,7 @@ Sim :: struct {
 	// choice arrives a tick after the stage is entered, so the stage's baked content
 	// has to outlive the entry. A plain value, not a Maybe: it is only ever read while
 	// the phase says a trade is on screen.
-	active_trade:      run.Stage_Trade,
+	active_trade:      voyage.Stage_Trade,
 	// refit_pending is the incoming fitting an open Refit (Awaiting_Refit) was
 	// opened to place (issue #95): set by sim_open_refit, consumed when a
 	// Refit_Install lands it in a slot, and discarded (nil) when the refit
@@ -349,7 +349,7 @@ Event :: union {
 // contains a revealing stage (ADR-0014). Withholding is a guaranteed data
 // property of the emitted event, not a presentation courtesy.
 Event_Voyage_Started :: struct {
-	voyage_map: run.Map,
+	voyage_map: voyage.Map,
 	ship:    ship.Ship,
 }
 
@@ -369,7 +369,7 @@ Event_Travel_Options :: struct {
 }
 
 Event_Arrived_At_Node :: struct {
-	node: run.Node,
+	node: voyage.Node,
 }
 
 // Event_Ship_Battle_Sighted is dispatched once, when a Ship Battle starts:
@@ -447,7 +447,7 @@ Event_Wreck_Looted :: struct {
 // Event_Options_Presented: a Shop's buy routes back through the walk to re-present the
 // refilled shelf, and re-stating "still stage 2 of 3" is the honest account of that.
 Event_Stage_Entered :: struct {
-	kind:  run.Stage_Kind,
+	kind:  voyage.Stage_Kind,
 	index: int,
 	count: int,
 }
@@ -471,7 +471,7 @@ Event_Stage_Entered :: struct {
 // labels nodes from. `index` and `count` are what pick that range out, and they are all
 // the walk knows that the copy doesn't.
 Event_Encounter_Halted :: struct {
-	at:    run.Stage_Kind,
+	at:    voyage.Stage_Kind,
 	index: int,
 	count: int,
 }
@@ -511,7 +511,7 @@ Event_Options_Presented :: struct {
 // a legal answer. This is the trade counterpart of Event_Battle_Menu's may_break_off,
 // for the same reason.
 Event_Trade_Presented :: struct {
-	trade:      run.Stage_Trade,
+	trade:      voyage.Stage_Trade,
 	can_accept: bool,
 }
 
@@ -582,11 +582,11 @@ Event_Refit_Finished :: struct {}
 // number of encounter nodes resolved, and Event_Ship_Updated — not this — is what
 // reports each individual change on the way through.
 Event_Encounter_Resolved :: struct {
-	snapshot: run.Ghost_Snapshot,
+	snapshot: voyage.Ghost_Snapshot,
 }
 
 Event_Voyage_Ended :: struct {
-	status: run.Voyage_Status,
+	status: voyage.Voyage_Status,
 }
 
 sim_create :: proc(seed: u64) -> Sim {
@@ -596,7 +596,7 @@ sim_create :: proc(seed: u64) -> Sim {
 	context.allocator = virtual.arena_allocator(&s.arena)
 
 	s.rng = rand.create_u64(seed)
-	s.voyage_map = run.voyage_map_create(seed)
+	s.voyage_map = voyage.voyage_map_create(seed)
 	s.public_nodes = sim_mask_encounters(s.voyage_map.nodes)
 	s.player = ship.ship_starting_ship()
 	s.resolved = make([]bool, len(s.voyage_map.nodes))
@@ -616,7 +616,7 @@ sim_create :: proc(seed: u64) -> Sim {
 // sim_create time).
 //
 // What gets withheld is asked of the **stage list and nothing else**
-// (run.voyage_encounter_reveals, ADR-0014/ADR-0016): an encounter whose **first** stage
+// (voyage.voyage_encounter_reveals, ADR-0014/ADR-0016): an encounter whose **first** stage
 // reveals shows itself on the map before arrival, so it passes through unmasked, and
 // a node with no encounter has nothing to withhold. The node *kind* is not consulted
 // at all — that is the point. It is what lets a Port be an ordinary node that happens
@@ -633,12 +633,12 @@ sim_create :: proc(seed: u64) -> Sim {
 // Withholding stays a guaranteed data property of the emitted event, not a
 // presentation courtesy (ADR-0009): a masked node's stages are absent from the
 // Event_Voyage_Started payload, so presentation cannot leak what it never received.
-sim_mask_encounters :: proc(nodes: []run.Node) -> []run.Node {
-	masked := make([]run.Node, len(nodes))
+sim_mask_encounters :: proc(nodes: []voyage.Node) -> []voyage.Node {
+	masked := make([]voyage.Node, len(nodes))
 	for p, i in nodes {
 		masked[i] = p
 		enc, has_encounter := p.encounter.?
-		if !has_encounter || run.voyage_encounter_reveals(enc) {
+		if !has_encounter || voyage.voyage_encounter_reveals(enc) {
 			continue
 		}
 		masked[i].encounter = nil
@@ -688,7 +688,7 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	sim.status = run.voyage_status(&sim.player, sim.voyage_map.nodes[sim.current])
+	sim.status = voyage.voyage_status(&sim.player, sim.voyage_map.nodes[sim.current])
 	if sim.status != .In_Progress {
 		sim.phase = .Ended
 		append(events, Event(Event_Voyage_Ended{status = sim.status}))
@@ -718,7 +718,7 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 // dispatch batch yet isn't a fresh arena allocation per decision (which would
 // pile up unreclaimed until sim_destroy).
 sim_emit_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) {
-	options := run.voyage_travel_options(sim.voyage_map, sim.current, sim.visited)
+	options := voyage.voyage_travel_options(sim.voyage_map, sim.current, sim.visited)
 
 	clear(&sim.travel_options)
 	for id in options {
@@ -771,8 +771,8 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 // standing at *is* the node being snapshotted, so the two are simply at hand.
 sim_emit_encounter_resolved :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	context.allocator = sim_arena_allocator(sim)
-	captured := run.voyage_ghost_snapshot_capture(
-		run.voyage_ghost_snapshot_of(&sim.player, sim.steps, sim_current_site(sim)),
+	captured := voyage.voyage_ghost_snapshot_capture(
+		voyage.voyage_ghost_snapshot_of(&sim.player, sim.steps, sim_current_site(sim)),
 	)
 	append(events, Event(Event_Encounter_Resolved{snapshot = captured}))
 }

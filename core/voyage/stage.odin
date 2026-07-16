@@ -1,4 +1,4 @@
-package run
+package voyage
 
 import "../ship"
 import "core:math/rand"
@@ -7,7 +7,7 @@ import "core:math/rand"
 // Stages plus a cursor; a Stage is one of five closed primitives carrying the
 // content it was baked with; a Recipe is the named, authored stage set
 // generation picks whole. This file owns that model and the per-stage content
-// types. The Zone/Node/Map graph an Encounter hangs off lives in run.odin
+// types. The Zone/Node/Map graph an Encounter hangs off lives in voyage.odin
 // alongside the stakes scaling group, generation in generation.odin, the
 // content each stage is baked with in content.odin, and arrival-time
 // resolution in encounter.odin.

@@ -54,7 +54,7 @@ jobs:
           # Each odin test invocation must be checked individually: a later
           # passing package would otherwise reset $LASTEXITCODE and mask an
           # earlier failure.
-          foreach ($pkg in 'core/combat', 'core/run', 'core/ship', 'core/sim') {
+          foreach ($pkg in 'core/combat', 'core/voyage', 'core/ship', 'core/sim') {
             Write-Host "== odin test $pkg =="
             odin test $pkg
             if ($LASTEXITCODE -ne 0) { throw "odin test $pkg failed ($LASTEXITCODE)" }

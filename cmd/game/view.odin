@@ -1,7 +1,7 @@
 package main
 
 import "core:fmt"
-import run "../../core/run"
+import voyage "../../core/voyage"
 import ship "../../core/ship"
 import rl "vendor:raylib"
 
@@ -16,7 +16,7 @@ MAP_PAD :: 34
 // whole graph is visible at once with no camera or panning. Nodes still carry
 // no screen coordinates — that stays a presentation concern. Caller owns the
 // returned slice.
-compute_node_positions :: proc(voyage_map: run.Map) -> []rl.Vector2 {
+compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 	positions := make([]rl.Vector2, len(voyage_map.nodes))
 
 	max_layer := 0
@@ -44,7 +44,7 @@ compute_node_positions :: proc(voyage_map: run.Map) -> []rl.Vector2 {
 // zone_tint is the ambient colour of a zone, used both for the background
 // gradient band and for an unvisited encounter's generic marker (issue #71) —
 // the colour a player reads as "how deep into the voyage this is".
-zone_tint :: proc(zone: Maybe(run.Zone)) -> rl.Color {
+zone_tint :: proc(zone: Maybe(voyage.Zone)) -> rl.Color {
 	z, ok := zone.?
 	if !ok {
 		return rl.Color{90, 100, 120, 255}
@@ -64,7 +64,7 @@ zone_tint :: proc(zone: Maybe(run.Zone)) -> rl.Color {
 // place a Stage_Kind becomes words, shared by the encounter strip, a halt's beat, and
 // (via node_marker) the map. The enum's own spelling is the authoring vocabulary, not
 // the player's: nobody boards a "Stage_Offer".
-stage_kind_label :: proc(kind: run.Stage_Kind) -> string {
+stage_kind_label :: proc(kind: voyage.Stage_Kind) -> string {
 	switch kind {
 	case .Fight:
 		return "Battle"
@@ -82,7 +82,7 @@ stage_kind_label :: proc(kind: run.Stage_Kind) -> string {
 
 // stage_tint is a stage primitive's colour, shared by the map marker and the
 // encounter strip so a Battle node and a Battle chip read as the same thing.
-stage_tint :: proc(kind: run.Stage_Kind) -> rl.Color {
+stage_tint :: proc(kind: voyage.Stage_Kind) -> rl.Color {
 	switch kind {
 	case .Fight:
 		return rl.MAROON
@@ -116,7 +116,7 @@ stage_tint :: proc(kind: run.Stage_Kind) -> rl.Color {
 // `[Shop, Fight]` and this label starts lying. ADR-0016 records that cost knowingly;
 // the_only_encounters_a_captain_can_see_coming_are_ports is the test that makes
 // breaking it loud.
-node_marker :: proc(opening: run.Stage_Kind) -> (color: rl.Color, label: string) {
+node_marker :: proc(opening: voyage.Stage_Kind) -> (color: rl.Color, label: string) {
 	label = stage_kind_label(opening)
 	if opening == .Shop {
 		label = "Port"
@@ -153,7 +153,7 @@ node_marker :: proc(opening: run.Stage_Kind) -> (color: rl.Color, label: string)
 // A **visited** node keeps its marker, faded: the walk is over and there is nothing to
 // go back for (ADR-0014 resolves a node once), but where the captain has been — and
 // what it was — is the map's memory of the route, which a blank dot throws away.
-node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: string) {
+node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:
 		return rl.SKYBLUE, "Start"
@@ -166,14 +166,14 @@ node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: 
 		// here (ADR-0009): the stages of a hidden encounter are absent from the payload
 		// presentation was handed, so there is nothing to leak.
 		encounter, has_encounter := p.encounter.?
-		if !has_encounter || (!visited && !run.voyage_encounter_reveals(encounter)) {
+		if !has_encounter || (!visited && !voyage.voyage_encounter_reveals(encounter)) {
 			return zone_tint(p.zone), ""
 		}
-		opening, has_opening := run.voyage_encounter_opening(encounter)
+		opening, has_opening := voyage.voyage_encounter_opening(encounter)
 		if !has_opening {
 			return rl.GRAY, ""
 		}
-		color, label = node_marker(run.voyage_stage_kind(opening))
+		color, label = node_marker(voyage.voyage_stage_kind(opening))
 		if visited {
 			color = rl.Fade(color, 0.3)
 		}
@@ -186,7 +186,7 @@ node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: 
 // encounter: only an unvisited Encounter fires (a landmark never does, a
 // revisit never does). The UI uses this to colour-code offered moves without
 // needing to know the still-hidden kind (issue #71).
-move_fires :: proc(p: run.Node, visited: bool) -> bool {
+move_fires :: proc(p: voyage.Node, visited: bool) -> bool {
 	return p.kind == .Encounter && !visited
 }
 
@@ -194,7 +194,7 @@ move_fires :: proc(p: run.Node, visited: bool) -> bool {
 // graph as an ambient depth cue (issue #71): each zone's faint tint spans the
 // x-range of the columns belonging to it.
 draw_zone_background :: proc(state: ^Game_State) {
-	for zone in run.Zone {
+	for zone in voyage.Zone {
 		lo, hi: f32 = 1e9, -1e9
 		found := false
 		for p, i in state.voyage_map.nodes {
@@ -247,7 +247,7 @@ draw_map :: proc(state: ^Game_State) {
 	// is what consumes the Sim's emitted options.
 	// options is voyage_travel_options' temp_allocator scratch (see its contract),
 	// reclaimed by the per-frame free_all in draw_scene — no hand-free here.
-	options := run.voyage_travel_options(state.voyage_map, state.current_node_id, state.visited)
+	options := voyage.voyage_travel_options(state.voyage_map, state.current_node_id, state.visited)
 
 	for p, i in state.voyage_map.nodes {
 		pos := state.positions[i]
@@ -448,7 +448,7 @@ STAGE_CHIP_H :: 22
 // Sim's live walk — the cursor in here is frozen at the moment of arrival — so it
 // answers "what does this encounter consist of" and never "where is the walk now",
 // which is Event_Stage_Entered's job.
-current_encounter :: proc(state: ^Game_State) -> (run.Encounter, bool) {
+current_encounter :: proc(state: ^Game_State) -> (voyage.Encounter, bool) {
 	if len(state.voyage_map.nodes) == 0 {
 		return {}, false
 	}
@@ -460,7 +460,7 @@ current_encounter :: proc(state: ^Game_State) -> (run.Encounter, bool) {
 // comes from the arrival copy rather than from the walk's events because arrival is
 // already where an encounter's content is handed over (ADR-0009's contract is about what
 // happens *before* you get there); the events carry only the cursor, which no copy can.
-encounter_stage :: proc(state: ^Game_State, index: int) -> (run.Stage, bool) {
+encounter_stage :: proc(state: ^Game_State, index: int) -> (voyage.Stage, bool) {
 	encounter, has_encounter := current_encounter(state)
 	if !has_encounter || index < 0 || index >= encounter.count {
 		return nil, false
@@ -470,12 +470,12 @@ encounter_stage :: proc(state: ^Game_State, index: int) -> (run.Stage, bool) {
 
 // encounter_stage_kind names the primitive at `index` of the current encounter, for the
 // callers that only need to know what step it is rather than what it holds.
-encounter_stage_kind :: proc(state: ^Game_State, index: int) -> (run.Stage_Kind, bool) {
+encounter_stage_kind :: proc(state: ^Game_State, index: int) -> (voyage.Stage_Kind, bool) {
 	stage, known := encounter_stage(state, index)
 	if !known {
 		return nil, false
 	}
-	return run.voyage_stage_kind(stage), true
+	return voyage.voyage_stage_kind(stage), true
 }
 
 // draw_encounter_strip draws the encounter's whole stage sequence with the current one

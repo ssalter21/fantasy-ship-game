@@ -370,7 +370,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// stay small, and Muster's does not — Admiral's Guard is +3 per Crew aboard, so a
 	// Crew build folded +12 into its own defence and became unbeatable by any
 	// starting ship. Raw can absorb a 12; bulwark cannot. See the band note on
-	// core/run's hostile_roster.
+	// core/voyage's hostile_roster.
 	//
 	// **A Press multiplies its own phase's fittings, and nothing else** — the
 	// muster_output above is already pressed by Press Muster, so it is added *after*
