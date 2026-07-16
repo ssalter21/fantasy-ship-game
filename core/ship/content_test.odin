@@ -320,7 +320,7 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 // install-these-fittings test helper.
 
 @(test)
-splash_powder_monkeys_buff_scales_with_weapons_aboard :: proc(t: ^testing.T) {
+splash_powder_monkeys_muster_scales_with_weapons_aboard :: proc(t: ^testing.T) {
 	item := roster_item_named("Powder Monkeys")
 	testing.expect_value(t, item.tier, Tier.Splash)
 	active, _ := item.fitting.active.?
@@ -420,7 +420,7 @@ ship_fit_first_empty_slot_falls_back_from_exposed_slots_to_the_concealed_hold ::
 	defer delete(layout)
 
 	medium :: proc(name: string) -> Fitting {
-		return Fitting{name = name, size = .Medium, category = .Offensive, active = Effect{magnitude = 1}}
+		return Fitting{name = name, size = .Medium, category = .Fire, active = Effect{magnitude = 1}}
 	}
 	testing.expect(t, ship_fit_first_empty_slot(layout, medium("first")))
 	testing.expect(t, ship_fit_first_empty_slot(layout, medium("second")))
@@ -457,21 +457,21 @@ occupant_name :: proc(layout: []Layout_Slot, slot_name: string) -> string {
 
 // **A Modify_* effect is not output, and must survive a scaling untouched.** This is
 // the property core/run's Fight stakes leans on rather than a nicety: it scales whole
-// Categories, and `.Buff` holds every Modify_Speed item in the roster (Spare Rigging,
-// Copper Sheathing, Outriggers, Enchanted Keel) alongside the buff phase's actual
+// Categories, and `.Muster` holds every Modify_Speed item in the roster (Spare Rigging,
+// Copper Sheathing, Outriggers, Enchanted Keel) alongside the muster phase's actual
 // fittings. A hostile's Speed is its archetype's axis, explicitly not a stakes
 // reading — so if this proc ever started scaling by category rather than by effect,
 // a Deep node would hand a hostile more Speed than a Coastal one and quietly decide
 // who is allowed to leave the fight (combat_may_leave is *strictly faster*).
 @(test)
 ship_fitting_output_scaled_moves_phase_contributions_and_leaves_stat_modifiers_alone :: proc(t: ^testing.T) {
-	rigging := Fitting{name = "Spare Rigging", size = .Small, category = .Buff, passive = Effect{kind = .Modify_Speed, magnitude = 2}}
+	rigging := Fitting{name = "Spare Rigging", size = .Small, category = .Muster, passive = Effect{kind = .Modify_Speed, magnitude = 2}}
 	halved := ship_fitting_output_scaled(rigging, 50)
 	passive, has_passive := halved.passive.?
 	testing.expect(t, has_passive)
 	testing.expect_value(t, passive.magnitude, Magnitude(2)) // a stat modifier is not output
 
-	gun := Fitting{name = "Long Nines", size = .Large, category = .Offensive, active = Effect{magnitude = 8}}
+	gun := Fitting{name = "Long Nines", size = .Large, category = .Fire, active = Effect{magnitude = 8}}
 	active, has_active := ship_fitting_output_scaled(gun, 50).active.?
 	testing.expect(t, has_active)
 	testing.expect_value(t, active.magnitude, Magnitude(4))
@@ -486,7 +486,7 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 	guard := Fitting {
 		name     = "Admiral's Guard",
 		size     = .Medium,
-		category = .Buff,
+		category = .Muster,
 		active   = Effect{magnitude = 4, synergy = Selector(Tag.Crew), conditional = Condition_HP_Below{percent = 50}},
 	}
 
@@ -504,11 +504,11 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 // the zone they are authored for (ADR-0019).
 @(test)
 ship_fitting_output_scaled_rounds_half_up_and_is_the_identity_at_a_hundred :: proc(t: ^testing.T) {
-	monkeys := Fitting{name = "Powder Monkeys", size = .Small, category = .Buff, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}
+	monkeys := Fitting{name = "Powder Monkeys", size = .Small, category = .Muster, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}
 	halved, _ := ship_fitting_output_scaled(monkeys, 50).active.?
 	testing.expect_value(t, halved.magnitude, Magnitude(1)) // 0.5 rounds up, not away
 
-	swivel := Fitting{name = "Swivel Guns", size = .Small, category = .Offensive, active = Effect{magnitude = 3}}
+	swivel := Fitting{name = "Swivel Guns", size = .Small, category = .Fire, active = Effect{magnitude = 3}}
 	up, _ := ship_fitting_output_scaled(swivel, 50).active.?
 	testing.expect_value(t, up.magnitude, Magnitude(2)) // 1.5 rounds up
 

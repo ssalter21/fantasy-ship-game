@@ -12,7 +12,7 @@ Visibility :: enum {
 }
 
 // Category is a fitting's round phase (ADR-0006): every round resolves
-// Buff -> Defensive -> Offensive, and a fitting's Category is which of the
+// Muster -> Brace -> Fire, and a fitting's Category is which of the
 // three it triggers in. Effect's comment below says combat vocabulary
 // belongs to core/combat, not this data model — Category is the deliberate
 // exception: core/combat needs to group fittings by phase to resolve a
@@ -20,14 +20,14 @@ Visibility :: enum {
 // grouping, so the enum lives here rather than as a lookup keyed some other
 // way from core/combat.
 Category :: enum {
-	Buff,
-	Defensive,
-	Offensive,
+	Muster,
+	Brace,
+	Fire,
 }
 
 // Tag is a fitting's family membership (#88 build-variance effort), the axis
 // synergy effects will later count fittings along. It is independent of a
-// fitting's combat phase (Category): a Beast may buff, defend, or attack, and
+// fitting's combat phase (Category): a Beast may muster, defend, or attack, and
 // two fittings in different phases can still share a family. Multi-tag is
 // allowed but used sparingly — most fittings sit in exactly one family. No
 // behavior counts on tags yet; this ticket (#90) only establishes the axis.
