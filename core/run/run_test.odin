@@ -627,7 +627,7 @@ costs_precede_boons_in_every_authored_recipe :: proc(t: ^testing.T) {
 	// not express a future recipe that wants it either).
 	//
 	// The reason it matters is that a halt is an **exit**. Fight and Trade are the
-	// two stages that both cost something and can be declined — Leave Combat halts
+	// two stages that both cost something and can be declined — Break Off halts
 	// a Fight, rejecting halts a Trade — so either one sitting *behind* a boon is a
 	// free escape from the price of that boon. `[Offer, Fight]` is the canonical
 	// mistake: skip an item you never had and the fight is dodged for nothing.
@@ -1303,7 +1303,7 @@ run_start_battle_hands_off_to_combat_with_the_ship_and_the_fight_stages_opponent
 // read off `escaped` alone.
 //
 // A stated ending needs a stated reason now that run_finish_ship_battle reads it to
-// decide the wreck payout (#159): an escape is Left_Combat, and a no-escape
+// decide the wreck payout (#159): an escape is Broke_Off, and a no-escape
 // completion is modelled as a round-cap stalemate. Neither pays out — which is
 // exactly what these escape→outcome tests want; the paying case (a kill) is set up
 // by battle_destroyed_won_by_the_player below.
@@ -1311,7 +1311,7 @@ battle_ended_with :: proc(escaped: bit_set[combat.Side], player: ^ship.Ship, fig
 	battle := run_start_battle(player, fight)
 	battle.ended = true
 	battle.escaped = escaped
-	battle.reason = .Left_Combat if escaped != {} else .Round_Cap
+	battle.reason = .Broke_Off if escaped != {} else .Round_Cap
 	return battle
 }
 
@@ -1340,7 +1340,7 @@ run_finish_ship_battle_completes_the_fight_when_nobody_escaped :: proc(t: ^testi
 }
 
 @(test)
-run_finish_ship_battle_halts_the_encounter_when_the_captain_took_leave_combat :: proc(t: ^testing.T) {
+run_finish_ship_battle_halts_the_encounter_when_the_captain_took_break_off :: proc(t: ^testing.T) {
 	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
 	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
 	battle := battle_ended_with({.A}, &player, &fight)

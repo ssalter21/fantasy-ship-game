@@ -178,7 +178,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// half-full it weighs almost nothing and reads **7**, the fastest ship in the
 	// game — the exact inversion of #135's authored 3. No fill percentage fixes it;
 	// only a hull sized for the build (hostile ship templates, out of scope) does.
-	// Until then the "one a starting player can outrun" role — Leave Combat as a real
+	// Until then the "one a starting player can outrun" role — Break Off as a real
 	// option — is carried by the Ironclad Hulk instead (the roster's sole slower-than-4).
 	{name = "Deepwater Menagerie", items = DEEPWATER_MENAGERIE_ITEMS[:]},
 	// Runs dark and runs fast. The trick is placement: two throwaway Mediums push the
@@ -233,12 +233,12 @@ hostile_roster := [?]Hostile_Archetype {
 	{name = "Death Throes", items = DEATH_THROES_ITEMS[:]},
 	// Two Modify_Speed items (+3) over a light, half-full hull — it **derives to 8**
 	// (#194), so it is gone the round it becomes eligible. The counterpart to the Hulk:
-	// the archetype that leaves *you*, and the second one #165 found sitting on the
+	// the archetype that breaks off from *you*, and the second one #165 found sitting on the
 	// floor, for the mirror reason — its budget went into speed rather than armour, but
 	// it was equally not spent on hitting you, so half of its 7 could not clear a
 	// starting ship's bulwark either. It is a nuisance by design, and a nuisance that
 	// deals nothing at all for the five rounds before it bolts is not a nuisance, it is
-	// a cutscene. The Carronade is what makes leaving cost the player something.
+	// a cutscene. The Carronade is what makes breaking off cost the player something.
 	//
 	// The two Modify_Speed items are also this entry's second job: they are why
 	// the_site_never_moves_a_hostiles_speed exists. Both are filed under Category

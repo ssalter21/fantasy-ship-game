@@ -23,7 +23,7 @@ Command :: union {
 	Command_Man_The_Sails,
 	Command_Jettison_Cargo,
 	Command_Reallocate,
-	Command_Leave_Combat,
+	Command_Break_Off,
 	Command_Hold,
 }
 
@@ -58,13 +58,13 @@ Command_Reallocate :: struct {
 	to:   ship.Slot_Index,
 }
 
-// Command_Leave_Combat ends the battle immediately for both ships. Only
-// valid once the submitting side is escape-eligible (combat_may_leave).
-Command_Leave_Combat :: struct {}
+// Command_Break_Off ends the battle immediately for both ships. Only
+// valid once the submitting side is escape-eligible (combat_may_break_off).
+Command_Break_Off :: struct {}
 
 // Command_Hold is a formal no-op (ADR-0008): a scripted (non-player-
 // controlled) ship's decision every round it isn't automatically taking
-// Leave Combat. Contributes no Press/Man the Sails/Jettison side effect.
+// Break Off. Contributes no Press/Man the Sails/Jettison side effect.
 Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
@@ -74,7 +74,7 @@ Battle :: struct {
 	ships:      [Side]^ship.Ship,
 	round:      int,
 	temp_speed: [Side]int,
-	// escaped is which side(s) have taken Command_Leave_Combat this battle
+	// escaped is which side(s) have taken Command_Break_Off this battle
 	// (issue #54: a genuine set-of-enum over Side, so bit_set replaces the
 	// [Side]bool membership array).
 	escaped:    bit_set[Side],
@@ -91,7 +91,7 @@ Battle :: struct {
 // End_Reason is why a Battle ended.
 End_Reason :: enum {
 	Destroyed,
-	Left_Combat,
+	Broke_Off,
 	Round_Cap,
 }
 
@@ -274,10 +274,10 @@ combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category) -
 	return total
 }
 
-// combat_may_leave reports whether side is escape-eligible for the round
-// about to be resolved (ADR-0006): no leaving before the baseline round
+// combat_may_break_off reports whether side is escape-eligible for the round
+// about to be resolved (ADR-0006): no breaking off before the baseline round
 // count, and only the strictly-faster side after that.
-combat_may_leave :: proc(battle: ^Battle, side: Side) -> bool {
+combat_may_break_off :: proc(battle: ^Battle, side: Side) -> bool {
 	if battle.round < BASELINE_ROUND_COUNT {
 		return false
 	}
@@ -285,16 +285,16 @@ combat_may_leave :: proc(battle: ^Battle, side: Side) -> bool {
 }
 
 // combat_scripted_command decides a non-player-controlled side's Command for
-// the round about to be resolved (ADR-0008): Leave Combat once escape-
-// eligible (combat_may_leave), Hold every other round. A scripted ship never
+// the round about to be resolved (ADR-0008): Break Off once escape-
+// eligible (combat_may_break_off), Hold every other round. A scripted ship never
 // chooses Press, Man the Sails, or Jettison Cargo in this slice — nor Reallocate,
 // which is deliberately player-only (#200): it buys precision for a *subsequent*
 // jettison, and a scripted ship never jettisons, so a reallocation policy would be
 // AI for a capability it has no use for. It returns here when a hostile that
 // jettisons exists.
 combat_scripted_command :: proc(battle: ^Battle, side: Side) -> Command {
-	if combat_may_leave(battle, side) {
-		return Command_Leave_Combat{}
+	if combat_may_break_off(battle, side) {
+		return Command_Break_Off{}
 	}
 	return Command_Hold{}
 }
@@ -325,19 +325,19 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 			combat_apply_jettison(battle, side, c.slot_index, events)
 		case Command_Reallocate:
 			combat_apply_reallocate(battle, side, c.from, c.to, events)
-		case Command_Leave_Combat:
-			assert(combat_may_leave(battle, side), "Command_Leave_Combat submitted while not escape-eligible")
+		case Command_Break_Off:
+			assert(combat_may_break_off(battle, side), "Command_Break_Off submitted while not escape-eligible")
 			battle.escaped += {side}
 		case Command_Hold:
 		// no-op (ADR-0008): contributes no Press/Man the Sails/Jettison side effect.
 		}
 	}
 
-	// Leave Combat ends the encounter immediately for both ships (ADR-0006):
-	// no phase resolves the round a ship leaves.
+	// Break Off ends the encounter immediately for both ships (ADR-0006):
+	// no phase resolves the round a ship breaks off.
 	if battle.escaped != {} {
 		battle.ended = true
-		battle.reason = .Left_Combat
+		battle.reason = .Broke_Off
 		battle.winner = nil
 		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
 		return

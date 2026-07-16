@@ -318,7 +318,7 @@ a_speed_stat_modifier_fitting_raises_effective_speed_for_escape_eligibility :: p
 		passive = ship.Effect{kind = .Modify_Speed, magnitude = 3},
 	}
 	// Equal base Speed (5), but A carries a +3 Speed fitting: past the baseline
-	// round count only the strictly-faster side may leave, so A is eligible.
+	// round count only the strictly-faster side may break off, so A is eligible.
 	a := ship.Ship{
 		hp = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = fast_sails}},
@@ -328,8 +328,8 @@ a_speed_stat_modifier_fitting_raises_effective_speed_for_escape_eligibility :: p
 	battle.round = BASELINE_ROUND_COUNT
 
 	testing.expect_value(t, combat_effective_speed(&battle, .A), 5 + 3)
-	testing.expect(t, combat_may_leave(&battle, .A))
-	testing.expect(t, !combat_may_leave(&battle, .B))
+	testing.expect(t, combat_may_break_off(&battle, .A))
+	testing.expect(t, !combat_may_break_off(&battle, .B))
 }
 
 @(test)
@@ -364,7 +364,7 @@ hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 	combat_resolve_round(&battle, cmds, &events)
 
 	// Same outcome as the no-command baseline round (cannon(10) not pressed,
-	// no Man the Sails/Jettison/Leave side effects): Hold contributes nothing.
+	// no Man the Sails/Jettison/Break Off side effects): Hold contributes nothing.
 	testing.expect_value(t, b.hp, 20-10)
 	testing.expect_value(t, a.hp, 20)
 	testing.expect_value(t, combat_effective_speed(&battle, .A), 5)
@@ -697,33 +697,33 @@ reallocate_into_a_full_hold_moves_nothing_and_asserts :: proc(t: ^testing.T) {
 }
 
 @(test)
-may_leave_is_false_before_the_baseline_round_count_even_if_faster :: proc(t: ^testing.T) {
+may_break_off_is_false_before_the_baseline_round_count_even_if_faster :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 20, speed = 10}
 	b := ship.Ship{hp = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT - 1
 
-	testing.expect(t, !combat_may_leave(&battle, .A))
+	testing.expect(t, !combat_may_break_off(&battle, .A))
 }
 
 @(test)
-may_leave_is_false_after_baseline_when_not_the_faster_side :: proc(t: ^testing.T) {
+may_break_off_is_false_after_baseline_when_not_the_faster_side :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 20, speed = 5}
 	b := ship.Ship{hp = 20, speed = 10}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
-	testing.expect(t, !combat_may_leave(&battle, .A))
+	testing.expect(t, !combat_may_break_off(&battle, .A))
 }
 
 @(test)
-may_leave_is_true_after_baseline_for_the_strictly_faster_side :: proc(t: ^testing.T) {
+may_break_off_is_true_after_baseline_for_the_strictly_faster_side :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 20, speed = 10}
 	b := ship.Ship{hp = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
-	testing.expect(t, combat_may_leave(&battle, .A))
+	testing.expect(t, combat_may_break_off(&battle, .A))
 }
 
 @(test)
@@ -737,17 +737,17 @@ scripted_command_holds_when_not_escape_eligible :: proc(t: ^testing.T) {
 }
 
 @(test)
-scripted_command_leaves_once_escape_eligible :: proc(t: ^testing.T) {
+scripted_command_breaks_off_once_escape_eligible :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 20, speed = 10}
 	b := ship.Ship{hp = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
-	testing.expect_value(t, combat_scripted_command(&battle, .A), Command(Command_Leave_Combat{}))
+	testing.expect_value(t, combat_scripted_command(&battle, .A), Command(Command_Break_Off{}))
 }
 
 @(test)
-leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testing.T) {
+break_off_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hp = 20, speed = 10,
@@ -760,7 +760,7 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Leave_Combat{})
+	cmds[.A] = Command(Command_Break_Off{})
 	combat_resolve_round(&battle, cmds, &events)
 
 	testing.expect(t, battle.ended)
@@ -768,20 +768,20 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 	testing.expect_value(t, len(events), 1)
 	ended, ok := events[0].(Event_Battle_Ended)
 	testing.expect(t, ok)
-	testing.expect_value(t, ended.reason, End_Reason.Left_Combat)
+	testing.expect_value(t, ended.reason, End_Reason.Broke_Off)
 	_, has_winner := ended.winner.?
 	testing.expect(t, !has_winner)
 
 	// The Battle mirrors the ending it emitted, so a caller holding only the Battle —
 	// run_finish_ship_battle, deciding the wreck payout (#159) — reads it without the
 	// event stream.
-	testing.expect_value(t, battle.reason, End_Reason.Left_Combat)
+	testing.expect_value(t, battle.reason, End_Reason.Broke_Off)
 	_, battle_has_winner := battle.winner.?
 	testing.expect(t, !battle_has_winner)
 }
 
 @(test)
-an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc(t: ^testing.T) {
+an_escape_eligible_side_declining_to_break_off_lets_combat_continue_normally :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hp = 20, durability = 0, speed = 10,
@@ -794,7 +794,7 @@ an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc
 	events: [dynamic]Event
 	defer delete(events)
 
-	testing.expect(t, combat_may_leave(&battle, .A))
+	testing.expect(t, combat_may_break_off(&battle, .A))
 
 	// A is escape-eligible this round but submits no command (declines the
 	// offer): the round resolves as normal instead of ending combat.
@@ -818,7 +818,7 @@ man_the_sails_speed_increase_can_swing_escape_eligibility_for_the_round_it_was_u
 	// Tied base Speed: not escape-eligible on its own once baseline is reached.
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events) // battle.round == BASELINE_ROUND_COUNT
-	testing.expect(t, !combat_may_leave(&battle, .A))
+	testing.expect(t, !combat_may_break_off(&battle, .A))
 
 	// A plays Man the Sails this round, tipping it strictly faster. The
 	// temp_speed bonus isn't reset until the *next* combat_resolve_round
@@ -829,7 +829,7 @@ man_the_sails_speed_increase_can_swing_escape_eligibility_for_the_round_it_was_u
 	sails_cmds[.A] = Command(Command_Man_The_Sails{})
 	combat_resolve_round(&battle, sails_cmds, &events)
 
-	testing.expect(t, combat_may_leave(&battle, .A))
+	testing.expect(t, combat_may_break_off(&battle, .A))
 }
 
 @(test)

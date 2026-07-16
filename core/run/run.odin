@@ -50,7 +50,7 @@ DEPTH_STEPS :: 3
 // Scaled x4 with ship.STARTING_HP by #151 (ADR-0017), keeping the same shape. A
 // Coastal hostile used to hold 10 HP against the player's 20 — *half* — so it died
 // in 2-3 rounds, which is how every fight in the game managed to end before the
-// escape gate at BASELINE_ROUND_COUNT and leave Leave Combat unreachable. See
+// escape gate at BASELINE_ROUND_COUNT and leave Break Off unreachable. See
 // STARTING_HP for why the pool had to grow rather than the damage shrink.
 FIGHT_OPPONENT_HP_PER_TIER :: 40
 FIGHT_OPPONENT_HP_PER_DEPTH :: 12

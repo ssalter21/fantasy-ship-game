@@ -53,7 +53,7 @@ Game_State :: struct {
 	player:           ship.Ship,
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
-	may_leave:        bool,
+	may_break_off:        bool,
 	// stage_options is the option list the current stage is presenting (issue #131),
 	// copied from Event_Options_Presented; option_menu_loop renders each filled
 	// position and offers a take-or-decline choice. One field, not the offer/shelf
@@ -161,7 +161,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		play_beat(state, fmt.tprintf("A ship approaches! (HP %d)", e.opponent.hp))
 
 	case sim.Event_Battle_Menu:
-		state.may_leave = e.may_leave
+		state.may_break_off = e.may_break_off
 
 	case sim.Event_Battle_Event:
 		play_battle_event_beat(state, e.inner)

@@ -1130,7 +1130,7 @@ reward_stage :: proc() -> run.Stage_Reward {
 
 // fight_stage bakes a Fight against a real PvE opponent the player can outrun and
 // out-last, so a test can drive the battle to whichever ending it wants: a slow
-// opponent (Leave Combat unlocks at the baseline round) with `hp` to choose between
+// opponent (Break Off unlocks at the baseline round) with `hp` to choose between
 // winning and fleeing. The opponent's layout is arena-backed like a generated one, so
 // sim_destroy reclaims it.
 //
@@ -1392,8 +1392,8 @@ rejecting_a_trade_halts_before_a_later_stage :: proc(t: ^testing.T) {
 }
 
 @(test)
-leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
-	// Fight's halt condition (ADR-0014): **Leave Combat halts** — ADR-0006's
+breaking_off_halts_before_a_later_stage :: proc(t: ^testing.T) {
+	// Fight's halt condition (ADR-0014): **Break Off halts** — ADR-0006's
 	// Speed-gated escape ends the encounter, not just the battle. This is the property
 	// the whole stage model was built to express, and it is now stated in the terms it
 	// was always meant to be: **no payout for escaping**. The Trade stood in here until
@@ -1412,14 +1412,14 @@ leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	// Hold until the Speed-gated escape unlocks (ADR-0006: not before the baseline
 	// round, and only for the strictly-faster side), then take it.
 	for combat.BASELINE_ROUND_COUNT * 2 > sim.battle.round {
-		if combat.combat_may_leave(&sim.battle, .A) {
+		if combat.combat_may_break_off(&sim.battle, .A) {
 			break
 		}
 		testing.expect(t, fight_round(&sim, &events)) // the battle must not end on its own
 	}
-	testing.expect(t, combat.combat_may_leave(&sim.battle, .A))
+	testing.expect(t, combat.combat_may_break_off(&sim.battle, .A))
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Leave_Combat{}}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Break_Off{}}))
 	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
@@ -1474,7 +1474,7 @@ a_reward_pays_out_and_completes_without_stopping_for_the_captain :: proc(t: ^tes
 
 @(test)
 winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testing.T) {
-	// The other side of leaving_combat_halts_before_a_later_stage, and the encounter
+	// The other side of breaking_off_halts_before_a_later_stage, and the encounter
 	// the whole model exists to express: [Fight, Reward] means "win, then loot" with no
 	// authored gate saying so. Victory completes the Fight, so the walk carries on to
 	// the Reward, which pays out and resolves the node without a further decision.
@@ -1580,7 +1580,7 @@ reallocating_cargo_in_battle_moves_treasure_through_the_sim_and_keeps_the_battle
 	// Command_Reallocate, the round resolves, and the wrapped Event_Cargo_Reallocated
 	// reaches presentation. It shifts no weight, so the purse total is unchanged — it
 	// buys jettison granularity for a later round, and the battle carries on rather than
-	// ending like a Leave or a sinking would.
+	// ending like a Break Off or a sinking would.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
@@ -1654,7 +1654,7 @@ a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
 @(test)
 winning_a_fight_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^testing.T) {
 	// Victory completes (ADR-0014) — the paying half of [Fight, Reward], and the
-	// counterpart to leaving combat above. A one-HP opponent goes down in the first
+	// counterpart to breaking off above. A one-HP opponent goes down in the first
 	// round, so the walk advances onto the Trade.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
@@ -1792,14 +1792,14 @@ a_halted_encounter_emits_a_snapshot_of_the_ship_that_walked_away :: proc(t: ^tes
 
 	// Hold until the Speed-gated escape unlocks (ADR-0006), then take it.
 	for combat.BASELINE_ROUND_COUNT * 2 > sim.battle.round {
-		if combat.combat_may_leave(&sim.battle, .A) {
+		if combat.combat_may_break_off(&sim.battle, .A) {
 			break
 		}
 		testing.expect(t, fight_round(&sim, &events))
 	}
-	testing.expect(t, combat.combat_may_leave(&sim.battle, .A))
+	testing.expect(t, combat.combat_may_break_off(&sim.battle, .A))
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Leave_Combat{}}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Break_Off{}}))
 	ev := refit_tick(&sim, &events)
 
 	snaps := resolved_snapshots(ev)
