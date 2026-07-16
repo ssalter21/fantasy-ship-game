@@ -248,7 +248,7 @@ auto_pilot_dispatch :: proc(data: rawptr, event: Event) {
 // before the Sim's arena is torn down.
 Pilot_Result :: struct {
 	status:      run.Run_Status,
-	hp:          int,
+	hull:          int,
 	durability:  int,
 	speed:       int,
 	battles_won: int,
@@ -277,7 +277,7 @@ drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Comman
 
 	res := Pilot_Result {
 		status     = sim.status,
-		hp         = sim.player.hp,
+		hull         = sim.player.hull,
 		durability = sim.player.durability,
 		speed      = sim.player.speed,
 	}
@@ -315,7 +315,7 @@ a_battle_free_route_reaches_the_haven_and_wins :: proc(t: ^testing.T) {
 	// one; that it is now scarce is the hard mapping meaning something, not a bug.
 	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
-	testing.expect_value(t, res.hp, ship.STARTING_HP) // untouched: no battle fought
+	testing.expect_value(t, res.hull, ship.STARTING_HULL) // untouched: no battle fought
 }
 
 @(test)
@@ -335,17 +335,17 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
-	testing.expect(t, res.hp < ship.STARTING_HP) // a real fight cost some HP
+	testing.expect(t, res.hull < ship.STARTING_HULL) // a real fight cost some Hull
 }
 
 @(test)
 routing_through_every_battle_can_lose_the_run :: proc(t: ^testing.T) {
 	// Seeking every battle walks into fight after fight; a starting ship bleeds
-	// out before Haven — permadeath at 0 HP, unchanged. Seed 1's map has a
+	// out before Haven — permadeath at 0 Hull, unchanged. Seed 1's map has a
 	// battle-seeking course long enough to be lethal.
 	res := drive_policy(1, .Seek_Battles, combat.Command(HOLD))
 	testing.expect_value(t, res.status, run.Run_Status.Lost)
-	testing.expect_value(t, res.hp, 0)
+	testing.expect_value(t, res.hull, 0)
 }
 
 @(test)
@@ -408,7 +408,7 @@ arriving_at_a_trade_presents_the_bargain_instead_of_applying_it :: proc(t: ^test
 	// Nothing is paid or granted until the captain answers.
 	testing.expect_value(t, sim.player.durability, before.durability)
 	testing.expect_value(t, sim.player.speed, before.speed)
-	testing.expect_value(t, sim.player.hp, before.hp)
+	testing.expect_value(t, sim.player.hull, before.hull)
 	testing.expect_value(t, ship.ship_treasure(sim.player), purse_before)
 }
 
@@ -470,8 +470,8 @@ rejecting_a_trade_changes_nothing_and_still_resolves_the_node :: proc(t: ^testin
 	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = false}))
 	tick_travel_options(&sim, &events)
 
-	testing.expect_value(t, sim.player.hp, before.hp)
-	testing.expect_value(t, sim.player.max_hp, before.max_hp)
+	testing.expect_value(t, sim.player.hull, before.hull)
+	testing.expect_value(t, sim.player.max_hull, before.max_hull)
 	testing.expect_value(t, sim.player.durability, before.durability)
 	testing.expect_value(t, sim.player.speed, before.speed)
 	testing.expect_value(t, ship.ship_treasure(sim.player), purse_before)
@@ -532,7 +532,7 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	testing.expect(t, !presented_again)
 	testing.expect_value(t, sim.player.durability, ship_after_trade.durability)
 	testing.expect_value(t, sim.player.speed, ship_after_trade.speed)
-	testing.expect_value(t, sim.player.hp, ship_after_trade.hp)
+	testing.expect_value(t, sim.player.hull, ship_after_trade.hull)
 	testing.expect_value(t, ship.ship_treasure(sim.player), purse_after_trade)
 }
 
@@ -1104,7 +1104,7 @@ trade_stage :: proc() -> run.Stage_Trade {
 	return run.Stage_Trade {
 		name = "Test Bargain",
 		gain = run.Trade_Term{stat = .Durability, amount = TRADE_GAIN},
-		cost = run.Trade_Term{stat = .Max_HP, amount = 0},
+		cost = run.Trade_Term{stat = .Max_Hull, amount = 0},
 	}
 }
 
@@ -1130,30 +1130,30 @@ reward_stage :: proc() -> run.Stage_Reward {
 
 // fight_stage bakes a Fight against a real PvE opponent the player can outrun and
 // out-last, so a test can drive the battle to whichever ending it wants: a slow
-// opponent (Leave Combat unlocks at the baseline round) with `hp` to choose between
+// opponent (Leave Combat unlocks at the baseline round) with `hull` to choose between
 // winning and fleeing. The opponent's layout is arena-backed like a generated one, so
 // sim_destroy reclaims it.
 //
-// Which archetype the roster deals here (#135) doesn't matter — hp and speed are
+// Which archetype the roster deals here (#135) doesn't matter — hull and speed are
 // overridden below, so the draw only decides the loadout, and these scenarios are
 // about the Sim's walk rather than the fight's numbers. A fixed seed keeps them from
 // changing under a roster edit.
-fight_stage :: proc(sim: ^Sim, hp: int) -> run.Stage_Fight {
+fight_stage :: proc(sim: ^Sim, hull: int) -> run.Stage_Fight {
 	context.allocator = sim_arena_allocator(sim)
 	state := rand.create(0)
 	opponent := run.run_pve_opponent(run.Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&state))
-	opponent.hp = hp
-	opponent.max_hp = hp
+	opponent.hull = hull
+	opponent.max_hull = hull
 	opponent.speed = 1 // slower than the player below, so escape unlocks once the baseline passes
 	return run.Stage_Fight{opponent = opponent}
 }
 
-// ready_for_battle gives the player enough HP to survive a long battle and enough
+// ready_for_battle gives the player enough Hull to survive a long battle and enough
 // Speed to outrun fight_stage's opponent, so a scenario ends the battle the way it
 // means to rather than by sinking.
 ready_for_battle :: proc(sim: ^Sim) {
-	sim.player.hp = 10_000
-	sim.player.max_hp = 10_000
+	sim.player.hull = 10_000
+	sim.player.max_hull = 10_000
 	sim.player.speed = 50
 }
 
@@ -1489,7 +1489,7 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 
 	ready_for_battle(&sim)
 	before := ship.ship_treasure(sim.player)
-	fight := fight_stage(&sim, 1) // 1 HP: sinks in a round
+	fight := fight_stage(&sim, 1) // 1 Hull: sinks in a round
 	ship.ship_stow_treasure(fight.opponent.layout, 0) // broke wreck: isolate the Reward as the only payout
 	install_encounter(&sim, 1, fight, reward_stage())
 	arrive_at(&sim, 1, &events)
@@ -1516,7 +1516,7 @@ winning_a_fight_pays_the_sunk_opponents_hold_into_the_purse :: proc(t: ^testing.
 
 	ready_for_battle(&sim)
 	before := ship.ship_treasure(sim.player) // 50 of a 90 capacity: room for the hold below with no overflow
-	fight := fight_stage(&sim, 1) // 1 HP: sinks in a round
+	fight := fight_stage(&sim, 1) // 1 Hull: sinks in a round
 	WRECK_HOLD :: 20
 	ship.ship_stow_treasure(fight.opponent.layout, WRECK_HOLD) // a controlled hold within the player's headroom
 	install_encounter(&sim, 1, fight)
@@ -1548,7 +1548,7 @@ winning_a_fight_surfaces_the_wreck_treasure_that_overflows_the_hold :: proc(t: ^
 	ready_for_battle(&sim)
 	before := ship.ship_treasure(sim.player)
 	capacity := ship.ship_cargo_capacity(sim.player)
-	fight := fight_stage(&sim, 1) // 1 HP: sinks in a round, before it could jettison
+	fight := fight_stage(&sim, 1) // 1 Hull: sinks in a round, before it could jettison
 	ship.ship_stow_treasure(fight.opponent.layout, capacity) // a hold larger than the player's headroom
 	gross := ship.ship_treasure(fight.opponent) // what the wreck actually holds after the stow
 	install_encounter(&sim, 1, fight)
@@ -1654,7 +1654,7 @@ a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
 @(test)
 winning_a_fight_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^testing.T) {
 	// Victory completes (ADR-0014) — the paying half of [Fight, Reward], and the
-	// counterpart to leaving combat above. A one-HP opponent goes down in the first
+	// counterpart to leaving combat above. A one-Hull opponent goes down in the first
 	// round, so the walk advances onto the Trade.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
@@ -1693,7 +1693,7 @@ sinking_ends_the_run_without_walking_on_to_a_later_stage :: proc(t: ^testing.T) 
 	defer delete(events)
 
 	before := sim.player.durability
-	sim.player.hp = 1 // goes down in the first round
+	sim.player.hull = 1 // goes down in the first round
 	sim.player.speed = 50
 	install_encounter(&sim, 1, fight_stage(&sim, 10_000), trade_stage())
 	arrive_at(&sim, 1, &events)
@@ -1701,7 +1701,7 @@ sinking_ends_the_run_without_walking_on_to_a_later_stage :: proc(t: ^testing.T) 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}))
 	ev := refit_tick(&sim, &events)
 
-	testing.expect(t, sim.player.hp <= 0)
+	testing.expect(t, sim.player.hull <= 0)
 	testing.expect_value(t, sim.player.durability, before) // sank: the Trade was never reached
 	testing.expect_value(t, sim.status, run.Run_Status.Lost)
 	testing.expect_value(t, sim.phase, Phase.Ended)
@@ -1754,7 +1754,7 @@ one_encounter_emits_one_snapshot_however_many_stages_resolve :: proc(t: ^testing
 
 	ready_for_battle(&sim)
 	before := ship.ship_treasure(sim.player)
-	fight := fight_stage(&sim, 1) // 1 HP: sinks in a round
+	fight := fight_stage(&sim, 1) // 1 Hull: sinks in a round
 	ship.ship_stow_treasure(fight.opponent.layout, 0) // broke wreck: this test is about the ghost cadence, not the payout
 	install_encounter(&sim, 1, fight, reward_stage())
 	arrive_at(&sim, 1, &events)
@@ -1823,7 +1823,7 @@ a_sinking_emits_no_snapshot :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.hp = 1 // goes down in the first round
+	sim.player.hull = 1 // goes down in the first round
 	sim.player.speed = 50
 	install_encounter(&sim, 1, fight_stage(&sim, 10_000), reward_stage())
 	arrive_at(&sim, 1, &events)
@@ -1833,7 +1833,7 @@ a_sinking_emits_no_snapshot :: proc(t: ^testing.T) {
 
 	snaps := resolved_snapshots(ev)
 	defer delete(snaps)
-	testing.expect(t, sim.player.hp <= 0)
+	testing.expect(t, sim.player.hull <= 0)
 	testing.expect_value(t, len(snaps), 0)
 	testing.expect(t, !sim.resolved[1]) // the walk stopped: the node never resolved
 	testing.expect(t, has_event(ev, Event_Run_Ended))

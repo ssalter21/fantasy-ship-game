@@ -5,8 +5,8 @@ import "core:math/rand"
 
 // Hostile_Archetype is one authored entry in the Fight primitive's content roster
 // (issue #135, ADR-0014's "Fight gains a hostile roster"): a named hostile build —
-// just the items it carries. It carries no HP, no Durability, no magnitudes and
-// **no Speed** — those are the node's stakes (hp/durability) or derived from what
+// just the items it carries. It carries no Hull, no Durability, no magnitudes and
+// **no Speed** — those are the node's stakes (hull/durability) or derived from what
 // the build weighs (Speed, ADR-0020) — so an archetype is authored purely as *what
 // kind of ship this is*, and the site decides how much of it there is. Speed used
 // to be an authored field here (#135's flat FIGHT_OPPONENT_SPEED successor); it was
@@ -89,7 +89,7 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", 
 // plain flat guns (Coastal Privateer), a Tag synergy (Broadside Company on Weapon,
 // Deepwater Menagerie on Beast), concealment — both the condition and the placement
 // trick (Smuggler's Run), stat-modifier armour (Ironclad Hulk), a Crew build
-// (Boarding Party), HP-threshold conditionals (Death Throes), and speed
+// (Boarding Party), Hull-threshold conditionals (Death Throes), and speed
 // stat-modifiers (Reef Skimmer).
 //
 // **The authoring rule: an archetype is character, stakes is power** — and as of
@@ -157,9 +157,9 @@ hostile_roster := [?]Hostile_Archetype {
 	// so the roster's headline weapon-synergy archetype carried two guns and could not
 	// state its own concept. It fits now because the fold left `defense_bonus` — a
 	// starting ship's soak stopped being ~90% of its raw — and because a Coastal
-	// hostile's HP is no longer half the player's, so the fight lasts long enough to
+	// hostile's Hull is no longer half the player's, so the fight lasts long enough to
 	// be one. Swivel Guns rather than a Carronade: the roster's *smallest* gun is
-	// what the band holds with margin (a starting player wins at 28 of 100 HP against
+	// what the band holds with margin (a starting player wins at 28 of 100 Hull against
 	// this, against 10 of 100 with a Carronade), and the synergy is what makes it
 	// worth carrying — a third Weapon is worth its own 3 *plus* a point on every
 	// Powder Monkeys reading, which is the entry's whole argument.
@@ -170,7 +170,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// gun — the reason it was unaffordable before, and the reason it is worth having
 	// now. It is also the entry that most needed the multiplier rather than a bigger
 	// bonus: a Selector build is exactly what an additive share mis-scaled (see
-	// run_fit_hostile_loadout). War Hound's own magnitude is gated below half HP, so
+	// run_fit_hostile_loadout). War Hound's own magnitude is gated below half Hull, so
 	// the Pack's count rises immediately and the Hound's gun only joins once the
 	// Menagerie is dying. **Authored slow, it now derives *fast* — and that is the
 	// flat-50% placeholder's accepted cost** (#176, map out-of-scope): three small
@@ -226,7 +226,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// category, then magnitude, then zone. This is the archetype the whole
 	// Selector half of ADR-0012's roster was waiting on.
 	{name = "Boarding Party", items = BOARDING_PARTY_ITEMS[:]},
-	// Wakes up when it is dying: two of its three guns are gated on its own HP below
+	// Wakes up when it is dying: two of its three guns are gated on its own Hull below
 	// half, so it opens with a single Deck Cannon and turns savage exactly when the
 	// player thinks it is won. The roster's argument that a conditional is a *shape*,
 	// not a discount.
@@ -255,7 +255,7 @@ run_hostile_roster :: proc() -> []Hostile_Archetype {
 	return hostile_roster[:]
 }
 
-// run_make_opponent_ship computes a Ship Battle opponent's stakes-scaled stats (hp,
+// run_make_opponent_ship computes a Ship Battle opponent's stakes-scaled stats (hull,
 // durability) from the node's Scaling_Site — the numeric half of a PvE opponent
 // (issue #23). run_pve_opponent layers an archetype's loadout on top of these; this
 // proc has no layout/captain of its own and is not itself a complete opponent.
@@ -267,10 +267,10 @@ run_hostile_roster :: proc() -> []Hostile_Archetype {
 // an authored per-archetype field; it comes back with #194 now that the base is the
 // same on every hull and only the derived reading varies.
 run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
-	hp := run_fight_opponent_hp(site)
+	hull := run_fight_opponent_hull(site)
 	return ship.Ship{
-		hp         = hp,
-		max_hp     = hp,
+		hull         = hull,
+		max_hull     = hull,
 		durability = run_fight_opponent_durability(site),
 		speed      = ship.BASE_SPEED,
 	}
@@ -337,7 +337,7 @@ run_stakes_scales_category :: proc(category: ship.Category) -> bool {
 // seam, so a Selector multiplies the share by its match count: Deepwater Menagerie's
 // Hunter's Pack (+3 per Beast, two Beasts aboard) turned the site's Deep reading of
 // 9 into **14 points of output** where every flat build got 9, and Death Throes —
-// whose guns are gated on its own HP — banked 3 of it until it was dying. The site's
+// whose guns are gated on its own Hull — banked 3 of it until it was dying. The site's
 // reading was worth 56% more to a synergy build than to a flat one, and #135's
 // `the_stakes_uplift_is_the_same_total_for_every_archetype` could not see it because
 // it sums authored magnitudes rather than resolving output. So the independence
@@ -361,7 +361,7 @@ run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_A
 
 // run_pve_opponent builds a full Ship Battle opponent by drawing one archetype from
 // the hostile roster (#135) and baking it at this node's stakes: the archetype
-// supplies the loadout (and, through its weight, its Speed), the site supplies hp,
+// supplies the loadout (and, through its weight, its Speed), the site supplies hull,
 // durability, and the offensive bonus. Draws off the map generator's RNG (`gen`) — so *which* hostile a
 // node holds is reproducible per seed yet varies node to node, exactly like an
 // Offer's items, a Shop's deck and a Trade's axis — and is called from
@@ -474,11 +474,11 @@ Trade_Axis :: struct {
 // accepted as a deliberately thin roster in the meantime — a run meets only a
 // handful of trades, so a run is still mostly non-repeating.
 //
-// **Coverage — thinner now, and consciously so.** HP is gain-only (Cannibalized
-// Timbers), Max HP and Treasure sit on both sides, and **Durability is cost-only**
+// **Coverage — thinner now, and consciously so.** Hull is gain-only (Cannibalized
+// Timbers), Max Hull and Treasure sit on both sides, and **Durability is cost-only**
 // (Scrapped Armour) — it lost its one gainer when Braced Bulkheads left with Speed.
-// HP stays gain-only on purpose: nothing else in the game heals (combat is the only
-// writer of Ship.hp, and it only ever subtracts), so repair is the scarcest thing a
+// Hull stays gain-only on purpose: nothing else in the game heals (combat is the only
+// writer of Ship.hull, and it only ever subtracts), so repair is the scarcest thing a
 // trade can offer, and a trade that damages you is a Fight without the fight. That
 // Durability is no longer gainable is the accepted cost of the #180 cut; a
 // Durability-gaining row returns whenever the roster is re-widened.
@@ -489,10 +489,10 @@ Trade_Axis :: struct {
 @(rodata)
 trade_roster := [?]Trade_Axis {
 	// Patch the damage you have by permanently lowering the ceiling. The one
-	// entry that trades HP against Max HP, which is why both are distinct stats.
-	{name = "Cannibalized Timbers", gain = .HP, cost = .Max_HP},
+	// entry that trades Hull against Max Hull, which is why both are distinct stats.
+	{name = "Cannibalized Timbers", gain = .Hull, cost = .Max_Hull},
 	{name = "Scrapped Armour", gain = .Treasure, cost = .Durability},
-	{name = "Shipwright's Bargain", gain = .Max_HP, cost = .Treasure},
+	{name = "Shipwright's Bargain", gain = .Max_Hull, cost = .Treasure},
 }
 
 // run_trade_roster returns every authored trade axis. run_make_trade deals from

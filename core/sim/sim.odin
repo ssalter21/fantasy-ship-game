@@ -401,9 +401,9 @@ Event_Battle_Event :: struct {
 // Event_Ship_Updated carries a plain (non-ghost) copy of the player's ship,
 // dispatched at run start and whenever its stats/layout change (after a
 // combat round, an accepted Trade, or an Upgrade applied). Needed because
-// Ghost_Snapshot always resets hp to max_hp on capture (ADR-0008), which
+// Ghost_Snapshot always resets hull to max_hull on capture (ADR-0008), which
 // makes Event_Encounter_Resolved's snapshot unsuitable for an accurate live
-// HP readout.
+// Hull readout.
 Event_Ship_Updated :: struct {
 	ship: ship.Ship,
 }

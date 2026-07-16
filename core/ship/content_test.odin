@@ -354,21 +354,21 @@ shallow_reinforced_hull_raises_effective_durability :: proc(t: ^testing.T) {
 }
 
 @(test)
-deep_cornered_beast_only_bites_below_half_hp :: proc(t: ^testing.T) {
+deep_cornered_beast_only_bites_below_half_hull :: proc(t: ^testing.T) {
 	item := roster_item_named("Cornered Beast")
 	testing.expect_value(t, item.tier, Tier.Deep)
 	active, _ := item.fitting.active.?
 
 	s := synergy_ship(item.fitting)
 	defer delete(s.layout)
-	s.max_hp = 20
+	s.max_hull = 20
 	ctx := ship_effect_context(&s)
 
-	// At full HP the conditional contributes nothing; below half it resolves to
+	// At full Hull the conditional contributes nothing; below half it resolves to
 	// its full magnitude.
-	s.hp = s.max_hp
+	s.hull = s.max_hull
 	testing.expect_value(t, effect_magnitude(active, ctx), Magnitude(0))
-	s.hp = s.max_hp / 2 - 1
+	s.hull = s.max_hull / 2 - 1
 	testing.expect_value(t, effect_magnitude(active, ctx), active.magnitude)
 }
 
@@ -487,14 +487,14 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 		name     = "Admiral's Guard",
 		size     = .Medium,
 		category = .Buff,
-		active   = Effect{magnitude = 4, synergy = Selector(Tag.Crew), conditional = Condition_HP_Below{percent = 50}},
+		active   = Effect{magnitude = 4, synergy = Selector(Tag.Crew), conditional = Condition_Hull_Below{percent = 50}},
 	}
 
 	scaled, _ := ship_fitting_output_scaled(guard, 50).active.?
 	testing.expect_value(t, scaled.magnitude, Magnitude(2))
 	testing.expect_value(t, scaled.kind, Effect_Kind.Phase_Contribution)
 	testing.expect_value(t, scaled.synergy.?, Selector(Tag.Crew))
-	testing.expect_value(t, scaled.conditional.?, Condition(Condition_HP_Below{percent = 50}))
+	testing.expect_value(t, scaled.conditional.?, Condition(Condition_Hull_Below{percent = 50}))
 }
 
 // **Rounds half-up, so a scale-down cannot silently disarm the roster's smallest

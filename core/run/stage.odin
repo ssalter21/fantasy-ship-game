@@ -107,7 +107,7 @@ Shop_Item :: struct {
 // The opponent is baked at generation from two independent axes (#135): one
 // archetype drawn from the hostile roster (content.odin's Hostile_Archetype) for
 // its loadout — from whose weight its Speed derives (ADR-0020) — scaled at this
-// node's stakes for its hp, durability and offensive output.
+// node's stakes for its hull, durability and offensive output.
 Stage_Fight :: struct {
 	opponent: ship.Ship,
 }
@@ -139,8 +139,8 @@ Stage_Offer :: struct {
 // "stat-for-cargo" — the resource a Shop spends and a Reward grants (#132), which
 // #143 made *be* the cargo in the holds (ship_treasure).
 Trade_Stat :: enum {
-	HP,
-	Max_HP,
+	Hull,
+	Max_Hull,
 	Durability,
 	Treasure,
 }

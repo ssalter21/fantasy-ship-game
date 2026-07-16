@@ -25,19 +25,19 @@ GUN_DECK_OFFENSE_MAGNITUDE :: 5
 // floor test is the tripwire.
 HOSTILE_FILL_PERCENT :: 50
 
-// STARTING_HP is a **scale**, and #151 (ADR-0017) found the old 20 could not
-// express a survivable fight. HP persists all run with no healing and a run meets
+// STARTING_HULL is a **scale**, and #151 (ADR-0017) found the old 20 could not
+// express a survivable fight. Hull persists all run with no healing and a run meets
 // ~5 fights, so a fight must cost ~20% of the pool; over the ~6 rounds a fight
 // should last (the escape gate is at BASELINE_ROUND_COUNT = 5), that is 0.67 damage
 // a round — below 1, the smallest number the model has. At 20 the only expressible
 // outcomes were a 2-round burst and the 20-round cap, which is exactly what the
 // game did.
 //
-// Everything denominated in HP scales with it: the roster's four Modify_Max_HP
-// items, and Trade's two HP-denominated swing rows (run.odin). **Durability does
+// Everything denominated in Hull scales with it: the roster's four Modify_Max_Hull
+// items, and Trade's two Hull-denominated swing rows (run.odin). **Durability does
 // not** — it is denominated in *raw damage*, which did not move — which is why
 // STARTING_DURABILITY is still 2 and #146's Durability residue is still there.
-STARTING_HP :: 100
+STARTING_HULL :: 100
 STARTING_DURABILITY :: 2
 
 // STARTING_SPEED is the Speed the starting ship **reads**, not a field it carries
@@ -220,15 +220,15 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		// Cargo family carries a stat-modifier without being a cargo filler.
 		{tier = .Splash, fitting = Fitting{name = "Ballast Stones", size = .Small, weight = 12, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Durability, magnitude = 1}}},
 		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, weight = 5, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, weight = 7, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_HP, magnitude = 8}}},
+		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, weight = 7, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 8}}},
 		{tier = .Splash, fitting = Fitting{name = "Boarding Nets", size = .Small, weight = 5, category = .Defensive, tags = {.Crew}, active = Effect{magnitude = 1}}},
 		{tier = .Splash, fitting = Fitting{name = "Barricades", size = .Medium, weight = 20, category = .Defensive, tags = {.Artifact}, active = Effect{magnitude = 2}}},
 		// Synergy over a Tag family: buff per Weapon aboard.
 		{tier = .Splash, fitting = Fitting{name = "Powder Monkeys", size = .Small, weight = 6, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}},
 		// Synergy over Visibility: buff per Concealed fitting.
 		{tier = .Splash, fitting = Fitting{name = "Smuggler's Crates", size = .Small, weight = 7, category = .Buff, tags = {.Cargo}, active = Effect{magnitude = 1, synergy = Selector(Visibility.Concealed)}}},
-		// Conditional on own HP threshold.
-		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, weight = 7, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 3, conditional = Condition_HP_Below{percent = 50}}}},
+		// Conditional on own Hull threshold.
+		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, weight = 7, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 3, conditional = Condition_Hull_Below{percent = 50}}}},
 		// Conditional on opponent being faster.
 		{tier = .Splash, fitting = Fitting{name = "Lookout Nest", size = .Small, weight = 5, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 2, conditional = Condition_Opponent_Faster{}}}},
 		// Conditional on the round number.
@@ -247,7 +247,7 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		// Stat-modifiers across all three stats.
 		{tier = .Shallow, fitting = Fitting{name = "Reinforced Hull", size = .Medium, weight = 25, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 2}}},
 		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, weight = 16, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 2}}},
-		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, weight = 16, category = .Defensive, tags = {.Crew}, passive = Effect{kind = .Modify_Max_HP, magnitude = 16}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, weight = 16, category = .Defensive, tags = {.Crew}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 16}}},
 		// Synergy composed onto a stat-modifier: +Speed per Small fitting aboard.
 		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, weight = 5, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1, synergy = Selector(Slot_Size.Small)}}},
 		// Synergy over a Tag family: buff per Weapon.
@@ -256,8 +256,8 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Shallow, fitting = Fitting{name = "Master Gunner", size = .Medium, weight = 16, category = .Offensive, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Category.Offensive)}}},
 		// Synergy over a Tag family: buff per Cargo aboard.
 		{tier = .Shallow, fitting = Fitting{name = "Contraband Hold", size = .Medium, weight = 18, category = .Buff, tags = {.Cargo}, active = Effect{magnitude = 2, synergy = Selector(Tag.Cargo)}}},
-		// Conditional on own HP threshold.
-		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, weight = 20, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 8, conditional = Condition_HP_Below{percent = 50}}}},
+		// Conditional on own Hull threshold.
+		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, weight = 20, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 8, conditional = Condition_Hull_Below{percent = 50}}}},
 		// Conditional on own concealment.
 		{tier = .Shallow, fitting = Fitting{name = "Ghost Lantern", size = .Small, weight = 5, category = .Buff, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
 		// Conditional on opponent being slower (press the advantage).
@@ -272,9 +272,9 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, weight = 40, category = .Defensive, tags = {.Beast}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
 		{tier = .Deep, fitting = Fitting{name = "Adamant Bulwark", size = .Medium, weight = 25, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
 		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, weight = 15, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 3}}},
-		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, weight = 36, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Max_HP, magnitude = 32}}},
+		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, weight = 36, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 32}}},
 		// Cargo family, Deep stat-modifier.
-		{tier = .Deep, fitting = Fitting{name = "Treasure Vault", size = .Medium, weight = 22, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_HP, magnitude = 24}}},
+		{tier = .Deep, fitting = Fitting{name = "Treasure Vault", size = .Medium, weight = 22, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 24}}},
 		// Synergy over a Tag family: buff per Crew aboard.
 		{tier = .Deep, fitting = Fitting{name = "Admiral's Guard", size = .Medium, weight = 17, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 3, synergy = Selector(Tag.Crew)}}},
 		// Multi-tag synergy: offense per Weapon, itself a Crew + Weapon.
@@ -287,8 +287,8 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Deep, fitting = Fitting{name = "Storm Caller", size = .Small, weight = 6, category = .Buff, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Visibility.Concealed)}}},
 		// Multi-tag conditional: hits hardest while concealed (Artifact + Weapon).
 		{tier = .Deep, fitting = Fitting{name = "Wraith Cannon", size = .Medium, weight = 22, category = .Offensive, tags = {.Artifact, .Weapon}, active = Effect{magnitude = 10, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
-		// Conditional on own HP threshold.
-		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, weight = 38, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 12, conditional = Condition_HP_Below{percent = 50}}}},
+		// Conditional on own Hull threshold.
+		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, weight = 38, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 12, conditional = Condition_Hull_Below{percent = 50}}}},
 		// Conditional on the round number (siege guns warm up late).
 		{tier = .Deep, fitting = Fitting{name = "Siege Battery", size = .Large, weight = 44, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = 11, conditional = Condition_Round_At_Least{round = 5}}}},
 		// Conditional on opponent being faster.
@@ -370,7 +370,7 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // **Only an active Phase_Contribution effect moves, and that is the definition of
 // output rather than a courtesy.** combat_phase_output sums exactly these; the
 // Modify_* kinds act through the effective-stat readers instead
-// (ship_effective_speed and friends), so a fitting's Speed / Durability / Max HP
+// (ship_effective_speed and friends), so a fitting's Speed / Durability / Max Hull
 // contribution is not output and is left exactly as authored. That distinction is
 // load-bearing for the hostile roster: Category is a combat *phase*, so `.Buff`
 // holds both the buff phase's fittings (Powder Monkeys) and every Modify_Speed item
@@ -496,8 +496,8 @@ ship_starting_ship :: proc() -> Ship {
 	)
 
 	return Ship{
-		hp         = STARTING_HP,
-		max_hp     = STARTING_HP,
+		hull         = STARTING_HULL,
+		max_hull     = STARTING_HULL,
 		durability = STARTING_DURABILITY,
 		speed      = BASE_SPEED,
 		layout     = layout,

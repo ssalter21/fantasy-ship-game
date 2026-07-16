@@ -158,7 +158,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Ship_Battle_Sighted:
 		state.in_battle = true
 		state.sighted_opponent = e.opponent
-		play_beat(state, fmt.tprintf("A ship approaches! (HP %d)", e.opponent.hp))
+		play_beat(state, fmt.tprintf("A ship approaches! (Hull %d)", e.opponent.hull))
 
 	case sim.Event_Battle_Menu:
 		state.may_leave = e.may_leave

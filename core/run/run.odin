@@ -47,13 +47,13 @@ DEPTH_STEPS :: 3
 // it prices by item tier (ship_item_cost), and lands here if that stops being
 // enough.
 
-// Scaled x4 with ship.STARTING_HP by #151 (ADR-0017), keeping the same shape. A
-// Coastal hostile used to hold 10 HP against the player's 20 — *half* — so it died
+// Scaled x4 with ship.STARTING_HULL by #151 (ADR-0017), keeping the same shape. A
+// Coastal hostile used to hold 10 Hull against the player's 20 — *half* — so it died
 // in 2-3 rounds, which is how every fight in the game managed to end before the
 // escape gate at BASELINE_ROUND_COUNT and leave Leave Combat unreachable. See
-// STARTING_HP for why the pool had to grow rather than the damage shrink.
-FIGHT_OPPONENT_HP_PER_TIER :: 40
-FIGHT_OPPONENT_HP_PER_DEPTH :: 12
+// STARTING_HULL for why the pool had to grow rather than the damage shrink.
+FIGHT_OPPONENT_HULL_PER_TIER :: 40
+FIGHT_OPPONENT_HULL_PER_DEPTH :: 12
 FIGHT_OPPONENT_DURABILITY_PER_TIER :: 1
 FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
 
@@ -112,7 +112,7 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // # A swing is one of the zone's stat fittings (issue #146)
 //
 // These are the one group in this file whose constants are **not independent**.
-// Every other primitive's reading answers only to itself — if a hostile's HP is
+// Every other primitive's reading answers only to itself — if a hostile's Hull is
 // too low, raise it. A rate table is a set of *ratios*, so a row can only be read
 // against the other rows, and the anchor they are all read against is the item
 // roster: ADR-0012 already prices each stat in treasure, by tier, and a Shop is
@@ -120,8 +120,8 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // point of Durability and a point of Speed cost exactly the same (Iron Plating
 // +1 Durability and Spare Rigging +1 Speed are both Splash, both 10; Reinforced
 // Hull +2 and Copper Sheathing +2 are both Shallow, both 25; Dragon Turtle +3 and
-// Enchanted Keel +3 are both Deep, both 45), and that a point of Max HP is worth
-// about half of either (Salt Provisions +2 Max HP for the same 10).
+// Enchanted Keel +3 are both Deep, both 45), and that a point of Max Hull is worth
+// about half of either (Salt Provisions +2 Max Hull for the same 10).
 //
 // zone_tier's 1/2/3 is that same ladder, so the table below is the ladder read
 // off: **one swing at zone tier N is one tier-N stat fitting.** Coastal trades in
@@ -153,7 +153,7 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 //
 // Dropping it is a repair, not a loss. With per-tier and per-depth as independent
 // knobs the table quoted a *different rate at every depth*: Lightened Hold swapped
-// 1 Speed for 2 Max HP at the top of Coastal (fair) and 4 Speed for 5 Max HP at
+// 1 Speed for 2 Max Hull at the top of Coastal (fair) and 4 Speed for 5 Max Hull at
 // the bottom of it (a 1.75x gift), for the same named bargain, invisibly. Now every
 // row is `tier x rate`, so the ratios between stats are the same at all twelve
 // sites by construction — one rate, not twelve, which is the only thing an exchange
@@ -176,10 +176,10 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // this table's. If Durability ever gets a range, this table gets a resolution finer
 // than a zone, and the depth axis becomes expressible again.
 //
-// HP is the one row with no anchor, because nothing else in the game heals and so
+// Hull is the one row with no anchor, because nothing else in the game heals and so
 // nothing prices a repair. It keeps #136's authored relationship instead — twice
-// Max HP's, since a point of permanent ceiling is worth more than a point of
-// one-off repair — which Cannibalized Timbers spends as a flat 2 HP per Max HP at
+// Max Hull's, since a point of permanent ceiling is worth more than a point of
+// one-off repair — which Cannibalized Timbers spends as a flat 2 Hull per Max Hull at
 // every zone. Treasure keeps its 15: it is anchored the other way, to Reward's
 // payout (#133's `a_reward_outpays_selling_a_stat_at_the_same_site`), and the
 // item ladder's own non-linearity (10/25/45 against zone_tier's 1/2/3) is economy
@@ -187,25 +187,25 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // other rows at Coastal and meeting them exactly at The Deep — the known residual,
 // and #124's business rather than this table's.
 //
-// # The two HP rows moved x4 with the HP scale (issue #151)
+// # The two Hull rows moved x4 with the Hull scale (issue #151)
 //
-// **Derived by the rule above, not retuned.** ADR-0017 raised ship.STARTING_HP 20 ->
-// 100, and everything denominated in HP followed — including the roster's four
-// Modify_Max_HP items (Salt Provisions 2->8, Ship's Surgeon 4->16, Treasure Vault
+// **Derived by the rule above, not retuned.** ADR-0017 raised ship.STARTING_HULL 20 ->
+// 100, and everything denominated in Hull followed — including the roster's four
+// Modify_Max_Hull items (Salt Provisions 2->8, Ship's Surgeon 4->16, Treasure Vault
 // 6->24, Titan's Heart 8->32). A swing at zone tier N is one tier-N stat fitting, so
-// Max HP's row is still read straight off that price list: 8/16/24 against Salt
-// Provisions, Ship's Surgeon and Treasure Vault, exactly as 2/4/6 was before. HP's
-// row keeps its "twice Max HP's" relationship for the same reason it always had it.
+// Max Hull's row is still read straight off that price list: 8/16/24 against Salt
+// Provisions, Ship's Surgeon and Treasure Vault, exactly as 2/4/6 was before. Hull's
+// row keeps its "twice Max Hull's" relationship for the same reason it always had it.
 // The other rows are untouched — Durability is denominated in raw damage, Treasure
 // in treasure, and neither scale moved. (Speed's row is gone entirely: Speed left
 // the Trade vocabulary with ADR-0020/#180, so there is no swing to quote for it.)
 //
 // **#151 did not reopen the depth axis**, contrary to what the note above hoped:
-// the band widened through the buff fold and the HP scale rather than through
+// the band widened through the buff fold and the Hull scale rather than through
 // Durability, whose base is still 2. So there is still nothing finer than a zone to
 // express a depth step in, and the axis stays deleted.
-TRADE_SWING_HP_PER_TIER :: 16
-TRADE_SWING_MAX_HP_PER_TIER :: 8
+TRADE_SWING_HULL_PER_TIER :: 16
+TRADE_SWING_MAX_HULL_PER_TIER :: 8
 TRADE_SWING_DURABILITY_PER_TIER :: 1
 TRADE_SWING_TREASURE_PER_TIER :: 15
 
@@ -271,8 +271,8 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 }
 
 // The Fight primitive reads the site's stakes as opponent power, across three
-// stats so a deeper fight isn't HP-pool-only: run_fight_opponent_hp is the
-// opponent's HP baseline, run_fight_opponent_durability its flat
+// stats so a deeper fight isn't Hull-pool-only: run_fight_opponent_hull is the
+// opponent's Hull baseline, run_fight_opponent_durability its flat
 // incoming-damage reduction (core/combat's durability stat), and
 // run_fight_opponent_power the percent its archetype's output is scaled to
 // (issue #23; #165 turned that last one from a bonus into a factor). All three
@@ -282,8 +282,8 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 // **archetype's** (content.odin's Hostile_Archetype) and its Speed derives from that
 // loadout's weight (ADR-0020) — neither is a site reading, so the site decides how
 // much hostile there is and the roster decides which one it is.
-run_fight_opponent_hp :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, FIGHT_OPPONENT_HP_PER_TIER, FIGHT_OPPONENT_HP_PER_DEPTH)
+run_fight_opponent_hull :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, FIGHT_OPPONENT_HULL_PER_TIER, FIGHT_OPPONENT_HULL_PER_DEPTH)
 }
 
 run_fight_opponent_durability :: proc(site: Scaling_Site) -> int {
@@ -325,10 +325,10 @@ run_offer_item_quality :: proc(site: Scaling_Site) -> int {
 // zeroes someone could refill: there is no depth to read.
 run_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 	switch stat {
-	case .HP:
-		return zone_tier[zone] * TRADE_SWING_HP_PER_TIER
-	case .Max_HP:
-		return zone_tier[zone] * TRADE_SWING_MAX_HP_PER_TIER
+	case .Hull:
+		return zone_tier[zone] * TRADE_SWING_HULL_PER_TIER
+	case .Max_Hull:
+		return zone_tier[zone] * TRADE_SWING_MAX_HULL_PER_TIER
 	case .Durability:
 		return zone_tier[zone] * TRADE_SWING_DURABILITY_PER_TIER
 	case .Treasure:
@@ -429,12 +429,12 @@ Run_Status :: enum {
 	Lost,
 }
 
-// run_status reports the run's outcome: lost at 0 HP (permadeath) regardless
-// of position, won by being at Haven with HP > 0, otherwise still in progress.
-// HP loss itself happens in core/combat/core/ship; this is just the run-level
+// run_status reports the run's outcome: lost at 0 Hull (permadeath) regardless
+// of position, won by being at Haven with Hull > 0, otherwise still in progress.
+// Hull loss itself happens in core/combat/core/ship; this is just the run-level
 // read of that state.
 run_status :: proc(s: ^ship.Ship, current: Node) -> Run_Status {
-	if s.hp <= 0 {
+	if s.hull <= 0 {
 		return .Lost
 	}
 	if current.kind == .Haven {
@@ -444,8 +444,8 @@ run_status :: proc(s: ^ship.Ship, current: Node) -> Run_Status {
 }
 
 // run_can_travel reports whether the ship may still travel to another node:
-// false once HP has reached 0 — a sunk ship has already lost and makes no
+// false once Hull has reached 0 — a sunk ship has already lost and makes no
 // further routing choice.
 run_can_travel :: proc(s: ^ship.Ship) -> bool {
-	return s.hp > 0
+	return s.hull > 0
 }

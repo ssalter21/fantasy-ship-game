@@ -39,7 +39,7 @@ test_hostile :: proc(archetype: Hostile_Archetype, site: Scaling_Site) -> ship.S
 // hostile hits for has to be measured where it is hit.
 //
 // `round` picks which round's state the conditionals resolve against; Death Throes
-// is a different ship above and below half HP.
+// is a different ship above and below half Hull.
 hostile_output :: proc(hostile: ^ship.Ship, round: int = 1) -> int {
 	player := ship.ship_starting_ship()
 	defer delete(player.layout)
@@ -79,7 +79,7 @@ run_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_fight_formulas :
 	opponent := test_opponent(site, 0)
 	defer delete(opponent.layout)
 
-	testing.expect_value(t, opponent.hp, run_fight_opponent_hp(site))
+	testing.expect_value(t, opponent.hull, run_fight_opponent_hull(site))
 	testing.expect_value(t, opponent.durability, run_fight_opponent_durability(site))
 }
 
@@ -168,7 +168,7 @@ a_deeper_node_gives_the_opponent_harder_hitting_offensive_fittings :: proc(t: ^t
 
 	testing.expect_value(t, loadout_signature(coastal), loadout_signature(deep)) // same build
 	testing.expect(t, phase_magnitude(deep, .Offensive) > phase_magnitude(coastal, .Offensive))
-	testing.expect(t, deep.hp > coastal.hp)
+	testing.expect(t, deep.hull > coastal.hull)
 	testing.expect(t, deep.durability > coastal.durability)
 }
 
@@ -257,7 +257,7 @@ the_site_never_moves_a_hostiles_speed :: proc(t: ^testing.T) {
 // failure: measuring *authored magnitudes*, it reported an equal uplift while
 // resolved output diverged by 56% — Deepwater Menagerie's Hunter's Pack multiplied
 // its share by the Beasts aboard, and Death Throes banked most of its share behind
-// an HP conditional.
+// an Hull conditional.
 //
 // A multiplier states the property in the only form that can hold through a synergy:
 // **the same proportion, not the same amount.** `(m x pct) x count` is
@@ -265,7 +265,7 @@ the_site_never_moves_a_hostiles_speed :: proc(t: ^testing.T) {
 // build and a conditional build alike — which is the structural claim, and it is
 // what the additive share could never make.
 //
-// Resolved at round 1 and again at a round where Death Throes' HP conditionals are
+// Resolved at round 1 and again at a round where Death Throes' Hull conditionals are
 // live would need two ships; round 1 is enough, because the property is about the
 // *shape* of the scaling and a conditional that is unmet contributes 0 at every
 // power, which scales correctly and trivially.
@@ -469,7 +469,7 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 		}
 		for !battle.ended && battle.round < ROUND_CAP {
 			combat.combat_resolve_round(&battle, hold, &events)
-			if player.hp <= 0 {
+			if player.hull <= 0 {
 				testing.expectf(
 					t,
 					battle.round >= MIN_PLAYER_ROUNDS,
@@ -483,7 +483,7 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 		// Not a wall: the player's damage got through at all.
 		testing.expectf(
 			t,
-			hostile.hp < hostile.max_hp,
+			hostile.hull < hostile.max_hull,
 			"a starting player cannot scratch %v at Coastal (durability %d) — see the both-walls note on hostile_roster",
 			archetype.name,
 			ship.ship_effective_durability(&hostile),
@@ -545,7 +545,7 @@ a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^
 
 		testing.expectf(
 			t,
-			player.hp < player.max_hp,
+			player.hull < player.max_hull,
 			"%v cannot scratch a starting player at Coastal — half of its authored output is under a starting ship's soak, so the fight has no risk in it",
 			archetype.name,
 		)
@@ -588,7 +588,7 @@ a_selector_buff_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^test
 
 	testing.expectf(
 		t,
-		hostile.hp < hostile.max_hp,
+		hostile.hull < hostile.max_hull,
 		"a starting player cannot scratch a four-Crew Admiral's Guard build — the buff is soaking again, and every Selector item is barred from half the game",
 	)
 }
@@ -757,8 +757,8 @@ every_trade_roster_entry_swaps_two_different_stats_and_is_named :: proc(t: ^test
 
 // The roster's coverage after the #180 cut (content.odin): Speed left the Trade
 // vocabulary, dropping the roster to three rows, so coverage is deliberately
-// partial. HP is gain-only (nothing else heals), Durability is now cost-only (it
-// lost its gainer when Braced Bulkheads left), and Max HP / Treasure sit on both
+// partial. Hull is gain-only (nothing else heals), Durability is now cost-only (it
+// lost its gainer when Braced Bulkheads left), and Max Hull / Treasure sit on both
 // sides. This pins that exact shape so a re-widening of the roster is a conscious
 // edit here rather than a silent drift.
 @(test)
@@ -770,8 +770,8 @@ the_trade_roster_covers_the_stats_the_surviving_three_rows_can :: proc(t: ^testi
 		cost += {axis.cost}
 	}
 
-	testing.expect_value(t, gained, bit_set[Trade_Stat]{.HP, .Max_HP, .Treasure})
-	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_HP, .Durability, .Treasure})
+	testing.expect_value(t, gained, bit_set[Trade_Stat]{.Hull, .Max_Hull, .Treasure})
+	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_Hull, .Durability, .Treasure})
 }
 
 // baked_trade is a roster axis priced at a zone — exactly what run_make_trade

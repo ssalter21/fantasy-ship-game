@@ -283,7 +283,7 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 	// and a ship's real Speed reads its weight (ship_effective_speed). Showing the
 	// raw base here would print 16 for a ship that actually sails at 4.
 	rl.DrawText(
-		fmt.ctprintf("HP %d/%d   DUR %d   SPD %d", s.hp, s.max_hp, s.durability, ship.ship_effective_speed(s)),
+		fmt.ctprintf("Hull %d/%d   DUR %d   SPD %d", s.hull, s.max_hull, s.durability, ship.ship_effective_speed(s)),
 		x,
 		y + 26,
 		16,
@@ -364,7 +364,7 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 // fitting's effect does (issue #96's "effect intent"): the magnitude and what it
 // feeds — a combat phase (its Category), or a ship stat for a stat-modifier —
 // with the synergy/conditional context spelled out ("+2 Buff per Weapon",
-// "+8 Offense below 50% HP"). Reads whichever of active/passive carries the one
+// "+8 Offense below 50% Hull"). Reads whichever of active/passive carries the one
 // effect a roster item has; returns "no effect" for a cargo filler.
 fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 	effect: ship.Effect
@@ -391,8 +391,8 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 		target = "Durability"
 	case .Modify_Speed:
 		target = "Speed"
-	case .Modify_Max_HP:
-		target = "Max HP"
+	case .Modify_Max_Hull:
+		target = "Max Hull"
 	}
 
 	intent := fmt.tprintf("+%d %s", int(effect.magnitude), target)
@@ -409,8 +409,8 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 // Item Offer / Refit UI appends to the effect intent (issue #96).
 condition_intent :: proc(condition: ship.Condition) -> string {
 	switch c in condition {
-	case ship.Condition_HP_Below:
-		return fmt.tprintf("below %d%% HP", c.percent)
+	case ship.Condition_Hull_Below:
+		return fmt.tprintf("below %d%% Hull", c.percent)
 	case ship.Condition_Round_At_Least:
 		return fmt.tprintf("from round %d", c.round)
 	case ship.Condition_Self_Visibility:
