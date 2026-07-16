@@ -2,6 +2,25 @@
 
 The house style for Odin in this repo. `/code-review`'s **Standards axis** checks diffs against this file; a deviation should be fixed or justified in the PR. These are conventions, not laws — a rule that fights a specific case can be broken with a one-line note saying why. Drifting off them silently is what's not acceptable.
 
+## Comments: describe the code, not its history
+
+A comment earns its place by explaining **what the code does** or **why a non-obvious constraint holds right now** — not by narrating how the code got here. The reader is trying to understand the code in front of them, and a paragraph about what it used to be is noise between them and that goal.
+
+**Cut** — these describe the past or roads not taken, and belong in git history, the PR, or the issue, never in the source:
+
+- **Iteration history** — "used to be an authored field", "was retired with #194", "this replaced the one-opponent template", "originally we…". If a sentence only makes sense to someone who watched the code change, cut it.
+- **Rejected alternatives** — "we don't do X because…", "rather than Y", "instead of Z" — unless the rejected option is one a reader would *actively try to add back today*, in which case keep one tight line as a guardrail (see below).
+- **Change-log narration** — issue and ADR numbers used as a timeline ("as of #151", "three guns as of…"). An ADR reference is fine as a *pointer to a still-true decision*; it's noise as a date stamp.
+
+**Keep**, tightened to the fewest lines that carry it:
+
+- **What the code does** — the plain description of behavior, especially where the mechanism isn't obvious from the names.
+- **Still-true, non-obvious rationale** — the "why" a reader needs *now* to avoid breaking something: an invariant, an ordering dependency, a footgun. Keep it if it's both true today and non-obvious; drop it if it's obvious from the code or no longer holds. A live guardrail ("order is authoring — placement decides deck vs hold") stays; the story of how we learned it goes.
+
+**Salvage, don't spill.** When a comment is really an undocumented design *decision* — load-bearing "why" that outlives this file — capture it in an ADR (`docs/adr/`) and leave a one-line pointer (`// deck-vs-hold placement: ADR-00NN`) rather than an essay. Everything else that's cut is simply deleted; `git blame` preserves it.
+
+**The test:** read the comment and ask *"does this help me understand or safely change the code as it is?"* If it only tells me a story about the code, delete it. Prefer a two-line comment that a reader finishes over a twenty-line one they skip.
+
 ## Naming
 
 - **Types** `Ada_Case` — `Slot_Size`, `Effect_Kind`, `Node_ID`, `Layout_Slot`.
