@@ -4,10 +4,14 @@ import "../ship"
 import "core:math/rand"
 
 // Hostile_Archetype is one authored entry in the Fight primitive's content roster
-// (issue #135, ADR-0014's "Fight gains a hostile roster"): a named hostile build,
-// the items it carries, and how fast it sails. It carries no HP, no Durability and
-// no magnitudes — those are the node's stakes — so an archetype is authored purely
-// as *what kind of ship this is*, and the site decides how much of it there is.
+// (issue #135, ADR-0014's "Fight gains a hostile roster"): a named hostile build —
+// just the items it carries. It carries no HP, no Durability, no magnitudes and
+// **no Speed** — those are the node's stakes (hp/durability) or derived from what
+// the build weighs (Speed, ADR-0020) — so an archetype is authored purely as *what
+// kind of ship this is*, and the site decides how much of it there is. Speed used
+// to be an authored field here (#135's flat FIGHT_OPPONENT_SPEED successor); it was
+// retired with #194 once Speed reads weight — a hostile's items plus its flat-50%
+// hold (HOSTILE_FILL_PERCENT) now decide how fast it sails (ship_effective_speed).
 //
 // This is the type that retires the one-opponent template. Every battle in the
 // game used to be the same ship — Captain's Quarters, Top Crew, an Upgraded Gun
@@ -29,20 +33,7 @@ import "core:math/rand"
 // effect fires. Smuggler's Run authors two throwaway Mediums ahead of its Wraith
 // Cannon for exactly this reason.
 Hostile_Archetype :: struct {
-	name: string,
-	// speed is the archetype's base Speed — the one Fight stat the stakes group
-	// explicitly disowns ("Speed is not a stakes reading", run.odin), and so the
-	// one it is free to claim. It replaces the flat FIGHT_OPPONENT_SPEED, which
-	// pinned every hostile in the game at 5 against a starting player's 4.
-	//
-	// That flat 5 was quietly load-bearing, and wrong in both directions: it meant
-	// *every* hostile was escape-eligible at BASELINE_ROUND_COUNT and so bolted
-	// (combat_scripted_command), while the player — slower than everything — could
-	// never take Leave Combat at all, and the roster's Condition_Opponent_Slower
-	// items (Storm Sails) could never fire. Spreading speed across the roster is
-	// what makes all three live: a Hulk at 2 is a hostile you may walk away from, a
-	// Reef Skimmer at 6 is one that will leave *you*.
-	speed: int,
+	name:  string,
 	items: []string,
 }
 
@@ -146,15 +137,17 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", 
 hostile_roster := [?]Hostile_Archetype {
 	// The retired template's honest successor: guns, no tricks, no synergy to read.
 	// First so the roster opens on something recognisable, and so there is a
-	// baseline the other seven are variations *from*. Speed 4 ties the player's, so
-	// neither side can leave — this is the one that has to be fought out.
+	// baseline the other seven are variations *from*. Its guns plus a half-full hold
+	// weigh 122, so it **derives to Speed 4** (#194) — tying the player, so neither
+	// side can leave and this is the one that has to be fought out. That it lands
+	// exactly on the player's 4 is the loadout's doing, not an authored number.
 	//
 	// Long Nines joins with #165, into the Large slot the entry had been leaving to
 	// Spoils. There is no cleverness to report: this is the plainest demonstration of
 	// what the way down bought, since "a privateer carries a big gun" needed no
 	// argument and was simply unaffordable while an entry had to survive contact with
 	// a starting ship undiminished.
-	{name = "Coastal Privateer", speed = 4, items = COASTAL_PRIVATEER_ITEMS[:]},
+	{name = "Coastal Privateer", items = COASTAL_PRIVATEER_ITEMS[:]},
 	// Every gun aboard makes the crew's guns hit harder: Powder Monkeys buff per
 	// Weapon, and every other item is a Weapon (Boarding Pikes and Naval Gun Crew are
 	// multi-tag Crew+Weapon, so they pay into it while reading as boarders).
@@ -170,7 +163,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// this, against 10 of 100 with a Carronade), and the synergy is what makes it
 	// worth carrying — a third Weapon is worth its own 3 *plus* a point on every
 	// Powder Monkeys reading, which is the entry's whole argument.
-	{name = "Broadside Company", speed = 4, items = BROADSIDE_COMPANY_ITEMS[:]},
+	{name = "Broadside Company", items = BROADSIDE_COMPANY_ITEMS[:]},
 	// Beasts, and Hunter's Pack paying per Beast aboard. **Three of them as of #165**,
 	// which is the third Beast the entry's own note had been asking for: the synergy is
 	// quadratic in its own family, so War Hound is +3 to the Pack *and* a whole extra
@@ -179,17 +172,23 @@ hostile_roster := [?]Hostile_Archetype {
 	// bonus: a Selector build is exactly what an additive share mis-scaled (see
 	// run_fit_hostile_loadout). War Hound's own magnitude is gated below half HP, so
 	// the Pack's count rises immediately and the Hound's gun only joins once the
-	// Menagerie is dying. Slow and laden: at 3 it is the archetype a starting player
-	// can outrun, which is what makes Leave Combat a real option rather than a menu
-	// item nothing satisfies.
-	{name = "Deepwater Menagerie", speed = 3, items = DEEPWATER_MENAGERIE_ITEMS[:]},
+	// Menagerie is dying. **Authored slow, it now derives *fast* — and that is the
+	// flat-50% placeholder's accepted cost** (#176, map out-of-scope): three small
+	// beasts fly the player's 8-slot hull with ~130 of capacity they never fill, so
+	// half-full it weighs almost nothing and reads **7**, the fastest ship in the
+	// game — the exact inversion of #135's authored 3. No fill percentage fixes it;
+	// only a hull sized for the build (hostile ship templates, out of scope) does.
+	// Until then the "one a starting player can outrun" role — Leave Combat as a real
+	// option — is carried by the Ironclad Hulk instead (the roster's sole slower-than-4).
+	{name = "Deepwater Menagerie", items = DEEPWATER_MENAGERIE_ITEMS[:]},
 	// Runs dark and runs fast. The trick is placement: two throwaway Mediums push the
 	// Wraith Cannon into the concealed hold, where its Condition_Self_Visibility fires
 	// — the archetype whose build only works because of the *order* of its item list.
-	// Spare Rigging keeps it at an effective 8, so it bolts the round
-	// BASELINE_ROUND_COUNT unlocks, which is the archetype's whole character (kill it
-	// quickly or it is gone) and is what #151's widened band made observable: before,
-	// the fight ended at round 2 and nothing ever reached the gate to bolt at.
+	// Its Copper Sheathing and Spare Rigging (+3 Speed) over a light, half-full hull
+	// leave it **deriving to 8** (#194), so it bolts the round BASELINE_ROUND_COUNT
+	// unlocks, which is the archetype's whole character (kill it quickly or it is
+	// gone) and is what #151's widened band made observable: before, the fight ended
+	// at round 2 and nothing ever reached the gate to bolt at.
 	//
 	// **It takes its Ghost Lantern with #165**, which the entry has been asking for
 	// across two tickets: #135 could not have it because buff was soak and the Lantern
@@ -199,10 +198,14 @@ hostile_roster := [?]Hostile_Archetype {
 	// template is concealed, so the Lantern's Condition_Self_Visibility fires for the
 	// same reason the Cannon's does — the entry now states its theme twice with one
 	// mechanism, which is what it was for.
-	{name = "Smuggler's Run", speed = 5, items = SMUGGLERS_RUN_ITEMS[:]},
+	{name = "Smuggler's Run", items = SMUGGLERS_RUN_ITEMS[:]},
 	// Armour: the build that spends on Modify_Durability, so it is a wall you chip
 	// rather than one you burst. Held to +3 total — see the both-walls note above.
-	// At 2 it is the slowest thing afloat and the easiest to walk away from.
+	// Two Larges of iron make it the **heaviest hull in the roster**, so it derives
+	// to **Speed 2** — the slowest thing afloat, the one hostile a starting player can
+	// walk away from, and (post-#194) the roster's *sole* slower-than-the-player entry:
+	// the straddle rests on it alone (1 slower / 6 faster), so it is the entry most
+	// sensitive to the item weights authored above.
 	//
 	// **It is a ram as of #165, and that is the floor wall in one entry.** Armour was
 	// its whole budget, which left it dealing 8 — and half of 8 is a starting ship's
@@ -212,7 +215,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// character rather than by bolting a gun on: a ram is what an ironclad is *for*,
 	// it takes the Large slot the entry was leaving to Spoils, and it leaves the
 	// armour untouched — so the wall now hits back instead of being scenery.
-	{name = "Ironclad Hulk", speed = 2, items = IRONCLAD_HULK_ITEMS[:]},
+	{name = "Ironclad Hulk", items = IRONCLAD_HULK_ITEMS[:]},
 	// Crew — **and the entry that finally carries Admiral's Guard** (+3 per Crew
 	// aboard, three Crew here, so +9). It is the roster's longest-running argument,
 	// settled: #135 authored flat War Drums instead because buff folded into defence
@@ -222,26 +225,26 @@ hostile_roster := [?]Hostile_Archetype {
 	// in The Deep. Three tickets, and each one moved the obstacle down a level —
 	// category, then magnitude, then zone. This is the archetype the whole
 	// Selector half of ADR-0012's roster was waiting on.
-	{name = "Boarding Party", speed = 4, items = BOARDING_PARTY_ITEMS[:]},
+	{name = "Boarding Party", items = BOARDING_PARTY_ITEMS[:]},
 	// Wakes up when it is dying: two of its three guns are gated on its own HP below
 	// half, so it opens with a single Deck Cannon and turns savage exactly when the
 	// player thinks it is won. The roster's argument that a conditional is a *shape*,
 	// not a discount.
-	{name = "Death Throes", speed = 3, items = DEATH_THROES_ITEMS[:]},
-	// Two Modify_Speed items on top of a base 6 — an effective 9, so it is gone the
-	// round it becomes eligible. The counterpart to the Hulk: the archetype that
-	// leaves *you*, and the second one #165 found sitting on the floor, for the mirror
-	// reason — its budget went into speed rather than armour, but it was equally not
-	// spent on hitting you, so half of its 7 could not clear a starting ship's soak
-	// either. It is a nuisance by design, and a nuisance that deals nothing at all for
-	// the five rounds before it bolts is not a nuisance, it is a cutscene. The
-	// Carronade is what makes leaving cost the player something.
+	{name = "Death Throes", items = DEATH_THROES_ITEMS[:]},
+	// Two Modify_Speed items (+3) over a light, half-full hull — it **derives to 8**
+	// (#194), so it is gone the round it becomes eligible. The counterpart to the Hulk:
+	// the archetype that leaves *you*, and the second one #165 found sitting on the
+	// floor, for the mirror reason — its budget went into speed rather than armour, but
+	// it was equally not spent on hitting you, so half of its 7 could not clear a
+	// starting ship's soak either. It is a nuisance by design, and a nuisance that
+	// deals nothing at all for the five rounds before it bolts is not a nuisance, it is
+	// a cutscene. The Carronade is what makes leaving cost the player something.
 	//
 	// The two Modify_Speed items are also this entry's second job: they are why
 	// the_site_never_moves_a_hostiles_speed exists. Both are filed under Category
 	// `.Buff` — a category the site now scales — so this is the build that would break
 	// loudest if ship_fitting_output_scaled ever started touching passives.
-	{name = "Reef Skimmer", speed = 6, items = REEF_SKIMMER_ITEMS[:]},
+	{name = "Reef Skimmer", items = REEF_SKIMMER_ITEMS[:]},
 }
 
 // run_hostile_roster returns every authored hostile archetype. run_pve_opponent
@@ -254,19 +257,22 @@ run_hostile_roster :: proc() -> []Hostile_Archetype {
 
 // run_make_opponent_ship computes a Ship Battle opponent's stakes-scaled stats (hp,
 // durability) from the node's Scaling_Site — the numeric half of a PvE opponent
-// (issue #23). run_pve_opponent layers an archetype's loadout and speed on top of
-// these; this proc has no layout/captain/speed of its own and is not itself a
-// complete opponent.
+// (issue #23). run_pve_opponent layers an archetype's loadout on top of these; this
+// proc has no layout/captain of its own and is not itself a complete opponent.
 //
-// Speed left this proc with issue #135: hp and durability are the site's readings,
-// but speed is the archetype's (see Hostile_Archetype.speed), so a stats-from-site
-// helper has nothing to say about it.
+// It sets the uniform `speed` base (ADR-0020, #158/#180): every ship's base term is
+// BASE_SPEED and a hostile's actual Speed derives from what it carries — its loadout
+// plus its flat-50% hold (ship_effective_speed) — so there is nothing archetype- or
+// site-specific to say about the base. Speed *left* this proc with #135, when it was
+// an authored per-archetype field; it comes back with #194 now that the base is the
+// same on every hull and only the derived reading varies.
 run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 	hp := run_fight_opponent_hp(site)
 	return ship.Ship{
 		hp         = hp,
 		max_hp     = hp,
 		durability = run_fight_opponent_durability(site),
+		speed      = ship.BASE_SPEED,
 	}
 }
 
@@ -355,8 +361,8 @@ run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_A
 
 // run_pve_opponent builds a full Ship Battle opponent by drawing one archetype from
 // the hostile roster (#135) and baking it at this node's stakes: the archetype
-// supplies the loadout and speed, the site supplies hp, durability, and the
-// offensive bonus. Draws off the map generator's RNG (`gen`) — so *which* hostile a
+// supplies the loadout (and, through its weight, its Speed), the site supplies hp,
+// durability, and the offensive bonus. Draws off the map generator's RNG (`gen`) — so *which* hostile a
 // node holds is reproducible per seed yet varies node to node, exactly like an
 // Offer's items, a Shop's deck and a Trade's axis — and is called from
 // run_bake_stage at generation time. Nothing rolls on arrival (ADR-0013).
@@ -373,14 +379,10 @@ run_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
 	roster := run_hostile_roster()
 	archetype := roster[rand.int_max(len(roster), gen)]
 
+	// run_make_opponent_ship sets the uniform BASE_SPEED base; a hostile's actual
+	// Speed falls out of its weight like every other ship's (ADR-0020, #176/#180) —
+	// its loadout plus its flat-50% hold decide what it reads (ship_effective_speed).
 	s := run_make_opponent_ship(site)
-	// A hostile's Speed falls out of its weight like every other ship's now
-	// (ADR-0020, #176/#180): its base is the uniform BASE_SPEED, and its loadout
-	// plus its cargo fill decide what it actually reads (ship_effective_speed).
-	// archetype.speed is vestigial pending the item-weight authoring pass (#143
-	// fog), which re-derives the roster's Speed spread from authored weights and a
-	// flat-50% hold and forward-ports #135's straddle test — it is no longer read.
-	s.speed = ship.BASE_SPEED
 
 	layout := ship.ship_template_layout()
 	assert(

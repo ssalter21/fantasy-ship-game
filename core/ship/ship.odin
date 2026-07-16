@@ -309,6 +309,13 @@ ship_effect_context_in_battle :: proc(s: ^Ship, battle: Battle_State) -> Effect_
 Fitting :: struct {
 	name:                string,
 	size:                Slot_Size,
+	// weight is what this fitting adds to its ship's weight (ADR-0020, #194): an
+	// authored per-item balance choice — the knob that makes a strong item pay for
+	// its strength — in #156's size band (Large ~30-45, Medium ~15-25, Small ~5-12).
+	// **Only read for non-cargo fittings**: a cargo fitting weighs its treasure
+	// (stack_count, #156), so ship_fitting_weight ignores this field when is_cargo.
+	// See content.odin, where every roster item and starting fitting authors one.
+	weight:              int,
 	// category is which round phase (ADR-0006) this fitting's active effect
 	// triggers in. Meaningless for cargo, which carries no effects.
 	category:            Category,
@@ -497,25 +504,16 @@ ship_effective_speed :: proc(s: ^Ship) -> int {
 // ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): a
 // cargo fitting weighs its treasure (its stack_count, #156 — so an empty hold
 // weighs nothing and a full one weighs its contents 1:1), while a non-cargo
-// fitting weighs an authored amount. The non-cargo weight is a **placeholder
-// derived from slot size** until the item-weight authoring pass (#143 fog) gives
-// each roster item its own authored weight in #156's band (Large ~30-45, Medium
-// ~15-25, Small ~5-12) — a per-item balance choice, not this size derivation. The
-// band midpoints here are what let Speed read a real weight today; guns are
-// permanently heavy, cargo heavy only while full, so emptiness is what varies.
+// fitting weighs its **authored** weight (Fitting.weight, #194). That weight is a
+// per-item balance choice in #156's size band (Large ~30-45, Medium ~15-25, Small
+// ~5-12), authored beside each item in content.odin — the knob that makes a strong
+// item pay for its strength. Guns are permanently heavy, cargo heavy only while
+// full, so emptiness — not loadout — is what varies (ADR-0020).
 ship_fitting_weight :: proc(f: Fitting) -> int {
 	if f.is_cargo {
 		return f.stack_count
 	}
-	switch f.size {
-	case .Small:
-		return 8
-	case .Medium:
-		return 20
-	case .Large:
-		return 38
-	}
-	return 0
+	return f.weight
 }
 
 // ship_weight is a ship's total weight: every installed fitting's contribution

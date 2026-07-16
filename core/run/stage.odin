@@ -106,8 +106,8 @@ Shop_Item :: struct {
 // (permadeath), which is the whole of why [Fight, Reward] needs no authored gate.
 // The opponent is baked at generation from two independent axes (#135): one
 // archetype drawn from the hostile roster (content.odin's Hostile_Archetype) for
-// its loadout and speed, scaled at this node's stakes for its hp, durability and
-// offensive output.
+// its loadout — from whose weight its Speed derives (ADR-0020) — scaled at this
+// node's stakes for its hp, durability and offensive output.
 Stage_Fight :: struct {
 	opponent: ship.Ship,
 }

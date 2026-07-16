@@ -82,12 +82,13 @@ FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
 FIGHT_OPPONENT_POWER_PERCENT_PER_TIER :: 50
 FIGHT_OPPONENT_POWER_PERCENT_PER_DEPTH :: 5
 
-// FIGHT_OPPONENT_SPEED is **gone** (#135) — a hostile's Speed is its archetype's
-// (content.odin's Hostile_Archetype.speed), not the site's. It was never a stakes
-// reading; the comment below said so while the constant sat in this group anyway.
-// Pinned flat at 5 against a starting player's 4, it also meant every hostile in the
-// game was escape-eligible at the baseline round and none could ever be escaped
-// from.
+// FIGHT_OPPONENT_SPEED is **gone** (#135) — a hostile's Speed is not the site's. It
+// was never a stakes reading; the comment below said so while the constant sat in
+// this group anyway. Pinned flat at 5 against a starting player's 4, it also meant
+// every hostile in the game was escape-eligible at the baseline round and none could
+// ever be escaped from. #135 replaced it with an authored per-archetype Speed field;
+// #194 retired that field too, once Speed reads weight (ADR-0020) — a hostile's Speed
+// now derives from its loadout and its flat-50% hold (ship_effective_speed).
 
 OFFER_ITEM_QUALITY_PER_TIER :: 15
 OFFER_ITEM_QUALITY_PER_DEPTH :: 5
@@ -277,10 +278,10 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 // (issue #23; #165 turned that last one from a bonus into a factor). All three
 // rise by zone tier and by depth-within-zone.
 //
-// These three are the whole of what stakes says about a hostile. Its Speed and its
-// loadout are its **archetype's** (content.odin's Hostile_Archetype) — the two axes
-// are independent, so the site decides how much hostile there is and the roster
-// decides which one it is.
+// These three are the whole of what stakes says about a hostile. Its loadout is its
+// **archetype's** (content.odin's Hostile_Archetype) and its Speed derives from that
+// loadout's weight (ADR-0020) — neither is a site reading, so the site decides how
+// much hostile there is and the roster decides which one it is.
 run_fight_opponent_hp :: proc(site: Scaling_Site) -> int {
 	return run_zone_depth_scaled(site, FIGHT_OPPONENT_HP_PER_TIER, FIGHT_OPPONENT_HP_PER_DEPTH)
 }

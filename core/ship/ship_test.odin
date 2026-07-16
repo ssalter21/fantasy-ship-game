@@ -478,16 +478,16 @@ effect_magnitude_of_a_synergy_with_no_matches_is_zero :: proc(t: ^testing.T) {
 
 @(test)
 effective_stats_equal_the_raw_fields_when_no_stat_modifier_is_installed :: proc(t: ^testing.T) {
-	cannon := Fitting{name = "Cannon", size = .Large, category = .Offensive, active = Effect{magnitude = 10}}
+	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Offensive, active = Effect{magnitude = 10}}
 	s := Ship{
 		durability = 2, speed = 4, max_hp = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},
 	}
 
 	// A plain fitting adds no stat modifier, so Durability and Max HP read their
-	// raw fields. Speed is different now (ADR-0020): every fitting has weight, so
-	// effective Speed is base − weight/10, not the raw field. The Large Cannon
-	// weighs 38, so 4 − 3.
+	// raw fields. Speed is different now (ADR-0020): every non-cargo fitting has an
+	// authored weight, so effective Speed is base − weight/10, not the raw field. The
+	// Large Cannon weighs 38, so 4 − 3 = 1.
 	testing.expect_value(t, ship_effective_durability(&s), 2)
 	testing.expect_value(t, ship_effective_speed(&s), 4 - ship_weight(s) / 10)
 	testing.expect_value(t, ship_effective_max_hp(&s), 20)
@@ -511,10 +511,10 @@ a_stat_modifier_fitting_raises_the_matching_effective_stat_only :: proc(t: ^test
 
 @(test)
 stat_modifiers_stack_across_slots_and_span_max_hp_and_speed :: proc(t: ^testing.T) {
-	hull := Fitting{name = "Reinforced Hull", size = .Small, passive = Effect{kind = .Modify_Durability, magnitude = 3}}
-	plating := Fitting{name = "Iron Plating", size = .Small, passive = Effect{kind = .Modify_Durability, magnitude = 2}}
-	sails := Fitting{name = "Fast Sails", size = .Small, passive = Effect{kind = .Modify_Speed, magnitude = 4}}
-	ballast := Fitting{name = "Ballast Tanks", size = .Small, passive = Effect{kind = .Modify_Max_HP, magnitude = 10}}
+	hull := Fitting{name = "Reinforced Hull", size = .Small, weight = 8, passive = Effect{kind = .Modify_Durability, magnitude = 3}}
+	plating := Fitting{name = "Iron Plating", size = .Small, weight = 8, passive = Effect{kind = .Modify_Durability, magnitude = 2}}
+	sails := Fitting{name = "Fast Sails", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 4}}
+	ballast := Fitting{name = "Ballast Tanks", size = .Small, weight = 8, passive = Effect{kind = .Modify_Max_HP, magnitude = 10}}
 	s := Ship{
 		durability = 1, speed = 5, max_hp = 20,
 		layout = []Layout_Slot{

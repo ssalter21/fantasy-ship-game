@@ -18,8 +18,7 @@ test_opponent :: proc(site: Scaling_Site, seed: u64) -> ship.Ship {
 // per-archetype tests need to say which build they mean rather than fish for it
 // across seeds.
 test_hostile :: proc(archetype: Hostile_Archetype, site: Scaling_Site) -> ship.Ship {
-	s := run_make_opponent_ship(site)
-	s.speed = ship.BASE_SPEED
+	s := run_make_opponent_ship(site) // sets the uniform BASE_SPEED base
 	layout := ship.ship_template_layout()
 	assert(run_fit_hostile_loadout(layout, archetype, run_fight_opponent_power(site)))
 	s.layout = layout
@@ -127,7 +126,9 @@ run_pve_opponent_is_reproducible_per_seed :: proc(t: ^testing.T) {
 	defer delete(b.layout)
 
 	testing.expect_value(t, loadout_signature(a), loadout_signature(b))
-	testing.expect_value(t, a.speed, b.speed)
+	// Speed is derived from the loadout now (ADR-0020), so a reproducible draw reads a
+	// reproducible Speed — the raw base field is the uniform BASE_SPEED on both.
+	testing.expect_value(t, ship.ship_effective_speed(&a), ship.ship_effective_speed(&b))
 }
 
 // An archetype names its items instead of restating their magnitudes, so a typo is
@@ -138,7 +139,6 @@ every_hostile_archetype_is_built_from_real_roster_items :: proc(t: ^testing.T) {
 	for archetype in run_hostile_roster() {
 		testing.expect(t, len(archetype.name) > 0)
 		testing.expectf(t, len(archetype.items) > 0, "%v carries no items", archetype.name)
-		testing.expectf(t, archetype.speed > 0, "%v has no speed", archetype.name)
 
 		for name in archetype.items {
 			_, found := ship.ship_item_by_name(name)
@@ -350,32 +350,80 @@ a_hundred_percent_power_leaves_an_archetype_exactly_as_authored :: proc(t: ^test
 	}
 }
 
-// **Speed is derived from weight now** (ADR-0020, #158): a hostile's Speed falls
-// out of what it is carrying, so the roster reads a *spread* of Speeds rather than
-// one flat number — the property this ticket delivers ("no ship's Speed can be read
-// without asking what it is carrying").
+// **The forward-ported #135 straddle** (ADR-0020, #176/#177): with Speed derived
+// from weight, the roster must still **straddle the player** — at least one hostile
+// slower (so Leave Combat is a real option) and at least one faster (so a hostile can
+// flee first). #135 asserted this against the old flat FIGHT_OPPONENT_SPEED; it is
+// re-derived here now that a hostile's Speed falls out of its loadout plus its
+// flat-50% hold (#194).
 //
-// The stronger property #135 pinned — the roster **straddling** the player, one
-// hostile slower (Leave Combat is a real option) and one faster (a hostile can flee
-// first) — is **forward-ported by the item-weight authoring pass** (#176/#177, #143
-// fog), not asserted here. It needs the flat-50% hostile fill and authored per-item
-// weights, both out of scope for this ticket, and it must pin the player's purse
-// explicitly rather than reading STARTING_SPEED (#176). Under the placeholder
-// size-band weights and the near-empty ("Spoils" = 1) fill this ticket ships,
-// hostiles read light and fast, so only the derived-spread half holds today.
+// **The player's purse is pinned explicitly** at STARTING_CARGO + CAPTAIN_STARTING_CARGO
+// (#176's hard requirement): the comparison reads the player's *derived* Speed at the
+// starting purse — never inferring 4 from STARTING_SPEED — because after the model
+// lands the player's Speed is whatever their purse says (9 broke … 0 full), so
+// "straddle" is a joint property of (roster, purse) and only a pinned purse makes it
+// well-formed. ship_starting_ship stows exactly that sum, so it *is* the pin.
+//
+// It is a **point, not a window** (#177): leaving the window as you get rich is the
+// feature, so this asserts one side each and no more. Placement (centre the starting
+// purse, room to grow) is a playtest aim, not an asserted bound. At the starting purse
+// the straddle rests on the **Ironclad Hulk alone** (1 slower / 6 faster) — the heavy
+// entry most sensitive to the authored item weights (content.odin's band).
 @(test)
-the_hostile_roster_derives_a_spread_of_speeds_from_weight :: proc(t: ^testing.T) {
-	seen: map[int]bool
-	defer delete(seen)
+the_hostile_roster_straddles_the_player_at_the_starting_purse :: proc(t: ^testing.T) {
+	// Pin the player's purse explicitly: ship_starting_ship stows STARTING_CARGO +
+	// the captain's CAPTAIN_STARTING_CARGO, so this reads the derived Speed at exactly
+	// the pinned purse rather than the STARTING_SPEED constant.
+	player := ship.ship_starting_ship()
+	defer delete(player.layout)
+	player_speed := ship.ship_effective_speed(&player)
+
+	slower, faster := 0, 0
+	distinct_speeds: map[int]bool
+	defer delete(distinct_speeds)
 	for archetype in run_hostile_roster() {
 		hostile := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
 		defer delete(hostile.layout)
-		seen[ship.ship_effective_speed(&hostile)] = true
+		hostile_speed := ship.ship_effective_speed(&hostile)
+		distinct_speeds[hostile_speed] = true
+		switch {
+		case hostile_speed < player_speed:
+			slower += 1
+		case hostile_speed > player_speed:
+			faster += 1
+		}
 	}
 
-	// More than one distinct derived Speed across the roster: what a hostile carries
-	// moves its Speed, which is the whole of the weight model on the hostile side.
-	testing.expect(t, len(seen) > 1)
+	// The straddle: a hostile a starting player can outrun, and one that outruns them.
+	testing.expectf(t, slower >= 1, "no hostile is slower than the player's %d — Leave Combat is a dead option", player_speed)
+	testing.expectf(t, faster >= 1, "no hostile is faster than the player's %d — nothing can flee first", player_speed)
+	// And a genuine spread, not one flat number: what a hostile carries moves its Speed.
+	testing.expect(t, len(distinct_speeds) > 1)
+}
+
+// **The weight-floor invariant on the hostile side** (ADR-0020, #175): `base −
+// weight/10 >= 0` for every hostile at its maximum reachable fill. A hostile's
+// reachable fill is the flat 50% every spare slot is stowed to (HOSTILE_FILL_PERCENT,
+// #176) — its actual in-game state — so this builds each archetype the way
+// run_pve_opponent does and asserts its derived Speed never reads below 0. The
+// invariant is a **test, never a live clamp** (#175): the model is authored so
+// nothing reads below 0 rather than max(0, …) hiding a negative.
+//
+// **This is the tripwire for the out-of-scope hostile-template work** (#176). At the
+// current flat-50% fill the heaviest hull (Ironclad Hulk, ~149) reads 2, well clear
+// of 0. But #158's *fully-laden* fittings+capacity band is 159–179, which sits astride
+// the 160 weight budget (BASE_SPEED 16 × the /10 divisor) — so any future template
+// that pushes a hostile's fill toward 100% drives the heavy entries negative, and this
+// assert is what catches it. Fully-laden is not reachable today; it is the boundary the
+// template work must respect.
+@(test)
+every_hostile_reads_a_nonnegative_speed_at_its_reachable_fill :: proc(t: ^testing.T) {
+	for archetype in run_hostile_roster() {
+		hostile := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
+		defer delete(hostile.layout)
+		speed := ship.ship_effective_speed(&hostile)
+		testing.expectf(t, speed >= 0, "%v derives a negative Speed (%d) at its 50%% fill — the weight floor is breached", archetype.name, speed)
+	}
 }
 
 // **The roster's authoring rule, made checkable**: an archetype is character, stakes
@@ -526,7 +574,7 @@ a_selector_buff_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^test
 
 	player := ship.ship_starting_ship()
 	defer delete(player.layout)
-	hostile := test_hostile({name = "Admiral's Guard build", speed = 4, items = guard[:]}, Scaling_Site{zone = .Coastal, depth = 0})
+	hostile := test_hostile({name = "Admiral's Guard build", items = guard[:]}, Scaling_Site{zone = .Coastal, depth = 0})
 	defer delete(hostile.layout)
 
 	battle := combat.combat_battle_create(&player, &hostile)
