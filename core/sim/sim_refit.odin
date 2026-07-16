@@ -68,12 +68,14 @@ sim_process_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 sim_refit_install :: proc(sim: ^Sim, op: Refit_Install, events: ^[dynamic]Event) {
 	sim_refit_assert_slot(sim, op.slot)
 	incoming, has_incoming := sim.refit_pending.?
+	treasure_before := ship.ship_treasure(sim.player)
 	if !has_incoming || !ship.ship_fit(&sim.player.layout[op.slot], incoming) {
 		sim_refit_reject(Refit_Command(op), events)
 		return
 	}
 	sim.refit_pending = nil
 	append(events, Event(Event_Fitting_Installed{slot = op.slot, fitting = incoming}))
+	sim_refit_conserve_purse(sim, incoming, treasure_before)
 	sim_refit_ship_updated(sim, events)
 }
 
@@ -89,6 +91,7 @@ sim_refit_replace :: proc(sim: ^Sim, op: Refit_Replace, events: ^[dynamic]Event)
 	sim_refit_assert_slot(sim, op.slot)
 	incoming, has_incoming := sim.refit_pending.?
 	displaced, occupied := sim.player.layout[op.slot].fitting.?
+	treasure_before := ship.ship_treasure(sim.player)
 	if !has_incoming || !ship.ship_replace_fitting(&sim.player.layout[op.slot], incoming) {
 		sim_refit_reject(Refit_Command(op), events)
 		return
@@ -98,6 +101,7 @@ sim_refit_replace :: proc(sim: ^Sim, op: Refit_Replace, events: ^[dynamic]Event)
 		append(events, Event(Event_Fitting_Removed{slot = op.slot, fitting = displaced}))
 	}
 	append(events, Event(Event_Fitting_Installed{slot = op.slot, fitting = incoming}))
+	sim_refit_conserve_purse(sim, incoming, treasure_before)
 	sim_refit_ship_updated(sim, events)
 }
 
@@ -152,4 +156,28 @@ sim_refit_reject :: proc(command: Refit_Command, events: ^[dynamic]Event) {
 // own copy (Event_Ship_Updated's contract).
 sim_refit_ship_updated :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
+}
+
+// sim_refit_conserve_purse reconciles the hold after a fitting lands in a slot
+// (issue #198, the Shop-buy double-swing). Installing a non-cargo fitting is the
+// only refit move that can *shrink* ship_cargo_capacity — its slot stops
+// counting toward the hold — and a Replace can drop a cargo slot outright, so
+// the surviving treasure is re-stowed into whatever capacity remains: everything
+// still under the reduced ceiling is conserved (reallocation is free outside
+// battle, #157) and only genuine overflow above it is lost (ADR-0020, #157). A
+// Move is capacity-neutral (its exact-size fit rule frees and fills equal
+// contributions) and a Remove only *grows* capacity, so neither can strand
+// treasure and neither re-stows.
+//
+// `treasure_before` is the purse snapshotted *before* the placement, so a hold
+// a Replace displaces has its treasure flow into the remaining slots rather than
+// be destroyed — the difference between conserving what fits and burning the
+// whole displaced slot. The re-stow is scoped to non-cargo fittings: cargo never
+// reaches a refit (it is stowed by ship_stow_treasure, not fitted), and re-laying
+// treasure_before would double-count a cargo incoming's own stack.
+sim_refit_conserve_purse :: proc(sim: ^Sim, incoming: ship.Fitting, treasure_before: int) {
+	if incoming.is_cargo {
+		return
+	}
+	ship.ship_stow_treasure(sim.player.layout, treasure_before)
 }
