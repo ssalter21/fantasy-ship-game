@@ -198,7 +198,7 @@ the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 	roster := ship_item_roster()
 
 	// ADR-0012 targets "~50"; the pool must clear the offer's option count so an
-	// offer can present that many distinct items (run.ITEM_OFFER_OPTION_COUNT).
+	// offer can present that many distinct items (voyage.ITEM_OFFER_OPTION_COUNT).
 	testing.expect_value(t, len(roster), ITEM_ROSTER_SIZE)
 	testing.expect(t, ITEM_ROSTER_SIZE >= 45)
 
@@ -412,7 +412,7 @@ ship_fit_first_empty_slot_takes_the_earliest_free_slot_of_matching_size :: proc(
 // The template holds Medium x3 (two exposed, then the concealed "hold 1"), so a
 // third Medium falls into the hold. That fallback is content-visible — it is what
 // decides whether a Condition_Self_Visibility effect fires — so it is pinned here
-// rather than left as an accident of slot order. core/run's Smuggler's Run archetype
+// rather than left as an accident of slot order. core/voyage's Smuggler's Run archetype
 // is built on exactly this.
 @(test)
 ship_fit_first_empty_slot_falls_back_from_exposed_slots_to_the_concealed_hold :: proc(t: ^testing.T) {
@@ -456,7 +456,7 @@ occupant_name :: proc(layout: []Layout_Slot, slot_name: string) -> string {
 // --- ship_fitting_output_scaled (issue #165) ---------------------------------
 
 // **A Modify_* effect is not output, and must survive a scaling untouched.** This is
-// the property core/run's Fight stakes leans on rather than a nicety: it scales whole
+// the property core/voyage's Fight stakes leans on rather than a nicety: it scales whole
 // Categories, and `.Muster` holds every Modify_Speed item in the roster (Spare Rigging,
 // Copper Sheathing, Outriggers, Enchanted Keel) alongside the muster phase's actual
 // fittings. A hostile's Speed is its archetype's axis, explicitly not a stakes

@@ -1,4 +1,4 @@
-package run
+package voyage
 
 import "../ship"
 import "core:math/rand"
@@ -516,7 +516,7 @@ voyage_trade_roster :: proc() -> []Trade_Axis {
 //
 // It takes a Zone rather than the node's full Scaling_Site because a swing is
 // zone-scaled and nothing else (#146: an exchange rate has no room for a second
-// axis — see TRADE_SWING_* in run.odin). So a Trade is the one primitive that
+// axis — see TRADE_SWING_* in voyage.odin). So a Trade is the one primitive that
 // reads *part* of its node's stakes; the Shop arm beside it in voyage_bake_stage
 // reads none.
 voyage_make_trade :: proc(zone: Zone, gen: rand.Generator) -> Stage_Trade {
@@ -580,7 +580,7 @@ Stock_Pool :: enum {
 // merchant you can (see the table below).
 //
 // **Not tier weighting, and not price.** Tier weighting is the stakes question, and
-// Shop deliberately reads no stakes at all (run.odin's scaling group says why: the
+// Shop deliberately reads no stakes at all (voyage.odin's scaling group says why: the
 // gradient a shop faces is the cargo the captain brings). Price is economy tuning,
 // which this map rules out of scope — and a per-pool discount would collide with
 // #124's depth surcharge, the one price knob that already exists.

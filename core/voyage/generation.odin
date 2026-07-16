@@ -1,4 +1,4 @@
-package run
+package voyage
 
 import "core:math/rand"
 
@@ -7,7 +7,7 @@ import "core:math/rand"
 // the module — it materializes the Nodes, scatters ports, deals each zone's
 // encounters from a shuffled recipe bag, and wires edges — sitting behind the
 // navigation seam (navigation.odin), which only reads the finished graph. Stakes
-// magnitudes come from the scaling group in run.odin, the encounters it deals
+// magnitudes come from the scaling group in voyage.odin, the encounters it deals
 // from the catalog (catalog.odin), and the per-stage content itself is built in
 // content.odin.
 

@@ -3,7 +3,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import combat "../../core/combat"
-import run "../../core/run"
+import voyage "../../core/voyage"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
@@ -55,7 +55,7 @@ play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
 	if !known {
 		return
 	}
-	reward, is_reward := stage.(run.Stage_Reward)
+	reward, is_reward := stage.(voyage.Stage_Reward)
 	if !is_reward {
 		return
 	}
@@ -117,7 +117,7 @@ halt_beat_text :: proc(state: ^Game_State, e: sim.Event_Encounter_Halted) -> str
 // to decline — so reaching them here is a Sim-side impossibility, panicked on rather
 // than given words, the same way sim_stage_decline_outcome refuses a stage that presents
 // no list.
-halt_verb :: proc(at: run.Stage_Kind) -> string {
+halt_verb :: proc(at: voyage.Stage_Kind) -> string {
 	switch at {
 	case .Fight:
 		return "You break off and slip away."
@@ -550,7 +550,7 @@ draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, cargo: int)
 // trade_stat_label names a tradeable stat for the player (issue #136). The enum's
 // own spelling is close but not presentable (Max_Hull), and a Trade is the first
 // screen that shows a stat by name rather than as a labeled row of the ship panel.
-trade_stat_label :: proc(stat: run.Trade_Stat) -> string {
+trade_stat_label :: proc(stat: voyage.Trade_Stat) -> string {
 	switch stat {
 	case .Hull:
 		return "Hull"
@@ -568,7 +568,7 @@ trade_stat_label :: proc(stat: run.Trade_Stat) -> string {
 // "+8 Durability", "-15 cargo". A Trade_Term stores only the positive magnitude
 // (the side it sits on carries the direction), so the sign is supplied here at
 // the point the player reads it.
-trade_term_line :: proc(term: run.Trade_Term, sign: string) -> string {
+trade_term_line :: proc(term: voyage.Trade_Term, sign: string) -> string {
 	return fmt.tprintf("%s%d %s", sign, term.amount, trade_stat_label(term.stat))
 }
 
@@ -632,7 +632,7 @@ trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 // what it takes, dimmed when the ship can't pay the cost (issue #136). Mirrors
 // draw_shop_item_box's affordable/unaffordable treatment, so "you can't pay for
 // this" looks the same wherever the player meets it.
-draw_trade_accept_box :: proc(box: rl.Rectangle, trade: run.Stage_Trade, can_accept: bool) {
+draw_trade_accept_box :: proc(box: rl.Rectangle, trade: voyage.Stage_Trade, can_accept: bool) {
 	fill := can_accept ? rl.LIGHTGRAY : rl.Color{210, 210, 210, 255}
 	rl.DrawRectangleRec(box, fill)
 	rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)

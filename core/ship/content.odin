@@ -34,7 +34,7 @@ HOSTILE_FILL_PERCENT :: 50
 // game did.
 //
 // Everything denominated in Hull scales with it: the roster's four Modify_Max_Hull
-// items, and Trade's two Hull-denominated swing rows (run.odin). **Durability does
+// items, and Trade's two Hull-denominated swing rows (voyage.odin). **Durability does
 // not** — it is denominated in *raw damage*, which did not move — which is why
 // STARTING_DURABILITY is still 2 and #146's Durability residue is still there.
 STARTING_HULL :: 100
@@ -100,7 +100,7 @@ ship_fitting_gun_deck :: proc() -> Fitting {
 // base's size/category and adds bonus on top of the base magnitude. bonus is
 // a caller-supplied scale (issue #23: an Upgrade Offer's quality rises by
 // zone, so a deeper node's upgrade should be worth more, and a PvE
-// opponent's gun deck scales the same way — see core/run's content.odin),
+// opponent's gun deck scales the same way — see core/voyage's content.odin),
 // not a fixed constant.
 ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) -> Fitting {
 	f := base
@@ -183,8 +183,8 @@ ship_item_cost :: proc(tier: Tier) -> int {
 }
 
 // ITEM_ROSTER_SIZE is how many distinct items ship_item_roster hands back — the
-// pool an Item Offer samples its options from (run.voyage_item_offer_options). Must
-// stay at least run.ITEM_OFFER_OPTION_COUNT so an offer can present that many
+// pool an Item Offer samples its options from (voyage.voyage_item_offer_options). Must
+// stay at least voyage.ITEM_OFFER_OPTION_COUNT so an offer can present that many
 // distinct items. The target is ADR-0012's "~50" (#97).
 ITEM_ROSTER_SIZE :: 50
 
@@ -304,7 +304,7 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 //
 // The (T, bool) return is the house idiom for a fallible read, but a miss here is
 // a *content* bug — an author's typo — not a runtime condition, so callers assert
-// rather than handle it. core/run's hostile roster (#135) is checked name by name
+// rather than handle it. core/voyage's hostile roster (#135) is checked name by name
 // by its own test, which is what turns "this compiles" into "these items exist".
 ship_item_by_name :: proc(name: string) -> (item: Roster_Item, ok: bool) {
 	for candidate in ship_item_roster() {
@@ -363,7 +363,7 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 
 // ship_fitting_output_scaled returns a copy of base with its combat **output**
 // scaled to `percent` percent of what was authored — the multiplicative sibling of
-// ship_fitting_scaled's additive bonus, and the shape core/run's Fight stakes reads
+// ship_fitting_scaled's additive bonus, and the shape core/voyage's Fight stakes reads
 // with (issue #165: an additive bonus can only ever add, so it gives a gradient no
 // way *down*). 100 returns the fitting as authored; 50 halves what it deals.
 //
@@ -376,7 +376,7 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // holds both the muster phase's fittings (Powder Monkeys) and every Modify_Speed item
 // in the roster (Spare Rigging, Copper Sheathing, Outriggers, Enchanted Keel) — and
 // a hostile's Speed is its archetype's axis, explicitly not a stakes reading
-// (core/run's Hostile_Archetype.speed). A caller that scales a whole category
+// (core/voyage's Hostile_Archetype.speed). A caller that scales a whole category
 // therefore cannot be trusted to have meant the speed items; this proc is what makes
 // "scale its output" mean only that.
 //

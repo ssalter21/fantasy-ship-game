@@ -1,14 +1,14 @@
 package sim
 
 import "../combat"
-import "../run"
+import "../voyage"
 import "../ship"
 
 // The generic encounter stage walk (issue #131, ADR-0014) — the Sim's single path
 // through *any* encounter, and the file that replaces the per-kind sim_item_offer.odin
 // and sim_shop.odin.
 //
-// An Encounter is an ordered stage list plus a cursor (core/run/stage.odin), and
+// An Encounter is an ordered stage list plus a cursor (core/voyage/stage.odin), and
 // walking it is the whole of the Sim's encounter control flow: enter the stage under
 // the cursor, let that stage resolve to completed or halted, advance or stop. There
 // is no phase graph per encounter kind, because there are no encounter kinds — a
@@ -35,7 +35,7 @@ import "../ship"
 // Stock_Position identifies a card by its position in a Shop stage's baked stock
 // (ADR-0011: distinct from a plain int so a stock position can't be silently swapped
 // with an Option_Index — the shelf-slot index into the *same* shop — or any other
-// index). It indexes run.Stage_Shop.stock; the shop the ship is currently in tracks
+// index). It indexes voyage.Stage_Shop.stock; the shop the ship is currently in tracks
 // its shelf by it (Shop_Visit).
 Stock_Position :: distinct int
 
@@ -68,7 +68,7 @@ Stock_Position :: distinct int
 // re-examining whether the deck-plus-window shape still earns its keep, and recording
 // the ADR-0013 supersession.)
 Shop_Visit :: struct {
-	slots:     [run.SHOP_SHELF_SIZE]Maybe(Stock_Position),
+	slots:     [voyage.SHOP_SHELF_SIZE]Maybe(Stock_Position),
 	next_draw: Stock_Position,
 	purchases: int,
 	open:      bool,
@@ -111,7 +111,7 @@ shop_visit_draw_next :: proc(visit: ^Shop_Visit, stock_count: int) -> Maybe(Stoc
 // landmarks by graph position, which no stage list can express). The pointer aims
 // into the Sim's own private voyage_map, so advancing the cursor through it moves the
 // real encounter; public_nodes is a separate masked copy and is unaffected.
-sim_current_encounter :: proc(sim: ^Sim) -> (^run.Encounter, bool) {
+sim_current_encounter :: proc(sim: ^Sim) -> (^voyage.Encounter, bool) {
 	encounter, ok := &sim.voyage_map.nodes[sim.current].encounter.?
 	return encounter, ok
 }
@@ -124,11 +124,11 @@ sim_current_encounter :: proc(sim: ^Sim) -> (^run.Encounter, bool) {
 // Every stage that resolves at arrival needs this and none of them needs it
 // differently, so it is asked here once rather than reassembled from node.zone and
 // node.depth at each primitive's arm.
-sim_current_site :: proc(sim: ^Sim) -> run.Scaling_Site {
+sim_current_site :: proc(sim: ^Sim) -> voyage.Scaling_Site {
 	node := sim.voyage_map.nodes[sim.current]
 	zone, has_zone := node.zone.?
 	assert(has_zone, "an Encounter node must have a zone")
-	return run.Scaling_Site{zone = zone, depth = node.depth}
+	return voyage.Scaling_Site{zone = zone, depth = node.depth}
 }
 
 // sim_walk_encounter presents the stage under the cursor, or finishes the encounter
@@ -170,7 +170,7 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	}
 
 	for {
-		stage, walking := run.voyage_encounter_current(encounter^)
+		stage, walking := voyage.voyage_encounter_current(encounter^)
 		if !walking {
 			sim.resolved[sim.current] = true
 			sim_emit_encounter_resolved(sim, events)
@@ -184,7 +184,7 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		// primitives, and *before* the stage presents, so "stage 2 of 3" is on screen by
 		// the time its decision is.
 		append(events, Event(Event_Stage_Entered{
-			kind  = run.voyage_stage_kind(stage),
+			kind  = voyage.voyage_stage_kind(stage),
 			index = encounter.cursor,
 			count = encounter.count,
 		}))
@@ -205,26 +205,26 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 //
 // The switch is exhaustive over the closed primitive set, so a sixth primitive is a
 // compile error here rather than a stage the walk silently skips.
-sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) -> Maybe(run.Stage_Outcome) {
+sim_enter_stage :: proc(sim: ^Sim, stage: voyage.Stage, events: ^[dynamic]Event) -> Maybe(voyage.Stage_Outcome) {
 	switch s in stage {
-	case run.Stage_Fight:
+	case voyage.Stage_Fight:
 		// The battle borrows the opponent for as long as it runs, so the stage is
 		// copied somewhere with a stable address rather than pointed at through the
 		// node's Maybe. Its outcome lands in sim_process_battle_round.
 		sim.active_encounter = s
-		sim.battle = run.voyage_start_battle(&sim.player, &sim.active_encounter)
+		sim.battle = voyage.voyage_start_battle(&sim.player, &sim.active_encounter)
 		append(events, Event(Event_Ship_Battle_Sighted{opponent = sim.active_encounter.opponent}))
 		append(events, Event(Event_Battle_Menu{may_break_off = combat.combat_may_break_off(&sim.battle, .A)}))
 		sim.phase = .Awaiting_Battle_Command
 		return nil
 
-	case run.Stage_Offer:
+	case voyage.Stage_Offer:
 		sim_stage_offer_options(sim, s)
 		append(events, Event(Event_Options_Presented{options = sim.stage_options}))
 		sim.phase = .Awaiting_Option_Choice
 		return nil
 
-	case run.Stage_Shop:
+	case voyage.Stage_Shop:
 		// Deal the shelf only on the cursor's arrival: a Refit's finish re-enters this
 		// same stage to re-present the refilled shelf, and must resume the visit rather
 		// than deal over it. sim_advance_stage clears `open` as the cursor leaves, so
@@ -237,19 +237,19 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		sim.phase = .Awaiting_Option_Choice
 		return nil
 
-	case run.Stage_Trade:
+	case voyage.Stage_Trade:
 		// The bargain is staged here because the answer arrives a tick later, so the
 		// stage's baked content has to outlive the entry. can_accept is measured now,
 		// against the ship as it stands.
 		sim.active_trade = s
 		append(events, Event(Event_Trade_Presented{
 			trade      = sim.active_trade,
-			can_accept = run.voyage_trade_can_accept(&sim.player, sim.active_trade),
+			can_accept = voyage.voyage_trade_can_accept(&sim.player, sim.active_trade),
 		}))
 		sim.phase = .Awaiting_Trade_Choice
 		return nil
 
-	case run.Stage_Reward:
+	case voyage.Stage_Reward:
 		// The one primitive that parks nowhere (#132, #133): a boon has nothing to
 		// decline, so it pays out and hands back .Completed in the same breath, and
 		// sim_walk_encounter's loop carries straight on to whatever follows it. This is
@@ -260,7 +260,7 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		// owes: the node's ghost is captured once, where the walk ends, so a Reward
 		// mid-recipe no longer emits one of its own (issue #162). Same as an accepted
 		// Trade, the other stage that grants on resolution.
-		run.voyage_apply_reward(&sim.player, s)
+		voyage.voyage_apply_reward(&sim.player, s)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		return .Completed
 	}
@@ -282,21 +282,21 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 // and the cursor still names the stage it applies to — and the asymmetry is
 // Event_Encounter_Halted's, not this proc's: a completion shows itself by what happens
 // next, a halt is the outcome with nothing to show.
-sim_advance_stage :: proc(sim: ^Sim, outcome: run.Stage_Outcome, events: ^[dynamic]Event) {
+sim_advance_stage :: proc(sim: ^Sim, outcome: voyage.Stage_Outcome, events: ^[dynamic]Event) {
 	encounter, has_encounter := sim_current_encounter(sim)
 	assert(has_encounter, "resolved a stage at a node that holds no encounter")
 
 	if outcome == .Halted {
-		stage, walking := run.voyage_encounter_current(encounter^)
+		stage, walking := voyage.voyage_encounter_current(encounter^)
 		assert(walking, "halted a stage on an encounter whose walk already finished")
 		append(events, Event(Event_Encounter_Halted{
-			at    = run.voyage_stage_kind(stage),
+			at    = voyage.voyage_stage_kind(stage),
 			index = encounter.cursor,
 			count = encounter.count,
 		}))
 	}
 
-	run.voyage_encounter_resolve_stage(encounter, outcome)
+	voyage.voyage_encounter_resolve_stage(encounter, outcome)
 	sim.shop_visit = {} // the cursor is leaving; a stage's working state dies with it
 }
 
@@ -318,7 +318,7 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	encounter, has_encounter := sim_current_encounter(sim)
 	assert(has_encounter, "an option choice was answered at a node that holds no encounter")
-	stage, walking := run.voyage_encounter_current(encounter^)
+	stage, walking := voyage.voyage_encounter_current(encounter^)
 	assert(walking, "an option choice was answered after the encounter's walk had finished")
 
 	selection, took := cmd.selection.?
@@ -351,19 +351,19 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	}
 
 	switch s in stage {
-	case run.Stage_Offer:
+	case voyage.Stage_Offer:
 		// Picking completes the Offer. The cursor moves off it now, so the Refit's
 		// finish resumes the walk at whatever comes next.
 		sim_advance_stage(sim, .Completed, events)
 
-	case run.Stage_Shop:
+	case voyage.Stage_Shop:
 		// A buy does *not* resolve the Shop: the cursor stays put, so the Refit's finish
 		// re-enters this same stage and re-presents it refilled — the multi-buy loop,
 		// now a property of where the cursor is rather than of a remembered origin.
 		sim.shop_visit.purchases += 1 // this shop is one item deeper; the next buy here costs more
 		sim.shop_visit.slots[selection] = shop_visit_draw_next(&sim.shop_visit, s.count)
 
-	case run.Stage_Fight, run.Stage_Trade, run.Stage_Reward:
+	case voyage.Stage_Fight, voyage.Stage_Trade, voyage.Stage_Reward:
 		panic("an option was taken from a stage that presents no option list")
 	}
 
@@ -379,13 +379,13 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 //
 // Exhaustive rather than "halt unless Shop": a sixth option-list primitive must state
 // its own answer here, not inherit one by falling through.
-sim_stage_decline_outcome :: proc(stage: run.Stage) -> run.Stage_Outcome {
+sim_stage_decline_outcome :: proc(stage: voyage.Stage) -> voyage.Stage_Outcome {
 	switch _ in stage {
-	case run.Stage_Offer:
+	case voyage.Stage_Offer:
 		return .Halted
-	case run.Stage_Shop:
+	case voyage.Stage_Shop:
 		return .Completed
-	case run.Stage_Fight, run.Stage_Trade, run.Stage_Reward:
+	case voyage.Stage_Fight, voyage.Stage_Trade, voyage.Stage_Reward:
 		panic("declined a stage that presents no option list")
 	}
 	unreachable()
@@ -395,7 +395,7 @@ sim_stage_decline_outcome :: proc(stage: run.Stage) -> run.Stage_Outcome {
 // distinct roster items it was baked with (ADR-0012), each free — an Offer's cost is
 // the halt it takes to refuse, not cargo. Slots past the Offer's own count stay
 // nil, since the shared list is as wide as the widest stage.
-sim_stage_offer_options :: proc(sim: ^Sim, offer: run.Stage_Offer) {
+sim_stage_offer_options :: proc(sim: ^Sim, offer: voyage.Stage_Offer) {
 	sim.stage_options = {}
 	for fitting, i in offer.options {
 		sim.stage_options[i] = Stage_Option{fitting = fitting}
@@ -407,7 +407,7 @@ sim_stage_offer_options :: proc(sim: ^Sim, offer: run.Stage_Offer) {
 // the price charged. Called on every entry to the stage — the cursor's arrival and
 // each return from a buy's Refit — so it always reflects what has already been drawn
 // and bought. A slot past the deck's tail has no card and stays nil.
-sim_stage_shop_options :: proc(sim: ^Sim, shop: run.Stage_Shop) {
+sim_stage_shop_options :: proc(sim: ^Sim, shop: voyage.Stage_Shop) {
 	sim.stage_options = {}
 	for slot, i in sim.shop_visit.slots {
 		pos, filled := slot.?
@@ -428,8 +428,8 @@ sim_stage_shop_options :: proc(sim: ^Sim, shop: run.Stage_Shop) {
 // leaves the tail slots nil — reachable since #137 gave pools an authored depth,
 // though no pool authors one that shallow today. Called once per Shop stage, as the
 // cursor lands on it.
-sim_deal_shop_visit :: proc(visit: ^Shop_Visit, shop: run.Stage_Shop) {
-	for i in 0 ..< run.SHOP_SHELF_SIZE {
+sim_deal_shop_visit :: proc(visit: ^Shop_Visit, shop: voyage.Stage_Shop) {
+	for i in 0 ..< voyage.SHOP_SHELF_SIZE {
 		visit.slots[i] = shop_visit_draw_next(visit, shop.count)
 	}
 	visit.open = true

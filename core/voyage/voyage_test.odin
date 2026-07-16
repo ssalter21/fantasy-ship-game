@@ -1,4 +1,4 @@
-package run
+package voyage
 
 import "../combat"
 import "../ship"

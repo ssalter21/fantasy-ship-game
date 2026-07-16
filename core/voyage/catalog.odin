@@ -1,4 +1,4 @@
-package run
+package voyage
 
 // The recipe catalog: every encounter in the game, hand-authored (ADR-0014).
 //

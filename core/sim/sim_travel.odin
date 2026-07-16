@@ -1,6 +1,6 @@
 package sim
 
-import "../run"
+import "../voyage"
 
 // sim_process_travel applies a submitted Command_Travel_To (issue #24):
 // arrives at the target node, and if it holds an as-yet-unresolved Encounter,
@@ -24,7 +24,7 @@ import "../run"
 sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	if !has_pending {
-		public_map := run.Map{nodes = sim.public_nodes, edges = sim.voyage_map.edges}
+		public_map := voyage.Map{nodes = sim.public_nodes, edges = sim.voyage_map.edges}
 		append(events, Event(Event_Voyage_Started{voyage_map = public_map, ship = sim.player}))
 		return
 	}
@@ -32,9 +32,9 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	assert(has_cmd, "sim_process_travel called without a pending Command_Travel_To")
 	sim.pending_command = nil
 
-	assert(run.voyage_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
+	assert(voyage.voyage_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
 	assert(
-		run.voyage_can_travel_to(sim.voyage_map, sim.current, sim.visited, cmd.node_id),
+		voyage.voyage_can_travel_to(sim.voyage_map, sim.current, sim.visited, cmd.node_id),
 		"Command_Travel_To to a node that is not a legal neighbor of the current position",
 	)
 

@@ -1,13 +1,13 @@
 package sim
 
 import "../combat"
-import "../run"
+import "../voyage"
 import "../ship"
 
 // sim_process_battle_round applies a submitted Command_Battle_Choice as the
 // player's (Side.A's) command for the current round, computes the scripted
 // opponent's (Side.B's) command (ADR-0008), and resolves the round via
-// core/combat. If the battle ends, it asks run.voyage_finish_ship_battle what that
+// core/combat. If the battle ends, it asks voyage.voyage_finish_ship_battle what that
 // ending means to the Fight stage and hands the outcome back to the walk.
 sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
@@ -50,7 +50,7 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	// Checked **before** voyage_finish_ship_battle so the wreck payout only ever runs for
 	// a captain who survived: a Destroyed ending reaching voyage_finish is then always the
 	// player's kill (#159), never a mutual kill or the player's own sinking.
-	if !run.voyage_can_travel(&sim.player) {
+	if !voyage.voyage_can_travel(&sim.player) {
 		return
 	}
 
@@ -67,7 +67,7 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	// presentation can name the haul and any overboard loss rather than let it vanish
 	// silently (issue #201).
 	cargo_before := ship.ship_cargo(sim.player)
-	outcome, payout := run.voyage_finish_ship_battle(&sim.battle)
+	outcome, payout := voyage.voyage_finish_ship_battle(&sim.battle)
 	if payout > 0 {
 		spilled := payout - (ship.ship_cargo(sim.player) - cargo_before)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))

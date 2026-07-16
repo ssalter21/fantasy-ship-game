@@ -3,7 +3,7 @@ package main
 import "core:fmt"
 import "core:slice"
 import combat "../../core/combat"
-import run "../../core/run"
+import voyage "../../core/voyage"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
@@ -45,7 +45,7 @@ main :: proc() {
 // get_captain_choice's awaiting parameter (issue #39) — not any field here
 // — is what decides which decision menu to render.
 Game_State :: struct {
-	voyage_map:          run.Map,
+	voyage_map:          voyage.Map,
 	positions:        []rl.Vector2, // parallel to voyage_map.nodes; screen position
 	visited:          []bool, // parallel to voyage_map.nodes; kept for rendering (revealing kinds, colouring nodes)
 	travel_options:   []sim.Node_ID, // borrowed from the latest Event_Travel_Options; the Sim's legal moves for the decision path
@@ -76,7 +76,7 @@ Game_State :: struct {
 	// cost — taken from the same event rather than re-derived here, since it turns
 	// on the ship's *effective* stats, which state.player's base fields don't give
 	// (the Sim owns that rule, exactly as it owns option affordability).
-	active_trade:     run.Stage_Trade,
+	active_trade:     voyage.Stage_Trade,
 	trade_can_accept: bool,
 	// refit_incoming is the item an open Refit is placing (issue #96), tracked
 	// from Event_Refit_Started and cleared once installed or the refit finishes,
@@ -85,7 +85,7 @@ Game_State :: struct {
 	// refit_move_from is the slot a two-click Refit move has selected as its
 	// source, or nil when no move is in progress (issue #96).
 	refit_move_from:  Maybe(ship.Slot_Index),
-	status:           run.Voyage_Status,
+	status:           voyage.Voyage_Status,
 }
 
 // get_captain_choice is the game Input_Source: it picks which blocking

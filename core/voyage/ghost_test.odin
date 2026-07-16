@@ -1,4 +1,4 @@
-package run
+package voyage
 
 import "../ship"
 import "core:testing"
