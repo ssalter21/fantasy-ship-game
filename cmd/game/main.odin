@@ -12,9 +12,7 @@ WINDOW_WIDTH :: 1024
 WINDOW_HEIGHT :: 700
 
 // VERSION is the build's git-SHA stamp, drawn in a window corner so playtest
-// feedback can be tied to an exact commit (issue #44). `odin build cmd/game
-// -define:GIT_SHA=abc1234` stamps abc1234; building without the define falls
-// back to "dev".
+// feedback can be tied to an exact commit. Set with `-define:GIT_SHA=…`.
 VERSION :: #config(GIT_SHA, "dev")
 
 main :: proc() {
@@ -36,69 +34,62 @@ main :: proc() {
 	sim.run_session(&s, input, sink)
 }
 
-// Game_State is the shared context both the Input_Source and Event_Sink
-// halves of the UI read/write (issue #24 — the same rawptr-sharing trick as
-// cmd/headless's Headless_State, since Odin gives each callback only its own
-// rawptr): dispatch records what the last event told us (current ship
-// state, sighted opponent, items on offer, an open refit, map layout) and every
-// blocking decision loop in menu.odin renders from this same state.
-// get_captain_choice's awaiting parameter (issue #39) — not any field here
-// — is what decides which decision menu to render.
+// Game_State is the shared context both the Input_Source and Event_Sink halves
+// of the UI read/write — the same rawptr-sharing trick as cmd/headless's
+// Headless_State, since Odin gives each callback only its own rawptr. dispatch
+// records what the last event told us; every blocking decision loop in menu.odin
+// renders from this same state. Which decision menu renders is decided by
+// get_captain_choice's awaiting parameter, not by any field here.
 Game_State :: struct {
 	voyage_map:          voyage.Map,
-	positions:        []rl.Vector2, // parallel to voyage_map.nodes; screen position
-	visited:          []bool, // parallel to voyage_map.nodes; kept for rendering (revealing kinds, colouring nodes)
-	travel_options:   []sim.Node_ID, // borrowed from the latest Event_Travel_Options; the Sim's legal moves for the decision path
+	positions:        []rl.Vector2, // parallel to voyage_map.nodes; screen position of each
+	visited:          []bool, // parallel to voyage_map.nodes; kept for rendering
+	travel_options:   []sim.Node_ID, // borrowed from the latest Event_Travel_Options; the Sim's legal moves
 	current_node_id:  sim.Node_ID,
 	player:           ship.Ship,
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
 	may_break_off:        bool,
-	// stage_options is the option list the current stage is presenting (issue #131),
-	// copied from Event_Options_Presented; option_menu_loop renders each filled
-	// position and offers a take-or-decline choice. One field, not the offer/shelf
-	// pair it replaces: an Item Offer's items and a shop's shelf cards are one list,
-	// differing only in whether an option carries a price. A nil position holds no
-	// option (a shelf slot past the deck's tail, or a slot past a narrower stage's
-	// count). Affordability is read live off the player's hold (ship.ship_cargo,
-	// kept current by Event_Ship_Updated), so no separate cargo field is tracked here.
+	// stage_options is the option list the current stage is presenting, copied from
+	// Event_Options_Presented; option_menu_loop renders each filled position and
+	// offers a take-or-decline choice. A nil position holds no option (a shelf slot
+	// past the deck's tail, or a slot past a narrower stage's count). Affordability
+	// is read live off the player's hold (ship.ship_cargo, kept current by
+	// Event_Ship_Updated), so no separate cargo field is tracked here.
 	stage_options:    [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option),
 	// stage_progress is where the current encounter's walk is — the last
-	// Event_Stage_Entered, or nil between encounters (issue #139). It is the **only**
-	// thing presentation knows about the cursor: the encounter's shape comes from the
-	// node handed over on arrival, whose own cursor is a frozen copy, so the walk's
-	// position has to be told rather than read. draw_encounter_strip renders it on every
-	// screen an encounter can be on; a halt's beat reads it to name what was forfeited.
+	// Event_Stage_Entered, or nil between encounters. It is the **only** thing
+	// presentation knows about the cursor: the encounter's shape comes from the node
+	// handed over on arrival, whose own cursor is a frozen copy, so the walk's
+	// position has to be told rather than read. draw_encounter_strip renders it;
+	// a halt's beat reads it to name what was forfeited.
 	stage_progress:   Maybe(sim.Event_Stage_Entered),
-	// active_trade is the bargain the current Trade stage is offering (issue #136),
-	// copied from Event_Trade_Presented; trade_menu_loop renders its two sides and
-	// offers accept-or-reject. trade_can_accept is whether the ship can pay the
-	// cost — taken from the same event rather than re-derived here, since it turns
-	// on the ship's *effective* stats, which state.player's base fields don't give
-	// (the Sim owns that rule, exactly as it owns option affordability).
+	// active_trade is the bargain the current Trade stage is offering, copied from
+	// Event_Trade_Presented; trade_menu_loop renders its two sides and offers
+	// accept-or-reject. trade_can_accept comes from the same event rather than being
+	// re-derived here, since it turns on the ship's *effective* stats, which
+	// state.player's base fields don't give (the Sim owns that rule).
 	active_trade:     voyage.Stage_Trade,
 	trade_can_accept: bool,
-	// refit_incoming is the item an open Refit is placing (issue #96), tracked
-	// from Event_Refit_Started and cleared once installed or the refit finishes,
-	// so refit_menu_loop knows whether it is placing an item or just rearranging.
+	// refit_incoming is the item an open Refit is placing, tracked from
+	// Event_Refit_Started and cleared once installed or the refit finishes, so
+	// refit_menu_loop knows whether it is placing an item or just rearranging.
 	refit_incoming:   Maybe(ship.Fitting),
-	// refit_move_from is the slot a two-click Refit move has selected as its
-	// source, or nil when no move is in progress (issue #96).
+	// refit_move_from is the slot a two-click Refit move has selected as its source,
+	// or nil when no move is in progress.
 	refit_move_from:  Maybe(ship.Slot_Index),
 	status:           voyage.Voyage_Status,
 }
 
-// get_captain_choice is the game Input_Source: it picks which blocking
-// decision menu to render (ADR-0002 — each menu_loop runs its own nested
-// render+poll loop and blocks until the player picks) based on awaiting,
-// Sim's current Phase.
+// get_captain_choice is the game Input_Source: it picks which blocking decision
+// menu to render, based on awaiting (the Sim's current Phase). Each menu_loop
+// runs its own nested render+poll loop and blocks until the player picks (ADR-0002).
 get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Game_State)data
 	if !rl.IsWindowReady() {
-		// No live window (e.g. under `odin test`): return a placeholder instead
-		// of entering a render loop that can never draw. This path only fires
-		// when there's no window to drive a real gated session, so the specific
-		// id isn't submitted to the Sim's travel gate.
+		// No live window (e.g. under `odin test`): return a placeholder instead of
+		// entering a render loop that can never draw. Never fires in a real gated
+		// session, so the specific id doesn't matter.
 		return sim.Command(sim.Command_Travel_To{node_id = 0})
 	}
 
@@ -119,20 +110,18 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	panic("unreachable")
 }
 
-// dispatch is the game Event_Sink: updates Game_State from every event and,
-// for the events that warrant it (a sighted opponent, a battle round, an
-// applied upgrade, the voyage ending), plays a blocking beat via play_beat/
+// dispatch is the game Event_Sink: updates Game_State from every event and, for
+// the events that warrant it, plays a blocking beat via play_beat /
 // play_battle_event_beat before returning control to run_session.
 dispatch :: proc(data: rawptr, event: sim.Event) {
 	state := cast(^Game_State)data
 
 	switch e in event {
 	case sim.Event_Voyage_Started:
-		// e.voyage_map is the Sim's masked public map (unvisited encounters' stages
-		// hidden). Its nodes are cloned into UI-owned storage so arrivals can
-		// reveal kinds into it (state.voyage_map.nodes[id] = revealed node); the
-		// edges/adjacency are borrowed (they never change). Start (id 0) counts
-		// as visited from the outset, matching the Sim's own visited set.
+		// e.voyage_map is the Sim's masked public map (unvisited stages hidden). Its
+		// nodes are cloned into UI-owned storage so arrivals can reveal kinds into it;
+		// the edges/adjacency are borrowed (they never change). Start (id 0) counts as
+		// visited from the outset, matching the Sim's own visited set.
 		state.voyage_map.nodes = slice.clone(e.voyage_map.nodes)
 		state.voyage_map.edges = e.voyage_map.edges
 		state.player = e.ship
@@ -141,13 +130,12 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		state.positions = compute_node_positions(e.voyage_map)
 
 	case sim.Event_Travel_Options:
-		// The Sim's legal moves for the upcoming travel decision (issue #83);
-		// travel_menu_loop offers exactly these instead of re-deriving them.
+		// The Sim's legal moves for the upcoming travel decision; travel_menu_loop
+		// offers exactly these instead of re-deriving them.
 		state.travel_options = e.options
-		// Being asked where to sail *is* the signal that the walk is over — the Sim emits
-		// this only from Awaiting_Travel_Choice, so it cannot land mid-encounter. So the
-		// strip clears here rather than needing an end-of-walk event of its own (issue
-		// #139).
+		// Being asked where to sail *is* the signal that the walk is over (the Sim emits
+		// this only from Awaiting_Travel_Choice), so the strip clears here rather than
+		// needing an end-of-walk event of its own.
 		state.stage_progress = nil
 
 	case sim.Event_Arrived_At_Node:
@@ -172,31 +160,30 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Wreck_Looted:
 		// A won Fight's payout has no screen of its own (unlike a Reward, which gets
 		// play_stage_entry_beat), so it is said out loud here — the haul, and any of it
-		// spilled overboard because the hold was full (issue #201, #196).
+		// spilled overboard because the hold was full.
 		play_beat(state, wreck_loot_beat_text(e.gross, e.spilled))
 
 	case sim.Event_Stage_Entered:
-		// The cursor moved: remember it so draw_encounter_strip can show the sequence and
-		// where in it the captain is (issue #139).
+		// The cursor moved: remember it so draw_encounter_strip can show the sequence
+		// and where in it the captain is.
 		state.stage_progress = e
 		play_stage_entry_beat(state, e)
 
 	case sim.Event_Encounter_Halted:
 		// A halt is the one outcome with nothing to show for itself, so it is said out
-		// loud (issue #139) — see halt_beat_text.
+		// loud — see halt_beat_text.
 		play_beat(state, halt_beat_text(state, e))
 
 	case sim.Event_Options_Presented:
-		// A stage that presents an option list was entered, or re-entered from a buy's
-		// refit (issue #131): remember its list so option_menu_loop can render it
-		// (refilled, after a buy). The cargo it renders comes from the player's hold
-		// (ship.ship_cargo, kept current by Event_Ship_Updated).
+		// A stage presenting an option list was entered, or re-entered from a buy's
+		// refit: remember its list so option_menu_loop can render it (refilled after a
+		// buy).
 		state.stage_options = e.options
 
 	case sim.Event_Trade_Presented:
-		// A Trade stage was entered (issue #136): remember the bargain and whether the
-		// ship can pay for it, so trade_menu_loop can render both sides and grey out an
-		// accept the ship can't afford.
+		// A Trade stage was entered: remember the bargain and whether the ship can pay
+		// for it, so trade_menu_loop can render both sides and grey out an unaffordable
+		// accept.
 		state.active_trade = e.trade
 		state.trade_can_accept = e.can_accept
 
@@ -204,9 +191,8 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		play_beat(state, fmt.tprintf("You can't afford %s.", e.option.fitting.name))
 
 	case sim.Event_Refit_Started:
-		// Opening a Refit (issue #96): remember the item being placed (nil for a
-		// rearrange-only refit) and clear any half-built move, so refit_menu_loop
-		// starts from a clean state.
+		// Opening a Refit: remember the item being placed (nil for a rearrange-only
+		// refit) and clear any half-built move, so refit_menu_loop starts clean.
 		state.refit_incoming = e.incoming
 		state.refit_move_from = nil
 
@@ -227,9 +213,9 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		state.refit_move_from = nil
 
 	case sim.Event_Encounter_Resolved:
-		// No cleanup needed: the snapshot lives in the Sim's own run-scoped
-		// arena and is reclaimed wholesale by sim_destroy (issue #52), and
-		// the UI has no use for a ghost snapshot beyond this dispatch.
+		// No cleanup needed: the snapshot lives in the Sim's own run-scoped arena and is
+		// reclaimed wholesale by sim_destroy, and the UI has no use for a ghost snapshot
+		// beyond this dispatch.
 
 	case sim.Event_Voyage_Ended:
 		state.status = e.status
