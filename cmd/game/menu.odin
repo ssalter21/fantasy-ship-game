@@ -248,7 +248,7 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	}
 	// The window is closing without a pick. state.travel_options is the Sim's
 	// emitted legal set for the current node — always non-empty at a travel
-	// decision (every non-Goal node has a forward edge) — so return its first
+	// decision (every non-Haven node has a forward edge) — so return its first
 	// entry: a legal move that winds the run down cleanly on quit, not the old
 	// illegal self-move. The assert makes that invariant load-bearing rather
 	// than risking an out-of-bounds index if it were ever violated.

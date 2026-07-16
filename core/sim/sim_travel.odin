@@ -19,7 +19,7 @@ import "../run"
 // **Every** encounter, Port included (issue #131). Ports used to re-open their shop
 // on each arrival, exempt from resolved[] as revisitable landmarks; ADR-0014 drops
 // that, so a Port is walked and resolved like anything else and its stock is not
-// something to come back to. Start and Goal are still pass-through waypoints, but by
+// something to come back to. Start and Haven are still pass-through waypoints, but by
 // carrying no encounter rather than by being asked what kind they are.
 sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
@@ -49,7 +49,7 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	// An arrival hands off to the generic stage walk and asks nothing about what
 	// kind of node this is (issue #131): the walk finds no encounter at a landmark
-	// and leaves the ship at a travel choice, so Start and Goal need no branch of
+	// and leaves the ship at a travel choice, so Start and Haven need no branch of
 	// their own — and neither does a Port, which generation bakes as a node
 	// carrying the [Shop] recipe (issue #134).
 	if already_resolved {

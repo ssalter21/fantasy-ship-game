@@ -184,8 +184,8 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 // options: among the forward (deeper-layer) options it prefers one whose stage
 // matches the policy's current battle preference, falling back to the first
 // forward option, and finally to the first option of any stage (never reached
-// before Goal, since every non-Goal node has a forward edge). Preferring
-// forward keeps the route progressing toward Goal instead of retracing.
+// before Haven, since every non-Haven node has a forward edge). Preferring
+// forward keeps the route progressing toward Haven instead of retracing.
 auto_pilot_next :: proc(pilot: ^Auto_Pilot) -> Node_ID {
 	assert(len(pilot.options) > 0, "no legal travel option from the current node")
 	cur_layer := pilot.m.nodes[pilot.current].layer
@@ -301,17 +301,17 @@ BOOST_OFFENSIVE :: combat.Command_Boost{phase = .Offensive}
 HOLD :: combat.Command_Hold{}
 
 @(test)
-a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
+a_battle_free_route_reaches_the_haven_and_wins :: proc(t: ^testing.T) {
 	// The graph forces a route through some node per layer, but dodging battles
-	// at every emitted option gets the ship to Goal unscathed — the redesign's
-	// "travel to Goal wins" over a real graph.
+	// at every emitted option gets the ship to Haven unscathed — the redesign's
+	// "travel to Haven wins" over a real graph.
 	//
 	// Re-pointed from seed 4 by the recipe catalog (#138), the third time a new
 	// generation-time draw has reshaped every seed's map (#135, #136). This one also
 	// moved the *odds*: a battle-free route existed on most seeds while every zone
 	// dealt the same 1-stage bucket and one recipe in three opened on a Fight. The
 	// catalog makes that 1-in-4 in Coastal but 1-in-2 in Open Sea and 3-in-5 in The
-	// Deep, so only 4 seeds in 40 still let a ship reach Goal untouched. Seed 9 is
+	// Deep, so only 4 seeds in 40 still let a ship reach Haven untouched. Seed 9 is
 	// one; that it is now scarce is the hard mapping meaning something, not a bug.
 	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
@@ -322,14 +322,14 @@ a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
 fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	// Fight the first (shallow, Coastal) battle the pilot reaches and boost
 	// Offensive, then dodge the rest: the fresh ship wins it and sails on to
-	// Goal, taking some damage along the way.
+	// Haven, taking some damage along the way.
 	//
 	// Re-pointed from seed 11 by the hostile roster (#135), then from seed 2 by the
 	// recipe catalog (#138), which #136 called: a new generation-time draw sits
 	// upstream of edge generation, so every seed's map reshapes and a scenario
 	// pinned to one has to be re-pinned. Seed 9's first battle is a Coastal one at
 	// depth 0 that this ship wins, and seed 9 is deliberately the same map
-	// a_battle_free_route_reaches_the_goal_and_wins sails: one map that both permits
+	// a_battle_free_route_reaches_the_haven_and_wins sails: one map that both permits
 	// a route around every fight and rewards taking the first one is a better pair of
 	// scenarios than two unrelated seeds.
 	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
@@ -341,7 +341,7 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 @(test)
 routing_through_every_battle_can_lose_the_run :: proc(t: ^testing.T) {
 	// Seeking every battle walks into fight after fight; a starting ship bleeds
-	// out before Goal — permadeath at 0 HP, unchanged. Seed 1's map has a
+	// out before Haven — permadeath at 0 HP, unchanged. Seed 1's map has a
 	// battle-seeking course long enough to be lethal.
 	res := drive_policy(1, .Seek_Battles, combat.Command(HOLD))
 	testing.expect_value(t, res.status, run.Run_Status.Lost)
@@ -352,7 +352,7 @@ routing_through_every_battle_can_lose_the_run :: proc(t: ^testing.T) {
 skipping_item_offers_on_the_route_leaves_the_loadout_unchanged :: proc(t: ^testing.T) {
 	// The battle-dodging route passes through Item Offers; the Auto_Pilot skips
 	// each (a nil Command_Choose_Option), so no Refit opens and the starting Gun Deck
-	// still sits in its Large exposed slot at Goal — the retired auto-replace path
+	// still sits in its Large exposed slot at Haven — the retired auto-replace path
 	// would have swapped it.
 	//
 	// Re-pointed from seed 4 to seed 9 with the battle-free route above (#138). The
@@ -577,7 +577,7 @@ travel_to_a_non_neighbor_node_asserts :: proc(t: ^testing.T) {
 	defer delete(events)
 	sim_tick(&sim, &events) // run start: awaiting a travel choice
 
-	// Goal (the last, deepest node) is never adjacent to Start.
+	// Haven (the last, deepest node) is never adjacent to Start.
 	illegal := Node_ID(len(sim.run_map.nodes) - 1)
 	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = illegal}))
 
@@ -620,7 +620,7 @@ the_run_start_broadcast_withholds_hidden_stages_and_reveals_on_arrival :: proc(t
 		_, public_has := public.encounter.?
 		private, private_has := sim.run_map.nodes[i].encounter.?
 		if !private_has {
-			testing.expect(t, !public_has) // Start/Goal carry no encounter to withhold
+			testing.expect(t, !public_has) // Start/Haven carry no encounter to withhold
 			continue
 		}
 		if run.run_encounter_reveals(private) {
@@ -890,7 +890,7 @@ a_refit_slot_index_out_of_range_asserts :: proc(t: ^testing.T) {
 // white-box test privilege.
 //
 // It asserts the node has a zone, since stages read it as their stakes: a stage list
-// planted on Start or Goal would fail deep inside a primitive rather than here.
+// planted on Start or Haven would fail deep inside a primitive rather than here.
 install_encounter :: proc(sim: ^Sim, id: Node_ID, stages: ..run.Stage) {
 	assert(len(stages) > 0 && len(stages) <= run.ENCOUNTER_MAX_STAGES, "test installed a stage list an Encounter cannot hold")
 	_, zoned := sim.run_map.nodes[id].zone.?
@@ -2220,7 +2220,7 @@ arriving_at_a_shop_presents_the_top_of_its_stock :: proc(t: ^testing.T) {
 
 @(test)
 a_node_holding_no_encounter_leaves_the_ship_at_a_travel_choice :: proc(t: ^testing.T) {
-	// Start and Goal are landmarks by graph position, which no stage list can express
+	// Start and Haven are landmarks by graph position, which no stage list can express
 	// (ADR-0014) — so they hold no encounter, and the walk asks nothing about what
 	// kind of node it is: finding nothing to walk *is* how a pure waypoint works.
 	// This is what lets sim_process_travel hand every arrival to the walk unasked.

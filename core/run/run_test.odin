@@ -222,8 +222,8 @@ depth_normalization_maps_shallow_and_deep_to_stable_endpoints :: proc(t: ^testin
 
 @(test)
 node_kind_says_only_where_a_node_sits_never_what_it_holds :: proc(t: ^testing.T) {
-	// The end state ADR-0014 named and #137 reached: Start | Encounter | Goal. Start
-	// and Goal are landmarks by graph *position*, which no stage list can express;
+	// The end state ADR-0014 named and #137 reached: Start | Encounter | Haven. Start
+	// and Haven are landmarks by graph *position*, which no stage list can express;
 	// everything else is an Encounter, and what it holds is asked of its stages.
 	//
 	// This replaces run_node_is_port_is_true_for_start_and_zone_ports_but_not_encounter_or_goal.
@@ -232,7 +232,7 @@ node_kind_says_only_where_a_node_sits_never_what_it_holds :: proc(t: ^testing.T)
 	// port's shop its [Shop] stage. This asserts the enum stays shut, so a future
 	// content-bearing kind has to argue with a failing test first.
 	testing.expect_value(t, len(Node_Kind), 3)
-	testing.expect_value(t, max(Node_Kind), Node_Kind.Goal)
+	testing.expect_value(t, max(Node_Kind), Node_Kind.Haven)
 }
 
 @(test)
@@ -402,18 +402,18 @@ only_the_port_bucket_opens_on_a_shop :: proc(t: ^testing.T) {
 // single lucky/unlucky seed can't mask a generation bug.
 TEST_SEEDS := []u64{0, 1, 2, 7, 42, 1000, 123456}
 
-goal_id :: proc(m: Map) -> Node_ID {
+haven_id :: proc(m: Map) -> Node_ID {
 	for p in m.nodes {
-		if p.kind == .Goal {
+		if p.kind == .Haven {
 			return p.id
 		}
 	}
 	return -1
 }
 
-// forward_reaches_goal reports whether start can reach goal following only
+// forward_reaches_haven reports whether start can reach haven following only
 // forward edges (strictly-higher layer), verifying the forward DAG.
-forward_reaches_goal :: proc(m: Map, start, goal: Node_ID) -> bool {
+forward_reaches_haven :: proc(m: Map, start, haven: Node_ID) -> bool {
 	visited := make([]bool, len(m.nodes))
 	defer delete(visited)
 	stack: [dynamic]Node_ID
@@ -422,7 +422,7 @@ forward_reaches_goal :: proc(m: Map, start, goal: Node_ID) -> bool {
 	visited[start] = true
 	for len(stack) > 0 {
 		u := pop(&stack)
-		if u == goal {
+		if u == haven {
 			return true
 		}
 		for v in m.edges[u] {
@@ -436,14 +436,14 @@ forward_reaches_goal :: proc(m: Map, start, goal: Node_ID) -> bool {
 }
 
 @(test)
-every_non_goal_node_has_a_forward_path_to_goal_and_no_dead_ends :: proc(t: ^testing.T) {
+every_non_haven_node_has_a_forward_path_to_haven_and_no_dead_ends :: proc(t: ^testing.T) {
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
-		goal := goal_id(m)
+		haven := haven_id(m)
 		for p in m.nodes {
-			if p.kind == .Goal {
+			if p.kind == .Haven {
 				continue
 			}
 			// No dead ends: at least one forward (higher-layer) edge.
@@ -455,8 +455,8 @@ every_non_goal_node_has_a_forward_path_to_goal_and_no_dead_ends :: proc(t: ^test
 				}
 			}
 			testing.expectf(t, has_forward, "seed %d: node %d is a dead end", seed, p.id)
-			// Reachability: a forward path to Goal exists.
-			testing.expectf(t, forward_reaches_goal(m, p.id, goal), "seed %d: node %d cannot reach Goal", seed, p.id)
+			// Reachability: a forward path to Haven exists.
+			testing.expectf(t, forward_reaches_haven(m, p.id, haven), "seed %d: node %d cannot reach Haven", seed, p.id)
 		}
 	}
 }
@@ -490,12 +490,12 @@ every_node_is_reachable_from_start :: proc(t: ^testing.T) {
 }
 
 @(test)
-run_map_create_has_fifty_nodes_plus_start_and_goal :: proc(t: ^testing.T) {
+run_map_create_has_fifty_nodes_plus_start_and_haven :: proc(t: ^testing.T) {
 	for seed in TEST_SEEDS {
 		m := run_map_create(seed)
 		defer run_map_destroy(&m)
 
-		// 1 Start + 50 zone nodes + 1 Goal = 52.
+		// 1 Start + 50 zone nodes + 1 Haven = 52.
 		testing.expectf(t, len(m.nodes) == 52, "seed %d: expected 52 nodes, got %d", seed, len(m.nodes))
 	}
 }
@@ -577,7 +577,7 @@ each_zone_deals_only_its_own_stage_count_bucket :: proc(t: ^testing.T) {
 		for p in m.nodes {
 			zone, in_zone := p.zone.?
 			if !in_zone || p.kind != .Encounter {
-				continue // Start/Goal hold nothing.
+				continue // Start/Haven hold nothing.
 			}
 			if _, is_port := node_port_shop(p); is_port {
 				continue // Bespoke-placed and exempt from the zone's stage count.
@@ -1071,8 +1071,8 @@ forward_out_degree_stays_within_bounds_for_non_start_nodes :: proc(t: ^testing.T
 		defer run_map_destroy(&m)
 
 		for p in m.nodes {
-			if p.kind == .Start || p.kind == .Goal {
-				continue // Start fans out to the whole first layer; Goal has none.
+			if p.kind == .Start || p.kind == .Haven {
+				continue // Start fans out to the whole first layer; Haven has none.
 			}
 			forward := 0
 			for v in m.edges[p.id] {
@@ -1086,26 +1086,26 @@ forward_out_degree_stays_within_bounds_for_non_start_nodes :: proc(t: ^testing.T
 }
 
 @(test)
-run_map_create_has_exactly_one_start_and_one_goal_neither_belonging_to_a_zone :: proc(t: ^testing.T) {
+run_map_create_has_exactly_one_start_and_one_haven_neither_belonging_to_a_zone :: proc(t: ^testing.T) {
 	m := run_map_create(0)
 	defer run_map_destroy(&m)
 
-	start_count, goal_count := 0, 0
+	start_count, haven_count := 0, 0
 	for node in m.nodes {
 		if node.kind == .Start {
 			start_count += 1
 			_, has_zone := node.zone.?
 			testing.expect(t, !has_zone)
 		}
-		if node.kind == .Goal {
-			goal_count += 1
+		if node.kind == .Haven {
+			haven_count += 1
 			_, has_zone := node.zone.?
 			testing.expect(t, !has_zone)
 		}
 	}
 
 	testing.expect_value(t, start_count, 1)
-	testing.expect_value(t, goal_count, 1)
+	testing.expect_value(t, haven_count, 1)
 }
 
 @(test)
@@ -1193,7 +1193,7 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 // reason about exactly, independent of the generator's randomness:
 //   layer 0: 0 (Start)
 //   layer 1: 1, 2   (1-2 is a lateral edge)
-//   layer 2: 3 (Goal)
+//   layer 2: 3 (Haven)
 // Edges: 0-1, 0-2, 1-2 (lateral), 1-3, 2-3. Its nodes/edges are
 // package-level so their backing arrays outlive any single test call (a Map
 // returned from a proc with local composite-literal slices would dangle).
@@ -1201,7 +1201,7 @@ legality_nodes := []Node{
 	{id = 0, kind = .Start, layer = 0, lane = 0},
 	{id = 1, kind = .Encounter, layer = 1, lane = 0},
 	{id = 2, kind = .Encounter, layer = 1, lane = 1},
-	{id = 3, kind = .Goal, layer = 2, lane = 0},
+	{id = 3, kind = .Haven, layer = 2, lane = 0},
 }
 legality_edges := [][]Node_ID{{1, 2}, {0, 2, 3}, {0, 1, 3}, {1, 2}}
 
@@ -1645,23 +1645,23 @@ run_apply_trade_asserts_on_a_trade_the_ship_cannot_pay_for :: proc(t: ^testing.T
 }
 
 @(test)
-run_status_is_won_when_the_ship_reaches_goal_with_positive_hp :: proc(t: ^testing.T) {
+run_status_is_won_when_the_ship_reaches_haven_with_positive_hp :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 1}
-	goal := Node{kind = .Goal}
+	haven := Node{kind = .Haven}
 
-	testing.expect_value(t, run_status(&s, goal), Run_Status.Won)
+	testing.expect_value(t, run_status(&s, haven), Run_Status.Won)
 }
 
 @(test)
-run_status_is_lost_when_hp_reaches_zero_even_at_the_goal :: proc(t: ^testing.T) {
+run_status_is_lost_when_hp_reaches_zero_even_at_the_haven :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 0}
-	goal := Node{kind = .Goal}
+	haven := Node{kind = .Haven}
 
-	testing.expect_value(t, run_status(&s, goal), Run_Status.Lost)
+	testing.expect_value(t, run_status(&s, haven), Run_Status.Lost)
 }
 
 @(test)
-run_status_is_in_progress_away_from_goal_with_positive_hp :: proc(t: ^testing.T) {
+run_status_is_in_progress_away_from_haven_with_positive_hp :: proc(t: ^testing.T) {
 	s := ship.Ship{hp = 20}
 	encounter_node := Node{kind = .Encounter}
 

@@ -235,7 +235,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		state.status = e.status
 		message := "Your ship has been lost."
 		if e.status == .Won {
-			message = "Victory! You reached the Goal."
+			message = "Victory! You reached Haven."
 		}
 		play_beat(state, message)
 	}

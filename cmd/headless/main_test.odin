@@ -30,7 +30,7 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 	travel, ok := cmd.(sim.Command_Travel_To)
 	testing.expect(t, ok)
 	// The chosen destination must be one of the emitted options and a forward
-	// step (a deeper layer) — progress toward Goal, never an illegal jump.
+	// step (a deeper layer) — progress toward Haven, never an illegal jump.
 	testing.expect(t, run.run_can_travel_to(m, 0, visited, travel.node_id))
 	testing.expect(t, m.nodes[travel.node_id].layer > m.nodes[0].layer)
 }
