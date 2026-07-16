@@ -41,7 +41,7 @@ DEPTH_STEPS :: 3
 
 // The stakes constants below belong to **stage primitives**, not to encounter
 // kinds (ADR-0014): one gradient, read differently by each primitive — Fight as
-// opponent power, Offer as item quality, Trade as swing size, Reward as treasure.
+// opponent power, Offer as item quality, Trade as swing size, Reward as cargo.
 // Grouping them by primitive is what lets a recipe compose stages without asking
 // which kind of encounter it is. Shop still has no per-tier/per-depth constants:
 // it prices by item tier (ship_item_cost), and lands here if that stops being
@@ -60,7 +60,7 @@ FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
 // The power reading is a **percent**, not a bonus (#165, ADR-0019) — the one
 // reading in this group that multiplies rather than adds, and the only one that
 // needs to. Every other primitive's reading is a quantity the site *grants*
-// (treasure, item quality, a swing), so zero is a coherent floor and adding is the
+// (cargo, item quality, a swing), so zero is a coherent floor and adding is the
 // whole of what it does. A hostile is not granted: it arrives already authored, and
 // what the site decides is **how much of it lands here**. An additive bonus cannot
 // say "less than what was authored", so the gradient's floor was whatever #135
@@ -115,7 +115,7 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // Every other primitive's reading answers only to itself — if a hostile's HP is
 // too low, raise it. A rate table is a set of *ratios*, so a row can only be read
 // against the other rows, and the anchor they are all read against is the item
-// roster: ADR-0012 already prices each stat in treasure, by tier, and a Shop is
+// roster: ADR-0012 already prices each stat in cargo, by tier, and a Shop is
 // where a captain actually converts one into the other. That price list says a
 // point of Durability and a point of Speed cost exactly the same (Iron Plating
 // +1 Durability and Spare Rigging +1 Speed are both Splash, both 10; Reinforced
@@ -136,8 +136,8 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // the point, while Speed's 1 was the *cost* side, where being honest was. A welded
 // axis only ever has to work in one direction, so exactly one of its two rows had
 // to be wrong the moment #136 let a roster entry run it backwards. Eight points of
-// Durability is not a fitting, it is an armoured fleet — 96 treasure of armour on a
-// starting purse of 50 — so Stripped Spars and Scrapped Armour could never be paid.
+// Durability is not a fitting, it is an armoured fleet — 96 cargo of armour on a
+// starting cargo of 50 — so Stripped Spars and Scrapped Armour could never be paid.
 //
 // # Why no PER_DEPTH row (issue #146)
 //
@@ -169,7 +169,7 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // say the same thing, so this is a discovered equality rather than a chosen one.
 //
 // The residue: a Deep Durability swing is 3 against a bare hull's 2, so the two
-// Durability-costing entries need a single Iron Plating (10 treasure, the cheapest
+// Durability-costing entries need a single Iron Plating (10 cargo, the cheapest
 // item in the game) before The Deep will take them. That is content, not a dead
 // node — you cannot strip armour you never bought — and it is the last of the
 // starting-Durability-of-2 problem, which is combat's band to widen (#151) and not
@@ -180,10 +180,10 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // nothing prices a repair. It keeps #136's authored relationship instead — twice
 // Max HP's, since a point of permanent ceiling is worth more than a point of
 // one-off repair — which Cannibalized Timbers spends as a flat 2 HP per Max HP at
-// every zone. Treasure keeps its 15: it is anchored the other way, to Reward's
+// every zone. Cargo keeps its 15: it is anchored the other way, to Reward's
 // payout (#133's `a_reward_outpays_selling_a_stat_at_the_same_site`), and the
 // item ladder's own non-linearity (10/25/45 against zone_tier's 1/2/3) is economy
-// tuning this map rules out of scope. That leaves Treasure quoting ~1.36x the
+// tuning this map rules out of scope. That leaves Cargo quoting ~1.36x the
 // other rows at Coastal and meeting them exactly at The Deep — the known residual,
 // and #124's business rather than this table's.
 //
@@ -196,8 +196,8 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // Max HP's row is still read straight off that price list: 8/16/24 against Salt
 // Provisions, Ship's Surgeon and Treasure Vault, exactly as 2/4/6 was before. HP's
 // row keeps its "twice Max HP's" relationship for the same reason it always had it.
-// The other rows are untouched — Durability is denominated in raw damage, Treasure
-// in treasure, and neither scale moved. (Speed's row is gone entirely: Speed left
+// The other rows are untouched — Durability is denominated in raw damage, Cargo
+// in cargo, and neither scale moved. (Speed's row is gone entirely: Speed left
 // the Trade vocabulary with ADR-0020/#180, so there is no swing to quote for it.)
 //
 // **#151 did not reopen the depth axis**, contrary to what the note above hoped:
@@ -207,15 +207,15 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 TRADE_SWING_HP_PER_TIER :: 16
 TRADE_SWING_MAX_HP_PER_TIER :: 8
 TRADE_SWING_DURABILITY_PER_TIER :: 1
-TRADE_SWING_TREASURE_PER_TIER :: 15
+TRADE_SWING_CARGO_PER_TIER :: 15
 
-// The Reward primitive's stakes constants are its treasure payout (issue #132) —
-// the whole of what a Reward is tuned by, since treasure is the whole of what it
+// The Reward primitive's stakes constants are its cargo payout (issue #132) —
+// the whole of what a Reward is tuned by, since cargo is the whole of what it
 // grants. #130 recorded that "Reward has nothing to tune" and left it out of this
 // group; that held only while the primitive was an empty arm, and #132 superseded
 // it by giving Reward something to grant.
 //
-// Anchored against the Treasure *swing* above, and deliberately a little above it:
+// Anchored against the Cargo *swing* above, and deliberately a little above it:
 // the swing is the price a stat fetches when sold (run_trade_swing is the exchange
 // rate between stats), so quoting the payout against it is what makes "is looting
 // worth it" a question with an answer. It pays **more** than selling a stat because
@@ -226,12 +226,12 @@ TRADE_SWING_TREASURE_PER_TIER :: 15
 // (ADR-0014) and tuning one must not silently move the other.
 //
 // Placeholders on the same footing as every constant in this group. For scale: at
-// the starting purse of 50 against item costs of 10/25/45, a Coastal reward is a
+// the starting cargo of 50 against item costs of 10/25/45, a Coastal reward is a
 // Small item and a Deep one is a Large item with change — which is the point of
 // #132's answer, since a Shop stage the player cannot afford to meet is a worse
 // Offer.
-REWARD_TREASURE_PER_TIER :: 20
-REWARD_TREASURE_PER_DEPTH :: 5
+REWARD_CARGO_PER_TIER :: 20
+REWARD_CARGO_PER_DEPTH :: 5
 
 // Scaling_Site is a node's position on the stakes gradient: the (zone, depth)
 // pair every zone-and-depth-scaled formula below reads. It says *how much is on
@@ -331,13 +331,13 @@ run_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 		return zone_tier[zone] * TRADE_SWING_MAX_HP_PER_TIER
 	case .Durability:
 		return zone_tier[zone] * TRADE_SWING_DURABILITY_PER_TIER
-	case .Treasure:
-		return zone_tier[zone] * TRADE_SWING_TREASURE_PER_TIER
+	case .Cargo:
+		return zone_tier[zone] * TRADE_SWING_CARGO_PER_TIER
 	}
 	unreachable()
 }
 
-// run_reward_treasure is the Reward primitive's stakes reading: the treasure a
+// run_reward_cargo is the Reward primitive's stakes reading: the cargo a
 // Reward at this site pays out (issue #132). A Deep reward outweighs a Coastal
 // one, and a deeper node in a zone outpays a shallower one.
 //
@@ -347,9 +347,9 @@ run_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 // count; a primitive that reads the stage before it stops working the moment it is
 // composed differently, which is the whole thing composable stages exist to avoid.
 // The opponent's "Spoils" cargo (run_fit_pve_opponent_loadout) stays flavour until
-// #143 makes treasure literally cargo.
-run_reward_treasure :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, REWARD_TREASURE_PER_TIER, REWARD_TREASURE_PER_DEPTH)
+// #143 makes cargo literally cargo.
+run_reward_cargo :: proc(site: Scaling_Site) -> int {
+	return run_zone_depth_scaled(site, REWARD_CARGO_PER_TIER, REWARD_CARGO_PER_DEPTH)
 }
 
 // Node_Kind is what a Node is: the Start, an Encounter, or the Goal — ADR-0014's

@@ -91,7 +91,7 @@ Option_Index :: distinct int
 STAGE_OPTION_MAX :: max(run.ITEM_OFFER_OPTION_COUNT, run.SHOP_SHELF_SIZE)
 
 // Stage_Option is one line of an option-list stage's presented list (issue #131):
-// the `fitting` on offer, and what it `cost`s in treasure — nil when the option is
+// the `fitting` on offer, and what it `cost`s in cargo — nil when the option is
 // free.
 //
 // That Maybe is the *entire* difference between an Item Offer's options and a Port
@@ -99,7 +99,7 @@ STAGE_OPTION_MAX :: max(run.ITEM_OFFER_OPTION_COUNT, run.SHOP_SHELF_SIZE)
 // few distinct roster items and ask the captain to take one or decline; a Shop's
 // carry a price and an Offer's don't. A nil cost is not "free" as a magic zero — it
 // says there is no price to check, so sim_process_option_choice skips
-// affordability entirely rather than comparing against 0 and hoping the purse is
+// affordability entirely rather than comparing against 0 and hoping the cargo is
 // never negative.
 Stage_Option :: struct {
 	fitting: ship.Fitting,
@@ -409,13 +409,13 @@ Event_Ship_Updated :: struct {
 }
 
 // Event_Wreck_Looted is dispatched when a won Fight pays out the sunk opponent's
-// hold (#159, #196): `gross` is the wreck's whole treasure, `spilled` how much of
+// hold (#159, #196): `gross` is the wreck's whole cargo, `spilled` how much of
 // it fell overboard because the player's hold was already near capacity (#157).
 // The `ship` change itself still rides Event_Ship_Updated (the panel re-renders off
 // that alone); this is the extra fact presentation needs to *say what happened* —
 // naming the haul, and any spill, on the beat a Reward payout gets from its own
 // stage-entry beat. It carries the amounts rather than the ship because the spilled
-// treasure is by definition not on the post-payout ship: it is the difference
+// cargo is by definition not on the post-payout ship: it is the difference
 // between what the wreck held and what actually fit, so it cannot be re-derived
 // from Event_Ship_Updated's copy. `spilled` is 0 for the common in-capacity payout.
 Event_Wreck_Looted :: struct {
@@ -492,7 +492,7 @@ Event_Encounter_Halted :: struct {
 // Presentation renders each option's tags, phase, size, effect intent — and its
 // cost where it has one — and offers a take-one-or-decline choice; taking a priced
 // option it can afford, or any free one, opens a Refit (Event_Refit_Started). The
-// purse affordability is measured against is the ship's hold (ship_treasure), read
+// cargo affordability is measured against is the ship's hold (ship_cargo), read
 // off the latest Event_Ship_Updated — not duplicated here, so the two can't disagree.
 Event_Options_Presented :: struct {
 	options: [STAGE_OPTION_MAX]Maybe(Stage_Option),
@@ -516,7 +516,7 @@ Event_Trade_Presented :: struct {
 }
 
 // Event_Purchase_Rejected reports a buy the ship could not afford (issue #98): the
-// option's cost exceeds the current hold (ship_treasure), so no treasure is spent and
+// option's cost exceeds the current hold (ship_cargo), so no cargo is spent and
 // no Refit opens — the stage simply stays open for another choice. `option` echoes
 // the refused line, at the price it was refused at, so presentation can explain it
 // — mirroring Event_Refit_Rejected's echo of a refused loadout command. Only a

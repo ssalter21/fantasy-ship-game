@@ -457,8 +457,8 @@ jettison_cargo_on_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
 }
 
 @(test)
-reallocate_moves_treasure_between_holds_without_changing_weight_or_speed :: proc(t: ^testing.T) {
-	// Reallocation pours treasure from one hold into another, conserving the total
+reallocate_moves_cargo_between_holds_without_changing_weight_or_speed :: proc(t: ^testing.T) {
+	// Reallocation pours cargo from one hold into another, conserving the total
 	// aboard (ADR-0020, #157): weight is unchanged, so Speed does not move the round it
 	// is issued — what it buys is jettison granularity, not Speed. A full Large (40)
 	// pours into an empty Small, capped at the Small's 10 capacity (the destination
@@ -489,7 +489,7 @@ reallocate_moves_treasure_between_holds_without_changing_weight_or_speed :: proc
 	dst, ok1 := a.layout[1].fitting.?
 	testing.expect(t, ok1)
 	testing.expect_value(t, dst.stack_count, 10) // a new Small hold, full
-	testing.expect_value(t, ship.ship_treasure(a), 40) // conserved
+	testing.expect_value(t, ship.ship_cargo(a), 40) // conserved
 	testing.expect_value(t, combat_effective_speed(&battle, .A), before) // no weight shifted
 
 	found := false
@@ -570,7 +570,7 @@ reallocate_into_a_partial_hold_grows_it_up_to_capacity :: proc(t: ^testing.T) {
 	dst, ok1 := a.layout[1].fitting.?
 	testing.expect(t, ok1)
 	testing.expect_value(t, dst.stack_count, 20) // 5 + 15, a full Medium
-	testing.expect_value(t, ship.ship_treasure(a), 45)
+	testing.expect_value(t, ship.ship_cargo(a), 45)
 }
 
 @(test)
@@ -674,7 +674,7 @@ reallocate_into_a_full_hold_moves_nothing_and_asserts :: proc(t: ^testing.T) {
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
-	// A full destination has no room, so the move would shift 0 treasure — the menu
+	// A full destination has no room, so the move would shift 0 cargo — the menu
 	// never offers it (battle_reallocate_can_receive), and the combat layer asserts,
 	// exactly like jettisoning an empty slot buys nothing.
 	from_cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
@@ -692,7 +692,7 @@ reallocate_into_a_full_hold_moves_nothing_and_asserts :: proc(t: ^testing.T) {
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
 	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	testing.expect_assert(t, "Command_Reallocate moves no treasure (source empty or destination full)")
+	testing.expect_assert(t, "Command_Reallocate moves no cargo (source empty or destination full)")
 	combat_resolve_round(&battle, cmds, &events)
 }
 
@@ -1012,7 +1012,7 @@ find_battle_ended :: proc(events: []Event) -> (Event_Battle_Ended, bool) {
 }
 
 // Heaved cargo is destroyed, never settled (ADR-0020, #159): there is no
-// post-battle settlement to hand it back, so the ship's purse just falls by the
+// post-battle settlement to hand it back, so the ship's cargo just falls by the
 // hold and stays fallen — win or lose. The literal "claimed by the opponent"
 // reading was retired because it would make jettison free whenever you win.
 @(test)
@@ -1024,7 +1024,7 @@ jettisoned_cargo_is_destroyed_with_nothing_to_settle :: proc(t: ^testing.T) {
 	}
 	b := ship.Ship{hp = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
-	testing.expect_value(t, ship.ship_treasure(a), 10)
+	testing.expect_value(t, ship.ship_cargo(a), 10)
 
 	events: [dynamic]Event
 	defer delete(events)
@@ -1032,8 +1032,8 @@ jettisoned_cargo_is_destroyed_with_nothing_to_settle :: proc(t: ^testing.T) {
 	cmds[.A] = Command(Command_Jettison_Cargo{slot_index = 0})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// The purse is lighter, and there is no settlement path to give it back.
-	testing.expect_value(t, ship.ship_treasure(a), 0)
+	// The cargo is lighter, and there is no settlement path to give it back.
+	testing.expect_value(t, ship.ship_cargo(a), 0)
 }
 
 @(test)

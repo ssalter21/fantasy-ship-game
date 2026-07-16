@@ -291,10 +291,10 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 	)
 	// The weight economy, in the glossary's words (issue #201, ADR-0020). Weight is
 	// the subtrahend the SPD above reads (ship_effective_speed subtracts weight/10), so
-	// the captain can finally see the number that governs their Speed. "Hold X/Y" is the
-	// purse rendered as the treasure in the cargo holds against the hull's capacity
-	// (ship_treasure / ship_cargo_capacity) — no bare money number rides on a ship, and
-	// "your hold is full" now means treasure has met capacity. It doubles as the ceiling
+	// the captain can finally see the number that governs their Speed. "Hold X/Y" renders
+	// the cargo in the holds against the hull's capacity
+	// (ship_cargo / ship_cargo_capacity) — no bare money number rides on a ship, and
+	// "your hold is full" now means cargo has met capacity. It doubles as the ceiling
 	// readout #157/#196 make load-bearing: a payout above capacity spills overboard, so
 	// this is how a captain reads their headroom *before* walking into a Reward.
 	//
@@ -305,7 +305,7 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 		rl.DrawText(
 			fmt.ctprintf(
 				"Hold %d/%d   Weight %d",
-				ship.ship_treasure(s^),
+				ship.ship_cargo(s^),
 				ship.ship_cargo_capacity(s^),
 				ship.ship_weight(s^),
 			),

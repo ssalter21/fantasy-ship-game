@@ -72,7 +72,7 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
 	defer delete(snap.ship.layout)
 
-	// A ship's purse is no longer a scalar field (ADR-0020) — it rides in the
+	// A ship's cargo is no longer a scalar field (ADR-0020) — it rides in the
 	// cloned layout, covered by the cargo-clone test above; the scalars that carry
 	// through are durability, speed, and the captain.
 	testing.expect_value(t, snap.ship.durability, 3)

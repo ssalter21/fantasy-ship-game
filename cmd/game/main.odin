@@ -60,8 +60,8 @@ Game_State :: struct {
 	// pair it replaces: an Item Offer's items and a shop's shelf cards are one list,
 	// differing only in whether an option carries a price. A nil position holds no
 	// option (a shelf slot past the deck's tail, or a slot past a narrower stage's
-	// count). Affordability is read live off the player's hold (ship.ship_treasure,
-	// kept current by Event_Ship_Updated), so no separate purse field is tracked here.
+	// count). Affordability is read live off the player's hold (ship.ship_cargo,
+	// kept current by Event_Ship_Updated), so no separate cargo field is tracked here.
 	stage_options:    [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option),
 	// stage_progress is where the current encounter's walk is — the last
 	// Event_Stage_Entered, or nil between encounters (issue #139). It is the **only**
@@ -189,8 +189,8 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Options_Presented:
 		// A stage that presents an option list was entered, or re-entered from a buy's
 		// refit (issue #131): remember its list so option_menu_loop can render it
-		// (refilled, after a buy). The purse it renders comes from the player's hold
-		// (ship.ship_treasure, kept current by Event_Ship_Updated).
+		// (refilled, after a buy). The cargo it renders comes from the player's hold
+		// (ship.ship_cargo, kept current by Event_Ship_Updated).
 		state.stage_options = e.options
 
 	case sim.Event_Trade_Presented:

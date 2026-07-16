@@ -40,7 +40,7 @@ play_beat :: proc(state: ^Game_State, overlay: string) {
 // that **parks** for a decision is seen as its own screen — a Fight's battle menu, an
 // Offer's or a Shop's option list, a Trade's bargain — and needs nothing here. Reward is
 // the one primitive that parks nowhere (#133): it pays out and the walk carries straight
-// on, so without a beat the whole of a `[Fight, Reward]`'s loot is a purse that silently
+// on, so without a beat the whole of a `[Fight, Reward]`'s loot is cargo that silently
 // grew while the map was coming back up.
 //
 // So: exactly one beat, for exactly the stage with no screen. Not a beat per stage —
@@ -60,21 +60,21 @@ play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
 		return
 	}
 	// Fires before run_apply_reward's Event_Ship_Updated lands, so the beat reads while
-	// the panel still shows the old purse and the number moves as it clears. That timing
+	// the panel still shows the old cargo and the number moves as it clears. That timing
 	// is also why the spill is computed here from state.player: a Reward changes no slots,
 	// so the pre-payout capacity is the real one, and the overflow (#157) is exactly the
-	// treasure the incoming reward can't fit — surfaced rather than lost silently (#201).
+	// cargo the incoming reward can't fit — surfaced rather than lost silently (#201).
 	spilled := max(
 		0,
-		ship.ship_treasure(state.player) + reward.treasure - ship.ship_cargo_capacity(state.player),
+		ship.ship_cargo(state.player) + reward.cargo - ship.ship_cargo_capacity(state.player),
 	)
-	play_beat(state, fmt.tprintf("Salvage! You haul aboard %d treasure.%s", reward.treasure, spill_note(spilled)))
+	play_beat(state, fmt.tprintf("Salvage! You haul aboard %d cargo.%s", reward.cargo, spill_note(spilled)))
 }
 
-// spill_note is the clause a payout beat appends when treasure fell overboard: a
+// spill_note is the clause a payout beat appends when cargo fell overboard: a
 // hold at capacity keeps nothing more, so a payout above it is lost (#157), and
 // #196 makes that the mainline result of winning a Fight. Said out loud in the
-// glossary's terms — a full hold — so a purse that grew by less than the payout
+// glossary's terms — a full hold — so cargo that grew by less than the payout
 // reads as the ceiling doing its job, not as a bug. Empty when nothing spilled.
 spill_note :: proc(spilled: int) -> string {
 	if spilled <= 0 {
@@ -85,12 +85,12 @@ spill_note :: proc(spilled: int) -> string {
 
 // wreck_loot_beat_text names a won Fight's payout the way play_stage_entry_beat names
 // a Reward's (issue #201): a wreck's hold is loot with no screen of its own, so without
-// a beat the whole of it is a purse that silently grew while the map came back up — the
+// a beat the whole of it is cargo that silently grew while the map came back up — the
 // same gap #139 closed for the Reward stage. `gross` is the wreck's whole hold and
 // `spilled` (from Event_Wreck_Looted) the part that overflowed the player's capacity,
 // the mainline case here (#176/#196), surfaced with the shared spill_note.
 wreck_loot_beat_text :: proc(gross: int, spilled: int) -> string {
-	return fmt.tprintf("You loot the wreck: %d treasure.%s", gross, spill_note(spilled))
+	return fmt.tprintf("You loot the wreck: %d cargo.%s", gross, spill_note(spilled))
 }
 
 // halt_beat_text renders a halt as a consequence rather than a silence (issue #139,
@@ -162,7 +162,7 @@ battle_event_text :: proc(event: combat.Event) -> string {
 	case combat.Event_Cargo_Reallocated:
 		// Names the shift and pointedly claims no Speed change (#200): reallocation
 		// shifts no weight, so the round was spent buying jettison precision, not Speed.
-		return fmt.tprintf("%v shifts %d treasure between holds.", e.side, e.amount)
+		return fmt.tprintf("%v shifts %d cargo between holds.", e.side, e.amount)
 	case combat.Event_Battle_Ended:
 		switch e.reason {
 		case .Destroyed:
@@ -273,11 +273,11 @@ Battle_Menu_Action :: struct {
 	slot:    ship.Slot_Index, // the source, meaningful when kind == .Select_Source
 }
 
-// battle_reallocate_can_receive reports whether treasure can be poured into slot `i`:
+// battle_reallocate_can_receive reports whether cargo can be poured into slot `i`:
 // an empty slot (any size) can, a partly-full cargo fitting can, but a full cargo
 // fitting or a non-cargo fitting cannot. Mirrors combat_apply_reallocate's
 // destination rule so the battle menu offers only destinations that would move
-// treasure (#200) — the combat layer then asserts rather than validates.
+// cargo (#200) — the combat layer then asserts rather than validates.
 battle_reallocate_can_receive :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 	layout_slot := s.layout[i]
 	fitting, has_fitting := layout_slot.fitting.?
@@ -291,7 +291,7 @@ battle_reallocate_can_receive :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool 
 }
 
 // battle_reallocate_can_give reports whether slot `i` can be a Reallocate source: it
-// holds cargo with treasure and some *other* slot can receive it, so offering it as a
+// holds cargo with cargo and some *other* slot can receive it, so offering it as a
 // source always leads to a legal move (#200) rather than a dead-end selection.
 battle_reallocate_can_give :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 	fitting, has_fitting := s.layout[i].fitting.?
@@ -308,7 +308,7 @@ battle_reallocate_can_give :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 }
 
 // battle_menu_loop blocks until the player picks a battle action (Boost one of the
-// three phases, Man the Sails, Jettison a cargo slot, Reallocate treasure between two
+// three phases, Man the Sails, Jettison a cargo slot, Reallocate cargo between two
 // holds, or Leave Combat if may_leave — ADR-0006's one-decision-per-round menu), then
 // returns a Command_Battle_Choice.
 //
@@ -370,7 +370,7 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 				y += 34
 			}
 
-			// Reallocate: one entry per hold that can give (has treasure and somewhere to
+			// Reallocate: one entry per hold that can give (has cargo and somewhere to
 			// pour it), selecting that hold as the source and entering destination mode.
 			for layout_slot, i in state.player.layout {
 				src_slot := ship.Slot_Index(i)
@@ -430,7 +430,7 @@ ITEM_OFFER_Y0 :: 296
 // only two sets of options, one of which carries prices.
 //
 // It therefore reads what it is rendering off the options themselves rather than
-// being told: a list holding any priced option is a shop, so it shows the purse and
+// being told: a list holding any priced option is a shop, so it shows the cargo and
 // offers to Leave; an unpriced one is an Offer, and offers to Skip. Each box shows
 // the item's size, phase, tags, and effect intent (#96's "tags, phase, size, and
 // effect intent"), plus a price where there is one, so the choice is informed. A card
@@ -467,7 +467,7 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	header := "Choose an item to take, or skip."
 	decline_label := "Skip (take nothing)"
 	if priced {
-		header = fmt.tprintf("Shop - treasure: %d. Buy an item, or leave.", ship.ship_treasure(state.player))
+		header = fmt.tprintf("Shop - cargo: %d. Buy an item, or leave.", ship.ship_cargo(state.player))
 		decline_label = "Leave (buy nothing)"
 	}
 
@@ -476,7 +476,7 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		draw_scene_contents(state, header)
 		for slot, i in options {
 			if option, filled := slot.?; filled {
-				draw_option_box(boxes[i], option, ship.ship_treasure(state.player))
+				draw_option_box(boxes[i], option, ship.ship_cargo(state.player))
 			}
 		}
 		draw_labeled_box(boxes[decline_index], decline_label, "", "")
@@ -522,17 +522,17 @@ option_list_is_priced :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Opt
 
 // draw_option_box renders one presented option as a titled box: its name — with the
 // price alongside where it has one — then its size · phase · tags spec and
-// effect-intent lines (issues #96/#98). A priced option costing more than `purse` is
+// effect-intent lines (issues #96/#98). A priced option costing more than `cargo` is
 // dimmed, so an unaffordable buy reads as such before the click (the Sim still
 // enforces it); a free option is never dimmed, having nothing to afford.
-draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, purse: int) {
+draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, cargo: int) {
 	spec, intent := fitting_summary_lines(option.fitting)
 	cost, priced := option.cost.?
-	affordable := !priced || cost <= purse
+	affordable := !priced || cost <= cargo
 
 	title := option.fitting.name
 	if priced {
-		title = fmt.tprintf("%s  -  %d treasure", option.fitting.name, cost)
+		title = fmt.tprintf("%s  -  %d cargo", option.fitting.name, cost)
 	}
 	if affordable {
 		draw_labeled_box(box, title, spec, intent)
@@ -558,14 +558,14 @@ trade_stat_label :: proc(stat: run.Trade_Stat) -> string {
 		return "Max HP"
 	case .Durability:
 		return "Durability"
-	case .Treasure:
-		return "treasure"
+	case .Cargo:
+		return "cargo"
 	}
 	return "?"
 }
 
 // trade_term_line renders one side of a bargain as a signed, named quantity —
-// "+8 Durability", "-15 treasure". A Trade_Term stores only the positive magnitude
+// "+8 Durability", "-15 cargo". A Trade_Term stores only the positive magnitude
 // (the side it sits on carries the direction), so the sign is supplied here at
 // the point the player reads it.
 trade_term_line :: proc(term: run.Trade_Term, sign: string) -> string {

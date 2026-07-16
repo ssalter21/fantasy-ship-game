@@ -80,7 +80,7 @@ SHOP_SHELF_SIZE :: 5
 // #137). The deck was the *entire* ITEM_ROSTER_SIZE roster, sized that way because
 // a Port's draw-down persisted across every visit in the run and so had a whole run
 // to chew through it. Walked-once encounters (#131) killed that: one visit reaches
-// SHOP_SHELF_SIZE cards plus one per purchase, and the purse caps purchases in the
+// SHOP_SHELF_SIZE cards plus one per purchase, and the cargo caps purchases in the
 // low teens, so ~37 of those 50 cards were baked into every shop on every map and
 // could never be looked at. A shop's stock is now what a shop actually has.
 //
@@ -88,11 +88,11 @@ SHOP_SHELF_SIZE :: 5
 SHOP_STOCK_MAX :: 12
 
 // Shop_Item is one purchasable card in a Shop stage: the roster `fitting` on
-// offer and its `cost` in treasure. Cost is stored as a plain int, priced once at
+// offer and its `cost` in cargo. Cost is stored as a plain int, priced once at
 // generation from the item's Tier (ship.ship_item_cost) — tier itself doesn't
 // ride along because nothing past pricing reads it, and a bare Fitting is what
 // the Refit ultimately places. Buying deducts cost from the ship's hold
-// (ship_treasure / ship_stow_treasure, ADR-0020) and opens a Refit to place the
+// (ship_cargo / ship_stow_cargo, ADR-0020) and opens a Refit to place the
 // fitting.
 Shop_Item :: struct {
 	fitting: ship.Fitting,
@@ -135,14 +135,14 @@ Stage_Offer :: struct {
 // cannot pay it out of a field or bank it into one — a Speed axis has no home. It
 // returns later as fittings that modify Speed, traded as fittings, not raw stats.
 // **Cargo capacity is likewise absent**: ship_cargo_capacity is structural, so
-// both halves of a cargo-capacity trade would be no-ops. Treasure carries
+// both halves of a cargo-capacity trade would be no-ops. Cargo carries
 // "stat-for-cargo" — the resource a Shop spends and a Reward grants (#132), which
-// #143 made *be* the cargo in the holds (ship_treasure).
+// #143 made *be* the cargo in the holds (ship_cargo).
 Trade_Stat :: enum {
 	HP,
 	Max_HP,
 	Durability,
-	Treasure,
+	Cargo,
 }
 
 // Trade_Term is one side of a trade: which stat moves, and by how much. `amount`
@@ -172,7 +172,7 @@ Stage_Trade :: struct {
 }
 
 // Stage_Shop sells from a seed-baked stock, each card priced by tier
-// (run_bake_shop), against the ship's starting treasure. Leaving completes the
+// (run_bake_shop), against the ship's starting cargo. Leaving completes the
 // stage — a shop cannot be failed, so Shop is the one primitive with no halt. It is
 // its own primitive rather than Offer-with-a-price precisely so the Item Offer can
 // be redesigned later without dragging Shop along.
@@ -194,29 +194,30 @@ Stage_Shop :: struct {
 	count: int,
 }
 
-// Stage_Reward grants treasure outright and always completes — the "then loot it"
+// Stage_Reward grants cargo outright and always completes — the "then loot it"
 // half of [Fight, Reward], and the reason a halt has to keep what earlier stages
 // already granted.
 //
-// **Treasure, and only treasure** (issue #132). Not items: that is Offer's job, and
+// **Cargo, and only cargo** (issue #132). Not items: that is Offer's job, and
 // a Reward that could grant one would leave [Fight, Reward] and [Fight, Offer]
 // differing only in whether the captain got to choose — a distinction Offer already
-// expresses. Not cargo-as-a-separate-thing either: money takes space, so treasure
-// and cargo are one thing rather than two candidates; #143 is where the purse
-// becomes literal slots, and Reward ships against the plain int until then.
+// expresses. Not cargo-as-a-separate-thing either: money takes space, so a
+// Reward's value and the cargo in the holds are one thing rather than two
+// candidates; #143 is where that value becomes literal slots, and Reward ships
+// against the plain int until then.
 //
-// `treasure` is baked at generation from the node's own Scaling_Site
-// (run_reward_treasure) — a plain int, so it needs no runtime RNG, holds no
+// `cargo` is baked at generation from the node's own Scaling_Site
+// (run_reward_cargo) — a plain int, so it needs no runtime RNG, holds no
 // function pointer, and copies into a Ghost_Snapshot like every other stage's
 // content (ADR-0012).
 //
 // Reward is a **boon**: it has nothing to decline, so it is the one primitive that
 // resolves without stopping for the captain (sim_enter_stage returns .Completed for
-// it outright). That is why a bare [Reward] — drifting salvage, free treasure — is
+// it outright). That is why a bare [Reward] — drifting salvage, free cargo — is
 // a coherent recipe rather than an encounter with no interaction: the interaction
 // is arriving.
 Stage_Reward :: struct {
-	treasure: int,
+	cargo: int,
 }
 
 // Stage is one step of an encounter: a primitive plus the content it was baked

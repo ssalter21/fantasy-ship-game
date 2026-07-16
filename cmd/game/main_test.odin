@@ -296,10 +296,10 @@ only_a_stage_with_no_screen_of_its_own_gets_an_entry_beat :: proc(t: ^testing.T)
 	// The pacing rule #139 settled: a stage that parks for a decision is seen as its own
 	// screen, so the strip is all it needs. Reward parks nowhere (#133) — it pays out and
 	// the walk carries straight on — so without a beat a [Fight, Reward]'s whole loot is a
-	// purse that silently grew. Under `odin test` play_beat is a no-op, so this pins the
+	// cargo that silently grew. Under `odin test` play_beat is a no-op, so this pins the
 	// selection rule rather than the render: every kind is handled, and only Reward looks
 	// its content up.
-	nodes := [1]run.Node{node_of(run.Stage_Reward{treasure = 30})}
+	nodes := [1]run.Node{node_of(run.Stage_Reward{cargo = 30})}
 	state := Game_State{run_map = run.Map{nodes = nodes[:]}}
 
 	for kind in run.Stage_Kind {
