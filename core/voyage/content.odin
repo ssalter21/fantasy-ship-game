@@ -3,50 +3,32 @@ package voyage
 import "../ship"
 import "core:math/rand"
 
-// Hostile_Archetype is one authored entry in the Fight primitive's content roster
-// (issue #135, ADR-0014's "Fight gains a hostile roster"): a named hostile build —
-// just the items it carries. It carries no Hull, no Durability, no magnitudes and
-// **no Speed** — those are the node's stakes (hull/durability) or derived from what
-// the build weighs (Speed, ADR-0020) — so an archetype is authored purely as *what
-// kind of ship this is*, and the site decides how much of it there is. Speed used
-// to be an authored field here (#135's flat FIGHT_OPPONENT_SPEED successor); it was
-// retired with #194 once Speed reads weight — a hostile's items plus its flat-50%
-// hold (HOSTILE_FILL_PERCENT) now decide how fast it sails (ship_effective_speed).
+// Hostile_Archetype is one authored entry in the Fight roster (ADR-0014): a named
+// hostile build — just the items it carries. No Hull, Durability, or Speed: the node's
+// stakes supply hull and durability, and Speed derives from what the build weighs
+// (ADR-0020). An archetype says *what kind of ship this is*; the site decides how much.
 //
-// This is the type that retires the one-opponent template. Every battle in the
-// game used to be the same ship — Captain's Quarters, Top Crew, an Upgraded Gun
-// Deck, Spoils in the rest — with bigger numbers the deeper you went. There was no
-// hostile roster, there was a hostile *template*. An archetype is now a roster row,
-// and the hostiles in the game are that table.
+// `items` names roster items by their authored name (ship_item_by_name), so a hostile is
+// built from the same items the player can be offered (ADR-0012) — tags, synergies, and
+// conditions work aboard a hostile exactly as aboard the player. Names are checked by
+// every_hostile_archetype_is_built_from_real_roster_items, not the compiler.
 //
-// `items` names roster items by their authored name (ship_item_by_name) rather
-// than restating their magnitudes: a hostile is built out of the *same* ~50 items
-// the player can be offered (ADR-0012), so the two halves of the game cannot drift
-// apart, and an item's tags/synergies/conditions work aboard a hostile exactly as
-// they do aboard the player. Names are checked by test, not by the compiler — see
-// every_hostile_archetype_is_built_from_real_roster_items.
-//
-// **Order is authoring.** Items are placed first-empty-fit (ship_fit_first_empty_slot)
-// and the template lists its slots exposed-first within each size, so an item's
-// position in this list decides whether it ends up on deck or in the hold — which
-// in turn decides whether a Condition_Self_Visibility or Selector(Visibility.Concealed)
-// effect fires. Smuggler's Run authors two throwaway Mediums ahead of its Wraith
-// Cannon for exactly this reason.
+// Order is authoring: items are placed first-empty-fit (ship_fit_first_empty_slot) into a
+// template whose slots are exposed-first within each size, so an item's position decides
+// whether it lands on deck or in the concealed hold — which decides whether a
+// Condition_Self_Visibility or Selector(Visibility.Concealed) effect fires. Smuggler's Run
+// lists two throwaway Mediums ahead of its Wraith Cannon for exactly this reason.
 Hostile_Archetype :: struct {
 	name:  string,
 	items: []string,
 }
 
-// The backing arrays for each archetype's item list. Package-level for the same
-// reason catalog.odin's stage arrays are: an archetype is static authored data
-// reused by every node that draws it, so its item list must not be per-node
-// memory. @(rodata) — unlike recipe_catalog these are constant initializers.
+// Backing arrays for each archetype's item list — static authored data reused by every
+// node that draws it, so it must not be per-node memory. @(rodata): these are constant
+// initializers (unlike hostile_roster below, which slices them).
 @(rodata)
 COASTAL_PRIVATEER_ITEMS := [?]string{"Long Nines", "Carronade", "Swivel Guns", "Boarding Nets"}
 
-// Three guns as of #151 — the build the name always promised. Swivel Guns is the
-// third; see the entry's own note for why the roster's smallest gun is the one that
-// fits.
 @(rodata)
 BROADSIDE_COMPANY_ITEMS := [?]string{"Naval Gun Crew", "Swivel Guns", "Powder Monkeys", "Boarding Pikes"}
 
@@ -68,204 +50,91 @@ DEATH_THROES_ITEMS := [?]string{"Deck Cannon", "Kraken Spawn", "War Hound"}
 @(rodata)
 REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", "Swivel Guns", "Spare Rigging"}
 
-// hostile_roster is every hostile in the game, in the same authored-table shape as
-// trade_roster above and catalog.odin's recipe_catalog. Not @(rodata) despite never
-// being written: taking a slice of the backing arrays above is not a constant
-// initializer, so the entries fill at program init (the same reason recipe_catalog
-// isn't).
+// hostile_roster is every hostile in the game, authored in the same table shape as
+// trade_roster and catalog.odin's recipe_catalog. Not @(rodata): slicing the backing
+// arrays above is not a constant initializer, so the entries fill at program init.
 //
-// **Size — eight.** A run traverses only ~3-4 nodes per zone (~11-14 of 50), so
-// this is sized like trade_roster (six) but deliberately larger, for two reasons.
-// Fight is the primitive that appears in the *most* recipes — it is [Fight] today
-// and the spine of [Fight, Reward], this effort's headline recipe (#138) — so a voyage
-// meets more Fights than Trades, and six would repeat inside a single zone. And a
-// hostile is the most-*looked-at* content in the game: you stare at its layout for a
-// whole battle, where a Trade is one line you read and answer. The bar for "I have
-// seen this before" is far lower, so the roster has to be wider to clear it. Eight
-// is also the smallest size that puts one build behind each of the roster's effect
-// themes below; fewer would leave whole item families with no hostile that uses them.
+// Eight entries, one behind each of the roster's effect themes: flat guns (Coastal
+// Privateer), Tag synergy (Broadside Company, Deepwater Menagerie), concealment (Smuggler's
+// Run), stat-modifier armour (Ironclad Hulk), Crew (Boarding Party), Hull-threshold
+// conditionals (Death Throes), speed modifiers (Reef Skimmer). Larger than trade_roster
+// (six) because Fight appears in the most recipes — a voyage meets more Fights than Trades —
+// and a hostile is the most looked-at content in the game.
 //
-// **Coverage.** One build per idea, spanning what ADR-0012's items can actually do:
-// plain flat guns (Coastal Privateer), a Tag synergy (Broadside Company on Weapon,
-// Deepwater Menagerie on Beast), concealment — both the condition and the placement
-// trick (Smuggler's Run), stat-modifier armour (Ironclad Hulk), a Crew build
-// (Boarding Party), Hull-threshold conditionals (Death Throes), and speed
-// stat-modifiers (Reef Skimmer).
+// An archetype is character, stakes is power. Entries are authored at Open Sea weight
+// (ADR-0019): voyage_fight_opponent_power reads 100% in the middle zone, half in the Coastal
+// shallows, half-again on top in The Deep. Because an archetype is drawn with no regard to
+// zone, all entries stay in a comparable band — otherwise the draw would swamp the depth
+// gradient. No entry is the "Deep" one; depth is the site's job.
 //
-// **The authoring rule: an archetype is character, stakes is power** — and as of
-// #165 (ADR-0019) the table has a **weight**: an entry is authored at **Open Sea**,
-// the zone where voyage_fight_opponent_power reads 100%. A captain meets an entry as it
-// is written here in the middle zone, at half of it in the Coastal shallows, and at
-// half again on top in The Deep. Entries stay authored to a *comparable* band — the
-// Fight analogue of trade_roster's "every axis is one swing for one swing" — because
-// an archetype is drawn with no regard to zone, so any build can turn up anywhere and
-// a build three times another would let the draw swamp the gradient. No entry is the
-// "Deep" one: depth is the site's job.
+// The band has two walls, both enforced by test rather than by eye. Ceiling: damage is
+// `raw - (effective_durability + defense_bonus)`, so an overshooting hostile sinks a starting
+// player before the escape gate (a_starting_player_can_fight_every_archetype_at_coastal).
+// Floor: `max(0, …)` means an entry that deals too little arrives at Coastal, keeps half,
+// and cannot scratch a starting ship's bulwark of 4 — a fight with no risk
+// (a_starting_player_takes_real_damage_from_every_archetype_at_coastal).
 //
-// **The band has two walls and the *floor* is the new one** (#165). Damage is
-// `raw - (effective_durability + defense_bonus)`, so the old wall still stands —
-// stacked +Durability makes a hostile hard to dent, and overshooting sinks a starting
-// player before the escape gate. But `max(0, ...)` has a floor as well as a ceiling,
-// and a factor that scales *down* is what walks the roster into it: a starting ship's
-// bulwark is **4**, so an entry authored to deal less than ~10 arrives at Coastal, keeps
-// half of it, and **cannot scratch the player at all** — a fight with no risk in it,
-// which is the same dead node #151 found at the other wall. Both are enforced by
-// test, not by eye: a_starting_player_can_fight_every_archetype_at_coastal bounds the
-// ceiling, and a_starting_player_takes_real_damage_from_every_archetype_at_coastal
-// bounds the floor.
-//
-// **That floor is why the whole table was re-authored up** with #165, and it is the
-// change's honest cost as well as its point. Every entry here was originally written
-// to be survivable by a *starting ship at Coastal* — that was the only test — so the
-// table was authored at **Coastal weight** while the model now reads it as Open Sea
-// weight, and halving an already-Coastal entry put six of the eight under the bulwark
-// floor. Re-authoring is not decoration: a multiplier needs headroom above bulwark
-// before it has anywhere to scale down *to*.
-//
-// **The payoff is that the ceiling moved, so builds that were too heavy now fit.**
-// #135 could not author a `Selector` muster onto a hostile at all (Admiral's Guard read
-// +12 *defence* and made the fight arithmetically unwinnable); #151 fixed the
-// category — muster feeds Fire only, so a Selector is a hard hitter rather than an
-// invulnerable one — but left the magnitude too heavy for a Coastal starting ship,
-// which is why Boarding Party was still carrying flat War Drums. With a way down,
-// +9 of Guard is +4 at Coastal and +15 in The Deep. **Boarding Party finally carries
-// the item two tickets have documented it wanting**, and the constraint that barred
-// it has gone from a category (#135) to a magnitude (#151) to a zone (#165).
-//
-// Magnitudes ride on the items, so the numbers here are ADR-0012's placeholders and
-// move with them; the map's "stakes constant tuning per primitive" fog owns the rest.
+// Magnitudes ride on the items, so the numbers here are ADR-0012's placeholders.
 hostile_roster := [?]Hostile_Archetype {
-	// The retired template's honest successor: guns, no tricks, no synergy to read.
-	// First so the roster opens on something recognisable, and so there is a
-	// baseline the other seven are variations *from*. Its guns plus a half-full hold
-	// weigh 122, so it **derives to Speed 4** (#194) — tying the player, so neither
-	// side can leave and this is the one that has to be fought out. That it lands
-	// exactly on the player's 4 is the loadout's doing, not an authored number.
-	//
-	// Long Nines joins with #165, into the Large slot the entry had been leaving to
-	// Spoils. There is no cleverness to report: this is the plainest demonstration of
-	// what the way down bought, since "a privateer carries a big gun" needed no
-	// argument and was simply unaffordable while an entry had to survive contact with
-	// a starting ship undiminished.
+	// The plain baseline: guns, no tricks, no synergy — the other seven are variations
+	// from it, so it goes first. Its guns plus a half-full hold weigh enough to derive to
+	// Speed 4 (ship_effective_speed), tying the player, so neither side can break off and
+	// this fight has to be fought out.
 	{name = "Coastal Privateer", items = COASTAL_PRIVATEER_ITEMS[:]},
-	// Every gun aboard makes the crew's guns hit harder: Powder Monkeys muster per
-	// Weapon, and every other item is a Weapon (Boarding Pikes and Naval Gun Crew are
-	// multi-tag Crew+Weapon, so they pay into it while reading as boarders).
-	//
-	// **Three guns as of #151, and it is this entry that measures the widened band.**
-	// The third gun was unauthorable before: it took the build to a two-round kill,
-	// so the roster's headline weapon-synergy archetype carried two guns and could not
-	// state its own concept. It fits now because the fold left `defense_bonus` — a
-	// starting ship's bulwark stopped being ~90% of its raw — and because a Coastal
-	// hostile's Hull is no longer half the player's, so the fight lasts long enough to
-	// be one. Swivel Guns rather than a Carronade: the roster's *smallest* gun is
-	// what the band holds with margin (a starting player wins at 28 of 100 Hull against
-	// this, against 10 of 100 with a Carronade), and the synergy is what makes it
-	// worth carrying — a third Weapon is worth its own 3 *plus* a point on every
-	// Powder Monkeys reading, which is the entry's whole argument.
+	// Every gun aboard makes the crew's guns hit harder: Powder Monkeys muster per Weapon,
+	// and every other item is a Weapon (Boarding Pikes and Naval Gun Crew are Crew+Weapon,
+	// so they pay in while reading as boarders). Swivel Guns is the roster's smallest gun —
+	// the third weapon the band holds with margin while still paying the synergy.
 	{name = "Broadside Company", items = BROADSIDE_COMPANY_ITEMS[:]},
-	// Beasts, and Hunter's Pack paying per Beast aboard. **Three of them as of #165**,
-	// which is the third Beast the entry's own note had been asking for: the synergy is
-	// quadratic in its own family, so War Hound is +3 to the Pack *and* a whole extra
-	// gun — the reason it was unaffordable before, and the reason it is worth having
-	// now. It is also the entry that most needed the multiplier rather than a bigger
-	// bonus: a Selector build is exactly what an additive share mis-scaled (see
-	// voyage_fit_hostile_loadout). War Hound's own magnitude is gated below half Hull, so
-	// the Pack's count rises immediately and the Hound's gun only joins once the
-	// Menagerie is dying. **Authored slow, it now derives *fast* — and that is the
-	// flat-50% placeholder's accepted cost** (#176, map out-of-scope): three small
-	// beasts fly the player's 8-slot hull with ~130 of capacity they never fill, so
-	// half-full it weighs almost nothing and reads **7**, the fastest ship in the
-	// game — the exact inversion of #135's authored 3. No fill percentage fixes it;
-	// only a hull sized for the build (hostile ship templates, out of scope) does.
-	// Until then the "one a starting player can outrun" role — Break Off as a real
-	// option — is carried by the Ironclad Hulk instead (the roster's sole slower-than-4).
+	// Beasts, with Hunter's Pack paying per Beast aboard — a synergy quadratic in its own
+	// family. War Hound's own gun is gated below half Hull, so the Pack's count rises up
+	// front and the Hound only fires once the Menagerie is dying. Three light beasts over
+	// an 8-slot hull leave it half-full and nearly weightless, so it derives to Speed 7 —
+	// the fastest ship in the game, an accepted cost of the flat-50%-hold placeholder
+	// (issue #176). The "one a starting player can outrun" role is carried by the Ironclad
+	// Hulk instead.
 	{name = "Deepwater Menagerie", items = DEEPWATER_MENAGERIE_ITEMS[:]},
-	// Runs dark and runs fast. The trick is placement: two throwaway Mediums push the
-	// Wraith Cannon into the concealed hold, where its Condition_Self_Visibility fires
-	// — the archetype whose build only works because of the *order* of its item list.
-	// Its Copper Sheathing and Spare Rigging (+3 Speed) over a light, half-full hull
-	// leave it **deriving to 8** (#194), so it bolts the round BASELINE_ROUND_COUNT
-	// unlocks, which is the archetype's whole character (kill it quickly or it is
-	// gone) and is what #151's widened band made observable: before, the fight ended
-	// at round 2 and nothing ever reached the gate to bolt at.
-	//
-	// **It takes its Ghost Lantern with #165**, which the entry has been asking for
-	// across two tickets: #135 could not have it because muster was bulwark and the Lantern
-	// would have made the hostile undentable; #151 killed that reason and said so here
-	// ("the entry is worth revisiting"), but a +4 muster on top of a Wraith Cannon was
-	// still too much ship to meet at Coastal undiminished. Every Small slot on the
-	// template is concealed, so the Lantern's Condition_Self_Visibility fires for the
-	// same reason the Cannon's does — the entry now states its theme twice with one
-	// mechanism, which is what it was for.
+	// Runs dark and fast. Placement is the trick: two throwaway Mediums push the Wraith
+	// Cannon and Ghost Lantern into the concealed hold, where their Condition_Self_Visibility
+	// fires — the build that only works because of item order. Copper Sheathing and Spare
+	// Rigging leave it deriving to Speed 8, so it bolts the round BASELINE_ROUND_COUNT
+	// unlocks: kill it fast or it is gone.
 	{name = "Smuggler's Run", items = SMUGGLERS_RUN_ITEMS[:]},
-	// Armour: the build that spends on Modify_Durability, so it is a wall you chip
-	// rather than one you burst. Held to +3 total — see the both-walls note above.
-	// Two Larges of iron make it the **heaviest hull in the roster**, so it derives
-	// to **Speed 2** — the slowest thing afloat, the one hostile a starting player can
-	// walk away from, and (post-#194) the roster's *sole* slower-than-the-player entry:
-	// the straddle rests on it alone (1 slower / 6 faster), so it is the entry most
-	// sensitive to the item weights authored above.
-	//
-	// **It is a ram as of #165, and that is the floor wall in one entry.** Armour was
-	// its whole budget, which left it dealing 8 — and half of 8 is a starting ship's
-	// bulwark exactly, so a Coastal Hulk was a ten-round grind that could not land a
-	// single point of damage. An archetype whose character is *not hitting you* is the
-	// one a scale-down walks into the floor first. Ramming Prow answers it in
-	// character rather than by bolting a gun on: a ram is what an ironclad is *for*,
-	// it takes the Large slot the entry was leaving to Spoils, and it leaves the
-	// armour untouched — so the wall now hits back instead of being scenery.
+	// Armour: spends its budget on Modify_Durability, a wall you chip rather than burst
+	// (held to +3 total — see the floor wall above). Two Larges of iron make it the
+	// heaviest hull in the roster, so it derives to Speed 2 — the only hostile slower than
+	// the player, the one a starting captain can walk away from. Ramming Prow gives the
+	// wall a way to hit back, so an all-defence build still clears the damage floor.
 	{name = "Ironclad Hulk", items = IRONCLAD_HULK_ITEMS[:]},
-	// Crew — **and the entry that finally carries Admiral's Guard** (+3 per Crew
-	// aboard, three Crew here, so +9). It is the roster's longest-running argument,
-	// settled: #135 authored flat War Drums instead because muster folded into defence
-	// and +9 of Guard was an unwinnable fight rather than a hard one; #151 removed
-	// that fold and made the bar a *magnitude* rather than a category, but a starting
-	// ship still met the full +9 at Coastal; #165's way down makes it +4 there and +15
-	// in The Deep. Three tickets, and each one moved the obstacle down a level —
-	// category, then magnitude, then zone. This is the archetype the whole
-	// Selector half of ADR-0012's roster was waiting on.
+	// Crew, carrying Admiral's Guard (+3 per Crew aboard, three Crew here, so +9). A
+	// Selector muster: it feeds Fire only (ADR-0017), so it is a hard hitter, not an
+	// invulnerable one, and the site's way down makes it +4 at Coastal and +15 in The Deep.
 	{name = "Boarding Party", items = BOARDING_PARTY_ITEMS[:]},
-	// Wakes up when it is dying: two of its three guns are gated on its own Hull below
-	// half, so it opens with a single Deck Cannon and turns savage exactly when the
-	// player thinks it is won. The roster's argument that a conditional is a *shape*,
-	// not a discount.
+	// Wakes up dying: two of its three guns are gated on its own Hull below half, so it
+	// opens with a single Deck Cannon and turns savage when the player thinks it is won. A
+	// conditional as a shape, not a discount.
 	{name = "Death Throes", items = DEATH_THROES_ITEMS[:]},
-	// Two Modify_Speed items (+3) over a light, half-full hull — it **derives to 8**
-	// (#194), so it is gone the round it becomes eligible. The counterpart to the Hulk:
-	// the archetype that breaks off from *you*, and the second one #165 found sitting on the
-	// floor, for the mirror reason — its budget went into speed rather than armour, but
-	// it was equally not spent on hitting you, so half of its 7 could not clear a
-	// starting ship's bulwark either. It is a nuisance by design, and a nuisance that
-	// deals nothing at all for the five rounds before it bolts is not a nuisance, it is
-	// a cutscene. The Carronade is what makes breaking off cost the player something.
-	//
-	// The two Modify_Speed items are also this entry's second job: they are why
-	// the_site_never_moves_a_hostiles_speed exists. Both are filed under Category
-	// `.Muster` — a category the site now scales — so this is the build that would break
-	// loudest if ship_fitting_output_scaled ever started touching passives.
+	// Two Modify_Speed items over a light, half-full hull derive to Speed 8, so it bolts
+	// the round it becomes eligible — the counterpart to the Hulk, breaking off from you.
+	// The Carronade makes breaking off cost the player something. Its Modify_Speed items
+	// sit under Category .Muster, which the site scales, so this is the build that would
+	// break loudest if ship_fitting_output_scaled ever touched passives
+	// (the_site_never_moves_a_hostiles_speed).
 	{name = "Reef Skimmer", items = REEF_SKIMMER_ITEMS[:]},
 }
 
-// voyage_hostile_roster returns every authored hostile archetype. voyage_pve_opponent
-// deals from this rather than building one hardcoded loadout, so the set of
-// hostiles in the game is this table and nothing else — the Fight half of the same
-// authored-content rule catalog.odin states for recipes and trade_roster for trades.
+// voyage_hostile_roster returns every authored hostile archetype; voyage_pve_opponent
+// deals from it, so the hostiles in the game are this table and nothing else.
 voyage_hostile_roster :: proc() -> []Hostile_Archetype {
 	return hostile_roster[:]
 }
 
-// voyage_make_opponent_ship computes a Ship Battle opponent's stakes-scaled stats (hull,
-// durability) from the node's Scaling_Site — the numeric half of a PvE opponent
-// (issue #23). voyage_pve_opponent layers an archetype's loadout on top of these; this
-// proc has no layout/captain of its own and is not itself a complete opponent.
-//
-// It sets the uniform `speed` base (ADR-0020, #158/#180): every ship's base term is
-// BASE_SPEED and a hostile's actual Speed derives from what it carries — its loadout
-// plus its flat-50% hold (ship_effective_speed) — so there is nothing archetype- or
-// site-specific to say about the base. Speed *left* this proc with #135, when it was
-// an authored per-archetype field; it comes back with #194 now that the base is the
-// same on every hull and only the derived reading varies.
+// voyage_make_opponent_ship computes a PvE opponent's stakes-scaled stats — hull and
+// durability — from the node's Scaling_Site (issue #23). It sets the uniform BASE_SPEED
+// base (ADR-0020); a hostile's actual Speed derives from what it carries
+// (ship_effective_speed), so there is nothing site-specific to set here.
+// voyage_pve_opponent layers the archetype's loadout on top; this ship has no layout or
+// captain of its own and is not a complete opponent.
 voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 	hull := voyage_fight_opponent_hull(site)
 	return ship.Ship{
@@ -276,75 +145,36 @@ voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 	}
 }
 
-// voyage_stakes_scales_category reports whether the site's power reading scales a
-// fitting of this Category — the whole of the rule, which is: **stakes scales what a
-// hostile deals, never its bulwark.**
+// voyage_stakes_scales_category reports whether the site's power reading scales a fitting
+// of this Category. The rule: stakes scales what a hostile deals, never its bulwark.
+// raw_damage = Fire + Muster (ADR-0017), so scaling those makes a deep hostile hit
+// harder; Brace is excluded because bulwark is subtracted from raw — a site that scaled it
+// would eventually make a hostile impossible to hurt at any magnitude.
 //
-// #135 wrote that rule as "only Fire fittings take it", and its stated reason
-// was that a bonus on Muster or Brace would inflate `defense_bonus` and make a
-// deep hostile harder to *hurt* rather than harder to fight. **Half of that reason
-// died with #151** (ADR-0017) and the rule outlived it: Muster no longer feeds
-// `defense_bonus` at all — `raw_damage = pressed(Fire) + pressed(Muster)` — so a
-// scaled Muster fitting now makes a hostile hit harder, which is exactly what stakes
-// is for. Only the Brace half of the reason survives, and it survives intact:
-// bulwark is subtracted from raw, so a site that scaled it would eventually make a
-// hostile impossible to hurt at any magnitude.
-//
-// Under the old additive bonus this was a rounding error — a flat +2..+9 that Muster
-// happened not to collect. Under a multiplier it is the defect itself: a hostile's
-// unscaled Muster would be a **floor the site cannot lower**, so Boarding Party's War
-// Drums (3) and Broadside Company's Powder Monkeys would stand at full strength in
-// the Coastal shallows while the guns beside them halved — the same "the floor is
-// whatever was authored" complaint this ticket exists to answer, just smaller.
-//
-// Note this is the *category* half of the rule only. Category is a combat phase, and
-// `.Muster` also holds every Modify_Speed item in the roster; it is
-// ship_fitting_output_scaled that declines to touch those, and the reason it must is
-// on that proc.
+// This is the *category* half of the rule. Category is a combat phase, and .Muster also
+// holds every Modify_Speed item; ship_fitting_output_scaled is what declines to touch
+// those, for the reason on that proc.
 voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	switch category {
 	case .Fire, .Muster:
-		return true // raw_damage = Fire + Muster (core/combat, ADR-0017)
+		return true // raw_damage = Fire + Muster (ADR-0017)
 	case .Brace:
-		return false // bulwark, and bulwark's vocabulary has to stay small
+		return false // bulwark: subtracted from raw, never scaled
 	}
 	return false
 }
 
-// voyage_fit_hostile_loadout fits an archetype's authored items into the one ship
-// template (ADR-0004), each scaled to this site's power reading, and hands the
-// leftovers to ship_fill_empty_slots_with_cargo (issue #91: the opponent's spare
-// slots fill with "Spoils" the way the player's fill with "Cargo"). An or_return
-// chain like core/ship's ship_fit_starting_loadout — a false return means the
-// archetype and the template have drifted out of sync (it asks for more Larges than
-// the template has), a content bug this package's own tests catch, not a runtime
+// voyage_fit_hostile_loadout fits an archetype's items into the one ship template
+// (ADR-0004), each scaled to the site's power reading, and fills the leftover slots with
+// Spoils (issue #91, the opponent's analogue of the player's Cargo). The or_return chain
+// mirrors ship_fit_starting_loadout: a false return means the archetype asks for more slots
+// of a size than the template has — a content bug this package's tests catch, not a runtime
 // condition.
 //
-// **`power_percent` is a factor applied per fitting, and the per-fitting part is
-// free** — which is the whole of what #165 bought. #135 could not apply its bonus
-// per fitting, because an *additive* bonus lets gun count multiply the site's
-// reading: a three-gun build would collect three times a one-gun build's uplift, so
-// which archetype you drew would move a hostile's power more than how deep you were
-// — the gradient swamped by the draw. It therefore shared **one total** across the
-// guns (voyage_offense_share, now deleted), and paid for that with the machinery.
-//
-// A multiplier is **scale-invariant**, so the dilemma dissolves rather than moving:
-// three guns at 50% is the same proportion as one gun at 50%, and the count cannot
-// swamp anything it no longer touches.
-//
-// **And the shared total did not achieve its own goal anyway** — #165 measured it.
-// A share lands on an *authored magnitude*, upstream of effect_magnitude's synergy
-// seam, so a Selector multiplies the share by its match count: Deepwater Menagerie's
-// Hunter's Pack (+3 per Beast, two Beasts aboard) turned the site's Deep reading of
-// 9 into **14 points of output** where every flat build got 9, and Death Throes —
-// whose guns are gated on its own Hull — banked 3 of it until it was dying. The site's
-// reading was worth 56% more to a synergy build than to a flat one, and #135's
-// `the_stakes_uplift_is_the_same_total_for_every_archetype` could not see it because
-// it sums authored magnitudes rather than resolving output. So the independence
-// property this machinery existed to protect was **already broken by exactly the
-// mechanism it was protecting against**, one level down: not count-of-guns, but
-// count-of-Beasts. The multiplier is the first shape that actually holds it, and
-// holds it through a selector for the same structural reason.
+// power_percent is a factor applied per fitting, so it is scale-invariant: three guns at
+// 50% is the same proportion as one gun at 50%, and gun count cannot swamp the site's
+// reading. A Selector scales with its match count, upstream of effect_magnitude's synergy
+// seam — the multiplier holds through that for the same reason.
 voyage_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_Archetype, power_percent: int) -> bool {
 	for name in archetype.items {
 		item, found := ship.ship_item_by_name(name)
@@ -359,29 +189,23 @@ voyage_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostil
 	return ship.ship_fill_empty_slots_with_cargo(layout, "Spoils")
 }
 
-// voyage_pve_opponent builds a full Ship Battle opponent by drawing one archetype from
-// the hostile roster (#135) and baking it at this node's stakes: the archetype
-// supplies the loadout (and, through its weight, its Speed), the site supplies hull,
-// durability, and the fire bonus. Draws off the map generator's RNG (`gen`) — so *which* hostile a
-// node holds is reproducible per seed yet varies node to node, exactly like an
-// Offer's items, a Shop's deck and a Trade's axis — and is called from
-// voyage_bake_stage at generation time. Nothing rolls on arrival (ADR-0013).
+// voyage_pve_opponent builds a full Ship Battle opponent: it draws one archetype from the
+// hostile roster (#135) and bakes it at the node's stakes — the archetype supplies the
+// loadout (and, through its weight, its Speed), the site supplies hull, durability, and the
+// fire bonus. Draws off the map generator's RNG, so which hostile a node holds is
+// reproducible per seed yet varies node to node; called from voyage_bake_stage at
+// generation time (ADR-0013: nothing rolls on arrival).
 //
-// The draw reads no zone: archetype and stakes are independent axes, so a Deep node
-// gets a *tougher* hostile, not a different pool of them. Whether some archetypes
-// should be zone-gated after all is the catalog's own eligibility question (the
-// map's "per-zone eligibility beyond stage count" fog), not this draw's.
-//
-// Carries no captain — a captain is a player-side, run-start choice (CONTEXT.md),
-// not opponent content. Caller owns the returned Ship's layout slice; voyage_map_destroy
-// frees it per Fight stage.
+// The draw reads no zone — archetype and stakes are independent axes, so a Deep node gets a
+// tougher hostile, not a different pool. Carries no captain (a captain is a player-side,
+// run-start choice — CONTEXT.md). Caller owns the returned Ship's layout slice;
+// voyage_map_destroy frees it per Fight stage.
 voyage_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
 	roster := voyage_hostile_roster()
 	archetype := roster[rand.int_max(len(roster), gen)]
 
-	// voyage_make_opponent_ship sets the uniform BASE_SPEED base; a hostile's actual
-	// Speed falls out of its weight like every other ship's (ADR-0020, #176/#180) —
-	// its loadout plus its flat-50% hold decide what it reads (ship_effective_speed).
+	// BASE_SPEED base only; a hostile's actual Speed falls out of its weight like every
+	// other ship's (ship_effective_speed).
 	s := voyage_make_opponent_ship(site)
 
 	layout := ship.ship_template_layout()
@@ -395,22 +219,17 @@ voyage_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Shi
 }
 
 // OFFER_ITEM_QUALITY_DIVISOR converts a node's Offer quality reading
-// (voyage_offer_item_quality) into a flat magnitude bonus added to each offered
-// item (issue #96): a smaller, more legible number than raw quality while still
-// scaling with it — the same knob the old Upgrade Offer applied to its three
-// fixed variants, now spread across the roster items on offer. Not a stakes
-// constant — it converts a reading rather than scaling by tier/depth — so it
-// stays here with its consumer rather than joining the scaling group.
+// (voyage_offer_item_quality) into a flat magnitude bonus added to each offered item (issue
+// #96) — a smaller, more legible number than raw quality. Not a stakes constant (it converts
+// a reading rather than scaling by tier/depth), so it stays with its consumer rather than
+// joining the scaling group.
 OFFER_ITEM_QUALITY_DIVISOR :: 5
 
-// voyage_item_offer_options picks the distinct roster items an Offer stage presents
-// (issue #96, ADR-0012): it samples ITEM_OFFER_OPTION_COUNT distinct items from
-// ship_item_roster — shuffling the pool's indices with the map generator's RNG
-// (`gen`) so an offer's items are reproducible per seed yet vary node to node —
-// and scales each by this node's stakes. Baked at generation time
-// (voyage_bake_stage), so the offer carries its items as content, like a Fight
-// carries its opponent. Retires voyage_upgrade_offer_options' fixed three-upgrade
-// menu.
+// voyage_item_offer_options picks the distinct roster items an Offer stage presents (issue
+// #96, ADR-0012): it samples ITEM_OFFER_OPTION_COUNT distinct items from ship_item_roster,
+// shuffling the pool's indices with the map generator's RNG so an offer is reproducible per
+// seed yet varies node to node, and scales each by this node's stakes. Baked at generation
+// time (voyage_bake_stage), so the offer carries its items as content.
 voyage_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM_OFFER_OPTION_COUNT]ship.Fitting {
 	bonus := voyage_offer_item_quality(site) / OFFER_ITEM_QUALITY_DIVISOR
 	roster := ship.ship_item_roster()
@@ -418,25 +237,20 @@ voyage_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [I
 
 	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting
 	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
-		// The offer places the item; tier's power is already baked into the
-		// item's magnitudes, so it reads only the fitting (a shop, #98, reads the
-		// tier for cost). The item is scaled by this node's zone/depth quality.
+		// tier's power is already baked into the item's magnitudes, so the offer reads
+		// only the fitting and scales it by this node's quality (a shop, #98, reads the
+		// tier for cost instead).
 		options[i] = ship.ship_fitting_scaled(roster[indices[i]].fitting, bonus)
 	}
 	return options
 }
 
-// voyage_shuffled_roster_indices returns the roster's indices
-// (0..<ship.ITEM_ROSTER_SIZE) in a per-seed-reproducible shuffled order — the
-// front half of sampling N distinct roster items for the Offer stage
-// (voyage_item_offer_options), which takes the first ITEM_OFFER_OPTION_COUNT.
-//
-// The Shop stage used to share this (issue #98, when both sampled the whole
-// roster) and no longer does: a shop draws from its **stock pool**, not the
-// roster (issue #137), so it shuffles that pool's candidate subset instead
-// (voyage_bake_shop). The two samplers have deliberately diverged — an Offer's pool
-// *is* the roster because an offer is what the sea happens to wash up, while a
-// shop is a business that chose what to carry.
+// voyage_shuffled_roster_indices returns the roster's indices (0..<ship.ITEM_ROSTER_SIZE)
+// in a per-seed-reproducible shuffled order — the front half of sampling N distinct roster
+// items for the Offer stage (voyage_item_offer_options takes the first
+// ITEM_OFFER_OPTION_COUNT). Offer-only: a Shop draws from its own stock pool
+// (voyage_bake_shop), not the whole roster — an Offer's pool is what the sea washes up,
+// while a shop is a business that chose what to carry.
 voyage_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SIZE]int {
 	indices: [ship.ITEM_ROSTER_SIZE]int
 	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
@@ -446,79 +260,52 @@ voyage_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER
 	return indices
 }
 
-// Trade_Axis is one authored entry in the Trade primitive's content roster
-// (issue #136): a named bargain, and the two stats it swaps. It carries no
-// magnitudes — those are each stat's swing at the node's site (voyage_trade_swing),
-// so an axis is authored purely as "what for what" and the site decides how big.
-//
-// This is the type that unwelds Stage_Trade's +Durability/-Speed: the axis used
-// to *be* the struct's two field names, so every trade in the game was one point
-// in the space CONTEXT.md described. An axis is now a roster row, and the space
-// is the roster.
+// Trade_Axis is one authored entry in the Trade roster (issue #136): a named bargain and
+// the two stats it swaps. It carries no magnitudes — those are each stat's swing at the
+// node's site (voyage_trade_swing) — so an axis is authored purely as "what for what" and
+// the site decides how big.
 Trade_Axis :: struct {
 	name: string,
 	gain: Trade_Stat,
 	cost: Trade_Stat,
 }
 
-// trade_roster is every trade in the game, in the same authored-table shape as
-// catalog.odin's recipe_catalog and generation.odin's tuning knobs. @(rodata):
-// unlike recipe_catalog these entries are constant initializers (no slices of
-// other arrays), so the table can live in read-only memory.
+// trade_roster is every trade in the game, authored in the same table shape as
+// catalog.odin's recipe_catalog. @(rodata): unlike hostile_roster these are constant
+// initializers (no slices of other arrays), so the table lives in read-only memory.
 //
-// **Size — three, for now (ADR-0020, #180).** The roster was six until Speed left
-// the Trade vocabulary: Speed is a derived read-out of weight now, not a stored
-// stat a Trade can pay out of or bank into, so the three Speed-touching rows
-// (Braced Bulkheads, Stripped Spars, Lightened Hold) are removed. Speed returns
-// later as *fittings* that modify it, traded as fittings. The remaining three are
-// accepted as a deliberately thin roster in the meantime — a voyage meets only a
-// handful of trades, so a voyage is still mostly non-repeating.
-//
-// **Coverage — thinner now, and consciously so.** Hull is gain-only (Cannibalized
-// Timbers), Max Hull and Cargo sit on both sides, and **Durability is cost-only**
-// (Scrapped Armour) — it lost its one gainer when Braced Bulkheads left with Speed.
-// Hull stays gain-only on purpose: nothing else in the game heals (combat is the only
-// writer of Ship.hull, and it only ever subtracts), so repair is the scarcest thing a
-// trade can offer, and a trade that damages you is a Fight without the fight. That
-// Durability is no longer gainable is the accepted cost of the #180 cut; a
-// Durability-gaining row returns whenever the roster is re-widened.
-// Names are checked against core/ship's fitting roster and deliberately don't
-// collide with it: a Trade is not a thing you install, and "Reinforced Hull"
-// already names a Medium Brace fitting the player can be holding while a
-// trade is on screen.
+// A deliberately thin roster of three (ADR-0020): Speed is a derived read-out of weight,
+// not a stored stat a Trade can pay out of, so the Speed-touching rows are gone until Speed
+// returns as tradeable fittings. Hull is gain-only (Cannibalized Timbers), Max Hull and
+// Cargo sit on both sides, Durability is cost-only (Scrapped Armour). Hull stays gain-only
+// on purpose: nothing else in the game heals (combat is the only writer of Ship.hull, and
+// it only ever subtracts), so repair is the scarcest thing a trade can offer, and a trade
+// that damages you is a Fight without the fight. Names are checked against core/ship's
+// roster and deliberately don't collide with it — a Trade is not a thing you install.
 @(rodata)
 trade_roster := [?]Trade_Axis {
-	// Patch the damage you have by permanently lowering the ceiling. The one
-	// entry that trades Hull against Max Hull, which is why both are distinct stats.
+	// Patch the damage you have by permanently lowering the ceiling — the one entry that
+	// trades Hull against Max Hull, which is why they are distinct stats.
 	{name = "Cannibalized Timbers", gain = .Hull, cost = .Max_Hull},
 	{name = "Scrapped Armour", gain = .Cargo, cost = .Durability},
 	{name = "Shipwright's Bargain", gain = .Max_Hull, cost = .Cargo},
 }
 
-// voyage_trade_roster returns every authored trade axis. voyage_make_trade deals from
-// this rather than reading a hardcoded pair off Stage_Trade's fields, so the set
-// of trades in the game is this table and nothing else — the Trade half of the
-// same authored-content rule catalog.odin states for recipes.
+// voyage_trade_roster returns every authored trade axis; voyage_make_trade deals from it,
+// so the trades in the game are this table and nothing else.
 voyage_trade_roster :: proc() -> []Trade_Axis {
 	return trade_roster[:]
 }
 
-// voyage_make_trade bakes a Trade stage (issue #136): it draws one axis from the
-// roster off the map generator's RNG — so which bargain a node offers is
-// reproducible per seed yet varies node to node, like an Offer's items and a
-// Shop's deck — and reads each side's magnitude as that stat's swing in this
-// node's zone. Called from voyage_bake_stage at generation time; nothing rolls on
-// arrival.
+// voyage_make_trade bakes a Trade stage (issue #136): it draws one axis off the map
+// generator's RNG — reproducible per seed, varying node to node — and reads each side's
+// magnitude as that stat's swing in this node's zone. Called from voyage_bake_stage at
+// generation time. Both terms read the same zone, so stakes move the whole trade together.
 //
-// Both terms read the *same* zone, so stakes move the whole trade together: a
-// Deep Braced Bulkheads gains more Durability and costs more Speed than a Coastal
-// one, rather than scaling only the half that used to have a constant.
-//
-// It takes a Zone rather than the node's full Scaling_Site because a swing is
-// zone-scaled and nothing else (#146: an exchange rate has no room for a second
-// axis — see TRADE_SWING_* in voyage.odin). So a Trade is the one primitive that
-// reads *part* of its node's stakes; the Shop arm beside it in voyage_bake_stage
-// reads none.
+// It takes a Zone rather than the node's full Scaling_Site because a swing is zone-scaled
+// and nothing else (#146: an exchange rate has no room for a second axis — see TRADE_SWING_*
+// in voyage.odin). So Trade is the one primitive that reads *part* of its node's stakes,
+// where the Shop beside it in voyage_bake_stage reads none.
 voyage_make_trade :: proc(zone: Zone, gen: rand.Generator) -> Stage_Trade {
 	roster := voyage_trade_roster()
 	axis := roster[rand.int_max(len(roster), gen)]
@@ -530,31 +317,18 @@ voyage_make_trade :: proc(zone: Zone, gen: rand.Generator) -> Stage_Trade {
 	}
 }
 
-// Stock_Pool names one authored entry in the Shop primitive's content roster
-// (issue #137): what kind of business this shop is. It is the Shop analogue of
-// Hostile_Archetype and Trade_Axis — the content that stops every shop in the game
-// from being the same shop — with one decisive difference: **an archetype and an
-// axis are drawn, a stock pool is named by the recipe** (Stage_Spec.stock).
+// Stock_Pool is one authored entry in the Shop roster (issue #137): what kind of business
+// this shop is. The Shop analogue of Hostile_Archetype and Trade_Axis, with one decisive
+// difference: an archetype and an axis are *drawn*, a stock pool is *named by the recipe*
+// (Stage_Spec.stock).
 //
-// That difference is the whole of what makes a Port and a merchant vessel stock
-// differently, and it is deliberate. A Fight draws its archetype with no regard to
-// where it is because archetype and stakes are independent axes (#135) — any build
-// may turn up anywhere. A Shop cannot work that way, because the two things
-// carrying Shop stages are not interchangeable:
-//
-//   - A **Port** is *guaranteed*: the Port bucket places exactly PORTS_PER_ZONE of
-//     them in every zone (generation.odin), so every run has six, and routing to one
-//     is a plan the map always honours. That promise is only worth making if a Port
-//     is a dependable general market — a Port that could roll a six-card specialist
-//     hold would make "go and restock" a gamble, which is the one thing the bespoke
-//     placement exists to prevent.
-//   - A **merchant vessel** is a *windfall*: it competes for slots in its zone's
-//     stage-count bucket, so it may not appear at all. A windfall can afford to be
-//     narrow and strange, because nothing is planned around it.
-//
-// Drawing the pool freely would make which-shop-is-this a per-node accident and
-// leave that asymmetry inexpressible. Naming it on the recipe is what lets "Port"
-// mean *the general store* and a merchant vessel mean *a hold full of one thing*.
+// A Fight draws its archetype with no regard to zone because archetype and stakes are
+// independent axes (#135). A Shop cannot, because the two things carrying Shop stages are
+// not interchangeable: a Port is *guaranteed* (the Port bucket places PORTS_PER_ZONE per
+// zone), so it must be a dependable general market; a merchant vessel is a *windfall* that
+// competes for a stage-count slot, so it can afford to be narrow and strange. Naming the
+// pool on the recipe is what lets "Port" mean the general store and a merchant mean a hold
+// full of one thing.
 Stock_Pool :: enum {
 	Chandlery,
 	Ordnance_Hoy,
@@ -563,117 +337,76 @@ Stock_Pool :: enum {
 	Curiosity_Dealer,
 }
 
-// Stock is what one Stock_Pool is made of: the two things a shop's stock varies by
-// (issue #137 asked which of pool subset / size / tier weighting / price "stocking
-// differently" means, and this type is the answer — **subset and size**).
+// Stock is what one Stock_Pool is made of — the two things a shop's stock varies by (issue
+// #137): subset and size.
 //
-// **Subset, via `families`** — the shop's character. The Tag families are the
-// roster's own authored family axis (ADR-0012), and they are what reads as a kind
-// of business: a hold of Weapons is an ordnance hoy, a hold of Beasts is a
-// menagerie. Filtering on Tag rather than Category (Muster/Brace/Fire) is
-// deliberate: Category is a *combat phase*, so a "Brace shop" describes when its
-// wares fire, not what they are, and no chandler ever sorted a warehouse that way.
+// Subset, via `families`: the Tag families the shop stocks — its character (a hold of
+// Weapons is an ordnance hoy, a hold of Beasts a menagerie). Filtered on Tag (ADR-0012's
+// family axis), not Category, because Category is a combat phase — a "Brace shop" would
+// describe when its wares fire, not what they are. `families` is a Maybe; nil means *no
+// filter*, not *every family*, so a chandlery keeps stocking a sixth Tag the day one is
+// authored without this table being edited.
 //
-// **Size, via `depth`** — how many cards deep the hold is, and the only reason a
-// shop can be exhausted. With the shelf window at SHOP_SHELF_SIZE, a visit reaches
-// `depth` cards at most, so this is what separates a Port you cannot empty from a
-// merchant you can (see the table below).
-//
-// **Not tier weighting, and not price.** Tier weighting is the stakes question, and
-// Shop deliberately reads no stakes at all (voyage.odin's scaling group says why: the
-// gradient a shop faces is the cargo the captain brings). Price is economy tuning,
-// which this map rules out of scope — and a per-pool discount would collide with
-// #124's depth surcharge, the one price knob that already exists.
-//
-// `families` is a **Maybe**, and nil means *no filter* rather than *every family*.
-// A chandlery is defined by not being choosy, so it must keep stocking a sixth Tag
-// the day one is authored, without this table being edited to remember it. It also
-// keeps the whole-roster case from quietly depending on every roster item carrying
-// a tag (they all do today — see every_roster_item_carries_a_tag_family — but that
-// is the Offer's business, not a fact a chandlery should rest on).
+// Size, via `depth`: how many cards deep the hold is, and the only reason a shop can be
+// exhausted — with the shelf window at SHOP_SHELF_SIZE, a visit reaches `depth` cards at
+// most. Not tier weighting (Shop reads no stakes — see voyage.odin) and not price (economy
+// tuning, out of scope).
 Stock :: struct {
 	name:     string,
 	families: Maybe(bit_set[ship.Tag]),
 	depth:    int,
 }
 
-// stock_pools is every shop in the game, in the same authored-table shape as
-// hostile_roster, trade_roster, and catalog.odin's recipe_catalog. @(rodata): like
-// trade_roster these entries are constant initializers, so the table can live in
-// read-only memory.
+// stock_pools is every shop in the game, authored in the same table shape as hostile_roster,
+// trade_roster, and catalog.odin's recipe_catalog. @(rodata): like trade_roster, constant
+// initializers.
 //
-// **Only Chandlery is reachable today.** The Port recipe names it (catalog.odin) and
-// no other recipe carries a Shop, so the four specialist holds below are authored
-// content waiting on the recipes that will name them — issue #138, which owns the
-// catalog. This is the same split #135 made: it authored eight hostile archetypes
-// while the catalog still held a single [Fight]. Authoring a merchant-vessel recipe
-// here instead would deal it into a zone's stage-count bucket and reshape every
-// seed's map, which is #138's call to make and not this ticket's.
+// Only Chandlery is reachable today — the Port recipe names it (catalog.odin) and no other
+// recipe carries a Shop, so the four specialist holds below are authored content waiting on
+// the recipes that will name them (issue #138).
 //
-// **Depth is authored per pool, and it is the whole difference in feel.** What matters
-// is not the number itself but the **reserve** it leaves behind the shelf — depth minus
-// SHOP_SHELF_SIZE — because that is what a purchase draws on. A visit sees the shelf
-// and refills a bought slot from the reserve; when the reserve is gone, buying starts
-// leaving bare slots and the shop visibly shrinks.
-//
-//   - Chandlery's 12 leaves a reserve of **7**. The starting cargo of 50 buys about
-//     three cards even at the cheapest tier (10, then #124's surcharge makes it 15, 20),
-//     so the shelf is still full when the money runs out — the captain gives up before
-//     the shop does. It is not infinite: buying all 12 out at the cheapest tier costs
-//     10+15+…+65 = 450, nine times what a voyage starts with, so emptying a Port means
-//     arriving with a fortune and spending the lot on trinkets.
-//   - A specialist's 6 leaves a reserve of **1**. The *second* purchase of a visit
-//     already bares a slot. That is the difference, and it lands within the two or
-//     three buys a real visit makes rather than at some theoretical exhaustion — which
-//     is exactly what a single ship's hold should feel like next to a town's warehouse.
-//
-// Both are pinned by test (a_chandlerys_reserve_outlasts_the_cargo_a_captain_brings,
-// a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied), because the interesting
-// quantity is a difference of two constants against a third and no one will notice by
-// eye when the surcharge moves.
+// Depth is authored per pool, and the feel is in the reserve it leaves behind the shelf
+// (depth - SHOP_SHELF_SIZE) — what a purchase draws on before buying starts leaving bare
+// slots. Chandlery's 12 leaves a reserve of 7, so the shelf is still full when a starting
+// cargo of 50 runs out (emptying a Port takes a fortune spent on trinkets). A specialist's
+// 6 leaves a reserve of 1, so the second purchase of a visit already bares a slot — a
+// single ship's hold next to a town's warehouse. Both are pinned by test
+// (a_chandlerys_reserve_outlasts_the_cargo_a_captain_brings,
+// a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied).
 @(rodata)
 stock_pools := [Stock_Pool]Stock {
-	// The Port's pool, and the only one a recipe names today. No filter at all: a
-	// chandlery is the general store, which is the promise the Port bucket's
-	// guaranteed placement is making.
+	// The Port's pool and the only one a recipe names today. No filter: the general store
+	// the Port bucket's guaranteed placement promises.
 	.Chandlery = {name = "Chandlery", families = nil, depth = 12},
-	// Guns. The largest specialist pool (15 Weapon items) and the most obvious
-	// merchant: a powder hoy running ordnance between ports.
+	// Guns — the largest specialist pool (15 Weapon items), a powder hoy running ordnance
+	// between ports.
 	.Ordnance_Hoy = {name = "Ordnance Hoy", families = bit_set[ship.Tag]{.Weapon}, depth = 6},
-	// Hands. Crew is the family the roster's biggest synergy trap sits in
-	// (Admiral's Guard, +3 per Crew aboard — see hostile_roster), so a hold that
-	// sells nothing but Crew is the one shop that can build that trap on purpose.
+	// Hands — Crew, the family Admiral's Guard's per-Crew synergy sits in (see
+	// hostile_roster), so this is the shop that can build that trap on purpose.
 	.Press_Gang = {name = "Press Gang", families = bit_set[ship.Tag]{.Crew}, depth = 6},
-	// Beasts. The smallest candidate family (10), so its 6 is over half the pool —
-	// two menageries in one run would visibly repeat, which is the honest cost of a
-	// narrow family and a reason #138 may want it rare.
+	// Beasts — the smallest candidate family (10), so a 6-deep hold is over half of it and
+	// two menageries in a run would visibly repeat.
 	.Menagerie = {name = "Menagerie", families = bit_set[ship.Tag]{.Beast}, depth = 6},
-	// Oddities. Artifact is the family with no unifying mechanic — it is the
-	// roster's "everything else" — so this is the specialist whose stock is
-	// unpredictable in kind rather than uniform.
+	// Oddities — Artifact has no unifying mechanic (the roster's "everything else"), so its
+	// stock is unpredictable in kind rather than uniform.
 	.Curiosity_Dealer = {name = "Curiosity Dealer", families = bit_set[ship.Tag]{.Artifact}, depth = 6},
 }
 
-// voyage_stock_pool returns one pool's authored stock. The Shop half of the same
-// authored-content rule catalog.odin states for recipes and trade_roster for trades:
-// the shops in the game are this table and nothing else.
+// voyage_stock_pool returns one pool's authored stock — the shops in the game are this
+// table and nothing else.
 voyage_stock_pool :: proc(pool: Stock_Pool) -> Stock {
 	return stock_pools[pool]
 }
 
-// voyage_stock_candidates returns the roster indices a pool is allowed to stock, in
-// roster order, and how many there are — the filter half of voyage_bake_shop, split out
-// so the pool table can be checked against the roster by test without baking a shop.
+// voyage_stock_candidates returns the roster indices a pool may stock, in roster order, and
+// how many — the filter half of voyage_bake_shop, split out so the pool table can be checked
+// against the roster by test without baking a shop.
 //
-// An unfiltered pool (families = nil) yields the whole roster in order, untouched.
-// That is not just a convenience: it is what keeps a Chandlery's shuffle identical to
-// the pre-#137 whole-roster deck's, so Ports generate exactly the stock they always
-// did and the seed-pinned maps do not move.
-//
-// A filtered pool keeps an item if it carries **any** of the pool's families — a
-// multi-tag item (Naval Gun Crew is Crew+Weapon) is stocked by both an Ordnance Hoy
-// and a Press Gang, the same way selector_matches counts it under each of its tags
-// (ADR-0012).
+// An unfiltered pool (families = nil) yields the whole roster in order, untouched — which is
+// also what keeps a Chandlery's shuffle identical to the whole-roster deck, so seed-pinned
+// Port maps do not move. A filtered pool keeps an item carrying *any* of the pool's families,
+// so a multi-tag item (Naval Gun Crew is Crew+Weapon) is stocked by both an Ordnance Hoy and
+// a Press Gang, the way selector_matches counts it under each of its tags.
 voyage_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZE]int, count: int) {
 	roster := ship.ship_item_roster()
 	families, filtered := stock.families.?
@@ -687,24 +420,17 @@ voyage_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZ
 	return
 }
 
-// voyage_bake_shop bakes a Shop stage's stock from its authored pool (issue #137,
-// superseding ADR-0013's whole-roster deck): the pool's candidates shuffled into a
-// per-seed-reproducible order off the map generator's RNG — so stock varies node to
-// node yet reproduces per seed, like an Offer's items and a Fight's archetype — cut
-// off at the pool's authored depth, each card priced by its Tier
-// (ship.ship_item_cost). Every card is distinct, being a sample of a permutation, so
-// a shelf drawn off it never repeats an item within one visit.
+// voyage_bake_shop bakes a Shop stage's stock from its authored pool (issue #137): the
+// pool's candidates shuffled per-seed off the map generator's RNG, cut off at the pool's
+// authored depth, each card priced by its Tier (ship.ship_item_cost). Every card is
+// distinct, being a sample of a permutation, so a shelf never repeats an item within one
+// visit.
 //
-// **It takes no Scaling_Site, and that is the point** — Shop is the one primitive
-// that ignores its own node's stakes. An Offer scales its items' magnitudes by the
-// site; a shop stocks them exactly as authored. ADR-0013 justified that by
-// double-counting *tier* (cost already rises with tier, so a quality bonus on top
-// would charge once and pay twice), and that still holds, but the stronger reason
-// arrived with #133: **Reward's payout is site-scaled** (20/tier + 5/depth), so depth
-// already means "more cargo". A shop that also improved with depth would compound
-// the same progression from both ends — richer captain *and* better shelf. So the
-// market is a fixed market, and the gradient a shop faces is the cargo the captain
-// brings to it. That is why this proc has no `site` parameter to ignore.
+// It takes no Scaling_Site — Shop is the one primitive that ignores its node's stakes. An
+// Offer scales its items by the site; a shop stocks them as authored. Cost already rises
+// with tier (ADR-0013), and Reward's payout is site-scaled (issue #133: 20/tier + 5/depth),
+// so a shop that also improved with depth would compound the same progression from both
+// ends. The market is fixed; the gradient a shop faces is the cargo the captain brings.
 voyage_bake_shop :: proc(pool: Stock_Pool, gen: rand.Generator) -> Stage_Shop {
 	stock := voyage_stock_pool(pool)
 	roster := ship.ship_item_roster()
