@@ -80,7 +80,7 @@ Battle :: struct {
 	escaped:    bit_set[Side],
 	ended:      bool,
 	// reason/winner mirror the Event_Battle_Ended emitted the moment the battle
-	// ends, so a caller holding only the Battle — run_finish_ship_battle, which must
+	// ends, so a caller holding only the Battle — voyage_finish_ship_battle, which must
 	// pay the wreck's hold to a captain who sank it (#159) — can read *how* it ended
 	// without replaying the event stream. Meaningful only once `ended`: on an unended
 	// battle `reason` reads as its zero value (.Destroyed) and must not be consulted.

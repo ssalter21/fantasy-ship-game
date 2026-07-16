@@ -6,21 +6,21 @@ import "core:math/rand"
 import "core:strings"
 import "core:testing"
 
-// test_opponent builds an opponent the way run_bake_stage does, off a fresh
+// test_opponent builds an opponent the way voyage_bake_stage does, off a fresh
 // generator for `seed`, so a test can talk about "the hostile seed 3 deals" without
 // standing up a whole map.
 test_opponent :: proc(site: Scaling_Site, seed: u64) -> ship.Ship {
 	state := rand.create(seed)
-	return run_pve_opponent(site, rand.default_random_generator(&state))
+	return voyage_pve_opponent(site, rand.default_random_generator(&state))
 }
 
 // test_hostile builds one *named* archetype at a site, bypassing the draw — the
 // per-archetype tests need to say which build they mean rather than fish for it
 // across seeds.
 test_hostile :: proc(archetype: Hostile_Archetype, site: Scaling_Site) -> ship.Ship {
-	s := run_make_opponent_ship(site) // sets the uniform BASE_SPEED base
+	s := voyage_make_opponent_ship(site) // sets the uniform BASE_SPEED base
 	layout := ship.ship_template_layout()
-	assert(run_fit_hostile_loadout(layout, archetype, run_fight_opponent_power(site)))
+	assert(voyage_fit_hostile_loadout(layout, archetype, voyage_fight_opponent_power(site)))
 	s.layout = layout
 	return s
 }
@@ -56,13 +56,13 @@ hostile_at_power :: proc(archetype: Hostile_Archetype, percent: int) -> ship.Shi
 	s := ship.Ship{}
 	s.speed = ship.BASE_SPEED
 	layout := ship.ship_template_layout()
-	assert(run_fit_hostile_loadout(layout, archetype, percent))
+	assert(voyage_fit_hostile_loadout(layout, archetype, percent))
 	s.layout = layout
 	return s
 }
 
 @(test)
-run_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T) {
+voyage_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T) {
 	opponent := test_opponent(Scaling_Site{zone = .Coastal, depth = 3}, 0)
 	defer delete(opponent.layout)
 
@@ -74,17 +74,17 @@ run_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T
 }
 
 @(test)
-run_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_fight_formulas :: proc(t: ^testing.T) {
+voyage_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_fight_formulas :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Deep, depth = 2}
 	opponent := test_opponent(site, 0)
 	defer delete(opponent.layout)
 
-	testing.expect_value(t, opponent.hp, run_fight_opponent_hp(site))
-	testing.expect_value(t, opponent.durability, run_fight_opponent_durability(site))
+	testing.expect_value(t, opponent.hp, voyage_fight_opponent_hp(site))
+	testing.expect_value(t, opponent.durability, voyage_fight_opponent_durability(site))
 }
 
 @(test)
-run_pve_opponent_carries_no_captain :: proc(t: ^testing.T) {
+voyage_pve_opponent_carries_no_captain :: proc(t: ^testing.T) {
 	opponent := test_opponent(Scaling_Site{zone = .Coastal, depth = 3}, 0)
 	defer delete(opponent.layout)
 
@@ -98,7 +98,7 @@ run_pve_opponent_carries_no_captain :: proc(t: ^testing.T) {
 // bigger numbers — a hostile *template*, not a roster. If the draw only ever yields
 // one build, nothing was retired.
 @(test)
-run_pve_opponent_draws_more_than_one_distinct_archetype_across_seeds :: proc(t: ^testing.T) {
+voyage_pve_opponent_draws_more_than_one_distinct_archetype_across_seeds :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Open_Sea, depth = 1}
 	seen: map[string]bool
 	defer delete(seen)
@@ -118,7 +118,7 @@ run_pve_opponent_draws_more_than_one_distinct_archetype_across_seeds :: proc(t: 
 // same hostile — the no-runtime-RNG property (ADR-0013) covers which opponent a
 // node holds, like every other stage's content.
 @(test)
-run_pve_opponent_is_reproducible_per_seed :: proc(t: ^testing.T) {
+voyage_pve_opponent_is_reproducible_per_seed :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Deep, depth = 2}
 	a := test_opponent(site, 11)
 	defer delete(a.layout)
@@ -136,7 +136,7 @@ run_pve_opponent_is_reproducible_per_seed :: proc(t: ^testing.T) {
 // check: an entry asking for more Larges than the template has cannot fit.
 @(test)
 every_hostile_archetype_is_built_from_real_roster_items :: proc(t: ^testing.T) {
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		testing.expect(t, len(archetype.name) > 0)
 		testing.expectf(t, len(archetype.items) > 0, "%v carries no items", archetype.name)
 
@@ -149,7 +149,7 @@ every_hostile_archetype_is_built_from_real_roster_items :: proc(t: ^testing.T) {
 		defer delete(layout)
 		testing.expectf(
 			t,
-			run_fit_hostile_loadout(layout, archetype, 0),
+			voyage_fit_hostile_loadout(layout, archetype, 0),
 			"%v's items do not fit the one ship template",
 			archetype.name,
 		)
@@ -173,7 +173,7 @@ a_deeper_node_gives_the_opponent_harder_hitting_offensive_fittings :: proc(t: ^t
 }
 
 // **Stakes scales what a hostile deals, never what it soaks** — the surviving half
-// of #135's rule (run_stakes_scales_category), and the half whose reason is still
+// of #135's rule (voyage_stakes_scales_category), and the half whose reason is still
 // alive: soak is subtracted from raw damage, so a site that scaled it would make a
 // deep hostile impossible to *hurt* rather than harder to fight.
 //
@@ -187,14 +187,14 @@ a_deeper_node_gives_the_opponent_harder_hitting_offensive_fittings :: proc(t: ^t
 // both: `Barricades` is an active that feeds the Defensive phase, and `Reinforced
 // Hull` is a passive Modify_Durability that never enters a phase at all. The site's
 // own durability reading is subtracted off so this asks about the *archetype's*
-// contribution rather than run_make_opponent_ship's baseline, which is a stakes
+// contribution rather than voyage_make_opponent_ship's baseline, which is a stakes
 // reading and is meant to move.
 @(test)
 the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing.T) {
 	shallow_site := Scaling_Site{zone = .Coastal, depth = 0}
 	deep_site := Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}
 
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		shallow := test_hostile(archetype, shallow_site)
 		defer delete(shallow.layout)
 		deep := test_hostile(archetype, deep_site)
@@ -208,8 +208,8 @@ the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing
 		)
 		testing.expectf(
 			t,
-			ship.ship_effective_durability(&deep) - run_fight_opponent_durability(deep_site) ==
-			ship.ship_effective_durability(&shallow) - run_fight_opponent_durability(shallow_site),
+			ship.ship_effective_durability(&deep) - voyage_fight_opponent_durability(deep_site) ==
+			ship.ship_effective_durability(&shallow) - voyage_fight_opponent_durability(shallow_site),
 			"%v's fittings contributed more Durability in The Deep — the site scaled a Modify_Durability passive",
 			archetype.name,
 		)
@@ -232,7 +232,7 @@ the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing
 // is two Modify_Speed items stacked.
 @(test)
 the_site_never_moves_a_hostiles_speed :: proc(t: ^testing.T) {
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		shallow := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
 		defer delete(shallow.layout)
 		deep := test_hostile(archetype, Scaling_Site{zone = .Deep, depth = DEPTH_STEPS})
@@ -253,7 +253,7 @@ the_site_never_moves_a_hostiles_speed :: proc(t: ^testing.T) {
 //
 // #135 wanted the site's reading to be worth the same to every archetype, so that
 // which hostile you drew could not matter more than how deep you were. Its shared
-// total (run_offense_share) could not deliver that, and its test could not see the
+// total (voyage_offense_share) could not deliver that, and its test could not see the
 // failure: measuring *authored magnitudes*, it reported an equal uplift while
 // resolved output diverged by 56% — Deepwater Menagerie's Hunter's Pack multiplied
 // its share by the Beasts aboard, and Death Throes banked most of its share behind
@@ -280,7 +280,7 @@ the_site_scales_every_archetype_by_the_same_proportion :: proc(t: ^testing.T) {
 	// Half a point per scaled fitting, times the largest synergy count in the roster.
 	TOLERANCE :: 2
 
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		as_authored := hostile_at_power(archetype, 100)
 		defer delete(as_authored.layout)
 		base := hostile_output(&as_authored)
@@ -288,7 +288,7 @@ the_site_scales_every_archetype_by_the_same_proportion :: proc(t: ^testing.T) {
 		for zone in Zone {
 			for depth in 0 ..= DEPTH_STEPS {
 				site := Scaling_Site{zone = zone, depth = depth}
-				percent := run_fight_opponent_power(site)
+				percent := voyage_fight_opponent_power(site)
 
 				hostile := test_hostile(archetype, site)
 				defer delete(hostile.layout)
@@ -320,7 +320,7 @@ the_site_scales_every_archetype_by_the_same_proportion :: proc(t: ^testing.T) {
 // magnitude, the entries would mean something other than what they say.
 @(test)
 a_hundred_percent_power_leaves_an_archetype_exactly_as_authored :: proc(t: ^testing.T) {
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		scaled := hostile_at_power(archetype, 100)
 		defer delete(scaled.layout)
 
@@ -381,7 +381,7 @@ the_hostile_roster_straddles_the_player_at_the_starting_purse :: proc(t: ^testin
 	slower, faster := 0, 0
 	distinct_speeds: map[int]bool
 	defer delete(distinct_speeds)
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		hostile := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
 		defer delete(hostile.layout)
 		hostile_speed := ship.ship_effective_speed(&hostile)
@@ -405,7 +405,7 @@ the_hostile_roster_straddles_the_player_at_the_starting_purse :: proc(t: ^testin
 // weight/10 >= 0` for every hostile at its maximum reachable fill. A hostile's
 // reachable fill is the flat 50% every spare slot is stowed to (HOSTILE_FILL_PERCENT,
 // #176) — its actual in-game state — so this builds each archetype the way
-// run_pve_opponent does and asserts its derived Speed never reads below 0. The
+// voyage_pve_opponent does and asserts its derived Speed never reads below 0. The
 // invariant is a **test, never a live clamp** (#175): the model is authored so
 // nothing reads below 0 rather than max(0, …) hiding a negative.
 //
@@ -418,7 +418,7 @@ the_hostile_roster_straddles_the_player_at_the_starting_purse :: proc(t: ^testin
 // template work must respect.
 @(test)
 every_hostile_reads_a_nonnegative_speed_at_its_reachable_fill :: proc(t: ^testing.T) {
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		hostile := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
 		defer delete(hostile.layout)
 		speed := ship.ship_effective_speed(&hostile)
@@ -451,7 +451,7 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 	// The intended fight length: long enough that Leave Combat comes off the bench.
 	MIN_PLAYER_ROUNDS :: combat.BASELINE_ROUND_COUNT
 
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		player := ship.ship_starting_ship()
 		defer delete(player.layout)
 		hostile := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
@@ -526,7 +526,7 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^testing.T) {
 	ROUND_CAP :: 30
 
-	for archetype in run_hostile_roster() {
+	for archetype in voyage_hostile_roster() {
 		player := ship.ship_starting_ship()
 		defer delete(player.layout)
 		hostile := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
@@ -629,9 +629,9 @@ phase_magnitude :: proc(s: ship.Ship, phase: ship.Category) -> int {
 }
 
 @(test)
-run_map_create_wires_the_hand_authored_pve_opponent_content_into_fight_stages :: proc(t: ^testing.T) {
-	m := run_map_create(0)
-	defer run_map_destroy(&m)
+voyage_map_create_wires_the_hand_authored_pve_opponent_content_into_fight_stages :: proc(t: ^testing.T) {
+	m := voyage_map_create(0)
+	defer voyage_map_destroy(&m)
 
 	found_a_fight := false
 	for node in m.nodes {
@@ -650,10 +650,10 @@ run_map_create_wires_the_hand_authored_pve_opponent_content_into_fight_stages ::
 }
 
 @(test)
-run_item_offer_options_presents_distinct_roster_items :: proc(t: ^testing.T) {
+voyage_item_offer_options_presents_distinct_roster_items :: proc(t: ^testing.T) {
 	state := rand.create(0)
 	gen := rand.default_random_generator(&state)
-	options := run_item_offer_options(Scaling_Site{zone = .Coastal, depth = 0}, gen)
+	options := voyage_item_offer_options(Scaling_Site{zone = .Coastal, depth = 0}, gen)
 
 	// Every offered option is a distinct roster item (no repeats), and each is a
 	// real fitting the player could place — not a cargo filler.
@@ -670,14 +670,14 @@ run_item_offer_options_presents_distinct_roster_items :: proc(t: ^testing.T) {
 }
 
 @(test)
-run_item_offer_options_scale_up_with_a_deeper_node :: proc(t: ^testing.T) {
+voyage_item_offer_options_scale_up_with_a_deeper_node :: proc(t: ^testing.T) {
 	// A deeper node's quality bonus lifts the offered items' magnitudes. Drawing
 	// both offers from the same seed makes them sample the same items in the same
 	// order, so the only difference is the zone/depth scaling.
 	low_state := rand.create(7)
 	high_state := rand.create(7)
-	low := run_item_offer_options(Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&low_state))
-	high := run_item_offer_options(Scaling_Site{zone = .Deep, depth = 3}, rand.default_random_generator(&high_state))
+	low := voyage_item_offer_options(Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&low_state))
+	high := voyage_item_offer_options(Scaling_Site{zone = .Deep, depth = 3}, rand.default_random_generator(&high_state))
 
 	found_scaled := false
 	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
@@ -694,13 +694,13 @@ run_item_offer_options_scale_up_with_a_deeper_node :: proc(t: ^testing.T) {
 // The point of the ticket: the trade axis is no longer one welded point. If the
 // roster only ever yields one distinct bargain, nothing was unwelded.
 @(test)
-run_make_trade_draws_more_than_one_distinct_axis_across_seeds :: proc(t: ^testing.T) {
+voyage_make_trade_draws_more_than_one_distinct_axis_across_seeds :: proc(t: ^testing.T) {
 	seen: map[string]bool
 	defer delete(seen)
 
 	for seed in u64(0) ..< 50 {
 		state := rand.create(seed)
-		trade := run_make_trade(.Open_Sea, rand.default_random_generator(&state))
+		trade := voyage_make_trade(.Open_Sea, rand.default_random_generator(&state))
 		seen[trade.name] = true
 	}
 
@@ -711,11 +711,11 @@ run_make_trade_draws_more_than_one_distinct_axis_across_seeds :: proc(t: ^testin
 // the same bargain — the no-runtime-RNG property (ADR-0013) applies to a Trade's
 // content like every other stage's.
 @(test)
-run_make_trade_is_reproducible_per_seed :: proc(t: ^testing.T) {
+voyage_make_trade_is_reproducible_per_seed :: proc(t: ^testing.T) {
 	a_state := rand.create(11)
 	b_state := rand.create(11)
-	a := run_make_trade(.Deep, rand.default_random_generator(&a_state))
-	b := run_make_trade(.Deep, rand.default_random_generator(&b_state))
+	a := voyage_make_trade(.Deep, rand.default_random_generator(&a_state))
+	b := voyage_make_trade(.Deep, rand.default_random_generator(&b_state))
 
 	testing.expect_value(t, a, b)
 }
@@ -723,11 +723,11 @@ run_make_trade_is_reproducible_per_seed :: proc(t: ^testing.T) {
 // Both sides read the same zone, so stakes move the whole trade — not just the
 // half that used to own a constant.
 @(test)
-run_make_trade_scales_both_sides_with_the_zone :: proc(t: ^testing.T) {
+voyage_make_trade_scales_both_sides_with_the_zone :: proc(t: ^testing.T) {
 	shallow_state := rand.create(3)
 	deep_state := rand.create(3)
-	shallow := run_make_trade(.Coastal, rand.default_random_generator(&shallow_state))
-	deep := run_make_trade(.Deep, rand.default_random_generator(&deep_state))
+	shallow := voyage_make_trade(.Coastal, rand.default_random_generator(&shallow_state))
+	deep := voyage_make_trade(.Deep, rand.default_random_generator(&deep_state))
 
 	testing.expect_value(t, shallow.name, deep.name) // same seed, same axis drawn
 	testing.expect(t, deep.gain.amount > shallow.gain.amount)
@@ -737,19 +737,19 @@ run_make_trade_scales_both_sides_with_the_zone :: proc(t: ^testing.T) {
 // A baked trade's magnitudes are exactly its two stats' swings in that zone —
 // the roster entry contributes the stats, the zone contributes the numbers.
 @(test)
-run_make_trade_reads_each_side_as_that_stats_swing :: proc(t: ^testing.T) {
+voyage_make_trade_reads_each_side_as_that_stats_swing :: proc(t: ^testing.T) {
 	state := rand.create(5)
-	trade := run_make_trade(.Open_Sea, rand.default_random_generator(&state))
+	trade := voyage_make_trade(.Open_Sea, rand.default_random_generator(&state))
 
-	testing.expect_value(t, trade.gain.amount, run_trade_swing(.Open_Sea, trade.gain.stat))
-	testing.expect_value(t, trade.cost.amount, run_trade_swing(.Open_Sea, trade.cost.stat))
+	testing.expect_value(t, trade.gain.amount, voyage_trade_swing(.Open_Sea, trade.gain.stat))
+	testing.expect_value(t, trade.cost.amount, voyage_trade_swing(.Open_Sea, trade.cost.stat))
 }
 
 // Every entry is a real swap: a trade that gains and costs the same stat is a
 // no-op dressed as a decision.
 @(test)
 every_trade_roster_entry_swaps_two_different_stats_and_is_named :: proc(t: ^testing.T) {
-	for axis in run_trade_roster() {
+	for axis in voyage_trade_roster() {
 		testing.expect(t, len(axis.name) > 0)
 		testing.expectf(t, axis.gain != axis.cost, "%v gains and costs the same stat", axis.name)
 	}
@@ -765,7 +765,7 @@ every_trade_roster_entry_swaps_two_different_stats_and_is_named :: proc(t: ^test
 the_trade_roster_covers_the_stats_the_surviving_three_rows_can :: proc(t: ^testing.T) {
 	gained: bit_set[Trade_Stat]
 	cost: bit_set[Trade_Stat]
-	for axis in run_trade_roster() {
+	for axis in voyage_trade_roster() {
 		gained += {axis.gain}
 		cost += {axis.cost}
 	}
@@ -774,12 +774,12 @@ the_trade_roster_covers_the_stats_the_surviving_three_rows_can :: proc(t: ^testi
 	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_HP, .Durability, .Treasure})
 }
 
-// baked_trade is a roster axis priced at a zone — exactly what run_make_trade
+// baked_trade is a roster axis priced at a zone — exactly what voyage_make_trade
 // builds once the draw has picked the axis, without the draw. It lets the
 // takeability tests below ask about a *named* entry rather than whichever one a
 // seed happened to deal.
 baked_trade :: proc(axis: Trade_Axis, zone: Zone) -> Stage_Trade {
-	return trade_of(axis.gain, run_trade_swing(zone, axis.gain), axis.cost, run_trade_swing(zone, axis.cost))
+	return trade_of(axis.gain, voyage_trade_swing(zone, axis.gain), axis.cost, voyage_trade_swing(zone, axis.cost))
 }
 
 // #146's headline: **an entry no ship can pay for is authored content the player
@@ -794,18 +794,18 @@ baked_trade :: proc(axis: Trade_Axis, zone: Zone) -> Stage_Trade {
 // it is the swing table that is wrong, not the test.
 @(test)
 every_trade_roster_entry_is_takeable_by_a_starting_ship_outside_the_deep :: proc(t: ^testing.T) {
-	for axis in run_trade_roster() {
+	for axis in voyage_trade_roster() {
 		for zone in ([]Zone{.Coastal, .Open_Sea}) {
 			s := ship.ship_starting_ship()
 			defer delete(s.layout)
 
 			testing.expectf(
 				t,
-				run_trade_can_accept(&s, baked_trade(axis, zone)),
+				voyage_trade_can_accept(&s, baked_trade(axis, zone)),
 				"%v is a dead node in %v: a starting ship cannot pay %v of %v",
 				axis.name,
 				zone,
-				run_trade_swing(zone, axis.cost),
+				voyage_trade_swing(zone, axis.cost),
 				axis.cost,
 			)
 		}
@@ -827,7 +827,7 @@ every_trade_roster_entry_is_takeable_by_a_starting_ship_outside_the_deep :: proc
 // known, not that it should stay.
 @(test)
 the_deep_asks_one_point_of_armour_before_it_will_buy_a_ships_armour :: proc(t: ^testing.T) {
-	for axis in run_trade_roster() {
+	for axis in voyage_trade_roster() {
 		if axis.cost != .Durability {
 			continue
 		}
@@ -836,7 +836,7 @@ the_deep_asks_one_point_of_armour_before_it_will_buy_a_ships_armour :: proc(t: ^
 		defer delete(bare.layout)
 		testing.expectf(
 			t,
-			!run_trade_can_accept(&bare, baked_trade(axis, .Deep)),
+			!voyage_trade_can_accept(&bare, baked_trade(axis, .Deep)),
 			"%v is takeable in The Deep by a bare hull — the residue this test documents is gone, so delete it",
 			axis.name,
 		)
@@ -847,7 +847,7 @@ the_deep_asks_one_point_of_armour_before_it_will_buy_a_ships_armour :: proc(t: ^
 
 		testing.expectf(
 			t,
-			run_trade_can_accept(&plated, baked_trade(axis, .Deep)),
+			voyage_trade_can_accept(&plated, baked_trade(axis, .Deep)),
 			"%v needs more than a single plating in The Deep",
 			axis.name,
 		)

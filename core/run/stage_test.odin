@@ -17,29 +17,29 @@ walk_fixture :: proc() -> Encounter {
 a_completed_stage_advances_the_cursor_to_the_next_stage :: proc(t: ^testing.T) {
 	e := walk_fixture()
 
-	stage, ok := run_encounter_current(e)
+	stage, ok := voyage_encounter_current(e)
 	testing.expect(t, ok)
-	testing.expect_value(t, run_stage_kind(stage), Stage_Kind.Trade)
+	testing.expect_value(t, voyage_stage_kind(stage), Stage_Kind.Trade)
 
-	more := run_encounter_resolve_stage(&e, .Completed)
+	more := voyage_encounter_resolve_stage(&e, .Completed)
 
 	testing.expect(t, more)
-	stage, ok = run_encounter_current(e)
+	stage, ok = voyage_encounter_current(e)
 	testing.expect(t, ok)
-	testing.expect_value(t, run_stage_kind(stage), Stage_Kind.Offer)
+	testing.expect_value(t, voyage_stage_kind(stage), Stage_Kind.Offer)
 }
 
 @(test)
 completing_the_last_stage_finishes_the_walk :: proc(t: ^testing.T) {
 	e := walk_fixture()
 
-	testing.expect(t, run_encounter_resolve_stage(&e, .Completed))
-	testing.expect(t, run_encounter_resolve_stage(&e, .Completed))
+	testing.expect(t, voyage_encounter_resolve_stage(&e, .Completed))
+	testing.expect(t, voyage_encounter_resolve_stage(&e, .Completed))
 	// The third and last stage: completing it leaves nothing pending.
-	testing.expect(t, !run_encounter_resolve_stage(&e, .Completed))
+	testing.expect(t, !voyage_encounter_resolve_stage(&e, .Completed))
 
-	testing.expect(t, run_encounter_is_finished(e))
-	_, ok := run_encounter_current(e)
+	testing.expect(t, voyage_encounter_is_finished(e))
+	_, ok := voyage_encounter_current(e)
 	testing.expect(t, !ok)
 }
 
@@ -50,11 +50,11 @@ a_halted_stage_ends_the_encounter_and_skips_every_later_stage :: proc(t: ^testin
 	// Halt on the very first stage: the Offer and Reward behind it never resolve.
 	// This is what makes [Fight, Reward] mean "flee the blockade, forfeit the
 	// loot" with no authored gate.
-	more := run_encounter_resolve_stage(&e, .Halted)
+	more := voyage_encounter_resolve_stage(&e, .Halted)
 
 	testing.expect(t, !more)
-	testing.expect(t, run_encounter_is_finished(e))
-	_, ok := run_encounter_current(e)
+	testing.expect(t, voyage_encounter_is_finished(e))
+	_, ok := voyage_encounter_current(e)
 	testing.expect(t, !ok)
 }
 
@@ -62,13 +62,13 @@ a_halted_stage_ends_the_encounter_and_skips_every_later_stage :: proc(t: ^testin
 a_halt_partway_through_keeps_the_stages_already_walked :: proc(t: ^testing.T) {
 	e := walk_fixture()
 
-	testing.expect(t, run_encounter_resolve_stage(&e, .Completed)) // Trade granted
-	testing.expect(t, !run_encounter_resolve_stage(&e, .Halted)) // skipped the Offer
+	testing.expect(t, voyage_encounter_resolve_stage(&e, .Completed)) // Trade granted
+	testing.expect(t, !voyage_encounter_resolve_stage(&e, .Halted)) // skipped the Offer
 
 	// The cursor records that the walk got past the first stage before ending —
 	// "keeping what earlier stages already granted" is the run state those stages
 	// already mutated, and the walk never rewinds it.
-	testing.expect(t, run_encounter_is_finished(e))
+	testing.expect(t, voyage_encounter_is_finished(e))
 	testing.expect(t, e.cursor >= 1)
 }
 
@@ -79,10 +79,10 @@ resolving_a_stage_on_a_finished_encounter_asserts :: proc(t: ^testing.T) {
 	}
 
 	e := Encounter{stages = {0 = Stage_Reward{}}, count = 1}
-	run_encounter_resolve_stage(&e, .Completed)
+	voyage_encounter_resolve_stage(&e, .Completed)
 
 	testing.expect_assert(t, "resolved a stage on an encounter whose walk already finished")
-	run_encounter_resolve_stage(&e, .Completed)
+	voyage_encounter_resolve_stage(&e, .Completed)
 }
 
 // --- Stage-derived visibility ----------------------------------------------
@@ -92,7 +92,7 @@ only_a_shop_stage_reveals_its_encounter :: proc(t: ^testing.T) {
 	for kind in Stage_Kind {
 		testing.expectf(
 			t,
-			run_stage_kind_reveals(kind) == (kind == .Shop),
+			voyage_stage_kind_reveals(kind) == (kind == .Shop),
 			"%v: Shop is the only revealing primitive today",
 			kind,
 		)
@@ -102,18 +102,18 @@ only_a_shop_stage_reveals_its_encounter :: proc(t: ^testing.T) {
 @(test)
 an_encounter_reveals_iff_its_first_stage_reveals :: proc(t: ^testing.T) {
 	hidden := Encounter{stages = {0 = Stage_Fight{}, 1 = Stage_Reward{}}, count = 2}
-	testing.expect(t, !run_encounter_reveals(hidden))
+	testing.expect(t, !voyage_encounter_reveals(hidden))
 
 	// A Port: the one-stage [Shop] recipe, and the only shape that opens on a Shop
 	// (only_the_port_bucket_opens_on_a_shop).
 	port := Encounter{stages = {0 = Stage_Shop{}}, count = 1}
-	testing.expect(t, run_encounter_reveals(port))
+	testing.expect(t, voyage_encounter_reveals(port))
 
 	// A merchant vessel: a Shop behind a stage. Hidden — a market you can plan a
 	// route to is what a Port is for; a merchant is a windfall (ADR-0016). These two
 	// assertions are the whole decision.
 	merchant := Encounter{stages = {0 = Stage_Fight{}, 1 = Stage_Shop{}}, count = 2}
-	testing.expect(t, !run_encounter_reveals(merchant))
+	testing.expect(t, !voyage_encounter_reveals(merchant))
 }
 
 @(test)
@@ -122,14 +122,14 @@ a_stage_past_the_count_never_counts_toward_visibility :: proc(t: ^testing.T) {
 	// the encounter and must not reveal it. Under first-stage reveal an unused slot
 	// cannot be read anyway unless the count is zero, which is the case this pins.
 	e := Encounter{stages = {0 = Stage_Shop{}}, count = 0}
-	testing.expect(t, !run_encounter_reveals(e))
+	testing.expect(t, !voyage_encounter_reveals(e))
 }
 
 // --- Recipes and the catalog ------------------------------------------------
 
 @(test)
 every_catalog_recipe_fits_an_encounter_and_names_itself :: proc(t: ^testing.T) {
-	catalog := run_recipe_catalog()
+	catalog := voyage_recipe_catalog()
 	testing.expect(t, len(catalog) > 0)
 
 	for r in catalog {
@@ -163,12 +163,12 @@ a_recipes_bucket_is_derived_from_its_stage_count_not_authored :: proc(t: ^testin
 }
 
 @(test)
-run_encounter_from_recipe_bakes_every_authored_stage_in_order :: proc(t: ^testing.T) {
+voyage_encounter_from_recipe_bakes_every_authored_stage_in_order :: proc(t: ^testing.T) {
 	state := rand.create(0)
 	gen := rand.default_random_generator(&state)
 
 	r := Recipe{name = "Blockade", stages = []Stage_Spec{{kind = .Fight}, {kind = .Offer}, {kind = .Reward}}}
-	e := run_encounter_from_recipe(r, Scaling_Site{zone = .Deep, depth = 1}, gen)
+	e := voyage_encounter_from_recipe(r, Scaling_Site{zone = .Deep, depth = 1}, gen)
 	defer for i in 0 ..< e.count {
 		if fight, is_fight := e.stages[i].(Stage_Fight); is_fight {
 			delete(fight.opponent.layout)
@@ -178,7 +178,7 @@ run_encounter_from_recipe_bakes_every_authored_stage_in_order :: proc(t: ^testin
 	testing.expect_value(t, e.count, 3)
 	testing.expect_value(t, e.cursor, 0) // a fresh encounter starts on its first stage
 	for spec, i in r.stages {
-		testing.expectf(t, run_stage_kind(e.stages[i]) == spec.kind, "stage %d: baked out of authored order", i)
+		testing.expectf(t, voyage_stage_kind(e.stages[i]) == spec.kind, "stage %d: baked out of authored order", i)
 	}
 
 	// Baked content, not a bare number resolved later: the Fight carries a real
@@ -200,7 +200,7 @@ a_bare_reward_recipe_bakes_its_payout_from_the_site :: proc(t: ^testing.T) {
 
 	site := Scaling_Site{zone = .Open_Sea, depth = 2}
 	r := Recipe{name = "Drifting Salvage", stages = []Stage_Spec{{kind = .Reward}}}
-	e := run_encounter_from_recipe(r, site, gen)
+	e := voyage_encounter_from_recipe(r, site, gen)
 
 	testing.expect_value(t, e.count, 1)
 	reward, is_reward := e.stages[0].(Stage_Reward)
@@ -208,12 +208,12 @@ a_bare_reward_recipe_bakes_its_payout_from_the_site :: proc(t: ^testing.T) {
 
 	// The payout is content baked at generation, and it is this node's own reading of
 	// the gradient — no runtime roll decides it on arrival.
-	testing.expect_value(t, reward.treasure, run_reward_treasure(site))
+	testing.expect_value(t, reward.treasure, voyage_reward_treasure(site))
 	testing.expect(t, reward.treasure > 0)
 }
 
 @(test)
-run_encounter_from_recipe_bakes_stakes_scaled_content :: proc(t: ^testing.T) {
+voyage_encounter_from_recipe_bakes_stakes_scaled_content :: proc(t: ^testing.T) {
 	// Each bake gets its own generator off the same seed, so both draw the same
 	// axis from the trade roster (#136) and the site is the only difference
 	// between them. Sharing one generator would advance it between the two calls
@@ -223,8 +223,8 @@ run_encounter_from_recipe_bakes_stakes_scaled_content :: proc(t: ^testing.T) {
 	deep_state := rand.create(0)
 
 	r := Recipe{name = "Bargain", stages = BARGAIN_STAGES[:]}
-	shallow := run_encounter_from_recipe(r, Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&shallow_state))
-	deep := run_encounter_from_recipe(r, Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}, rand.default_random_generator(&deep_state))
+	shallow := voyage_encounter_from_recipe(r, Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&shallow_state))
+	deep := voyage_encounter_from_recipe(r, Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}, rand.default_random_generator(&deep_state))
 
 	// The same recipe at a higher-stakes site bakes a bigger swing — the recipe
 	// authors the shape, the Scaling_Site the magnitude.
@@ -236,7 +236,7 @@ run_encounter_from_recipe_bakes_stakes_scaled_content :: proc(t: ^testing.T) {
 }
 
 @(test)
-run_encounter_from_recipe_rejects_a_recipe_past_the_stage_cap :: proc(t: ^testing.T) {
+voyage_encounter_from_recipe_rejects_a_recipe_past_the_stage_cap :: proc(t: ^testing.T) {
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
@@ -246,21 +246,21 @@ run_encounter_from_recipe_rejects_a_recipe_past_the_stage_cap :: proc(t: ^testin
 	r := Recipe{name = "Too Long", stages = []Stage_Spec{{kind = .Trade}, {kind = .Trade}, {kind = .Trade}, {kind = .Trade}}}
 
 	testing.expect_assert(t, "a recipe authored more stages than an Encounter can hold")
-	run_encounter_from_recipe(r, Scaling_Site{zone = .Coastal, depth = 0}, gen)
+	voyage_encounter_from_recipe(r, Scaling_Site{zone = .Coastal, depth = 0}, gen)
 }
 
 // --- The recipe bag ---------------------------------------------------------
 
 @(test)
-run_make_recipe_bag_deals_evenly_across_whatever_pool_it_is_given :: proc(t: ^testing.T) {
+voyage_make_recipe_bag_deals_evenly_across_whatever_pool_it_is_given :: proc(t: ^testing.T) {
 	state := rand.create(7)
 	gen := rand.default_random_generator(&state)
 
 	// Two pool sizes, to pin that the even split is over the pool rather than the
-	// three-way division run_make_kind_bag hard-coded.
+	// three-way division voyage_make_kind_bag hard-coded.
 	pool2 := []Recipe{{name = "A", stages = SEA_BATTLE_STAGES[:]}, {name = "B", stages = BARGAIN_STAGES[:]}}
 	for count in ([]int{0, 1, 2, 7, 15}) {
-		bag := run_make_recipe_bag(count, pool2, gen)
+		bag := voyage_make_recipe_bag(count, pool2, gen)
 		defer delete(bag)
 		testing.expect_value(t, len(bag), count)
 
@@ -276,7 +276,7 @@ run_make_recipe_bag_deals_evenly_across_whatever_pool_it_is_given :: proc(t: ^te
 }
 
 @(test)
-run_make_recipe_bag_rejects_an_empty_pool :: proc(t: ^testing.T) {
+voyage_make_recipe_bag_rejects_an_empty_pool :: proc(t: ^testing.T) {
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
@@ -285,6 +285,6 @@ run_make_recipe_bag_rejects_an_empty_pool :: proc(t: ^testing.T) {
 	gen := rand.default_random_generator(&state)
 
 	testing.expect_assert(t, "cannot deal a recipe bag from an empty pool")
-	bag := run_make_recipe_bag(3, nil, gen)
+	bag := voyage_make_recipe_bag(3, nil, gen)
 	delete(bag)
 }

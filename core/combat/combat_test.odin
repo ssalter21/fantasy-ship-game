@@ -773,7 +773,7 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 	testing.expect(t, !has_winner)
 
 	// The Battle mirrors the ending it emitted, so a caller holding only the Battle —
-	// run_finish_ship_battle, deciding the wreck payout (#159) — reads it without the
+	// voyage_finish_ship_battle, deciding the wreck payout (#159) — reads it without the
 	// event stream.
 	testing.expect_value(t, battle.reason, End_Reason.Left_Combat)
 	_, battle_has_winner := battle.winner.?
@@ -958,7 +958,7 @@ hard_round_cap_forces_resolution_by_higher_hp :: proc(t: ^testing.T) {
 	testing.expect_value(t, winner, Side.A)
 
 	// The Battle mirrors the emitted ending (#159): a stalemate is Round_Cap on it,
-	// which is how run_finish_ship_battle tells a draw (pays nothing) from a kill.
+	// which is how voyage_finish_ship_battle tells a draw (pays nothing) from a kill.
 	testing.expect_value(t, battle.reason, End_Reason.Round_Cap)
 	battle_winner, battle_has_winner := battle.winner.?
 	testing.expect(t, battle_has_winner)

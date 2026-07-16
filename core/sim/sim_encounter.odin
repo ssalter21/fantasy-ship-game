@@ -147,7 +147,7 @@ sim_current_site :: proc(sim: ^Sim) -> run.Scaling_Site {
 // encounter (ADR-0014). This is where Port repeatability dies: a Port is walked and
 // resolved like anything else, because complete-or-halt has no revisit semantics and
 // a repeatable encounter would be the only primitive with a lifecycle of its own.
-// Halting finishes the walk too — run_encounter_resolve_stage jumps the cursor to the
+// Halting finishes the walk too — voyage_encounter_resolve_stage jumps the cursor to the
 // end — so a captain who flees a [Fight, Reward] never reaches the loot, with no
 // authored gate saying so.
 //
@@ -170,7 +170,7 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	}
 
 	for {
-		stage, walking := run.run_encounter_current(encounter^)
+		stage, walking := run.voyage_encounter_current(encounter^)
 		if !walking {
 			sim.resolved[sim.current] = true
 			sim_emit_encounter_resolved(sim, events)
@@ -184,7 +184,7 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		// primitives, and *before* the stage presents, so "stage 2 of 3" is on screen by
 		// the time its decision is.
 		append(events, Event(Event_Stage_Entered{
-			kind  = run.run_stage_kind(stage),
+			kind  = run.voyage_stage_kind(stage),
 			index = encounter.cursor,
 			count = encounter.count,
 		}))
@@ -212,7 +212,7 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		// copied somewhere with a stable address rather than pointed at through the
 		// node's Maybe. Its outcome lands in sim_process_battle_round.
 		sim.active_encounter = s
-		sim.battle = run.run_start_battle(&sim.player, &sim.active_encounter)
+		sim.battle = run.voyage_start_battle(&sim.player, &sim.active_encounter)
 		append(events, Event(Event_Ship_Battle_Sighted{opponent = sim.active_encounter.opponent}))
 		append(events, Event(Event_Battle_Menu{may_leave = combat.combat_may_leave(&sim.battle, .A)}))
 		sim.phase = .Awaiting_Battle_Command
@@ -244,7 +244,7 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		sim.active_trade = s
 		append(events, Event(Event_Trade_Presented{
 			trade      = sim.active_trade,
-			can_accept = run.run_trade_can_accept(&sim.player, sim.active_trade),
+			can_accept = run.voyage_trade_can_accept(&sim.player, sim.active_trade),
 		}))
 		sim.phase = .Awaiting_Trade_Choice
 		return nil
@@ -260,7 +260,7 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		// owes: the node's ghost is captured once, where the walk ends, so a Reward
 		// mid-recipe no longer emits one of its own (issue #162). Same as an accepted
 		// Trade, the other stage that grants on resolution.
-		run.run_apply_reward(&sim.player, s)
+		run.voyage_apply_reward(&sim.player, s)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		return .Completed
 	}
@@ -278,7 +278,7 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 // off the cursor at that point, which is why neither needs a remembered origin.
 //
 // A **halt** is announced on the way through (issue #139); a completion is not. This is
-// the only place both facts are in hand — run_encounter_resolve_stage takes the outcome
+// the only place both facts are in hand — voyage_encounter_resolve_stage takes the outcome
 // and the cursor still names the stage it applies to — and the asymmetry is
 // Event_Encounter_Halted's, not this proc's: a completion shows itself by what happens
 // next, a halt is the outcome with nothing to show.
@@ -287,16 +287,16 @@ sim_advance_stage :: proc(sim: ^Sim, outcome: run.Stage_Outcome, events: ^[dynam
 	assert(has_encounter, "resolved a stage at a node that holds no encounter")
 
 	if outcome == .Halted {
-		stage, walking := run.run_encounter_current(encounter^)
+		stage, walking := run.voyage_encounter_current(encounter^)
 		assert(walking, "halted a stage on an encounter whose walk already finished")
 		append(events, Event(Event_Encounter_Halted{
-			at    = run.run_stage_kind(stage),
+			at    = run.voyage_stage_kind(stage),
 			index = encounter.cursor,
 			count = encounter.count,
 		}))
 	}
 
-	run.run_encounter_resolve_stage(encounter, outcome)
+	run.voyage_encounter_resolve_stage(encounter, outcome)
 	sim.shop_visit = {} // the cursor is leaving; a stage's working state dies with it
 }
 
@@ -318,7 +318,7 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	encounter, has_encounter := sim_current_encounter(sim)
 	assert(has_encounter, "an option choice was answered at a node that holds no encounter")
-	stage, walking := run.run_encounter_current(encounter^)
+	stage, walking := run.voyage_encounter_current(encounter^)
 	assert(walking, "an option choice was answered after the encounter's walk had finished")
 
 	selection, took := cmd.selection.?

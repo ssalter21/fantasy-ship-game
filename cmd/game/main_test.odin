@@ -23,8 +23,8 @@ get_captain_choice_returns_a_default_travel_choice_without_a_live_window :: proc
 
 @(test)
 dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^testing.T) {
-	run_map := run.run_map_create(0)
-	defer run.run_map_destroy(&run_map)
+	run_map := run.voyage_map_create(0)
+	defer run.voyage_map_destroy(&run_map)
 
 	state := Game_State{}
 	defer delete(state.visited)
@@ -208,7 +208,7 @@ node_appearance_renders_the_mask_it_was_given_and_never_re_derives_it :: proc(t:
 
 	// A merchant carries a Shop but does not *open* on one, so it is a windfall met at
 	// sea, not a market to route to (ADR-0016). The Sim masks it, so this node shape
-	// should never reach the view unvisited — but the view asks run_encounter_reveals,
+	// should never reach the view unvisited — but the view asks voyage_encounter_reveals,
 	// the same predicate the mask does, so handed the stages anyway it agrees rather than
 	// inventing a second rule that could drift.
 	_, label = node_appearance(node_of(run.Stage_Fight{}, run.Stage_Shop{}), false)
@@ -218,7 +218,7 @@ node_appearance_renders_the_mask_it_was_given_and_never_re_derives_it :: proc(t:
 @(test)
 a_node_is_labelled_by_the_stage_it_opens_with_not_by_its_cursor :: proc(t: ^testing.T) {
 	// The contingency #161 left commented at both ends: reveal is defined on stage 0
-	// while the label used to come from run_encounter_current, i.e. the **cursor**.
+	// while the label used to come from voyage_encounter_current, i.e. the **cursor**.
 	//
 	// #161 read that as latent-but-harmless because a walked-out node's cursor sits past
 	// the end and would fall through to a blank marker. It never did — presentation's copy

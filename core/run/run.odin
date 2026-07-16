@@ -3,7 +3,7 @@ package run
 import "../ship"
 import "core:math"
 
-// This file holds the run's shared domain data model (Zone, Node, Map) and the
+// This file holds the voyage's shared domain data model (Zone, Node, Map) and the
 // stakes scaling group — the one cohesive family of zone-and-depth-scaled
 // formulas behind a shared accessor. The other concerns carved out of the
 // original single module live in sibling files: the encounter stage model an
@@ -35,7 +35,7 @@ zone_tier := [Zone]int{.Coastal = 1, .Open_Sea = 2, .Deep = 3}
 // depth-within-zone — how deep into a zone's phase a node sits, normalized to a
 // fixed range (DEPTH_STEPS) so the spread is consistent regardless of how many
 // layers a seed happened to roll. Both feed every zone-scaled formula below via
-// run_zone_depth_scaled. Depth replaces the retired Fight-only "port proximity /
+// voyage_zone_depth_scaled. Depth replaces the retired Fight-only "port proximity /
 // contested waters" input, and applies to every stage primitive.
 DEPTH_STEPS :: 3
 
@@ -65,7 +65,7 @@ FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
 // what the site decides is **how much of it lands here**. An additive bonus cannot
 // say "less than what was authored", so the gradient's floor was whatever #135
 // happened to author zone-blind — and since the draw reads no zone, that floor was
-// the first thing a starting ship met (#165 measured a run dying at fight two).
+// the first thing a starting ship met (#165 measured a voyage dying at fight two).
 //
 // **zone_tier's 1/2/3 puts 100% at Open Sea, and that is read off rather than
 // chosen.** A multiplier is proportional to tier, so PER_TIER *is* the Coastal
@@ -216,10 +216,10 @@ TRADE_SWING_TREASURE_PER_TIER :: 15
 // it by giving Reward something to grant.
 //
 // Anchored against the Treasure *swing* above, and deliberately a little above it:
-// the swing is the price a stat fetches when sold (run_trade_swing is the exchange
+// the swing is the price a stat fetches when sold (voyage_trade_swing is the exchange
 // rate between stats), so quoting the payout against it is what makes "is looting
 // worth it" a question with an answer. It pays **more** than selling a stat because
-// a Reward is usually earned by whatever stage precedes it — a Fight risks the run,
+// a Reward is usually earned by whatever stage precedes it — a Fight risks the voyage,
 // a Trade only costs a stat — and a payout that undercut the safest way to raise
 // money would make [Fight, Reward] a worse Bargain. Kept as its own constants rather
 // than derived from the swing, because a primitive owns its stakes constants
@@ -247,22 +247,22 @@ Scaling_Site :: struct {
 	depth: int,
 }
 
-// run_zone_depth_scaled is the shared accessor behind every zone-and-depth-scaled
+// voyage_zone_depth_scaled is the shared accessor behind every zone-and-depth-scaled
 // placeholder below: a primitive's per_tier constant times the zone's position on
 // zone_tier, plus its per_depth constant times the site's normalized
 // depth-within-zone. The two axes stack, so a deep node in a zone outscales a
 // shallow one, and a Deep-zone node still outscales a Coastal one.
-run_zone_depth_scaled :: proc(site: Scaling_Site, per_tier: int, per_depth: int) -> int {
+voyage_zone_depth_scaled :: proc(site: Scaling_Site, per_tier: int, per_depth: int) -> int {
 	return zone_tier[site.zone] * per_tier + site.depth * per_depth
 }
 
-// run_normalize_depth maps a node's raw depth (its 0-based layer index within
+// voyage_normalize_depth maps a node's raw depth (its 0-based layer index within
 // its zone's phase) onto the fixed 0..DEPTH_STEPS range, so the stakes
 // spread is stable no matter how many layers a particular seed rolled for
 // that zone: the shallowest layer always normalizes to 0 and the deepest
 // always to DEPTH_STEPS. A single-layer zone (never happens at the real node
 // budget, but guarded) collapses to 0.
-run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
+voyage_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 	if zone_layer_count <= 1 {
 		return 0
 	}
@@ -271,10 +271,10 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 }
 
 // The Fight primitive reads the site's stakes as opponent power, across three
-// stats so a deeper fight isn't HP-pool-only: run_fight_opponent_hp is the
-// opponent's HP baseline, run_fight_opponent_durability its flat
+// stats so a deeper fight isn't HP-pool-only: voyage_fight_opponent_hp is the
+// opponent's HP baseline, voyage_fight_opponent_durability its flat
 // incoming-damage reduction (core/combat's durability stat), and
-// run_fight_opponent_power the percent its archetype's output is scaled to
+// voyage_fight_opponent_power the percent its archetype's output is scaled to
 // (issue #23; #165 turned that last one from a bonus into a factor). All three
 // rise by zone tier and by depth-within-zone.
 //
@@ -282,35 +282,35 @@ run_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 // **archetype's** (content.odin's Hostile_Archetype) and its Speed derives from that
 // loadout's weight (ADR-0020) — neither is a site reading, so the site decides how
 // much hostile there is and the roster decides which one it is.
-run_fight_opponent_hp :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, FIGHT_OPPONENT_HP_PER_TIER, FIGHT_OPPONENT_HP_PER_DEPTH)
+voyage_fight_opponent_hp :: proc(site: Scaling_Site) -> int {
+	return voyage_zone_depth_scaled(site, FIGHT_OPPONENT_HP_PER_TIER, FIGHT_OPPONENT_HP_PER_DEPTH)
 }
 
-run_fight_opponent_durability :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, FIGHT_OPPONENT_DURABILITY_PER_TIER, FIGHT_OPPONENT_DURABILITY_PER_DEPTH)
+voyage_fight_opponent_durability :: proc(site: Scaling_Site) -> int {
+	return voyage_zone_depth_scaled(site, FIGHT_OPPONENT_DURABILITY_PER_TIER, FIGHT_OPPONENT_DURABILITY_PER_DEPTH)
 }
 
-// run_fight_opponent_power is a **percent** — 100 means "the archetype exactly as
+// voyage_fight_opponent_power is a **percent** — 100 means "the archetype exactly as
 // authored" — where the other two readings are quantities. See the constants above
 // for why the Fight primitive is the one that multiplies.
-run_fight_opponent_power :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, FIGHT_OPPONENT_POWER_PERCENT_PER_TIER, FIGHT_OPPONENT_POWER_PERCENT_PER_DEPTH)
+voyage_fight_opponent_power :: proc(site: Scaling_Site) -> int {
+	return voyage_zone_depth_scaled(site, FIGHT_OPPONENT_POWER_PERCENT_PER_TIER, FIGHT_OPPONENT_POWER_PERCENT_PER_DEPTH)
 }
 
-// run_offer_item_quality is the Offer primitive's stakes reading: a deeper
+// voyage_offer_item_quality is the Offer primitive's stakes reading: a deeper
 // Offer presents stronger items than a shallow one in the same zone. It feeds
-// run_item_offer_options' per-item scaling bonus (issue #96, ADR-0012).
-run_offer_item_quality :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, OFFER_ITEM_QUALITY_PER_TIER, OFFER_ITEM_QUALITY_PER_DEPTH)
+// voyage_item_offer_options' per-item scaling bonus (issue #96, ADR-0012).
+voyage_offer_item_quality :: proc(site: Scaling_Site) -> int {
+	return voyage_zone_depth_scaled(site, OFFER_ITEM_QUALITY_PER_TIER, OFFER_ITEM_QUALITY_PER_DEPTH)
 }
 
-// run_trade_swing is the Trade primitive's stakes reading: how much of `stat` one
+// voyage_trade_swing is the Trade primitive's stakes reading: how much of `stat` one
 // swing is worth in this zone. A Deep trade is a bigger swing (more Durability
 // gained, more Speed spent) than a Coastal one — on *both* sides, since a trade's
 // gain and cost are each a swing of their own stat read off the same zone.
 //
 // This is the whole of the Trade primitive's stakes reading: it replaces
-// run_trade_gain_durability / run_trade_cost_speed, which existed only because
+// voyage_trade_gain_durability / voyage_trade_cost_speed, which existed only because
 // the axis was welded into Stage_Trade and each side therefore had exactly one
 // stat it could ever be. Keyed by stat rather than by side, one proc answers for
 // every roster entry, and gain and cost are the same question asked twice.
@@ -319,11 +319,11 @@ run_offer_item_quality :: proc(site: Scaling_Site) -> int {
 // reads half the gradient, so it is handed half. The swing table is an exchange
 // rate and a rate has no room for a second axis (see TRADE_SWING_* above: the
 // depth axis spans more than a starting ship's entire Durability), so a `site`
-// here would be a parameter this proc had to ignore. run_bake_shop set the
+// here would be a parameter this proc had to ignore. voyage_bake_shop set the
 // precedent in #137 by taking no site at all; this is the same argument one notch
 // weaker. It is also what makes the decision unbreakable rather than a row of
 // zeroes someone could refill: there is no depth to read.
-run_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
+voyage_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 	switch stat {
 	case .HP:
 		return zone_tier[zone] * TRADE_SWING_HP_PER_TIER
@@ -337,7 +337,7 @@ run_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 	unreachable()
 }
 
-// run_reward_treasure is the Reward primitive's stakes reading: the treasure a
+// voyage_reward_treasure is the Reward primitive's stakes reading: the treasure a
 // Reward at this site pays out (issue #132). A Deep reward outweighs a Coastal
 // one, and a deeper node in a zone outpays a shallower one.
 //
@@ -346,10 +346,10 @@ run_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 // Fight and leave `[Offer, Reward]` undefined, since there is no opponent there to
 // count; a primitive that reads the stage before it stops working the moment it is
 // composed differently, which is the whole thing composable stages exist to avoid.
-// The opponent's "Spoils" cargo (run_fit_pve_opponent_loadout) stays flavour until
+// The opponent's "Spoils" cargo (voyage_fit_pve_opponent_loadout) stays flavour until
 // #143 makes treasure literally cargo.
-run_reward_treasure :: proc(site: Scaling_Site) -> int {
-	return run_zone_depth_scaled(site, REWARD_TREASURE_PER_TIER, REWARD_TREASURE_PER_DEPTH)
+voyage_reward_treasure :: proc(site: Scaling_Site) -> int {
+	return voyage_zone_depth_scaled(site, REWARD_TREASURE_PER_TIER, REWARD_TREASURE_PER_DEPTH)
 }
 
 // Node_Kind is what a Node is: the Start, an Encounter, or the Goal — ADR-0014's
@@ -362,7 +362,7 @@ run_reward_treasure :: proc(site: Scaling_Site) -> int {
 //
 // `.Port` is **gone**, and its removal is the last weld between a Shop and a node
 // kind. It shrank in three steps: ADR-0014 took its visibility (an encounter is
-// visible because it opens with a revealing stage — run_encounter_reveals — not
+// visible because it opens with a revealing stage — voyage_encounter_reveals — not
 // because its kind is exempt), #134 took its content (a Port is a node dealt the [Shop]
 // recipe, stocked by the same path as every other node), and #131 took the last
 // thing that read it (the Sim's per-Port shelf state, which had keyed arrival off
@@ -371,7 +371,7 @@ run_reward_treasure :: proc(site: Scaling_Site) -> int {
 // merchant vessel carrying the same primitive. Generation still places Ports
 // bespokely (generation.odin's step 3) — it just tracks them in the local `placed`
 // list for as long as that matters, which is until their recipes are dealt, rather
-// than staining the node with it for the rest of the run.
+// than staining the node with it for the rest of the voyage.
 Node_Kind :: enum {
 	Start,
 	Encounter,
@@ -389,7 +389,7 @@ Node_Kind :: enum {
 // Map.edges) — see generation.odin.
 Node_ID :: distinct int
 
-// Node is a single node on the run's procedurally-generated map (ADR-0009).
+// Node is a single node on the voyage's procedurally-generated map (ADR-0009).
 // zone is nil for Start and Goal, which sit outside the three stakes bands.
 // encounter is set on every node that holds content — .Encounter nodes and the
 // bespoke-placed .Port ones alike (#134) — and nil on the Start/Goal landmarks,
@@ -412,28 +412,28 @@ Node :: struct {
 	depth:     int,
 }
 
-// Map is the run's procedurally-generated node graph: the Nodes plus the
+// Map is the voyage's procedurally-generated node graph: the Nodes plus the
 // symmetric adjacency in edges (edges[i] lists the ids of every node sharing
 // an edge with node i). Travel legality is not "go anywhere" any more — it
-// is derived from this adjacency plus the visited set by run_travel_options.
+// is derived from this adjacency plus the visited set by voyage_travel_options.
 Map :: struct {
 	nodes: []Node,
 	edges: [][]Node_ID,
 }
 
-// Run_Status is the run's overall outcome so far (Win/loss conditions
+// Voyage_Status is the voyage's overall outcome so far (Win/loss conditions
 // unchanged by the node-graph redesign).
-Run_Status :: enum {
+Voyage_Status :: enum {
 	In_Progress,
 	Won,
 	Lost,
 }
 
-// run_status reports the run's outcome: lost at 0 HP (permadeath) regardless
+// voyage_status reports the voyage's outcome: lost at 0 HP (permadeath) regardless
 // of position, won by being at Goal with HP > 0, otherwise still in progress.
-// HP loss itself happens in core/combat/core/ship; this is just the run-level
+// HP loss itself happens in core/combat/core/ship; this is just the voyage-level
 // read of that state.
-run_status :: proc(s: ^ship.Ship, current: Node) -> Run_Status {
+voyage_status :: proc(s: ^ship.Ship, current: Node) -> Voyage_Status {
 	if s.hp <= 0 {
 		return .Lost
 	}
@@ -443,9 +443,9 @@ run_status :: proc(s: ^ship.Ship, current: Node) -> Run_Status {
 	return .In_Progress
 }
 
-// run_can_travel reports whether the ship may still travel to another node:
+// voyage_can_travel reports whether the ship may still travel to another node:
 // false once HP has reached 0 — a sunk ship has already lost and makes no
 // further routing choice.
-run_can_travel :: proc(s: ^ship.Ship) -> bool {
+voyage_can_travel :: proc(s: ^ship.Ship) -> bool {
 	return s.hp > 0
 }

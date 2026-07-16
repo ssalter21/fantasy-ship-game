@@ -85,7 +85,7 @@ Game_State :: struct {
 	// refit_move_from is the slot a two-click Refit move has selected as its
 	// source, or nil when no move is in progress (issue #96).
 	refit_move_from:  Maybe(ship.Slot_Index),
-	status:           run.Run_Status,
+	status:           run.Voyage_Status,
 }
 
 // get_captain_choice is the game Input_Source: it picks which blocking

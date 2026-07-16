@@ -10,7 +10,7 @@ import "../run"
 // public map (graph shape + landmarks, hidden encounters' stages withheld
 // — the hiding contract) rather than the private run_map.
 //
-// Travel is gated by run_travel_options' legality rule (forward and lateral
+// Travel is gated by voyage_travel_options' legality rule (forward and lateral
 // neighbors always, backward neighbors only by retrace to an already-visited
 // node): an illegal destination is a driver bug and asserts, matching the
 // assert-on-driver-bug style of the phase checks. An encounter fires only once —
@@ -32,9 +32,9 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	assert(has_cmd, "sim_process_travel called without a pending Command_Travel_To")
 	sim.pending_command = nil
 
-	assert(run.run_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
+	assert(run.voyage_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
 	assert(
-		run.run_can_travel_to(sim.run_map, sim.current, sim.visited, cmd.node_id),
+		run.voyage_can_travel_to(sim.run_map, sim.current, sim.visited, cmd.node_id),
 		"Command_Travel_To to a node that is not a legal neighbor of the current position",
 	)
 

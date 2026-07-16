@@ -59,7 +59,7 @@ play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
 	if !is_reward {
 		return
 	}
-	// Fires before run_apply_reward's Event_Ship_Updated lands, so the beat reads while
+	// Fires before voyage_apply_reward's Event_Ship_Updated lands, so the beat reads while
 	// the panel still shows the old purse and the number moves as it clears. That timing
 	// is also why the spill is computed here from state.player: a Reward changes no slots,
 	// so the pre-payout capacity is the real one, and the overflow (#157) is exactly the

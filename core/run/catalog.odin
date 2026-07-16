@@ -217,13 +217,13 @@ SMUGGLERS_RUN_STAGES := [?]Stage_Spec {
 KRAKENS_WAKE_STAGES := [?]Stage_Spec{{kind = .Fight}, {kind = .Trade}, {kind = .Reward}}
 
 // recipe_catalog is every encounter in the game — the authored table
-// run_recipe_catalog hands out, in the same package-level-table shape as
+// voyage_recipe_catalog hands out, in the same package-level-table shape as
 // generation.odin's zone_tier/nodes_per_zone tuning knobs. Not @(rodata) despite
 // never being written: taking a slice of the backing arrays above is not a
 // constant initializer, so the entries are filled at program init instead.
 //
 // Grouped by stage count for reading only. Nothing derives a bucket from the order
-// here — run_recipe_bucket reads len(r.stages) and nothing else, so moving a line
+// here — voyage_recipe_bucket reads len(r.stages) and nothing else, so moving a line
 // changes which recipe the bag's remainder favours and nothing more.
 recipe_catalog := [?]Recipe {
 	// 1 stage — Coastal.
@@ -246,22 +246,22 @@ recipe_catalog := [?]Recipe {
 	{name = "Kraken's Wake", stages = KRAKENS_WAKE_STAGES[:]},
 }
 
-// run_recipe_catalog returns every authored recipe. Generation deals from this
-// (via run_make_recipe_bag) rather than switching over a kind enum, so the set of
+// voyage_recipe_catalog returns every authored recipe. Generation deals from this
+// (via voyage_make_recipe_bag) rather than switching over a kind enum, so the set of
 // encounters in the game is this list and nothing else.
-run_recipe_catalog :: proc() -> []Recipe {
+voyage_recipe_catalog :: proc() -> []Recipe {
 	return recipe_catalog[:]
 }
 
 // PORT_STAGES backs the Port recipe. A Port is not a kind of place any more — it
 // is `[Shop]`, an encounter like any other, visible on the map only because Shop
-// is the revealing primitive (run_stage_kind_reveals). What still makes it a Port
+// is the revealing primitive (voyage_stage_kind_reveals). What still makes it a Port
 // is *where* it is put — two per zone, off the entrance layer (generation.odin's
 // step 3) — and, since issue #137, *what it sells*: the Chandlery pool, the one
 // pool with no family filter at all.
 //
 // Those two are the same fact stated twice, which is why the recipe names the pool
-// rather than drawing it. Bespoke placement guarantees six Ports per run, so routing
+// rather than drawing it. Bespoke placement guarantees six Ports per voyage, so routing
 // to one is a plan the map always honours; that promise is only worth making if what
 // you find there is a general market. See Stock_Pool.
 @(rodata)
@@ -273,7 +273,7 @@ PORT_STAGES := [?]Stage_Spec{{kind = .Shop, stock = .Chandlery}}
 // derived from stage count — Ports are exempt from the zone mapping, so a Port is
 // one stage even in The Deep.
 //
-// One recipe today, dealt through the same run_make_recipe_bag the zones use
+// One recipe today, dealt through the same voyage_make_recipe_bag the zones use
 // rather than assigned directly, so widening it (a free port, a naval yard) is a
 // catalog entry here and nothing else. The Shop-bearing recipes in recipe_catalog
 // above are the other side of that line: authored there, they are *merchant
@@ -284,9 +284,9 @@ port_bucket := [?]Recipe {
 	{name = "Port", stages = PORT_STAGES[:]},
 }
 
-// run_port_bucket returns the Port bucket's pool. Split from run_recipe_catalog
+// voyage_port_bucket returns the Port bucket's pool. Split from voyage_recipe_catalog
 // so a Port can never fall into a zone's stage-count draw: the zones deal from
 // the catalog, the port placement deals from this.
-run_port_bucket :: proc() -> []Recipe {
+voyage_port_bucket :: proc() -> []Recipe {
 	return port_bucket[:]
 }

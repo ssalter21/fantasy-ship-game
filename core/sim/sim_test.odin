@@ -14,7 +14,7 @@ import "core:testing"
 // a battle policy. The chosen seeds are fixed so each scenario reproduces
 // exactly.
 //
-// **A seed names a map, not a scenario.** run_map_create bakes each encounter's
+// **A seed names a map, not a scenario.** voyage_map_create bakes each encounter's
 // content off the same generator it then builds the graph's edges with, so any
 // change to what a stage draws at generation shifts every later draw and reshapes
 // every seed's map. The seeds below were re-picked when the Trade primitive
@@ -31,7 +31,7 @@ import "core:testing"
 // authors multi-stage recipes these scenarios will need to say which stage they
 // mean.
 first_stage_is :: proc(e: run.Encounter, $T: typeid) -> bool {
-	stage, ok := run.run_encounter_current(e)
+	stage, ok := run.voyage_encounter_current(e)
 	if !ok {
 		return false
 	}
@@ -52,8 +52,8 @@ first_stage_is :: proc(e: run.Encounter, $T: typeid) -> bool {
 // seed fails when generation shifts under it, having found nothing wrong.
 seed_with_layer_one_stage :: proc($T: typeid) -> (seed: u64, id: Node_ID, ok: bool) {
 	for candidate in u64(0) ..< 64 {
-		m := run.run_map_create(candidate)
-		defer run.run_map_destroy(&m)
+		m := run.voyage_map_create(candidate)
+		defer run.voyage_map_destroy(&m)
 
 		for p in m.nodes {
 			if p.layer != 1 || p.kind != .Encounter {
@@ -86,8 +86,8 @@ seed_with_acceptable_layer_one_trade :: proc() -> (seed: u64, id: Node_ID, ok: b
 	defer delete(starting.layout)
 
 	for candidate in u64(0) ..< 64 {
-		m := run.run_map_create(candidate)
-		defer run.run_map_destroy(&m)
+		m := run.voyage_map_create(candidate)
+		defer run.voyage_map_destroy(&m)
 
 		for p in m.nodes {
 			if p.layer != 1 || p.kind != .Encounter {
@@ -97,7 +97,7 @@ seed_with_acceptable_layer_one_trade :: proc() -> (seed: u64, id: Node_ID, ok: b
 			if !has_encounter {
 				continue
 			}
-			stage, has_stage := run.run_encounter_current(enc)
+			stage, has_stage := run.voyage_encounter_current(enc)
 			if !has_stage {
 				continue
 			}
@@ -105,7 +105,7 @@ seed_with_acceptable_layer_one_trade :: proc() -> (seed: u64, id: Node_ID, ok: b
 			if !is_trade {
 				continue
 			}
-			if run.run_trade_can_accept(&starting, trade) {
+			if run.voyage_trade_can_accept(&starting, trade) {
 				return candidate, p.id, true
 			}
 		}
@@ -247,7 +247,7 @@ auto_pilot_dispatch :: proc(data: rawptr, event: Event) {
 // Pilot_Result captures the outcome fields a scenario asserts on, read out
 // before the Sim's arena is torn down.
 Pilot_Result :: struct {
-	status:      run.Run_Status,
+	status:      run.Voyage_Status,
 	hp:          int,
 	durability:  int,
 	speed:       int,
@@ -262,11 +262,11 @@ drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Comman
 	sim := sim_create(seed)
 	defer sim_destroy(&sim)
 
-	// An unmasked twin of the Sim's map: run_map_create is deterministic per
+	// An unmasked twin of the Sim's map: voyage_map_create is deterministic per
 	// seed, so its node ids line up with the Sim's, but its encounter stages are
 	// unmasked so the pilot can classify the options it is offered.
-	m := run.run_map_create(seed)
-	defer run.run_map_destroy(&m)
+	m := run.voyage_map_create(seed)
+	defer run.voyage_map_destroy(&m)
 
 	pilot := Auto_Pilot{m = m, policy = policy, battle_cmd = battle_cmd}
 	defer delete(pilot.events)
@@ -314,7 +314,7 @@ a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
 	// Deep, so only 4 seeds in 40 still let a ship reach Goal untouched. Seed 9 is
 	// one; that it is now scarce is the hard mapping meaning something, not a bug.
 	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
-	testing.expect_value(t, res.status, run.Run_Status.Won)
+	testing.expect_value(t, res.status, run.Voyage_Status.Won)
 	testing.expect_value(t, res.hp, ship.STARTING_HP) // untouched: no battle fought
 }
 
@@ -333,7 +333,7 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	// a route around every fight and rewards taking the first one is a better pair of
 	// scenarios than two unrelated seeds.
 	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
-	testing.expect_value(t, res.status, run.Run_Status.Won)
+	testing.expect_value(t, res.status, run.Voyage_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
 	testing.expect(t, res.hp < ship.STARTING_HP) // a real fight cost some HP
 }
@@ -344,7 +344,7 @@ routing_through_every_battle_can_lose_the_run :: proc(t: ^testing.T) {
 	// out before Goal — permadeath at 0 HP, unchanged. Seed 1's map has a
 	// battle-seeking course long enough to be lethal.
 	res := drive_policy(1, .Seek_Battles, combat.Command(HOLD))
-	testing.expect_value(t, res.status, run.Run_Status.Lost)
+	testing.expect_value(t, res.status, run.Voyage_Status.Lost)
 	testing.expect_value(t, res.hp, 0)
 }
 
@@ -360,7 +360,7 @@ skipping_item_offers_on_the_route_leaves_the_loadout_unchanged :: proc(t: ^testi
 	// arrives at four Offer-opening nodes and is presented six option lists, so there
 	// is something here to skip.
 	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
-	testing.expect_value(t, res.status, run.Run_Status.Won)
+	testing.expect_value(t, res.status, run.Voyage_Status.Won)
 }
 
 // --- Trade: accept / reject (issue #136) ------------------------------------
@@ -414,7 +414,7 @@ arriving_at_a_trade_presents_the_bargain_instead_of_applying_it :: proc(t: ^test
 
 // Accepting pays the cost. The gain side's arithmetic (caps, floors, ordering)
 // is core/run's business and is covered there; what this asserts is the wiring —
-// that an accept reaches run_apply_trade at all. The cost stat is the roster-
+// that an accept reaches voyage_apply_trade at all. The cost stat is the roster-
 // independent half: every axis's cost is paid in full, never capped.
 @(test)
 accepting_a_trade_pays_its_cost :: proc(t: ^testing.T) {
@@ -437,13 +437,13 @@ accepting_a_trade_pays_its_cost :: proc(t: ^testing.T) {
 	trade, presented := presented_trade(events[:])
 	testing.expect(t, presented)
 
-	cost_before := run.run_trade_stat_reading(&sim.player, trade.cost.stat)
-	testing.expect(t, run.run_trade_can_accept(&sim.player, trade))
+	cost_before := run.voyage_trade_stat_reading(&sim.player, trade.cost.stat)
+	testing.expect(t, run.voyage_trade_can_accept(&sim.player, trade))
 
 	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = true}))
 	tick_travel_options(&sim, &events)
 
-	testing.expect_value(t, run.run_trade_stat_reading(&sim.player, trade.cost.stat), cost_before - trade.cost.amount)
+	testing.expect_value(t, run.voyage_trade_stat_reading(&sim.player, trade.cost.stat), cost_before - trade.cost.amount)
 	testing.expect(t, sim.resolved[trade_node])
 }
 
@@ -510,13 +510,13 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	trade, presented := presented_trade(events[:])
 	testing.expect(t, presented)
 
-	cost_before := run.run_trade_stat_reading(&sim.player, trade.cost.stat)
+	cost_before := run.voyage_trade_stat_reading(&sim.player, trade.cost.stat)
 	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = true}))
 	opts = tick_travel_options(&sim, &events)
 
 	ship_after_trade := sim.player
 	purse_after_trade := ship.ship_treasure(sim.player) // aliased via ship_after_trade; snapshot the int
-	testing.expect(t, run.run_trade_stat_reading(&sim.player, trade.cost.stat) < cost_before) // the trade did fire
+	testing.expect(t, run.voyage_trade_stat_reading(&sim.player, trade.cost.stat) < cost_before) // the trade did fire
 	testing.expect(t, node_id_in(opts, 0)) // Start offered as a backward retrace
 
 	submit_travel(&sim, 0)
@@ -623,7 +623,7 @@ the_run_start_broadcast_withholds_hidden_stages_and_reveals_on_arrival :: proc(t
 			testing.expect(t, !public_has) // Start/Goal carry no encounter to withhold
 			continue
 		}
-		if run.run_encounter_reveals(private) {
+		if run.voyage_encounter_reveals(private) {
 			// A revealing encounter shows itself before arrival: this is a Port, and it
 			// is visible because it **opens** on a Shop stage (ADR-0016), not because
 			// .Port is exempt. A merchant carries a Shop too and stays masked below.
@@ -1095,7 +1095,7 @@ an_offers_options_are_presented_free :: proc(t: ^testing.T) {
 
 // trade_stage bakes a Trade with a known gain and a **free** cost, so a test reads
 // "did the walk reach this stage" straight off the ship's durability without the
-// bargain's own affordability rule (run_trade_can_accept, issue #136) entering into
+// bargain's own affordability rule (voyage_trade_can_accept, issue #136) entering into
 // it: a zero-amount cost is always payable, so accepting is always a legal answer and
 // the probe measures the walk and nothing else.
 TRADE_GAIN :: 3
@@ -1141,7 +1141,7 @@ reward_stage :: proc() -> run.Stage_Reward {
 fight_stage :: proc(sim: ^Sim, hp: int) -> run.Stage_Fight {
 	context.allocator = sim_arena_allocator(sim)
 	state := rand.create(0)
-	opponent := run.run_pve_opponent(run.Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&state))
+	opponent := run.voyage_pve_opponent(run.Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&state))
 	opponent.hp = hp
 	opponent.max_hp = hp
 	opponent.speed = 1 // slower than the player below, so escape unlocks once the baseline passes
@@ -1703,7 +1703,7 @@ sinking_ends_the_run_without_walking_on_to_a_later_stage :: proc(t: ^testing.T) 
 
 	testing.expect(t, sim.player.hp <= 0)
 	testing.expect_value(t, sim.player.durability, before) // sank: the Trade was never reached
-	testing.expect_value(t, sim.status, run.Run_Status.Lost)
+	testing.expect_value(t, sim.status, run.Voyage_Status.Lost)
 	testing.expect_value(t, sim.phase, Phase.Ended)
 	testing.expect(t, has_event(ev, Event_Run_Ended))
 }
@@ -1954,7 +1954,7 @@ a_resolved_node_emits_no_second_snapshot_when_the_ship_returns :: proc(t: ^testi
 // predictable affordability and a known order (the card at stock position i is
 // roster[i]), so the shop tests can assert exactly which card the shelf shows and
 // refills with. A real generated shop shuffles its pool's candidates and cuts them at
-// the pool's authored depth (run_bake_shop, #137); the tests don't need the shuffle,
+// the pool's authored depth (voyage_bake_shop, #137); the tests don't need the shuffle,
 // only the stock contract.
 //
 // `count` is a parameter because a shop's depth is now authored per stock pool rather
@@ -2020,7 +2020,7 @@ arriving_at_a_generated_port_opens_its_baked_shop :: proc(t: ^testing.T) {
 		if !has_encounter {
 			continue
 		}
-		if run.run_encounter_reveals(encounter) {
+		if run.voyage_encounter_reveals(encounter) {
 			port = p.id
 			break
 		}
@@ -2409,7 +2409,7 @@ a_chandlerys_reserve_outlasts_the_purse_a_captain_brings :: proc(t: ^testing.T) 
 	defer delete(events)
 
 	ship.ship_stow_treasure(sim.player.layout, ship.STARTING_CARGO + ship.CAPTAIN_STARTING_CARGO)
-	arrive_at_shop(&sim, 1, flat_stock(ship.ITEM_COST_SPLASH, run.run_stock_pool(.Chandlery).depth), &events)
+	arrive_at_shop(&sim, 1, flat_stock(ship.ITEM_COST_SPLASH, run.voyage_stock_pool(.Chandlery).depth), &events)
 
 	bought := 0
 	for buy_first_available(&sim, &events) {

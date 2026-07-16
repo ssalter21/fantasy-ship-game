@@ -183,7 +183,7 @@ ship_item_cost :: proc(tier: Tier) -> int {
 }
 
 // ITEM_ROSTER_SIZE is how many distinct items ship_item_roster hands back — the
-// pool an Item Offer samples its options from (run.run_item_offer_options). Must
+// pool an Item Offer samples its options from (run.voyage_item_offer_options). Must
 // stay at least run.ITEM_OFFER_OPTION_COUNT so an offer can present that many
 // distinct items. The target is ADR-0012's "~50" (#97).
 ITEM_ROSTER_SIZE :: 50
@@ -389,7 +389,7 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // what the fitting deals rather than to the build around it: a Selector's
 // per-match magnitude scales and its match count does not, so `(m x pct) x count`
 // is `pct x (m x count)`. An additive bonus has no such property — it is
-// multiplied by the count (see run_fit_hostile_loadout).
+// multiplied by the count (see voyage_fit_hostile_loadout).
 ship_fitting_output_scaled :: proc(base: Fitting, percent: int) -> Fitting {
 	f := base
 	if effect, ok := f.active.?; ok && effect.kind == .Phase_Contribution {
@@ -469,7 +469,7 @@ ship_fit_starting_loadout :: proc(layout: []Layout_Slot, treasure: int) -> bool 
 // idle, half-full). Each filler takes its slot's own size so it satisfies the
 // exact-size-match fit rule (ADR-0004), so ship_fit only fails here on a genuine
 // content bug, never a size mismatch. This is the **hostile's** stow (the PvE
-// opponent's spare slots, run_fit_hostile_loadout); the player's is amount-driven
+// opponent's spare slots, voyage_fit_hostile_loadout); the player's is amount-driven
 // (ship_stow_treasure), so the two no longer share a rule — a template resize needs
 // no per-slot edits here, and the flat 50% is #176's placeholder for hostile ship
 // templates. A slot filled at 50% weighs half its capacity, so this is what a
