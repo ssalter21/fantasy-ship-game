@@ -1534,6 +1534,52 @@ winning_a_fight_pays_the_sunk_opponents_hold_into_the_purse :: proc(t: ^testing.
 }
 
 @(test)
+reallocating_cargo_in_battle_moves_treasure_through_the_sim_and_keeps_the_battle_going :: proc(t: ^testing.T) {
+	// The reallocation order end to end through the sim (#200): the player submits a
+	// Command_Reallocate, the round resolves, and the wrapped Event_Cargo_Reallocated
+	// reaches presentation. It shifts no weight, so the purse total is unchanged — it
+	// buys jettison granularity for a later round, and the battle carries on rather than
+	// ending like a Leave or a sinking would.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	before := ship.ship_treasure(sim.player)
+	install_encounter(&sim, 1, fight_stage(&sim, 10_000)) // a durable opponent: the battle outlives the round
+	arrive_at(&sim, 1, &events)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
+
+	// The starting stow leaves the Large forecastle (slot 3) empty with the Smalls full
+	// (#172): pour a full Small (slot 5) into it. Total treasure is conserved.
+	clear(&events)
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Reallocate{from = 5, to = 3}}))
+	refit_tick(&sim, &events)
+
+	testing.expect(t, !sim.battle.ended) // reallocation is not an ending
+	testing.expect_value(t, ship.ship_treasure(sim.player), before) // no treasure created or lost
+	_, occupied := sim.player.layout[5].fitting.?
+	testing.expect(t, !occupied) // the drained Small is now an empty slot
+	dst, has_dst := sim.player.layout[3].fitting.?
+	testing.expect(t, has_dst)
+	testing.expect_value(t, dst.stack_count, 10) // poured into the forecastle
+
+	found := false
+	for event in events {
+		wrapped, is_battle := event.(Event_Battle_Event)
+		if !is_battle {
+			continue
+		}
+		if moved, ok := wrapped.inner.(combat.Event_Cargo_Reallocated); ok {
+			found = true
+			testing.expect_value(t, moved.amount, 10)
+		}
+	}
+	testing.expect(t, found)
+}
+
+@(test)
 a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
 	// #132's "a Reward reads its own node, never its neighbours", made observable:
 	// [Offer, Reward] — the Derelict — pays out with no opponent anywhere in the

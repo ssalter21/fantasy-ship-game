@@ -130,6 +130,10 @@ battle_event_text :: proc(event: combat.Event) -> string {
 		return fmt.tprintf("%v's ship is sunk!", e.side)
 	case combat.Event_Cargo_Jettisoned:
 		return fmt.tprintf("%v jettisons %s!", e.side, e.fitting.name)
+	case combat.Event_Cargo_Reallocated:
+		// Names the shift and pointedly claims no Speed change (#200): reallocation
+		// shifts no weight, so the round was spent buying jettison precision, not Speed.
+		return fmt.tprintf("%v shifts %d treasure between holds.", e.side, e.amount)
 	case combat.Event_Battle_Ended:
 		switch e.reason {
 		case .Destroyed:
@@ -184,27 +188,6 @@ draw_buttons :: proc(buttons: []Button) {
 	}
 }
 
-// button_menu_loop blocks, drawing prompt and buttons each frame, until the
-// player clicks one of buttons or the window closes. Returns the picked
-// index, or -1 if the window closed without a pick. Used by battle_menu_loop;
-// the Item Offer and Refit screens draw richer multi-line boxes and run their
-// own loops instead.
-button_menu_loop :: proc(state: ^Game_State, prompt: string, buttons: []Button) -> int {
-	for !rl.WindowShouldClose() {
-		rl.BeginDrawing()
-		draw_scene_contents(state, prompt)
-		draw_buttons(buttons)
-		rl.EndDrawing()
-		free_all(context.temp_allocator)
-
-		picked := clicked_button(buttons)
-		if picked >= 0 {
-			return picked
-		}
-	}
-	return -1
-}
-
 // travel_menu_loop blocks until the player clicks one of the currently-legal
 // destination nodes (the ones draw_map rings and numbers), then returns a
 // Command_Travel_To (ADR-0002). Clicks on non-reachable nodes are ignored, so
@@ -244,60 +227,161 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
 }
 
-// battle_menu_loop blocks until the player picks a battle action (Boost one
-// of the three phases, Man the Sails, Jettison a cargo slot, or Leave
-// Combat if may_leave — ADR-0006's one-decision-per-round menu), then
+// Battle_Menu_Action is what clicking a battle-menu button does: submit a finished
+// combat command, or drive the two-click Reallocate selection — pick a source hold,
+// or cancel back to the command list (#200). Reallocate is the one battle command
+// that needs two clicks (source then destination), so a click can change the menu's
+// mode instead of returning a command.
+Battle_Menu_Action_Kind :: enum {
+	Submit,
+	Select_Source,
+	Cancel_Reallocate,
+}
+
+Battle_Menu_Action :: struct {
+	kind:    Battle_Menu_Action_Kind,
+	command: combat.Command, // meaningful when kind == .Submit
+	slot:    ship.Slot_Index, // the source, meaningful when kind == .Select_Source
+}
+
+// battle_reallocate_can_receive reports whether treasure can be poured into slot `i`:
+// an empty slot (any size) can, a partly-full cargo fitting can, but a full cargo
+// fitting or a non-cargo fitting cannot. Mirrors combat_apply_reallocate's
+// destination rule so the battle menu offers only destinations that would move
+// treasure (#200) — the combat layer then asserts rather than validates.
+battle_reallocate_can_receive :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
+	layout_slot := s.layout[i]
+	fitting, has_fitting := layout_slot.fitting.?
+	if !has_fitting {
+		return true
+	}
+	if !fitting.is_cargo {
+		return false
+	}
+	return fitting.stack_count < ship.ship_cargo_slot_contribution(layout_slot.slot.size)
+}
+
+// battle_reallocate_can_give reports whether slot `i` can be a Reallocate source: it
+// holds cargo with treasure and some *other* slot can receive it, so offering it as a
+// source always leads to a legal move (#200) rather than a dead-end selection.
+battle_reallocate_can_give :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
+	fitting, has_fitting := s.layout[i].fitting.?
+	if !has_fitting || !fitting.is_cargo || fitting.stack_count < 1 {
+		return false
+	}
+	for _, j in s.layout {
+		to := ship.Slot_Index(j)
+		if to != i && battle_reallocate_can_receive(s, to) {
+			return true
+		}
+	}
+	return false
+}
+
+// battle_menu_loop blocks until the player picks a battle action (Boost one of the
+// three phases, Man the Sails, Jettison a cargo slot, Reallocate treasure between two
+// holds, or Leave Combat if may_leave — ADR-0006's one-decision-per-round menu), then
 // returns a Command_Battle_Choice.
+//
+// It owns its own frame loop (like option_menu_loop and refit_menu_loop) rather than
+// delegating to button_menu_loop, because Reallocate takes two clicks — a source hold
+// then a destination — and the menu shows a different button list in each mode. The
+// half-made selection (reallocate_from) is a local: the loop blocks until one whole
+// command is chosen, so unlike a Refit's move it never has to outlive the call, and no
+// Game_State field tracks it. Buttons are rebuilt each frame in the temp allocator and
+// the picked action is copied out before free_all, so the per-frame free that
+// draw_ship_panel relies on can't corrupt them (the labels live exactly one frame).
 battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
 	}
-	// Button labels are heap-allocated (fmt.aprintf, context.allocator) and
-	// explicitly freed below, not built with fmt.tprintf: this loop calls
-	// free_all(context.temp_allocator) once per frame (draw_ship_panel's own
-	// per-frame labels rely on that), which would otherwise silently
-	// corrupt these buttons' labels after the first frame, since they're
-	// built once before the loop starts but read on every frame after.
-	buttons := make([dynamic]Button)
-	defer {
-		for b in buttons {
-			delete(b.label)
+
+	reallocate_from: Maybe(ship.Slot_Index)
+
+	for !rl.WindowShouldClose() {
+		buttons := make([dynamic]Button, context.temp_allocator)
+		actions := make([dynamic]Battle_Menu_Action, context.temp_allocator)
+		prompt: string
+		y: f32 = 440
+
+		if from, selecting := reallocate_from.?; selecting {
+			// Destination-selection mode: one button per legal destination, then Cancel.
+			prompt = fmt.tprintf("Reallocating from %s: click a hold to pour it into, or Cancel.", state.player.layout[from].slot.name)
+			for layout_slot, i in state.player.layout {
+				to := ship.Slot_Index(i)
+				if to == from || !battle_reallocate_can_receive(state.player, to) {
+					continue
+				}
+				append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.tprintf("Pour into %s", layout_slot.slot.name)})
+				append(&actions, Battle_Menu_Action{kind = .Submit, command = combat.Command(combat.Command_Reallocate{from = from, to = to})})
+				y += 34
+			}
+			append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = "Cancel"})
+			append(&actions, Battle_Menu_Action{kind = .Cancel_Reallocate})
+		} else {
+			// Command mode: the one-decision-per-round action list.
+			prompt = "Choose your captain's command."
+			for category in ship.Category {
+				append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.tprintf("Boost %v", category)})
+				append(&actions, Battle_Menu_Action{kind = .Submit, command = combat.Command(combat.Command_Boost{phase = category})})
+				y += 34
+			}
+
+			append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = "Man the Sails"})
+			append(&actions, Battle_Menu_Action{kind = .Submit, command = combat.Command(combat.Command_Man_The_Sails{})})
+			y += 34
+
+			for layout_slot, i in state.player.layout {
+				fitting, has_fitting := layout_slot.fitting.?
+				if !has_fitting || !fitting.is_cargo {
+					continue
+				}
+				append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.tprintf("Jettison %s", fitting.name)})
+				append(&actions, Battle_Menu_Action{kind = .Submit, command = combat.Command(combat.Command_Jettison_Cargo{slot_index = ship.Slot_Index(i)})})
+				y += 34
+			}
+
+			// Reallocate: one entry per hold that can give (has treasure and somewhere to
+			// pour it), selecting that hold as the source and entering destination mode.
+			for layout_slot, i in state.player.layout {
+				src_slot := ship.Slot_Index(i)
+				if !battle_reallocate_can_give(state.player, src_slot) {
+					continue
+				}
+				append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.tprintf("Reallocate from %s", layout_slot.slot.name)})
+				append(&actions, Battle_Menu_Action{kind = .Select_Source, slot = src_slot})
+				y += 34
+			}
+
+			if state.may_leave {
+				append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = "Leave Combat"})
+				append(&actions, Battle_Menu_Action{kind = .Submit, command = combat.Command(combat.Command_Leave_Combat{})})
+				y += 34
+			}
 		}
-		delete(buttons)
-	}
-	combat_commands := make([dynamic]combat.Command)
-	defer delete(combat_commands)
 
-	y : f32 = 440
-	for category in ship.Category {
-		append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Boost %v", category)})
-		append(&combat_commands, combat.Command(combat.Command_Boost{phase = category}))
-		y += 34
-	}
+		rl.BeginDrawing()
+		draw_scene_contents(state, prompt)
+		draw_buttons(buttons[:])
+		rl.EndDrawing()
 
-	append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Man the Sails")})
-	append(&combat_commands, combat.Command(combat.Command_Man_The_Sails{}))
-	y += 34
-
-	for layout_slot, i in state.player.layout {
-		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting || !fitting.is_cargo {
-			continue
+		picked := clicked_button(buttons[:])
+		picked_action: Maybe(Battle_Menu_Action)
+		if picked >= 0 {
+			picked_action = actions[picked]
 		}
-		append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Jettison %s", fitting.name)})
-		append(&combat_commands, combat.Command(combat.Command_Jettison_Cargo{slot_index = ship.Slot_Index(i)}))
-		y += 34
-	}
+		free_all(context.temp_allocator)
 
-	if state.may_leave {
-		append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.aprintf("Leave Combat")})
-		append(&combat_commands, combat.Command(combat.Command_Leave_Combat{}))
-		y += 34
-	}
-
-	picked := button_menu_loop(state, "Choose your captain's command.", buttons[:])
-	if picked >= 0 {
-		return sim.Command(sim.Command_Battle_Choice{combat_command = combat_commands[picked]})
+		if act, ok := picked_action.?; ok {
+			switch act.kind {
+			case .Submit:
+				return sim.Command(sim.Command_Battle_Choice{combat_command = act.command})
+			case .Select_Source:
+				reallocate_from = act.slot
+			case .Cancel_Reallocate:
+				reallocate_from = nil
+			}
+		}
 	}
 	return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
 }

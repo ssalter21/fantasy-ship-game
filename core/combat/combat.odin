@@ -22,6 +22,7 @@ Command :: union {
 	Command_Boost,
 	Command_Man_The_Sails,
 	Command_Jettison_Cargo,
+	Command_Reallocate,
 	Command_Leave_Combat,
 	Command_Hold,
 }
@@ -41,6 +42,20 @@ Command_Man_The_Sails :: struct {}
 // tracked past the emptying.
 Command_Jettison_Cargo :: struct {
 	slot_index: ship.Slot_Index,
+}
+
+// Command_Reallocate moves treasure between two of the submitter's own cargo
+// slots, pouring the cargo fitting at `from` into `to` up to `to`'s remaining
+// capacity. It shifts **no weight** — the treasure stays aboard — so it changes
+// no Speed the round it is issued (ADR-0020, #157); what it buys is *jettison
+// granularity*, letting a later Jettison shed a finer amount than the current
+// hold allows (split a full Large into a Small and the next heave sheds exactly
+// 10, one Speed, instead of a forced 40). Reallocation is free outside battle (a
+// Refit move); inside battle it costs the round like any command — that tempo is
+// the price of the precision.
+Command_Reallocate :: struct {
+	from: ship.Slot_Index,
+	to:   ship.Slot_Index,
 }
 
 // Command_Leave_Combat ends the battle immediately for both ships. Only
@@ -97,6 +112,7 @@ Event :: union {
 	Event_Damage_Dealt,
 	Event_Ship_Sunk,
 	Event_Cargo_Jettisoned,
+	Event_Cargo_Reallocated,
 	Event_Battle_Ended,
 }
 
@@ -116,6 +132,18 @@ Event_Cargo_Jettisoned :: struct {
 	round:   int,
 	side:    Side,
 	fitting: ship.Fitting,
+}
+
+// Event_Cargo_Reallocated reports a Command_Reallocate: `amount` treasure moved
+// from slot `from` to slot `to` on `side`'s ship. It shifts no weight, so a caller
+// rendering it must not imply a Speed change — the round was spent, the number did
+// not move (that is the tell that it bought precision, not Speed).
+Event_Cargo_Reallocated :: struct {
+	round:  int,
+	side:   Side,
+	from:   ship.Slot_Index,
+	to:     ship.Slot_Index,
+	amount: int,
 }
 
 Event_Battle_Ended :: struct {
@@ -160,6 +188,57 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 	assert(has_fitting && fitting.is_cargo, "Command_Jettison_Cargo slot_index does not hold a cargo fitting")
 	layout_slot.fitting = nil
 	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = fitting}))
+}
+
+// combat_apply_reallocate moves treasure between two of side's own cargo slots,
+// shifting **no weight** (ADR-0020, #157): it pours as much of the cargo fitting at
+// `from` into `to` as `to` can still hold, so the total treasure aboard — and thus
+// the ship's weight and its Speed — is unchanged this round. What it buys is
+// *jettison granularity*: the destination slot's size is the denomination the move
+// rounds to (#156), so splitting a full Large into an empty Small lets the next
+// Jettison shed exactly that Small (10 -> 1 Speed) rather than being forced to heave
+// the whole 40. The asserts are what the battle menu's legal-picks-only offering
+// guarantees, mirroring combat_apply_jettison: `from` holds cargo with treasure, `to`
+// is a distinct cargo-capable slot with room, and the move is non-empty.
+combat_apply_reallocate :: proc(battle: ^Battle, side: Side, from, to: ship.Slot_Index, events: ^[dynamic]Event) {
+	s := battle.ships[side]
+	assert(from != to, "Command_Reallocate from and to are the same slot")
+	assert(from >= 0 && int(from) < len(s.layout), "Command_Reallocate from slot_index out of range")
+	assert(to >= 0 && int(to) < len(s.layout), "Command_Reallocate to slot_index out of range")
+
+	from_slot := &s.layout[from]
+	src, has_src := from_slot.fitting.?
+	assert(has_src && src.is_cargo, "Command_Reallocate from does not hold a cargo fitting")
+
+	to_slot := &s.layout[to]
+	dest_fill := 0
+	if dest, has_dest := to_slot.fitting.?; has_dest {
+		assert(dest.is_cargo, "Command_Reallocate to holds a non-cargo fitting")
+		dest_fill = dest.stack_count
+	}
+	room := ship.ship_cargo_slot_contribution(to_slot.slot.size) - dest_fill
+	moved := min(src.stack_count, room)
+	assert(moved > 0, "Command_Reallocate moves no treasure (source empty or destination full)")
+
+	// Drain the source, nulling it if emptied — a zero-count cargo fitting is not a
+	// thing (#157, ship_fitting_fits), an empty hold is an empty slot.
+	if moved == src.stack_count {
+		from_slot.fitting = nil
+	} else {
+		src.stack_count -= moved
+		from_slot.fitting = src
+	}
+
+	// Land it: grow the destination's cargo fitting, or create one sized to the slot
+	// (ship_fitting_cargo) when the slot was empty.
+	if dest, has_dest := to_slot.fitting.?; has_dest {
+		dest.stack_count += moved
+		to_slot.fitting = dest
+	} else {
+		to_slot.fitting = ship.ship_fitting_cargo("Cargo", to_slot.slot.size, moved)
+	}
+
+	append(events, Event(Event_Cargo_Reallocated{round = battle.round, side = side, from = from, to = to, amount = moved}))
 }
 
 // combat_phase_output sums the active-effect magnitude of every fitting of
@@ -208,7 +287,11 @@ combat_may_leave :: proc(battle: ^Battle, side: Side) -> bool {
 // combat_scripted_command decides a non-player-controlled side's Command for
 // the round about to be resolved (ADR-0008): Leave Combat once escape-
 // eligible (combat_may_leave), Hold every other round. A scripted ship never
-// chooses Boost, Man the Sails, or Jettison Cargo in this slice.
+// chooses Boost, Man the Sails, or Jettison Cargo in this slice — nor Reallocate,
+// which is deliberately player-only (#200): it buys precision for a *subsequent*
+// jettison, and a scripted ship never jettisons, so a reallocation policy would be
+// AI for a capability it has no use for. It returns here when a hostile that
+// jettisons exists.
 combat_scripted_command :: proc(battle: ^Battle, side: Side) -> Command {
 	if combat_may_leave(battle, side) {
 		return Command_Leave_Combat{}
@@ -240,6 +323,8 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 			battle.temp_speed[side] = MAN_THE_SAILS_SPEED_BONUS
 		case Command_Jettison_Cargo:
 			combat_apply_jettison(battle, side, c.slot_index, events)
+		case Command_Reallocate:
+			combat_apply_reallocate(battle, side, c.from, c.to, events)
 		case Command_Leave_Combat:
 			assert(combat_may_leave(battle, side), "Command_Leave_Combat submitted while not escape-eligible")
 			battle.escaped += {side}

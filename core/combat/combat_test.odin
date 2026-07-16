@@ -457,6 +457,246 @@ jettison_cargo_on_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
 }
 
 @(test)
+reallocate_moves_treasure_between_holds_without_changing_weight_or_speed :: proc(t: ^testing.T) {
+	// Reallocation pours treasure from one hold into another, conserving the total
+	// aboard (ADR-0020, #157): weight is unchanged, so Speed does not move the round it
+	// is issued — what it buys is jettison granularity, not Speed. A full Large (40)
+	// pours into an empty Small, capped at the Small's 10 capacity (the destination
+	// slot's size is the denomination, #156).
+	large_cargo := ship.Fitting{name = "Cargo", size = .Large, is_cargo = true, stack_count = 40}
+	a := ship.Ship{
+		hp = 20, speed = 10,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
+			{slot = ship.Slot{size = .Small}},
+		},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	before := combat_effective_speed(&battle, .A) // 10 − 40/10 = 6
+	testing.expect_value(t, before, 6)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
+	combat_resolve_round(&battle, cmds, &events)
+
+	src, ok0 := a.layout[0].fitting.?
+	testing.expect(t, ok0)
+	testing.expect_value(t, src.stack_count, 30) // gave up the Small's 10
+	dst, ok1 := a.layout[1].fitting.?
+	testing.expect(t, ok1)
+	testing.expect_value(t, dst.stack_count, 10) // a new Small hold, full
+	testing.expect_value(t, ship.ship_treasure(a), 40) // conserved
+	testing.expect_value(t, combat_effective_speed(&battle, .A), before) // no weight shifted
+
+	found := false
+	for event in events {
+		if moved, ok := event.(Event_Cargo_Reallocated); ok {
+			found = true
+			testing.expect_value(t, moved.side, Side.A)
+			testing.expect_value(t, moved.from, ship.Slot_Index(0))
+			testing.expect_value(t, moved.to, ship.Slot_Index(1))
+			testing.expect_value(t, moved.amount, 10)
+		}
+	}
+	testing.expect(t, found)
+}
+
+@(test)
+reallocate_buys_a_finer_jettison_than_the_hold_allowed :: proc(t: ^testing.T) {
+	// The precision reallocation buys (#157): with a single full Large as its only
+	// cargo, the cheapest heave is the whole 40 (4 Speed). Splitting 10 into an empty
+	// Small first lets the next Jettison shed exactly 10 (1 Speed) — a finer amount
+	// than was reachable before the reallocation, paid for with the round it cost.
+	large_cargo := ship.Fitting{name = "Cargo", size = .Large, is_cargo = true, stack_count = 40}
+	a := ship.Ship{
+		hp = 20, speed = 10,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
+			{slot = ship.Slot{size = .Small}},
+		},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	laden := combat_effective_speed(&battle, .A) // 10 − 40/10 = 6
+
+	events: [dynamic]Event
+	defer delete(events)
+
+	// Round 1: reallocate 10 into the Small. Weight unchanged, so Speed unchanged.
+	realloc_cmds: [Side]Maybe(Command)
+	realloc_cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
+	combat_resolve_round(&battle, realloc_cmds, &events)
+	testing.expect_value(t, combat_effective_speed(&battle, .A), laden)
+
+	// Round 2: jettison the freshly-split Small — sheds exactly 10, one Speed, a finer
+	// heave than the 40 the hold allowed before.
+	jettison_cmds: [Side]Maybe(Command)
+	jettison_cmds[.A] = Command(Command_Jettison_Cargo{slot_index = 1})
+	combat_resolve_round(&battle, jettison_cmds, &events)
+	testing.expect_value(t, combat_effective_speed(&battle, .A), laden + 1)
+}
+
+@(test)
+reallocate_into_a_partial_hold_grows_it_up_to_capacity :: proc(t: ^testing.T) {
+	// Pouring into a partly-full cargo fitting grows it, capped at min(source, room)
+	// (#156): a Medium holding 5 has room for 15 more, so a Large of 40 gives up
+	// exactly 15 and keeps 25 — nothing overflows or is lost.
+	large_cargo := ship.Fitting{name = "Cargo", size = .Large, is_cargo = true, stack_count = 40}
+	medium_cargo := ship.Fitting{name = "Cargo", size = .Medium, is_cargo = true, stack_count = 5}
+	a := ship.Ship{
+		hp = 20, speed = 10,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
+			{slot = ship.Slot{size = .Medium}, fitting = medium_cargo},
+		},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
+	combat_resolve_round(&battle, cmds, &events)
+
+	src, ok0 := a.layout[0].fitting.?
+	testing.expect(t, ok0)
+	testing.expect_value(t, src.stack_count, 25)
+	dst, ok1 := a.layout[1].fitting.?
+	testing.expect(t, ok1)
+	testing.expect_value(t, dst.stack_count, 20) // 5 + 15, a full Medium
+	testing.expect_value(t, ship.ship_treasure(a), 45)
+}
+
+@(test)
+reallocate_that_empties_the_source_nulls_the_slot :: proc(t: ^testing.T) {
+	// A source drained to nothing becomes an empty slot, not a zero-count cargo fitting
+	// (#157, ship_fitting_fits): a Small of 10 poured into an empty Medium moves all 10
+	// and leaves the Small slot empty.
+	small_cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
+	a := ship.Ship{
+		hp = 20, speed = 10,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = small_cargo},
+			{slot = ship.Slot{size = .Medium}},
+		},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
+	combat_resolve_round(&battle, cmds, &events)
+
+	_, still_occupied := a.layout[0].fitting.?
+	testing.expect(t, !still_occupied)
+	dst, ok1 := a.layout[1].fitting.?
+	testing.expect(t, ok1)
+	testing.expect_value(t, dst.stack_count, 10)
+}
+
+@(test)
+reallocate_from_a_slot_to_itself_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
+	a := ship.Ship{
+		hp = 20, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Reallocate{from = 0, to = 0})
+	testing.expect_assert(t, "Command_Reallocate from and to are the same slot")
+	combat_resolve_round(&battle, cmds, &events)
+}
+
+@(test)
+reallocate_from_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
+	a := ship.Ship{
+		hp = 20, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Large}, fitting = cannon},
+			{slot = ship.Slot{size = .Small}},
+		},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
+	testing.expect_assert(t, "Command_Reallocate from does not hold a cargo fitting")
+	combat_resolve_round(&battle, cmds, &events)
+}
+
+@(test)
+reallocate_into_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
+	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
+	a := ship.Ship{
+		hp = 20, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = cargo},
+			{slot = ship.Slot{size = .Large}, fitting = cannon},
+		},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
+	testing.expect_assert(t, "Command_Reallocate to holds a non-cargo fitting")
+	combat_resolve_round(&battle, cmds, &events)
+}
+
+@(test)
+reallocate_into_a_full_hold_moves_nothing_and_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	// A full destination has no room, so the move would shift 0 treasure — the menu
+	// never offers it (battle_reallocate_can_receive), and the combat layer asserts,
+	// exactly like jettisoning an empty slot buys nothing.
+	from_cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
+	full_small := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
+	a := ship.Ship{
+		hp = 20, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = from_cargo},
+			{slot = ship.Slot{size = .Small}, fitting = full_small},
+		},
+	}
+	b := ship.Ship{hp = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
+	testing.expect_assert(t, "Command_Reallocate moves no treasure (source empty or destination full)")
+	combat_resolve_round(&battle, cmds, &events)
+}
+
+@(test)
 may_leave_is_false_before_the_baseline_round_count_even_if_faster :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 20, speed = 10}
 	b := ship.Ship{hp = 20, speed = 5}
