@@ -189,7 +189,11 @@ run_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 		s.durability += gain.amount
 	case .Treasure:
 		// Treasure is the holds now (ADR-0020): re-stow the raised total, so a gain
-		// above capacity is lost (#157) rather than banked in a scalar field.
+		// above capacity is lost (#157) rather than banked in a scalar field. That
+		// the one Treasure-gaining axis (Scrapped Armour) can thus burn its own
+		// payout — and, since treasure *is* weight, slow the ship as it pays out —
+		// is the accepted, un-guarded cost of the axis, not a special case to clamp
+		// (#199): the gain side stays as open as the model, the cost side alone gated.
 		ship.ship_stow_treasure(s.layout, ship.ship_treasure(s^) + gain.amount)
 	}
 }

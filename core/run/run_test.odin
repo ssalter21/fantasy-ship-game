@@ -1497,6 +1497,38 @@ run_apply_trade_moves_treasure :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.durability, 2)
 }
 
+// Scrapped Armour (gain .Treasure, cost .Durability) picked up two side effects
+// when treasure became weight (ADR-0020, #199), and both are the honest, intended
+// cost of the axis rather than a bug to guard:
+//
+//   - Its Treasure gain can **overflow the hold and be silently lost** — a Trade
+//     that burns its own payout. That is #157's rule with no special case (treasure
+//     lives only in finite slots; there is nowhere else to bank it), so the grant
+//     path is left un-guarded on purpose (the cost side is gated by
+//     run_trade_can_accept; the gain side is not).
+//   - Because treasure *is* weight, gaining it **slows the ship** — the destination's
+//     own thesis (getting rich makes you catchable), not an unadvertised penalty.
+//
+// A Trade is an accept/reject choice, so a full ship that burns the payout chose to;
+// letting the player *read* that risk off the hold before accepting is the UI pass's
+// job (#201/#202), not a model guard here.
+@(test)
+run_apply_trade_scrapped_armour_gain_above_capacity_is_lost :: proc(t: ^testing.T) {
+	s := ship.ship_starting_ship() // capacity 90, purse 50, effective Speed 4
+	defer delete(s.layout)
+	s.durability = 4
+	speed_before := ship.ship_effective_speed(&s)
+
+	// Sell armour for 60 treasure against a 90 ceiling with only 40 of room: 20 of
+	// the payout has no slot to land in and is dropped, not banked in a scalar.
+	run_apply_trade(&s, trade_of(.Treasure, 60, .Durability, 2))
+
+	testing.expect_value(t, ship.ship_treasure(s), 90) // capped at capacity, not the 110 gained
+	testing.expect_value(t, s.durability, 2)            // yet the cost is still paid in full
+	// The heavier hold is slower: the incidental Speed swing is intentional (ADR-0020).
+	testing.expect(t, ship.ship_effective_speed(&s) < speed_before)
+}
+
 // Cannibalized Timbers (+HP for -Max HP) is why the pay-then-grant order is
 // load-bearing: selling the ceiling first means the repair caps against the
 // ceiling you just sold. 12 HP of a 20 ceiling, sell 6 of the ceiling, then
