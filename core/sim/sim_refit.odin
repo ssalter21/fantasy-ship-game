@@ -23,11 +23,7 @@ sim_open_refit :: proc(sim: ^Sim, incoming: Maybe(ship.Fitting), events: ^[dynam
 // discards any still-pending incoming fitting (no inventory — ADR-0012) and hands
 // back to the stage walk, which presents whatever the cursor now points at.
 sim_process_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
-	pending, has_pending := sim.pending_command.?
-	assert(has_pending, "sim_process_refit called without a pending command")
-	cmd, ok := pending.(Command_Refit)
-	assert(ok, "sim_process_refit called without a pending Command_Refit")
-	sim.pending_command = nil
+	cmd := sim_take_pending(sim, Command_Refit)
 
 	switch op in cmd.command {
 	case Refit_Install:

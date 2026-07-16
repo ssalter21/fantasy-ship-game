@@ -7,11 +7,7 @@ import "../voyage"
 // opponent's (ADR-0008) and resolves one round via core/combat. On battle end it asks
 // voyage_finish_ship_battle what that means to the Fight stage and hands the outcome back.
 sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
-	pending, has_pending := sim.pending_command.?
-	assert(has_pending, "sim_process_battle_round called without a pending command")
-	cmd, ok := pending.(Command_Battle_Choice)
-	assert(ok, "sim_process_battle_round called without a pending Command_Battle_Choice")
-	sim.pending_command = nil
+	cmd := sim_take_pending(sim, Command_Battle_Choice)
 
 	opponent_command := combat.combat_scripted_command(&sim.battle, .B)
 	cmds := [combat.Side]Maybe(combat.Command){.A = cmd.combat_command, .B = opponent_command}

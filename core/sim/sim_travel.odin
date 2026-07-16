@@ -15,15 +15,12 @@ import "../voyage"
 // same way, Port included (ADR-0014); Start and Haven are pass-through by carrying no
 // encounter, not by being special-cased.
 sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
-	pending, has_pending := sim.pending_command.?
-	if !has_pending {
+	if _, has_pending := sim.pending_command.?; !has_pending {
 		public_map := voyage.Map{nodes = sim.public_nodes, edges = sim.voyage_map.edges}
 		append(events, Event(Event_Voyage_Started{voyage_map = public_map, ship = sim.player}))
 		return
 	}
-	cmd, has_cmd := pending.(Command_Travel_To)
-	assert(has_cmd, "sim_process_travel called without a pending Command_Travel_To")
-	sim.pending_command = nil
+	cmd := sim_take_pending(sim, Command_Travel_To)
 
 	assert(voyage.voyage_can_travel(&sim.player), "Command_Travel_To submitted while the ship could no longer travel")
 	assert(

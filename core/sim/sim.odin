@@ -128,8 +128,8 @@ Sim :: struct {
 }
 
 // Command is the only way presentation may mutate the Sim (ADR-0001). Which
-// variant is valid depends on Sim's current Phase; sim_submit_captain_choice
-// asserts the submitted Command matches.
+// variant is valid depends on Sim's current Phase; the Phase's processor asserts
+// the pending Command is the variant it expects as it unwraps it (sim_take_pending).
 Command :: union {
 	Command_Travel_To,
 	Command_Battle_Choice,
@@ -559,33 +559,32 @@ sim_emit_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event(Event_Travel_Options{options = sim.travel_options[:]}))
 }
 
-// sim_submit_captain_choice validates cmd against Sim's current Phase and stores it for the next
-// sim_tick call to consume.
+// sim_submit_captain_choice stores cmd for the next sim_tick to consume. It does not check cmd
+// against the current Phase: the Phase's own processor asserts that as it unwraps the pending
+// command (sim_take_pending), so the Phase→Command pairing is stated once — at dispatch — rather
+// than duplicated in a validation switch here that had to stay in lockstep with sim_tick's.
 sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	assert(sim.awaiting_decision, "submitted a captain choice while the sim wasn't awaiting one")
-
-	switch sim.phase {
-	case .Awaiting_Travel_Choice:
-		_, ok := cmd.(Command_Travel_To)
-		assert(ok, "expected a Command_Travel_To while awaiting a travel choice")
-	case .Awaiting_Battle_Command:
-		_, ok := cmd.(Command_Battle_Choice)
-		assert(ok, "expected a Command_Battle_Choice while awaiting a battle command")
-	case .Awaiting_Option_Choice:
-		_, ok := cmd.(Command_Choose_Option)
-		assert(ok, "expected a Command_Choose_Option while awaiting an option choice")
-	case .Awaiting_Trade_Choice:
-		_, ok := cmd.(Command_Trade_Choice)
-		assert(ok, "expected a Command_Trade_Choice while awaiting a trade choice")
-	case .Awaiting_Refit:
-		_, ok := cmd.(Command_Refit)
-		assert(ok, "expected a Command_Refit while awaiting a refit command")
-	case .Ended:
-		assert(false, "submitted a captain choice after the voyage ended")
-	}
-
 	sim.pending_command = cmd
 	sim.awaiting_decision = false
+}
+
+// sim_take_pending consumes the pending command as variant T: it asserts a command is pending
+// and is that variant, clears it, and returns the unwrapped value. Every sim_process_* opens
+// with one call to it in place of the repeated fetch-assert-cast-clear ritual.
+//
+// A pending command of the wrong variant is a driver bug — presentation submitted a Command the
+// current Phase never asked for (ADR-0001) — and traps here, at the single point the Phase's
+// processor unwraps it. That is why sim_submit_captain_choice needs no validation switch of its
+// own: the Phase→Command pairing lives only in which processor sim_tick dispatches to and the T
+// it unwraps, enumerated once rather than in two switches kept in lockstep.
+sim_take_pending :: proc(sim: ^Sim, $T: typeid) -> T {
+	pending, has_pending := sim.pending_command.?
+	assert(has_pending, "a phase processor ran with no pending command to consume")
+	cmd, ok := pending.(T)
+	assert(ok, "the pending command does not match the phase awaiting it")
+	sim.pending_command = nil
+	return cmd
 }
 
 // sim_emit_encounter_resolved captures the ship the captain is leaving this node with as a

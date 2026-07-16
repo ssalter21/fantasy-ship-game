@@ -13,11 +13,7 @@ import "../voyage"
 // captured once where its walk ends, and sim_walk_encounter is the sole writer of
 // `resolved`.
 sim_process_trade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
-	pending, has_pending := sim.pending_command.?
-	assert(has_pending, "sim_process_trade_choice called without a pending command")
-	cmd, ok := pending.(Command_Trade_Choice)
-	assert(ok, "sim_process_trade_choice called without a pending Command_Trade_Choice")
-	sim.pending_command = nil
+	cmd := sim_take_pending(sim, Command_Trade_Choice)
 
 	if !cmd.accept {
 		sim_advance_stage(sim, .Halted, events)
