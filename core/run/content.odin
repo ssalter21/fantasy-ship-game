@@ -475,7 +475,7 @@ Trade_Axis :: struct {
 // handful of trades, so a run is still mostly non-repeating.
 //
 // **Coverage — thinner now, and consciously so.** Hull is gain-only (Cannibalized
-// Timbers), Max Hull and Treasure sit on both sides, and **Durability is cost-only**
+// Timbers), Max Hull and Cargo sit on both sides, and **Durability is cost-only**
 // (Scrapped Armour) — it lost its one gainer when Braced Bulkheads left with Speed.
 // Hull stays gain-only on purpose: nothing else in the game heals (combat is the only
 // writer of Ship.hull, and it only ever subtracts), so repair is the scarcest thing a
@@ -491,8 +491,8 @@ trade_roster := [?]Trade_Axis {
 	// Patch the damage you have by permanently lowering the ceiling. The one
 	// entry that trades Hull against Max Hull, which is why both are distinct stats.
 	{name = "Cannibalized Timbers", gain = .Hull, cost = .Max_Hull},
-	{name = "Scrapped Armour", gain = .Treasure, cost = .Durability},
-	{name = "Shipwright's Bargain", gain = .Max_Hull, cost = .Treasure},
+	{name = "Scrapped Armour", gain = .Cargo, cost = .Durability},
+	{name = "Shipwright's Bargain", gain = .Max_Hull, cost = .Cargo},
 }
 
 // run_trade_roster returns every authored trade axis. run_make_trade deals from
@@ -581,7 +581,7 @@ Stock_Pool :: enum {
 //
 // **Not tier weighting, and not price.** Tier weighting is the stakes question, and
 // Shop deliberately reads no stakes at all (run.odin's scaling group says why: the
-// gradient a shop faces is the purse the captain brings). Price is economy tuning,
+// gradient a shop faces is the cargo the captain brings). Price is economy tuning,
 // which this map rules out of scope — and a per-pool discount would collide with
 // #124's depth surcharge, the one price knob that already exists.
 //
@@ -616,7 +616,7 @@ Stock :: struct {
 // and refills a bought slot from the reserve; when the reserve is gone, buying starts
 // leaving bare slots and the shop visibly shrinks.
 //
-//   - Chandlery's 12 leaves a reserve of **7**. The starting purse of 50 buys about
+//   - Chandlery's 12 leaves a reserve of **7**. The starting cargo of 50 buys about
 //     three cards even at the cheapest tier (10, then #124's surcharge makes it 15, 20),
 //     so the shelf is still full when the money runs out — the captain gives up before
 //     the shop does. It is not infinite: buying all 12 out at the cheapest tier costs
@@ -627,7 +627,7 @@ Stock :: struct {
 //     three buys a real visit makes rather than at some theoretical exhaustion — which
 //     is exactly what a single ship's hold should feel like next to a town's warehouse.
 //
-// Both are pinned by test (a_chandlerys_reserve_outlasts_the_purse_a_captain_brings,
+// Both are pinned by test (a_chandlerys_reserve_outlasts_the_cargo_a_captain_brings,
 // a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied), because the interesting
 // quantity is a difference of two constants against a third and no one will notice by
 // eye when the surcharge moves.
@@ -701,9 +701,9 @@ run_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZE]i
 // double-counting *tier* (cost already rises with tier, so a quality bonus on top
 // would charge once and pay twice), and that still holds, but the stronger reason
 // arrived with #133: **Reward's payout is site-scaled** (20/tier + 5/depth), so depth
-// already means "more treasure". A shop that also improved with depth would compound
+// already means "more cargo". A shop that also improved with depth would compound
 // the same progression from both ends — richer captain *and* better shelf. So the
-// market is a fixed market, and the gradient a shop faces is the purse the captain
+// market is a fixed market, and the gradient a shop faces is the cargo the captain
 // brings to it. That is why this proc has no `site` parameter to ignore.
 run_bake_shop :: proc(pool: Stock_Pool, gen: rand.Generator) -> Stage_Shop {
 	stock := run_stock_pool(pool)

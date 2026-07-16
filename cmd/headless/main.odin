@@ -50,7 +50,7 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	case .Awaiting_Option_Choice:
 		// Decline every option list (issue #131) — skip an Offer's items, leave a
 		// Shop's shelf. A nil selection takes nothing and opens no refit, so the
-		// scripted auto-player never has to spend treasure or drive a loadout edit; it
+		// scripted auto-player never has to spend cargo or drive a loadout edit; it
 		// just walks through.
 		return sim.Command(sim.Command_Choose_Option{selection = nil})
 	case .Awaiting_Trade_Choice:

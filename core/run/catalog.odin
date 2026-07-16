@@ -116,7 +116,7 @@ FLOTSAM_STAGES := [?]Stage_Spec{{kind = .Offer}}
 @(rodata)
 BARGAIN_STAGES := [?]Stage_Spec{{kind = .Trade}}
 
-// Free treasure, and the one encounter whose interaction is *arriving*: Reward has
+// Free cargo, and the one encounter whose interaction is *arriving*: Reward has
 // nothing to decline, so this recipe stops for no decision at all (stage.odin).
 @(rodata)
 DRIFTING_SALVAGE_STAGES := [?]Stage_Spec{{kind = .Reward}}
@@ -133,8 +133,8 @@ DRIFTING_SALVAGE_STAGES := [?]Stage_Spec{{kind = .Reward}}
 SEA_BATTLE_STAGES := [?]Stage_Spec{{kind = .Fight}, {kind = .Reward}}
 
 // The glossary's other named recipe: an abandoned hulk holding both a fitting and
-// a purse. No fight — the only encounter where the *Offer* is the gate, since
-// skipping it halts and forfeits the treasure behind it. That is also why Reward
+// a cargo. No fight — the only encounter where the *Offer* is the gate, since
+// skipping it halts and forfeits the cargo behind it. That is also why Reward
 // reads its own node and never a neighbouring stage (#132): there is no opponent
 // here to loot.
 @(rodata)
@@ -182,7 +182,7 @@ CONTESTED_ANCHORAGE_STAGES := [?]Stage_Spec {
 
 // Ruins with a beast-dealer moored in them. The one deep recipe with no Fight and
 // no Trade — three boons, where the only cost is that skipping the salvage halts
-// the walk and forfeits both the market and the treasure behind it.
+// the walk and forfeits both the market and the cargo behind it.
 @(rodata)
 SUNKEN_RELIQUARY_STAGES := [?]Stage_Spec {
 	{kind = .Offer},

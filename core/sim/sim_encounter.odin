@@ -84,7 +84,7 @@ Shop_Visit :: struct {
 // placeholder-economy convention).
 SHOP_DEPTH_SURCHARGE_STEP :: 5
 
-// shop_visit_price is the treasure a shelf card costs given how many items have
+// shop_visit_price is the cargo a shelf card costs given how many items have
 // already been bought at this shop (issue #124): its tier base plus the depth
 // surcharge, `base + SHOP_DEPTH_SURCHARGE_STEP × purchases`. The one place the
 // surcharge is applied — the shelf's presented prices and the charge at buy both read
@@ -255,7 +255,7 @@ sim_enter_stage :: proc(sim: ^Sim, stage: run.Stage, events: ^[dynamic]Event) ->
 		// sim_walk_encounter's loop carries straight on to whatever follows it. This is
 		// the case that loop was built for — every other primitive stops for a decision.
 		//
-		// Event_Ship_Updated is how presentation learns the purse moved (ADR-0001 — it
+		// Event_Ship_Updated is how presentation learns the cargo moved (ADR-0001 — it
 		// learns nothing except through Events), and it is the *only* event a payout
 		// owes: the node's ghost is captured once, where the walk ends, so a Reward
 		// mid-recipe no longer emits one of its own (issue #162). Same as an accepted
@@ -335,16 +335,16 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	// A priced option is paid for before it changes hands; a free one has no price to
 	// check, so it skips the whole question rather than comparing against a zero cost.
 	if cost, priced := option.cost.?; priced {
-		if cost > ship.ship_treasure(sim.player) {
+		if cost > ship.ship_cargo(sim.player) {
 			// ADR-0012's "an unaffordable item cannot be bought": nothing is spent, no
 			// Refit opens, and the stage stays open for another choice.
 			append(events, Event(Event_Purchase_Rejected{option = option}))
 			return
 		}
-		// Spending comes out of the hold now (ADR-0020): re-stow the purse at its
-		// reduced total. The affordability check above guarantees purse >= cost.
-		ship.ship_stow_treasure(sim.player.layout, ship.ship_treasure(sim.player) - cost)
-		// Broadcast the spent purse before the Refit opens, so the deduction is visible
+		// Spending comes out of the hold now (ADR-0020): re-stow the cargo at its
+		// reduced total. The affordability check above guarantees cargo >= cost.
+		ship.ship_stow_cargo(sim.player.layout, ship.ship_cargo(sim.player) - cost)
+		// Broadcast the spent cargo before the Refit opens, so the deduction is visible
 		// even if the buyer discards the item in the Refit without installing it (no
 		// refund — no inventory, ADR-0012). The Refit's own install emits another.
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
@@ -393,7 +393,7 @@ sim_stage_decline_outcome :: proc(stage: run.Stage) -> run.Stage_Outcome {
 
 // sim_stage_offer_options stages an Offer's items as the presented option list: the
 // distinct roster items it was baked with (ADR-0012), each free — an Offer's cost is
-// the halt it takes to refuse, not treasure. Slots past the Offer's own count stay
+// the halt it takes to refuse, not cargo. Slots past the Offer's own count stay
 // nil, since the shared list is as wide as the widest stage.
 sim_stage_offer_options :: proc(sim: ^Sim, offer: run.Stage_Offer) {
 	sim.stage_options = {}

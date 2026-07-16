@@ -55,21 +55,21 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	}
 
 	// Only a wreck pays (#159): a sunk opponent's hold is stowed into the player's
-	// purse here. Event_Ship_Updated is how presentation learns the purse moved
+	// hold here. Event_Ship_Updated is how presentation learns the cargo moved
 	// (ADR-0001), the same event a Reward payout owes — emitted only when a payout
 	// actually landed, since a fled opponent or a stalemate pays nothing.
 	//
 	// `payout` is the wreck's *gross* hold; the player keeps only what fit, the rest
 	// lost above capacity (#157) — the mainline case (#176/#196). We measure the spill
-	// off the player's own purse across the payout — run_finish stows into
+	// off the player's own cargo across the payout — run_finish stows into
 	// battle.ships[.A], which aliases sim.player (run_start_battle) — so `gained` is the
 	// real delta and `spilled` the remainder, and Event_Wreck_Looted carries both so
 	// presentation can name the haul and any overboard loss rather than let it vanish
 	// silently (issue #201).
-	treasure_before := ship.ship_treasure(sim.player)
+	cargo_before := ship.ship_cargo(sim.player)
 	outcome, payout := run.run_finish_ship_battle(&sim.battle)
 	if payout > 0 {
-		spilled := payout - (ship.ship_treasure(sim.player) - treasure_before)
+		spilled := payout - (ship.ship_cargo(sim.player) - cargo_before)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		append(events, Event(Event_Wreck_Looted{gross = payout, spilled = spilled}))
 	}

@@ -160,15 +160,15 @@ the_swing_table_quotes_one_rate_in_every_zone :: proc(t: ^testing.T) {
 }
 
 @(test)
-reward_treasure_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+reward_cargo_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 	// #133's acceptance in one line: a Deep reward outweighs a Coastal one.
-	expect_rises_by_zone_and_depth(t, run_reward_treasure)
+	expect_rises_by_zone_and_depth(t, run_reward_cargo)
 }
 
 @(test)
 a_reward_outpays_selling_a_stat_at_the_same_site :: proc(t: ^testing.T) {
 	// The placeholder's one authored relationship (#132): a Reward pays more than a
-	// Trade's Treasure swing, because a swing is what a stat fetches when sold and a
+	// Trade's Cargo swing, because a swing is what a stat fetches when sold and a
 	// Reward is earned by the stage in front of it. If this inverts, [Fight, Reward] is
 	// a worse Bargain — risk the run, or sell some Speed for more. Asserted at every
 	// site rather than one, since the two read the same gradient through different
@@ -178,7 +178,7 @@ a_reward_outpays_selling_a_stat_at_the_same_site :: proc(t: ^testing.T) {
 			site := Scaling_Site{zone = zone, depth = depth}
 			testing.expectf(
 				t,
-				run_reward_treasure(site) > run_trade_swing(site.zone, .Treasure),
+				run_reward_cargo(site) > run_trade_swing(site.zone, .Cargo),
 				"a reward at %v must outpay selling a stat there",
 				site,
 			)
@@ -632,7 +632,7 @@ costs_precede_boons_in_every_authored_recipe :: proc(t: ^testing.T) {
 	// free escape from the price of that boon. `[Offer, Fight]` is the canonical
 	// mistake: skip an item you never had and the fight is dodged for nothing.
 	//
-	// Shop is a boon despite spending treasure: it never halts, so it is not an
+	// Shop is a boon despite spending cargo: it never halts, so it is not an
 	// exit, and a captain who buys nothing has lost nothing.
 	is_cost :: proc(kind: Stage_Kind) -> bool {
 		switch kind {
@@ -1357,7 +1357,7 @@ run_finish_ship_battle_completes_the_fight_when_the_opponent_escaped :: proc(t: 
 	// The opponent has a laden hold, but flees rather than sinking — so it is not a
 	// wreck, and pays nothing (#159: you loot a wreck, not a winner nor a runner).
 	fight := Stage_Fight{opponent = ship.Ship{hull = 10, speed = 3, layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}}}}}
-	ship.ship_stow_treasure(fight.opponent.layout, 15)
+	ship.ship_stow_cargo(fight.opponent.layout, 15)
 	battle := battle_ended_with({.B}, &player, &fight)
 
 	// Side.B fleeing is not the captain declining the fight, so it reads as the fight
@@ -1386,24 +1386,24 @@ run_finish_ship_battle_on_a_battle_that_has_not_ended_asserts :: proc(t: ^testin
 @(test)
 run_finish_ship_battle_pays_the_sunk_opponents_hold_into_the_player :: proc(t: ^testing.T) {
 	// A wreck pays its hold as it stands (#159): the player receives exactly the
-	// treasure still stowed in the sunk opponent's cargo slots.
+	// cargo still stowed in the sunk opponent's cargo slots.
 	player := ship.Ship {
 		hull = 20, max_hull = 20,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}}, {slot = ship.Slot{size = .Small}}},
 	}
-	ship.ship_stow_treasure(player.layout, 10) // room for 50 (Large 40 + Small 10), 10 aboard
+	ship.ship_stow_cargo(player.layout, 10) // room for 50 (Large 40 + Small 10), 10 aboard
 	fight := Stage_Fight {
 		opponent = ship.Ship{layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}}, {slot = ship.Slot{size = .Small}}}},
 	}
-	ship.ship_stow_treasure(fight.opponent.layout, 30)
+	ship.ship_stow_cargo(fight.opponent.layout, 30)
 	battle := battle_destroyed_won_by_the_player(&player, &fight)
 
 	outcome, payout := run_finish_ship_battle(&battle)
 
 	testing.expect_value(t, outcome, Stage_Outcome.Completed)
 	testing.expect_value(t, payout, 30) // the whole wreck's hold
-	testing.expect_value(t, ship.ship_treasure(player), 40) // 10 aboard + 30 looted, within capacity
-	testing.expect_value(t, ship.ship_treasure(fight.opponent), 30) // the wreck's hold is read, never emptied
+	testing.expect_value(t, ship.ship_cargo(player), 40) // 10 aboard + 30 looted, within capacity
+	testing.expect_value(t, ship.ship_cargo(fight.opponent), 30) // the wreck's hold is read, never emptied
 }
 
 @(test)
@@ -1415,18 +1415,18 @@ run_finish_ship_battle_payout_above_capacity_falls_overboard :: proc(t: ^testing
 		hull = 20, max_hull = 20,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}}, {slot = ship.Slot{size = .Small}}},
 	}
-	ship.ship_stow_treasure(player.layout, 45) // capacity 50, only 5 of room left
+	ship.ship_stow_cargo(player.layout, 45) // capacity 50, only 5 of room left
 	fight := Stage_Fight {
 		opponent = ship.Ship{layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}}, {slot = ship.Slot{size = .Small}}}},
 	}
-	ship.ship_stow_treasure(fight.opponent.layout, 30)
+	ship.ship_stow_cargo(fight.opponent.layout, 30)
 	battle := battle_destroyed_won_by_the_player(&player, &fight)
 
 	outcome, payout := run_finish_ship_battle(&battle)
 
 	testing.expect_value(t, outcome, Stage_Outcome.Completed)
 	testing.expect_value(t, payout, 30) // the gross hold looted, before the ship's capacity clips it
-	testing.expect_value(t, ship.ship_treasure(player), 50) // clamped to capacity — the other 25 went overboard
+	testing.expect_value(t, ship.ship_cargo(player), 50) // clamped to capacity — the other 25 went overboard
 }
 
 @(test)
@@ -1444,7 +1444,7 @@ run_finish_ship_battle_a_kill_of_a_broke_opponent_pays_nothing :: proc(t: ^testi
 
 	testing.expect_value(t, outcome, Stage_Outcome.Completed)
 	testing.expect_value(t, payout, 0)
-	testing.expect_value(t, ship.ship_treasure(player), 0)
+	testing.expect_value(t, ship.ship_cargo(player), 0)
 }
 
 // --- Trade: applying an accepted swap (issue #136) --------------------------
@@ -1483,30 +1483,30 @@ run_apply_trade_runs_an_axis_in_either_direction :: proc(t: ^testing.T) {
 }
 
 @(test)
-run_apply_trade_moves_treasure :: proc(t: ^testing.T) {
-	// Treasure is the holds now (ADR-0020), so a treasure trade moves cargo — the
-	// starting ship carries its 50 purse in real slots (capacity 90, room to gain).
+run_apply_trade_moves_cargo :: proc(t: ^testing.T) {
+	// Cargo is the holds now (ADR-0020), so a cargo trade moves cargo — the
+	// starting ship carries its 50 cargo in real slots (capacity 90, room to gain).
 	s := ship.ship_starting_ship()
 	defer delete(s.layout)
 	s.durability = 4
-	testing.expect_value(t, ship.ship_treasure(s), 50)
+	testing.expect_value(t, ship.ship_cargo(s), 50)
 
-	run_apply_trade(&s, trade_of(.Treasure, 15, .Durability, 2))
+	run_apply_trade(&s, trade_of(.Cargo, 15, .Durability, 2))
 
-	testing.expect_value(t, ship.ship_treasure(s), 65)
+	testing.expect_value(t, ship.ship_cargo(s), 65)
 	testing.expect_value(t, s.durability, 2)
 }
 
-// Scrapped Armour (gain .Treasure, cost .Durability) picked up two side effects
-// when treasure became weight (ADR-0020, #199), and both are the honest, intended
+// Scrapped Armour (gain .Cargo, cost .Durability) picked up two side effects
+// when cargo became weight (ADR-0020, #199), and both are the honest, intended
 // cost of the axis rather than a bug to guard:
 //
-//   - Its Treasure gain can **overflow the hold and be silently lost** — a Trade
-//     that burns its own payout. That is #157's rule with no special case (treasure
+//   - Its Cargo gain can **overflow the hold and be silently lost** — a Trade
+//     that burns its own payout. That is #157's rule with no special case (cargo
 //     lives only in finite slots; there is nowhere else to bank it), so the grant
 //     path is left un-guarded on purpose (the cost side is gated by
 //     run_trade_can_accept; the gain side is not).
-//   - Because treasure *is* weight, gaining it **slows the ship** — the destination's
+//   - Because cargo *is* weight, gaining it **slows the ship** — the destination's
 //     own thesis (getting rich makes you catchable), not an unadvertised penalty.
 //
 // A Trade is an accept/reject choice, so a full ship that burns the payout chose to;
@@ -1514,16 +1514,16 @@ run_apply_trade_moves_treasure :: proc(t: ^testing.T) {
 // job (#201/#202), not a model guard here.
 @(test)
 run_apply_trade_scrapped_armour_gain_above_capacity_is_lost :: proc(t: ^testing.T) {
-	s := ship.ship_starting_ship() // capacity 90, purse 50, effective Speed 4
+	s := ship.ship_starting_ship() // capacity 90, cargo 50, effective Speed 4
 	defer delete(s.layout)
 	s.durability = 4
 	speed_before := ship.ship_effective_speed(&s)
 
-	// Sell armour for 60 treasure against a 90 ceiling with only 40 of room: 20 of
+	// Sell armour for 60 cargo against a 90 ceiling with only 40 of room: 20 of
 	// the payout has no slot to land in and is dropped, not banked in a scalar.
-	run_apply_trade(&s, trade_of(.Treasure, 60, .Durability, 2))
+	run_apply_trade(&s, trade_of(.Cargo, 60, .Durability, 2))
 
-	testing.expect_value(t, ship.ship_treasure(s), 90) // capped at capacity, not the 110 gained
+	testing.expect_value(t, ship.ship_cargo(s), 90) // capped at capacity, not the 110 gained
 	testing.expect_value(t, s.durability, 2)            // yet the cost is still paid in full
 	// The heavier hold is slower: the incidental Speed swing is intentional (ADR-0020).
 	testing.expect(t, ship.ship_effective_speed(&s) < speed_before)
@@ -1561,11 +1561,11 @@ run_apply_trade_gaining_max_hull_raises_the_ceiling_without_filling_it :: proc(t
 	s.hull = 12
 	s.max_hull = 20
 
-	run_apply_trade(&s, trade_of(.Max_Hull, 5, .Treasure, 15))
+	run_apply_trade(&s, trade_of(.Max_Hull, 5, .Cargo, 15))
 
 	testing.expect_value(t, s.max_hull, 25)
 	testing.expect_value(t, s.hull, 12)
-	testing.expect_value(t, ship.ship_treasure(s), 35)
+	testing.expect_value(t, ship.ship_cargo(s), 35)
 }
 
 // Spending Max Hull below current Hull can't leave the ship holding more Hull than it

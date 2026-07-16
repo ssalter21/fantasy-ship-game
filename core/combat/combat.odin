@@ -38,15 +38,15 @@ Command_Man_The_Sails :: struct {}
 
 // Command_Jettison_Cargo empties the cargo fitting at slot_index, shedding its
 // weight — which makes the ship faster because it is lighter (ADR-0020), not by
-// any granted bonus. The heaved treasure is destroyed, never settled: nothing is
+// any granted bonus. The heaved cargo is destroyed, never settled: nothing is
 // tracked past the emptying.
 Command_Jettison_Cargo :: struct {
 	slot_index: ship.Slot_Index,
 }
 
-// Command_Reallocate moves treasure between two of the submitter's own cargo
+// Command_Reallocate moves cargo between two of the submitter's own cargo
 // slots, pouring the cargo fitting at `from` into `to` up to `to`'s remaining
-// capacity. It shifts **no weight** — the treasure stays aboard — so it changes
+// capacity. It shifts **no weight** — the cargo stays aboard — so it changes
 // no Speed the round it is issued (ADR-0020, #157); what it buys is *jettison
 // granularity*, letting a later Jettison shed a finer amount than the current
 // hold allows (split a full Large into a Small and the next heave sheds exactly
@@ -134,7 +134,7 @@ Event_Cargo_Jettisoned :: struct {
 	fitting: ship.Fitting,
 }
 
-// Event_Cargo_Reallocated reports a Command_Reallocate: `amount` treasure moved
+// Event_Cargo_Reallocated reports a Command_Reallocate: `amount` cargo moved
 // from slot `from` to slot `to` on `side`'s ship. It shifts no weight, so a caller
 // rendering it must not imply a Speed change — the round was spent, the number did
 // not move (that is the tell that it bought precision, not Speed).
@@ -176,7 +176,7 @@ combat_effective_speed :: proc(battle: ^Battle, side: Side) -> int {
 // combat_apply_jettison empties the cargo fitting at slot_index on side's ship,
 // shedding its weight (ADR-0020, #159): null the slot and emit the event, nothing
 // more. The freed weight makes the ship faster through ship_effective_speed on its
-// own, and the heaved treasure is destroyed rather than settled. The assert that
+// own, and the heaved cargo is destroyed rather than settled. The assert that
 // the slot holds a cargo fitting is what keeps an empty hold from being heaved for
 // free Speed — an empty hold weighs nothing, so there is no Speed in it to buy
 // (no new rule).
@@ -190,15 +190,15 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = fitting}))
 }
 
-// combat_apply_reallocate moves treasure between two of side's own cargo slots,
+// combat_apply_reallocate moves cargo between two of side's own cargo slots,
 // shifting **no weight** (ADR-0020, #157): it pours as much of the cargo fitting at
-// `from` into `to` as `to` can still hold, so the total treasure aboard — and thus
+// `from` into `to` as `to` can still hold, so the total cargo aboard — and thus
 // the ship's weight and its Speed — is unchanged this round. What it buys is
 // *jettison granularity*: the destination slot's size is the denomination the move
 // rounds to (#156), so splitting a full Large into an empty Small lets the next
 // Jettison shed exactly that Small (10 -> 1 Speed) rather than being forced to heave
 // the whole 40. The asserts are what the battle menu's legal-picks-only offering
-// guarantees, mirroring combat_apply_jettison: `from` holds cargo with treasure, `to`
+// guarantees, mirroring combat_apply_jettison: `from` holds cargo with cargo, `to`
 // is a distinct cargo-capable slot with room, and the move is non-empty.
 combat_apply_reallocate :: proc(battle: ^Battle, side: Side, from, to: ship.Slot_Index, events: ^[dynamic]Event) {
 	s := battle.ships[side]
@@ -218,7 +218,7 @@ combat_apply_reallocate :: proc(battle: ^Battle, side: Side, from, to: ship.Slot
 	}
 	room := ship.ship_cargo_slot_contribution(to_slot.slot.size) - dest_fill
 	moved := min(src.stack_count, room)
-	assert(moved > 0, "Command_Reallocate moves no treasure (source empty or destination full)")
+	assert(moved > 0, "Command_Reallocate moves no cargo (source empty or destination full)")
 
 	// Drain the source, nulling it if emptied — a zero-count cargo fitting is not a
 	// thing (#157, ship_fitting_fits), an empty hold is an empty slot.

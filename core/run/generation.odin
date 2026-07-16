@@ -399,7 +399,7 @@ run_zone_recipe_pool :: proc(zone: Zone, catalog: []Recipe) -> []Recipe {
 //
 // **Only the Shop arm reads `site`-free content, and only the Shop arm reads the
 // spec.** Both are the same fact about the primitive: a shop is a fixed market whose
-// character is authored and whose stakes are the captain's purse, not the node's.
+// character is authored and whose stakes are the captain's cargo, not the node's.
 //
 // The arms below are the gradient's readership written out, and each takes exactly
 // what it reads: Fight, Offer and Reward take the whole `site`, a Trade takes its
@@ -427,7 +427,7 @@ run_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Generator
 		// (#132/#133) — the amount is content like an Offer's items, not a number
 		// rolled on arrival. It draws no RNG, so a recipe carrying one leaves the
 		// generator's stream untouched.
-		return Stage_Reward{treasure = run_reward_treasure(site)}
+		return Stage_Reward{cargo = run_reward_cargo(site)}
 	}
 	unreachable()
 }

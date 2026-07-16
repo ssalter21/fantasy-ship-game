@@ -357,23 +357,23 @@ a_hundred_percent_power_leaves_an_archetype_exactly_as_authored :: proc(t: ^test
 // re-derived here now that a hostile's Speed falls out of its loadout plus its
 // flat-50% hold (#194).
 //
-// **The player's purse is pinned explicitly** at STARTING_CARGO + CAPTAIN_STARTING_CARGO
+// **The player's cargo is pinned explicitly** at STARTING_CARGO + CAPTAIN_STARTING_CARGO
 // (#176's hard requirement): the comparison reads the player's *derived* Speed at the
-// starting purse — never inferring 4 from STARTING_SPEED — because after the model
-// lands the player's Speed is whatever their purse says (9 broke … 0 full), so
-// "straddle" is a joint property of (roster, purse) and only a pinned purse makes it
+// starting cargo — never inferring 4 from STARTING_SPEED — because after the model
+// lands the player's Speed is whatever their cargo says (9 broke … 0 full), so
+// "straddle" is a joint property of (roster, cargo) and only a pinned cargo makes it
 // well-formed. ship_starting_ship stows exactly that sum, so it *is* the pin.
 //
 // It is a **point, not a window** (#177): leaving the window as you get rich is the
 // feature, so this asserts one side each and no more. Placement (centre the starting
-// purse, room to grow) is a playtest aim, not an asserted bound. At the starting purse
+// cargo, room to grow) is a playtest aim, not an asserted bound. At the starting cargo
 // the straddle rests on the **Ironclad Hulk alone** (1 slower / 6 faster) — the heavy
 // entry most sensitive to the authored item weights (content.odin's band).
 @(test)
-the_hostile_roster_straddles_the_player_at_the_starting_purse :: proc(t: ^testing.T) {
-	// Pin the player's purse explicitly: ship_starting_ship stows STARTING_CARGO +
+the_hostile_roster_straddles_the_player_at_the_starting_cargo :: proc(t: ^testing.T) {
+	// Pin the player's cargo explicitly: ship_starting_ship stows STARTING_CARGO +
 	// the captain's CAPTAIN_STARTING_CARGO, so this reads the derived Speed at exactly
-	// the pinned purse rather than the STARTING_SPEED constant.
+	// the pinned cargo rather than the STARTING_SPEED constant.
 	player := ship.ship_starting_ship()
 	defer delete(player.layout)
 	player_speed := ship.ship_effective_speed(&player)
@@ -758,7 +758,7 @@ every_trade_roster_entry_swaps_two_different_stats_and_is_named :: proc(t: ^test
 // The roster's coverage after the #180 cut (content.odin): Speed left the Trade
 // vocabulary, dropping the roster to three rows, so coverage is deliberately
 // partial. Hull is gain-only (nothing else heals), Durability is now cost-only (it
-// lost its gainer when Braced Bulkheads left), and Max Hull / Treasure sit on both
+// lost its gainer when Braced Bulkheads left), and Max Hull / Cargo sit on both
 // sides. This pins that exact shape so a re-widening of the roster is a conscious
 // edit here rather than a silent drift.
 @(test)
@@ -770,8 +770,8 @@ the_trade_roster_covers_the_stats_the_surviving_three_rows_can :: proc(t: ^testi
 		cost += {axis.cost}
 	}
 
-	testing.expect_value(t, gained, bit_set[Trade_Stat]{.Hull, .Max_Hull, .Treasure})
-	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_Hull, .Durability, .Treasure})
+	testing.expect_value(t, gained, bit_set[Trade_Stat]{.Hull, .Max_Hull, .Cargo})
+	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_Hull, .Durability, .Cargo})
 }
 
 // baked_trade is a roster axis priced at a zone — exactly what run_make_trade
@@ -815,7 +815,7 @@ every_trade_roster_entry_is_takeable_by_a_starting_ship_outside_the_deep :: proc
 // The residue of the retune, pinned rather than papered over (#146). A Deep
 // Durability swing is 3 against a bare hull's 2, so the two Durability-costing
 // entries ask for one bought point of armour before The Deep will take them — one
-// Iron Plating, 10 treasure, the cheapest item in the game, against four
+// Iron Plating, 10 cargo, the cheapest item in the game, against four
 // guaranteed Ports and a zone of Rewards behind you.
 //
 // That is content rather than a dead node: you cannot strip armour you never

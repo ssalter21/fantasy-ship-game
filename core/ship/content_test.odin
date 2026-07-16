@@ -85,13 +85,13 @@ ship_starting_ship_fills_every_concealed_slot_with_cargo_by_default :: proc(t: ^
 	testing.expect_value(t, concealed_count, 4)
 }
 
-// The starting purse is stowed smallest-first (ADR-0020, #172), not spread across
+// The starting cargo is stowed smallest-first (ADR-0020, #172), not spread across
 // every free slot: the three small holds and the concealed medium fill to exactly
 // 50, while the exposed Large forecastle is left **empty** as visible headroom —
 // the player starts at the fine end of the jettison-granularity property (#157),
 // with room a Reward can fall into before it costs a payout.
 @(test)
-ship_starting_ship_stows_the_starting_purse_smallest_first_leaving_the_large_empty :: proc(t: ^testing.T) {
+ship_starting_ship_stows_the_starting_cargo_smallest_first_leaving_the_large_empty :: proc(t: ^testing.T) {
 	s := ship_starting_ship()
 	defer delete(s.layout)
 
@@ -110,11 +110,11 @@ ship_starting_ship_stows_the_starting_purse_smallest_first_leaving_the_large_emp
 	testing.expect(t, saw_size[.Medium])
 	testing.expect(t, !saw_size[.Large]) // the forecastle is headroom, not stowed
 
-	// The exposed Large forecastle is empty, and the whole purse is exactly 50.
+	// The exposed Large forecastle is empty, and the whole cargo is exactly 50.
 	forecastle := find_slot(s, "forecastle")
 	_, forecastle_filled := forecastle.fitting.?
 	testing.expect(t, !forecastle_filled)
-	testing.expect_value(t, ship_treasure(s), STARTING_CARGO + CAPTAIN_STARTING_CARGO)
+	testing.expect_value(t, ship_cargo(s), STARTING_CARGO + CAPTAIN_STARTING_CARGO)
 }
 
 @(test)
@@ -236,21 +236,21 @@ the_item_roster_spans_all_three_tiers :: proc(t: ^testing.T) {
 @(test)
 shop_item_cost_rises_strictly_with_tier :: proc(t: ^testing.T) {
 	// #98: tier prices a shop item, weakest-to-strongest, and the whole ladder
-	// sits under the starting purse so the fixed budget bites — a Deep item costs
-	// most, and even it is affordable from a full purse. "A full purse" is now
+	// sits under the starting cargo so the fixed budget bites — a Deep item costs
+	// most, and even it is affordable from a full cargo. "A full cargo" is now
 	// *derived* from the stow amounts (ADR-0020): STARTING_CARGO + the captain's
-	// bonus, not a STARTING_TREASURE constant, so `45 <= 50` stays true rather than
+	// bonus, not a single standalone constant, so `45 <= 50` stays true rather than
 	// silently inverting against the 40 hull constant (`45 <= 40` would fail).
-	full_purse :: STARTING_CARGO + CAPTAIN_STARTING_CARGO
+	full_cargo :: STARTING_CARGO + CAPTAIN_STARTING_CARGO
 	splash := ship_item_cost(.Splash)
 	shallow := ship_item_cost(.Shallow)
 	deep := ship_item_cost(.Deep)
 	testing.expect(t, splash < shallow)
 	testing.expect(t, shallow < deep)
-	testing.expect(t, deep <= full_purse) // a full purse can buy one Deep item
+	testing.expect(t, deep <= full_cargo) // a full cargo can buy one Deep item
 	// But not two: the budget is deliberately tight enough that a second buy can
 	// be unaffordable, so "an unaffordable item cannot be bought" is reachable.
-	testing.expect(t, deep + splash > full_purse)
+	testing.expect(t, deep + splash > full_cargo)
 }
 
 @(test)

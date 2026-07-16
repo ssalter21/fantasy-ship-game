@@ -48,15 +48,15 @@ run_start_battle :: proc(s: ^ship.Ship, fight: ^Stage_Fight) -> combat.Battle {
 // Destroyed ending reaching here is the *player's* kill.
 //
 // **Only a wreck pays** (#159): a sunk opponent hands over its hold as it stands —
-// the real treasure still stowed in its cargo slots (ship_treasure), stowed into
-// the player's purse exactly like a Reward (run_apply_reward). A fled opponent and
+// the real cargo still stowed in its cargo slots (ship_cargo), stowed into
+// the player's hold exactly like a Reward (run_apply_reward). A fled opponent and
 // a round-cap stalemate pay nothing, which is why the outcome had to become
 // readable off the Battle (combat's reason/winner) rather than off `escaped` alone:
 // `escaped` cannot tell a clean kill from a twenty-round draw, and both complete.
 // The `payout` return is the gross hold looted (0 when nothing was); the player may
 // keep less, because a payout above the ship's remaining cargo capacity is lost
 // (#157) — the mainline case here, since #176's flat 50% hostile fill pays 30–65
-// against ~40 of headroom, so winning a Fight routinely spills treasure overboard.
+// against ~40 of headroom, so winning a Fight routinely spills cargo overboard.
 //
 // It used to return a Ghost_Snapshot instead, which is why it took the player's
 // ship, the node's zone, and the step count it no longer needs — see the file
@@ -73,9 +73,9 @@ run_finish_ship_battle :: proc(battle: ^combat.Battle) -> (outcome: Stage_Outcom
 		// Heaved cargo is already gone (jettison destroys it, #159); a sinking pays only
 		// what is still aboard.
 		wreck := battle.ships[.B]
-		payout = ship.ship_treasure(wreck^)
+		payout = ship.ship_cargo(wreck^)
 		player := battle.ships[.A]
-		ship.ship_stow_treasure(player.layout, ship.ship_treasure(player^) + payout)
+		ship.ship_stow_cargo(player.layout, ship.ship_cargo(player^) + payout)
 	}
 
 	outcome = .Halted if .A in battle.escaped else .Completed
@@ -90,7 +90,7 @@ run_finish_ship_battle :: proc(battle: ^combat.Battle) -> (outcome: Stage_Outcom
 // the auto-replace path. The Sim marks the node resolved when the choice is made.
 
 // run_trade_stat_floor is the lowest a stat may be left by paying a trade's cost
-// (issue #136). Durability and Treasure floor at 0 — a ship with none of them is a
+// (issue #136). Durability and Cargo floor at 0 — a ship with none of them is a
 // valid, badly-off ship. Hull and Max Hull floor at **1**: a trade is a bargain struck
 // on a menu, and sinking the ship there would hand permadeath to a stage whose
 // whole job is a choice, duplicating Fight's outcome while dodging its agency.
@@ -98,7 +98,7 @@ run_trade_stat_floor :: proc(stat: Trade_Stat) -> int {
 	switch stat {
 	case .Hull, .Max_Hull:
 		return 1
-	case .Durability, .Treasure:
+	case .Durability, .Cargo:
 		return 0
 	}
 	unreachable()
@@ -121,8 +121,8 @@ run_trade_stat_reading :: proc(s: ^ship.Ship, stat: Trade_Stat) -> int {
 		return ship.ship_effective_max_hull(s)
 	case .Durability:
 		return ship.ship_effective_durability(s)
-	case .Treasure:
-		return ship.ship_treasure(s^)
+	case .Cargo:
+		return ship.ship_cargo(s^)
 	}
 	unreachable()
 }
@@ -153,9 +153,9 @@ run_trade_can_accept :: proc(s: ^ship.Ship, trade: Stage_Trade) -> bool {
 // is fine and deliberate: nothing reads the base directly, so what the ship has
 // is still effective >= the floor.
 //
-// Treasure has no base field (ADR-0020): it is the holds, so paying re-stows the
-// purse at its reduced total (ship_stow_treasure), the affordability gate having
-// already guaranteed purse >= amount.
+// Cargo has no base field (ADR-0020): it is the holds, so paying re-stows the
+// cargo at its reduced total (ship_stow_cargo), the affordability gate having
+// already guaranteed cargo >= amount.
 //
 // Spending Max Hull pulls the ceiling down under current Hull, so hull re-clamps to the
 // new effective ceiling — the ship cannot be left holding more Hull than it can now
@@ -169,8 +169,8 @@ run_trade_pay :: proc(s: ^ship.Ship, cost: Trade_Term) {
 		s.hull = min(s.hull, ship.ship_effective_max_hull(s))
 	case .Durability:
 		s.durability -= cost.amount
-	case .Treasure:
-		ship.ship_stow_treasure(s.layout, ship.ship_treasure(s^) - cost.amount)
+	case .Cargo:
+		ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^) - cost.amount)
 	}
 }
 
@@ -187,14 +187,14 @@ run_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 		s.max_hull += gain.amount
 	case .Durability:
 		s.durability += gain.amount
-	case .Treasure:
-		// Treasure is the holds now (ADR-0020): re-stow the raised total, so a gain
+	case .Cargo:
+		// Cargo is the holds now (ADR-0020): re-stow the raised total, so a gain
 		// above capacity is lost (#157) rather than banked in a scalar field. That
-		// the one Treasure-gaining axis (Scrapped Armour) can thus burn its own
-		// payout — and, since treasure *is* weight, slow the ship as it pays out —
+		// the one Cargo-gaining axis (Scrapped Armour) can thus burn its own
+		// payout — and, since cargo *is* weight, slow the ship as it pays out —
 		// is the accepted, un-guarded cost of the axis, not a special case to clamp
 		// (#199): the gain side stays as open as the model, the cost side alone gated.
-		ship.ship_stow_treasure(s.layout, ship.ship_treasure(s^) + gain.amount)
+		ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^) + gain.amount)
 	}
 }
 
@@ -221,7 +221,7 @@ run_apply_trade :: proc(s: ^ship.Ship, trade: Stage_Trade) {
 	run_trade_grant(s, trade.gain)
 }
 
-// run_apply_reward pays a Reward stage's treasure into the ship's purse (issues
+// run_apply_reward pays a Reward stage's cargo into the ship's hold (issues
 // #132, #133).
 //
 // The amount is not computed here — it was baked into the stage at generation
@@ -237,5 +237,5 @@ run_apply_reward :: proc(s: ^ship.Ship, reward: Stage_Reward) {
 	// The reward stows into the holds (ADR-0020): a payout above the ship's
 	// remaining cargo capacity is lost (#157), which is the mainline case once a
 	// rich ship's slots are full.
-	ship.ship_stow_treasure(s.layout, ship.ship_treasure(s^) + reward.treasure)
+	ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^) + reward.cargo)
 }
