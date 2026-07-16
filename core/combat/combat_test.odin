@@ -531,6 +531,13 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 	testing.expect_value(t, ended.reason, End_Reason.Left_Combat)
 	_, has_winner := ended.winner.?
 	testing.expect(t, !has_winner)
+
+	// The Battle mirrors the ending it emitted, so a caller holding only the Battle —
+	// run_finish_ship_battle, deciding the wreck payout (#159) — reads it without the
+	// event stream.
+	testing.expect_value(t, battle.reason, End_Reason.Left_Combat)
+	_, battle_has_winner := battle.winner.?
+	testing.expect(t, !battle_has_winner)
 }
 
 @(test)
@@ -602,6 +609,12 @@ a_ship_reduced_to_zero_hp_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, b.hp, 0)
 	testing.expect(t, battle.ended)
+
+	// The Battle mirrors the emitted ending (#159): a kill is queryable off it.
+	testing.expect_value(t, battle.reason, End_Reason.Destroyed)
+	battle_winner, battle_has_winner := battle.winner.?
+	testing.expect(t, battle_has_winner)
+	testing.expect_value(t, battle_winner, Side.A)
 
 	sunk_found, ended_found := false, false
 	for event in events {
@@ -703,6 +716,13 @@ hard_round_cap_forces_resolution_by_higher_hp :: proc(t: ^testing.T) {
 	winner, has_winner := ended.winner.?
 	testing.expect(t, has_winner)
 	testing.expect_value(t, winner, Side.A)
+
+	// The Battle mirrors the emitted ending (#159): a stalemate is Round_Cap on it,
+	// which is how run_finish_ship_battle tells a draw (pays nothing) from a kill.
+	testing.expect_value(t, battle.reason, End_Reason.Round_Cap)
+	battle_winner, battle_has_winner := battle.winner.?
+	testing.expect(t, battle_has_winner)
+	testing.expect_value(t, battle_winner, Side.A)
 }
 
 @(test)

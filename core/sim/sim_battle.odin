@@ -36,8 +36,6 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	outcome := run.run_finish_ship_battle(&sim.battle)
-
 	// Sinking is **neither** outcome (ADR-0014): the run is over by permadeath
 	// (ADR-0006), so the walk stops dead rather than completing the Fight and applying
 	// whatever came after it to a sunk ship — a [Fight, Reward] must not pay out to a
@@ -47,8 +45,21 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	// on the way out of this tick, and it is deliberately not consulted here: the walk
 	// stopping and the run ending are separate facts, and only one of them is this
 	// proc's.
+	//
+	// Checked **before** run_finish_ship_battle so the wreck payout only ever runs for
+	// a captain who survived: a Destroyed ending reaching run_finish is then always the
+	// player's kill (#159), never a mutual kill or the player's own sinking.
 	if !run.run_can_travel(&sim.player) {
 		return
+	}
+
+	// Only a wreck pays (#159): a sunk opponent's hold is stowed into the player's
+	// purse here. Event_Ship_Updated is how presentation learns the purse moved
+	// (ADR-0001), the same event a Reward payout owes — emitted only when a payout
+	// actually landed, since a fled opponent or a stalemate pays nothing.
+	outcome, payout := run.run_finish_ship_battle(&sim.battle)
+	if payout > 0 {
+		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 	}
 
 	sim_advance_stage(sim, outcome, events)
