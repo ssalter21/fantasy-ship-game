@@ -113,8 +113,8 @@ muster_output_adds_into_the_same_rounds_brace_and_fire_totals :: proc(t: ^testin
 }
 
 // The inverse of the pre-#151 test of the same shape, which pinned muster folding
-// into its own side's Brace total. It no longer does: soak is subtracted from
-// raw, so soak's vocabulary has to stay small, and Muster's does not (Admiral's
+// into its own side's Brace total. It no longer does: bulwark is subtracted from
+// raw, so bulwark's vocabulary has to stay small, and Muster's does not (Admiral's
 // Guard is +3 per Crew aboard). See combat_resolve_round's band note.
 @(test)
 muster_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
@@ -139,7 +139,7 @@ muster_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's soak = durability(1) + brace(4) = 5 — the War Cry's 3 is *not* in it.
+	// A's bulwark = durability(1) + brace(4) = 5 — the War Cry's 3 is *not* in it.
 	// B's raw damage = 20, so final = 20 - 5 = 15. (Pre-#151 this was 20 - 8 = 12.)
 	testing.expect_value(t, a.hull, 20-15)
 }
@@ -169,7 +169,7 @@ muster_output_still_raises_the_same_sides_fire_total :: proc(t: ^testing.T) {
 }
 
 @(test)
-boost_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
+press_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
@@ -184,19 +184,19 @@ boost_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Fire})
+	cmds[.A] = Command(Command_Press{phase = .Fire})
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hull, 20-10*BOOST_MULTIPLIER)
+	testing.expect_value(t, b.hull, 20-10*PRESS_MULTIPLIER)
 	testing.expect_value(t, a.hull, 20-10)
 }
 
-// Inverted by #151: a Boost multiplies its own phase's fittings, which is what
-// ADR-0006 says ("multiplies that phase's fitting output"). Boosting the combined
-// total instead made Boost Fire strictly dominate Boost Muster — 2(O+B) always
+// Inverted by #151: a Press multiplies its own phase's fittings, which is what
+// ADR-0006 says ("multiplies that phase's fitting output"). Pressing the combined
+// total instead made Press Fire strictly dominate Press Muster — 2(O+B) always
 // beats O+2B — so one of the captain's five Commands was never the right answer.
 @(test)
-boost_fire_multiplies_the_fire_fittings_but_not_the_folded_muster :: proc(t: ^testing.T) {
+press_fire_multiplies_the_fire_fittings_but_not_the_folded_muster :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 2}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
@@ -212,18 +212,18 @@ boost_fire_multiplies_the_fire_fittings_but_not_the_folded_muster :: proc(t: ^te
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Fire})
+	cmds[.A] = Command(Command_Press{phase = .Fire})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// cannon(5)*BOOST_MULTIPLIER + muster(2) = 12. (Pre-#151: (5+2)*2 = 14.)
-	testing.expect_value(t, b.hull, 20-(5*BOOST_MULTIPLIER+2))
+	// cannon(5)*PRESS_MULTIPLIER + muster(2) = 12. (Pre-#151: (5+2)*2 = 14.)
+	testing.expect_value(t, b.hull, 20-(5*PRESS_MULTIPLIER+2))
 }
 
-// The other half of the same rule, and the reason it is worth having: Boost Muster
-// presses the crew rather than the guns, so the two Boosts answer a real question
+// The other half of the same rule, and the reason it is worth having: Press Muster
+// presses the crew rather than the guns, so the two Presses answer a real question
 // instead of one dominating the other.
 @(test)
-boost_muster_multiplies_the_muster_fittings_before_they_reach_fire :: proc(t: ^testing.T) {
+press_muster_multiplies_the_muster_fittings_before_they_reach_fire :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 2}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
@@ -239,18 +239,18 @@ boost_muster_multiplies_the_muster_fittings_before_they_reach_fire :: proc(t: ^t
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Muster})
+	cmds[.A] = Command(Command_Press{phase = .Muster})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// cannon(5) + muster(2)*BOOST_MULTIPLIER = 9. Worth less than Boost Fire's
+	// cannon(5) + muster(2)*PRESS_MULTIPLIER = 9. Worth less than Press Fire's
 	// 12 for *this* build, and worth more for a build whose crew outweighs its guns.
-	testing.expect_value(t, b.hull, 20-(5+2*BOOST_MULTIPLIER))
+	testing.expect_value(t, b.hull, 20-(5+2*PRESS_MULTIPLIER))
 }
 
-// Also inverted by #151: Boost Brace doubles the Brace fittings alone,
-// since muster no longer reaches soak at all.
+// Also inverted by #151: Press Brace doubles the Brace fittings alone,
+// since muster no longer reaches bulwark at all.
 @(test)
-boost_brace_multiplies_only_the_brace_fittings :: proc(t: ^testing.T) {
+press_brace_multiplies_only_the_brace_fittings :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
@@ -270,10 +270,10 @@ boost_brace_multiplies_only_the_brace_fittings :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Brace})
+	cmds[.A] = Command(Command_Press{phase = .Brace})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's boosted soak = shield(4) * BOOST_MULTIPLIER = 8, the War Cry's 3 excluded;
+	// A's pressed bulwark = shield(4) * PRESS_MULTIPLIER = 8, the War Cry's 3 excluded;
 	// B's raw damage = 20, so final = 20 - 8 = 12. (Pre-#151: (4+3)*2 = 14, so 6.)
 	testing.expect_value(t, a.hull, 20-12)
 }
@@ -318,7 +318,7 @@ a_speed_stat_modifier_fitting_raises_effective_speed_for_escape_eligibility :: p
 		passive = ship.Effect{kind = .Modify_Speed, magnitude = 3},
 	}
 	// Equal base Speed (5), but A carries a +3 Speed fitting: past the baseline
-	// round count only the strictly-faster side may leave, so A is eligible.
+	// round count only the strictly-faster side may break off, so A is eligible.
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = fast_sails}},
@@ -328,8 +328,8 @@ a_speed_stat_modifier_fitting_raises_effective_speed_for_escape_eligibility :: p
 	battle.round = BASELINE_ROUND_COUNT
 
 	testing.expect_value(t, combat_effective_speed(&battle, .A), 5 + 3)
-	testing.expect(t, combat_may_leave(&battle, .A))
-	testing.expect(t, !combat_may_leave(&battle, .B))
+	testing.expect(t, combat_may_break_off(&battle, .A))
+	testing.expect(t, !combat_may_break_off(&battle, .B))
 }
 
 @(test)
@@ -363,8 +363,8 @@ hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 	cmds[.A] = Command(Command_Hold{})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// Same outcome as the no-command baseline round (cannon(10) unboosted,
-	// no Man the Sails/Jettison/Leave side effects): Hold contributes nothing.
+	// Same outcome as the no-command baseline round (cannon(10) not pressed,
+	// no Man the Sails/Jettison/Break Off side effects): Hold contributes nothing.
 	testing.expect_value(t, b.hull, 20-10)
 	testing.expect_value(t, a.hull, 20)
 	testing.expect_value(t, combat_effective_speed(&battle, .A), 5)
@@ -372,7 +372,7 @@ hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 }
 
 @(test)
-man_the_sails_grants_a_speed_boost_for_this_round_only :: proc(t: ^testing.T) {
+man_the_sails_grants_a_speed_increase_for_this_round_only :: proc(t: ^testing.T) {
 	a := ship.Ship{hull = 20, speed = 5}
 	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
@@ -697,33 +697,33 @@ reallocate_into_a_full_hold_moves_nothing_and_asserts :: proc(t: ^testing.T) {
 }
 
 @(test)
-may_leave_is_false_before_the_baseline_round_count_even_if_faster :: proc(t: ^testing.T) {
+may_break_off_is_false_before_the_baseline_round_count_even_if_faster :: proc(t: ^testing.T) {
 	a := ship.Ship{hull = 20, speed = 10}
 	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT - 1
 
-	testing.expect(t, !combat_may_leave(&battle, .A))
+	testing.expect(t, !combat_may_break_off(&battle, .A))
 }
 
 @(test)
-may_leave_is_false_after_baseline_when_not_the_faster_side :: proc(t: ^testing.T) {
+may_break_off_is_false_after_baseline_when_not_the_faster_side :: proc(t: ^testing.T) {
 	a := ship.Ship{hull = 20, speed = 5}
 	b := ship.Ship{hull = 20, speed = 10}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
-	testing.expect(t, !combat_may_leave(&battle, .A))
+	testing.expect(t, !combat_may_break_off(&battle, .A))
 }
 
 @(test)
-may_leave_is_true_after_baseline_for_the_strictly_faster_side :: proc(t: ^testing.T) {
+may_break_off_is_true_after_baseline_for_the_strictly_faster_side :: proc(t: ^testing.T) {
 	a := ship.Ship{hull = 20, speed = 10}
 	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
-	testing.expect(t, combat_may_leave(&battle, .A))
+	testing.expect(t, combat_may_break_off(&battle, .A))
 }
 
 @(test)
@@ -737,17 +737,17 @@ scripted_command_holds_when_not_escape_eligible :: proc(t: ^testing.T) {
 }
 
 @(test)
-scripted_command_leaves_once_escape_eligible :: proc(t: ^testing.T) {
+scripted_command_breaks_off_once_escape_eligible :: proc(t: ^testing.T) {
 	a := ship.Ship{hull = 20, speed = 10}
 	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
-	testing.expect_value(t, combat_scripted_command(&battle, .A), Command(Command_Leave_Combat{}))
+	testing.expect_value(t, combat_scripted_command(&battle, .A), Command(Command_Break_Off{}))
 }
 
 @(test)
-leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testing.T) {
+break_off_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, speed = 10,
@@ -760,7 +760,7 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Leave_Combat{})
+	cmds[.A] = Command(Command_Break_Off{})
 	combat_resolve_round(&battle, cmds, &events)
 
 	testing.expect(t, battle.ended)
@@ -768,20 +768,20 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 	testing.expect_value(t, len(events), 1)
 	ended, ok := events[0].(Event_Battle_Ended)
 	testing.expect(t, ok)
-	testing.expect_value(t, ended.reason, End_Reason.Left_Combat)
+	testing.expect_value(t, ended.reason, End_Reason.Broke_Off)
 	_, has_winner := ended.winner.?
 	testing.expect(t, !has_winner)
 
 	// The Battle mirrors the ending it emitted, so a caller holding only the Battle —
 	// voyage_finish_ship_battle, deciding the wreck payout (#159) — reads it without the
 	// event stream.
-	testing.expect_value(t, battle.reason, End_Reason.Left_Combat)
+	testing.expect_value(t, battle.reason, End_Reason.Broke_Off)
 	_, battle_has_winner := battle.winner.?
 	testing.expect(t, !battle_has_winner)
 }
 
 @(test)
-an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc(t: ^testing.T) {
+an_escape_eligible_side_declining_to_break_off_lets_combat_continue_normally :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 10,
@@ -794,7 +794,7 @@ an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc
 	events: [dynamic]Event
 	defer delete(events)
 
-	testing.expect(t, combat_may_leave(&battle, .A))
+	testing.expect(t, combat_may_break_off(&battle, .A))
 
 	// A is escape-eligible this round but submits no command (declines the
 	// offer): the round resolves as normal instead of ending combat.
@@ -806,7 +806,7 @@ an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc
 }
 
 @(test)
-man_the_sails_speed_boost_can_swing_escape_eligibility_for_the_round_it_was_used :: proc(t: ^testing.T) {
+man_the_sails_speed_increase_can_swing_escape_eligibility_for_the_round_it_was_used :: proc(t: ^testing.T) {
 	a := ship.Ship{hull = 20, speed = 5}
 	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
@@ -818,7 +818,7 @@ man_the_sails_speed_boost_can_swing_escape_eligibility_for_the_round_it_was_used
 	// Tied base Speed: not escape-eligible on its own once baseline is reached.
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events) // battle.round == BASELINE_ROUND_COUNT
-	testing.expect(t, !combat_may_leave(&battle, .A))
+	testing.expect(t, !combat_may_break_off(&battle, .A))
 
 	// A plays Man the Sails this round, tipping it strictly faster. The
 	// temp_speed bonus isn't reset until the *next* combat_resolve_round
@@ -829,7 +829,7 @@ man_the_sails_speed_boost_can_swing_escape_eligibility_for_the_round_it_was_used
 	sails_cmds[.A] = Command(Command_Man_The_Sails{})
 	combat_resolve_round(&battle, sails_cmds, &events)
 
-	testing.expect(t, combat_may_leave(&battle, .A))
+	testing.expect(t, combat_may_break_off(&battle, .A))
 }
 
 @(test)

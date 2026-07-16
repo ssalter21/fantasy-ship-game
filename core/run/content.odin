@@ -106,8 +106,8 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", 
 // `raw - (effective_durability + defense_bonus)`, so the old wall still stands —
 // stacked +Durability makes a hostile hard to dent, and overshooting sinks a starting
 // player before the escape gate. But `max(0, ...)` has a floor as well as a ceiling,
-// and a factor that scales *down* is what walks the roster into it: a starting ship
-// soaks **4**, so an entry authored to deal less than ~10 arrives at Coastal, keeps
+// and a factor that scales *down* is what walks the roster into it: a starting ship's
+// bulwark is **4**, so an entry authored to deal less than ~10 arrives at Coastal, keeps
 // half of it, and **cannot scratch the player at all** — a fight with no risk in it,
 // which is the same dead node #151 found at the other wall. Both are enforced by
 // test, not by eye: a_starting_player_can_fight_every_archetype_at_coastal bounds the
@@ -118,8 +118,8 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", 
 // change's honest cost as well as its point. Every entry here was originally written
 // to be survivable by a *starting ship at Coastal* — that was the only test — so the
 // table was authored at **Coastal weight** while the model now reads it as Open Sea
-// weight, and halving an already-Coastal entry put six of the eight under the soak
-// floor. Re-authoring is not decoration: a multiplier needs headroom above soak
+// weight, and halving an already-Coastal entry put six of the eight under the bulwark
+// floor. Re-authoring is not decoration: a multiplier needs headroom above bulwark
 // before it has anywhere to scale down *to*.
 //
 // **The payoff is that the ceiling moved, so builds that were too heavy now fit.**
@@ -156,7 +156,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// The third gun was unauthorable before: it took the build to a two-round kill,
 	// so the roster's headline weapon-synergy archetype carried two guns and could not
 	// state its own concept. It fits now because the fold left `defense_bonus` — a
-	// starting ship's soak stopped being ~90% of its raw — and because a Coastal
+	// starting ship's bulwark stopped being ~90% of its raw — and because a Coastal
 	// hostile's Hull is no longer half the player's, so the fight lasts long enough to
 	// be one. Swivel Guns rather than a Carronade: the roster's *smallest* gun is
 	// what the band holds with margin (a starting player wins at 28 of 100 Hull against
@@ -178,7 +178,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// half-full it weighs almost nothing and reads **7**, the fastest ship in the
 	// game — the exact inversion of #135's authored 3. No fill percentage fixes it;
 	// only a hull sized for the build (hostile ship templates, out of scope) does.
-	// Until then the "one a starting player can outrun" role — Leave Combat as a real
+	// Until then the "one a starting player can outrun" role — Break Off as a real
 	// option — is carried by the Ironclad Hulk instead (the roster's sole slower-than-4).
 	{name = "Deepwater Menagerie", items = DEEPWATER_MENAGERIE_ITEMS[:]},
 	// Runs dark and runs fast. The trick is placement: two throwaway Mediums push the
@@ -191,7 +191,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// at round 2 and nothing ever reached the gate to bolt at.
 	//
 	// **It takes its Ghost Lantern with #165**, which the entry has been asking for
-	// across two tickets: #135 could not have it because muster was soak and the Lantern
+	// across two tickets: #135 could not have it because muster was bulwark and the Lantern
 	// would have made the hostile undentable; #151 killed that reason and said so here
 	// ("the entry is worth revisiting"), but a +4 muster on top of a Wraith Cannon was
 	// still too much ship to meet at Coastal undiminished. Every Small slot on the
@@ -209,7 +209,7 @@ hostile_roster := [?]Hostile_Archetype {
 	//
 	// **It is a ram as of #165, and that is the floor wall in one entry.** Armour was
 	// its whole budget, which left it dealing 8 — and half of 8 is a starting ship's
-	// soak exactly, so a Coastal Hulk was a ten-round grind that could not land a
+	// bulwark exactly, so a Coastal Hulk was a ten-round grind that could not land a
 	// single point of damage. An archetype whose character is *not hitting you* is the
 	// one a scale-down walks into the floor first. Ramming Prow answers it in
 	// character rather than by bolting a gun on: a ram is what an ironclad is *for*,
@@ -233,12 +233,12 @@ hostile_roster := [?]Hostile_Archetype {
 	{name = "Death Throes", items = DEATH_THROES_ITEMS[:]},
 	// Two Modify_Speed items (+3) over a light, half-full hull — it **derives to 8**
 	// (#194), so it is gone the round it becomes eligible. The counterpart to the Hulk:
-	// the archetype that leaves *you*, and the second one #165 found sitting on the
+	// the archetype that breaks off from *you*, and the second one #165 found sitting on the
 	// floor, for the mirror reason — its budget went into speed rather than armour, but
 	// it was equally not spent on hitting you, so half of its 7 could not clear a
-	// starting ship's soak either. It is a nuisance by design, and a nuisance that
+	// starting ship's bulwark either. It is a nuisance by design, and a nuisance that
 	// deals nothing at all for the five rounds before it bolts is not a nuisance, it is
-	// a cutscene. The Carronade is what makes leaving cost the player something.
+	// a cutscene. The Carronade is what makes breaking off cost the player something.
 	//
 	// The two Modify_Speed items are also this entry's second job: they are why
 	// the_site_never_moves_a_hostiles_speed exists. Both are filed under Category
@@ -278,16 +278,16 @@ voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 
 // voyage_stakes_scales_category reports whether the site's power reading scales a
 // fitting of this Category — the whole of the rule, which is: **stakes scales what a
-// hostile deals, never what it soaks.**
+// hostile deals, never its bulwark.**
 //
 // #135 wrote that rule as "only Fire fittings take it", and its stated reason
 // was that a bonus on Muster or Brace would inflate `defense_bonus` and make a
 // deep hostile harder to *hurt* rather than harder to fight. **Half of that reason
 // died with #151** (ADR-0017) and the rule outlived it: Muster no longer feeds
-// `defense_bonus` at all — `raw_damage = boosted(Fire) + boosted(Muster)` — so a
+// `defense_bonus` at all — `raw_damage = pressed(Fire) + pressed(Muster)` — so a
 // scaled Muster fitting now makes a hostile hit harder, which is exactly what stakes
 // is for. Only the Brace half of the reason survives, and it survives intact:
-// soak is subtracted from raw, so a site that scaled it would eventually make a
+// bulwark is subtracted from raw, so a site that scaled it would eventually make a
 // hostile impossible to hurt at any magnitude.
 //
 // Under the old additive bonus this was a rounding error — a flat +2..+9 that Muster
@@ -306,7 +306,7 @@ voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	case .Fire, .Muster:
 		return true // raw_damage = Fire + Muster (core/combat, ADR-0017)
 	case .Brace:
-		return false // soak, and soak's vocabulary has to stay small
+		return false // bulwark, and bulwark's vocabulary has to stay small
 	}
 	return false
 }

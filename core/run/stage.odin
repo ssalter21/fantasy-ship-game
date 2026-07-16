@@ -102,7 +102,7 @@ Shop_Item :: struct {
 // Stage_Fight is a full battle against a baked opponent, resolved via
 // core/combat's phased-round Battle (ADR-0006) — this package hands off to
 // combat.combat_battle_create rather than reimplementing combat. Victory
-// completes the stage, Leave Combat halts it, and sinking ends the voyage outright
+// completes the stage, Break Off halts it, and sinking ends the voyage outright
 // (permadeath), which is the whole of why [Fight, Reward] needs no authored gate.
 // The opponent is baked at generation from two independent axes (#135): one
 // archetype drawn from the hostile roster (content.odin's Hostile_Archetype) for
@@ -263,7 +263,7 @@ voyage_stage_kind :: proc(s: Stage) -> Stage_Kind {
 //
 // There are no authored gates — a Recipe never says "advance only if the player
 // won". The primitive that just resolved decides which outcome it hands in: Fight
-// completes on victory and halts on Leave Combat; Offer completes on a pick and
+// completes on victory and halts on Break Off; Offer completes on a pick and
 // halts on a skip; Trade completes on accept and halts on reject; Shop completes
 // on leaving; Reward always completes. That is what makes [Fight, Reward] mean
 // the obvious thing with no authoring — flee the blockade and the loot stage is

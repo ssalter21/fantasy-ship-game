@@ -33,7 +33,7 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 
 	if !sim.battle.ended {
-		append(events, Event(Event_Battle_Menu{may_leave = combat.combat_may_leave(&sim.battle, .A)}))
+		append(events, Event(Event_Battle_Menu{may_break_off = combat.combat_may_break_off(&sim.battle, .A)}))
 		return
 	}
 

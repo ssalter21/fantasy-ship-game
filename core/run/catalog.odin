@@ -20,9 +20,9 @@ package run
 // **Costs precede boons**, and this is a convention the type system deliberately
 // does not enforce (#127). The reason it matters is that a halt is an *exit*: any
 // stage the captain can decline is a free escape from everything downstream. So
-// the two declinable *costs* — Fight (Leave Combat halts) and Trade (reject halts)
+// the two declinable *costs* — Fight (Break Off halts) and Trade (reject halts)
 // — are authored ahead of the boons they pay for, never behind them. `[Fight,
-// Reward]` is the shape: fleeing forfeits the loot, so leaving has a price.
+// Reward]` is the shape: fleeing forfeits the loot, so breaking off has a price.
 // `[Offer, Fight]` is the anti-shape: skip an item you never had and the fight is
 // dodged for nothing. costs_precede_boons_in_every_authored_recipe checks the
 // table below against exactly that partition.
@@ -103,7 +103,7 @@ package run
 
 // A lone hostile with nothing aboard worth taking. What Sea Battle is without the
 // prize — and the reason the two are different encounters rather than one: with no
-// Reward downstream, Leave Combat costs nothing, so this is the fight you are free
+// Reward downstream, Break Off costs nothing, so this is the fight you are free
 // to walk away from.
 @(rodata)
 SKIRMISH_STAGES := [?]Stage_Spec{{kind = .Fight}}

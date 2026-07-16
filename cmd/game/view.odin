@@ -489,9 +489,9 @@ encounter_stage_kind :: proc(state: ^Game_State, index: int) -> (run.Stage_Kind,
 // is about what a captain can see *before* routing there (ADR-0009/ADR-0016) — so there
 // is nothing left to withhold once the walk starts, and showing only "2 of 3" would
 // withhold it anyway. It is what makes a halt a decision instead of a surprise: a
-// captain looking at Battle | Loot can see what Leave Combat costs *before* paying for
-// it, which is the same legibility the halt beat gives afterwards. Since #151 made Leave
-// Combat fire at all (0/189 measured escapes, then 21/177), that is a live choice rather
+// captain looking at Battle | Loot can see what Break Off costs *before* paying for
+// it, which is the same legibility the halt beat gives afterwards. Since #151 made Break
+// Off fire at all (0/189 measured escapes, then 21/177), that is a live choice rather
 // than a hypothetical one.
 draw_encounter_strip :: proc(state: ^Game_State) {
 	progress, walking := state.stage_progress.?

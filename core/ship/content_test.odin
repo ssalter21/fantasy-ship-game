@@ -462,7 +462,7 @@ occupant_name :: proc(layout: []Layout_Slot, slot_name: string) -> string {
 // fittings. A hostile's Speed is its archetype's axis, explicitly not a stakes
 // reading — so if this proc ever started scaling by category rather than by effect,
 // a Deep node would hand a hostile more Speed than a Coastal one and quietly decide
-// who is allowed to leave the fight (combat_may_leave is *strictly faster*).
+// who is allowed to break off (combat_may_break_off is *strictly faster*).
 @(test)
 ship_fitting_output_scaled_moves_phase_contributions_and_leaves_stat_modifiers_alone :: proc(t: ^testing.T) {
 	rigging := Fitting{name = "Spare Rigging", size = .Small, category = .Muster, passive = Effect{kind = .Modify_Speed, magnitude = 2}}

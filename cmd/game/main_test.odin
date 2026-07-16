@@ -35,7 +35,7 @@ dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^t
 	dispatch(&state, sim.Event(sim.Event_Travel_Options{options = []sim.Node_ID{1, 2}}))
 	dispatch(&state, sim.Event(sim.Event_Arrived_At_Node{node = voyage_map.nodes[0]}))
 	dispatch(&state, sim.Event(sim.Event_Ship_Battle_Sighted{opponent = state.player}))
-	dispatch(&state, sim.Event(sim.Event_Battle_Menu{may_leave = true}))
+	dispatch(&state, sim.Event(sim.Event_Battle_Menu{may_break_off = true}))
 	dispatch(&state, sim.Event(sim.Event_Battle_Event{inner = combat.Event(combat.Event_Battle_Ended{reason = .Destroyed})}))
 	dispatch(&state, sim.Event(sim.Event_Ship_Updated{ship = state.player}))
 	dispatch(&state, sim.Event(sim.Event_Stage_Entered{kind = .Fight, index = 0, count = 1}))

@@ -6,7 +6,7 @@ import "../ship"
 // during playtesting, not final balance.
 BASELINE_ROUND_COUNT :: 5
 HARD_ROUND_CAP :: 20
-BOOST_MULTIPLIER :: 2
+PRESS_MULTIPLIER :: 2
 MAN_THE_SAILS_SPEED_BONUS :: 2
 
 // Side identifies one of the two ships in a Battle.
@@ -19,21 +19,21 @@ Side :: enum {
 // open union so future captains can expose different action sets by adding
 // variants rather than restructuring the round loop.
 Command :: union {
-	Command_Boost,
+	Command_Press,
 	Command_Man_The_Sails,
 	Command_Jettison_Cargo,
 	Command_Reallocate,
-	Command_Leave_Combat,
+	Command_Break_Off,
 	Command_Hold,
 }
 
-// Command_Boost multiplies the named phase's total output for the
+// Command_Press multiplies the named phase's total output for the
 // submitter's own ship, this round only.
-Command_Boost :: struct {
+Command_Press :: struct {
 	phase: ship.Category,
 }
 
-// Command_Man_The_Sails grants a temporary Speed boost lasting this round only.
+// Command_Man_The_Sails grants a temporary Speed increase lasting this round only.
 Command_Man_The_Sails :: struct {}
 
 // Command_Jettison_Cargo empties the cargo fitting at slot_index, shedding its
@@ -58,13 +58,13 @@ Command_Reallocate :: struct {
 	to:   ship.Slot_Index,
 }
 
-// Command_Leave_Combat ends the battle immediately for both ships. Only
-// valid once the submitting side is escape-eligible (combat_may_leave).
-Command_Leave_Combat :: struct {}
+// Command_Break_Off ends the battle immediately for both ships. Only
+// valid once the submitting side is escape-eligible (combat_may_break_off).
+Command_Break_Off :: struct {}
 
 // Command_Hold is a formal no-op (ADR-0008): a scripted (non-player-
 // controlled) ship's decision every round it isn't automatically taking
-// Leave Combat. Contributes no Boost/Man the Sails/Jettison side effect.
+// Break Off. Contributes no Press/Man the Sails/Jettison side effect.
 Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
@@ -74,7 +74,7 @@ Battle :: struct {
 	ships:      [Side]^ship.Ship,
 	round:      int,
 	temp_speed: [Side]int,
-	// escaped is which side(s) have taken Command_Leave_Combat this battle
+	// escaped is which side(s) have taken Command_Break_Off this battle
 	// (issue #54: a genuine set-of-enum over Side, so bit_set replaces the
 	// [Side]bool membership array).
 	escaped:    bit_set[Side],
@@ -91,15 +91,15 @@ Battle :: struct {
 // End_Reason is why a Battle ended.
 End_Reason :: enum {
 	Destroyed,
-	Left_Combat,
+	Broke_Off,
 	Round_Cap,
 }
 
 // Round_State is the per-side working state threaded through one call to
-// combat_resolve_round: the round's Boost choice, each phase's resolved
+// combat_resolve_round: the round's Press choice, each phase's resolved
 // output, and whether the side was sunk this round.
 Round_State :: struct {
-	boost_phase:   Maybe(ship.Category),
+	press_phase:   Maybe(ship.Category),
 	muster_output:   int,
 	defense_bonus: int,
 	raw_damage:    int,
@@ -274,10 +274,10 @@ combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category) -
 	return total
 }
 
-// combat_may_leave reports whether side is escape-eligible for the round
-// about to be resolved (ADR-0006): no leaving before the baseline round
+// combat_may_break_off reports whether side is escape-eligible for the round
+// about to be resolved (ADR-0006): no breaking off before the baseline round
 // count, and only the strictly-faster side after that.
-combat_may_leave :: proc(battle: ^Battle, side: Side) -> bool {
+combat_may_break_off :: proc(battle: ^Battle, side: Side) -> bool {
 	if battle.round < BASELINE_ROUND_COUNT {
 		return false
 	}
@@ -285,16 +285,16 @@ combat_may_leave :: proc(battle: ^Battle, side: Side) -> bool {
 }
 
 // combat_scripted_command decides a non-player-controlled side's Command for
-// the round about to be resolved (ADR-0008): Leave Combat once escape-
-// eligible (combat_may_leave), Hold every other round. A scripted ship never
-// chooses Boost, Man the Sails, or Jettison Cargo in this slice — nor Reallocate,
+// the round about to be resolved (ADR-0008): Break Off once escape-
+// eligible (combat_may_break_off), Hold every other round. A scripted ship never
+// chooses Press, Man the Sails, or Jettison Cargo in this slice — nor Reallocate,
 // which is deliberately player-only (#200): it buys precision for a *subsequent*
 // jettison, and a scripted ship never jettisons, so a reallocation policy would be
 // AI for a capability it has no use for. It returns here when a hostile that
 // jettisons exists.
 combat_scripted_command :: proc(battle: ^Battle, side: Side) -> Command {
-	if combat_may_leave(battle, side) {
-		return Command_Leave_Combat{}
+	if combat_may_break_off(battle, side) {
+		return Command_Break_Off{}
 	}
 	return Command_Hold{}
 }
@@ -317,35 +317,35 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 			continue
 		}
 		switch c in cmd {
-		case Command_Boost:
-			round_state[side].boost_phase = c.phase
+		case Command_Press:
+			round_state[side].press_phase = c.phase
 		case Command_Man_The_Sails:
 			battle.temp_speed[side] = MAN_THE_SAILS_SPEED_BONUS
 		case Command_Jettison_Cargo:
 			combat_apply_jettison(battle, side, c.slot_index, events)
 		case Command_Reallocate:
 			combat_apply_reallocate(battle, side, c.from, c.to, events)
-		case Command_Leave_Combat:
-			assert(combat_may_leave(battle, side), "Command_Leave_Combat submitted while not escape-eligible")
+		case Command_Break_Off:
+			assert(combat_may_break_off(battle, side), "Command_Break_Off submitted while not escape-eligible")
 			battle.escaped += {side}
 		case Command_Hold:
-		// no-op (ADR-0008): contributes no Boost/Man the Sails/Jettison side effect.
+		// no-op (ADR-0008): contributes no Press/Man the Sails/Jettison side effect.
 		}
 	}
 
-	// Leave Combat ends the encounter immediately for both ships (ADR-0006):
-	// no phase resolves the round a ship leaves.
+	// Break Off ends the encounter immediately for both ships (ADR-0006):
+	// no phase resolves the round a ship breaks off.
 	if battle.escaped != {} {
 		battle.ended = true
-		battle.reason = .Left_Combat
+		battle.reason = .Broke_Off
 		battle.winner = nil
 		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
 		return
 	}
 
-	boosted :: proc(total: int, phase: ship.Category, boost_phase: Maybe(ship.Category)) -> int {
-		if p, ok := boost_phase.?; ok && p == phase {
-			return total * BOOST_MULTIPLIER
+	pressed :: proc(total: int, phase: ship.Category, press_phase: Maybe(ship.Category)) -> int {
+		if p, ok := press_phase.?; ok && p == phase {
+			return total * PRESS_MULTIPLIER
 		}
 		return total
 	}
@@ -353,37 +353,37 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// Muster resolves first so its output is available to this same round's
 	// Fire total below (ADR-0006, as amended by issue #151).
 	for side in Side {
-		round_state[side].muster_output = boosted(combat_phase_output(battle, side, .Muster), .Muster, round_state[side].boost_phase)
+		round_state[side].muster_output = pressed(combat_phase_output(battle, side, .Muster), .Muster, round_state[side].press_phase)
 	}
 
 	// Brace and Fire resolve together: each is its own fittings'
-	// output, boosted, and Fire alone takes this round's muster.
+	// output, pressed, and Fire alone takes this round's muster.
 	//
 	// **Muster feeds Fire only** (#151). It used to feed `defense_bonus` too,
 	// which made it the one category worth twice its own number: a magnitude spent
 	// on Muster raised your damage *and* lowered your opponent's, so a single item
 	// pushed both walls of the band at once and there was no direction left to tune
-	// it in. It also fabricated soak out of nothing — a ship with no Brace
-	// fitting still soaked its own muster — which is what pinned soak at ~90% of raw
+	// it in. It also fabricated bulwark out of nothing — a ship with no Brace
+	// fitting still absorbed its own muster — which is what pinned bulwark at ~90% of raw
 	// and made a starting ship unable to sink its own mirror (20 rounds, 1 damage a
-	// round). Decisively: soak is *subtracted* from raw, so soak's vocabulary has to
+	// round). Decisively: bulwark is *subtracted* from raw, so bulwark's vocabulary has to
 	// stay small, and Muster's does not — Admiral's Guard is +3 per Crew aboard, so a
 	// Crew build folded +12 into its own defence and became unbeatable by any
-	// starting ship. Raw can absorb a 12; soak cannot. See the band note on
+	// starting ship. Raw can absorb a 12; bulwark cannot. See the band note on
 	// core/run's hostile_roster.
 	//
-	// **A Boost multiplies its own phase's fittings, and nothing else** — the
-	// muster_output above is already boosted by Boost Muster, so it is added *after*
-	// Boost Fire rather than inside it. Nesting them (the pre-#151 shape,
-	// `boosted(fire + muster, .Fire)`) made Boost Fire strictly
-	// dominate Boost Muster at 2(F+M) against F+2M, which is a captain's Command that
-	// is never the right answer. Boosting a phase's own fittings is also what
+	// **A Press multiplies its own phase's fittings, and nothing else** — the
+	// muster_output above is already pressed by Press Muster, so it is added *after*
+	// Press Fire rather than inside it. Nesting them (the pre-#151 shape,
+	// `pressed(fire + muster, .Fire)`) made Press Fire strictly
+	// dominate Press Muster at 2(F+M) against F+2M, which is a captain's Command that
+	// is never the right answer. Pressing a phase's own fittings is also what
 	// ADR-0006 actually says ("multiplies that phase's fitting output"), so the two
-	// Boosts now answer a real question: press the guns, or press the crew.
+	// Presses now answer a real question: press the guns, or press the crew.
 	for side in Side {
-		boost_phase := round_state[side].boost_phase
-		round_state[side].defense_bonus = boosted(combat_phase_output(battle, side, .Brace), .Brace, boost_phase)
-		round_state[side].raw_damage = boosted(combat_phase_output(battle, side, .Fire), .Fire, boost_phase) + round_state[side].muster_output
+		press_phase := round_state[side].press_phase
+		round_state[side].defense_bonus = pressed(combat_phase_output(battle, side, .Brace), .Brace, press_phase)
+		round_state[side].raw_damage = pressed(combat_phase_output(battle, side, .Fire), .Fire, press_phase) + round_state[side].muster_output
 	}
 
 	for side in Side {

@@ -172,25 +172,25 @@ a_deeper_node_gives_the_opponent_harder_hitting_fire_fittings :: proc(t: ^testin
 	testing.expect(t, deep.durability > coastal.durability)
 }
 
-// **Stakes scales what a hostile deals, never what it soaks** — the surviving half
+// **Stakes scales what a hostile deals, never its bulwark** — the surviving half
 // of #135's rule (voyage_stakes_scales_category), and the half whose reason is still
-// alive: soak is subtracted from raw damage, so a site that scaled it would make a
+// alive: bulwark is subtracted from raw damage, so a site that scaled it would make a
 // deep hostile impossible to *hurt* rather than harder to fight.
 //
 // The other half of #135's rule — "Muster is not scaled either" — is deliberately
 // **gone** (#165), because #151 took Muster out of `defense_bonus`, so a scaled Muster
-// fitting now hits harder rather than soaking harder. That the two halves had one
+// fitting now hits harder rather than raising its bulwark. That the two halves had one
 // stated reason and only one of them still holds is why this test names the
 // property rather than the category list.
 //
-// Both of a Brace fitting's routes into soak are checked, since the roster uses
+// Both of a Brace fitting's routes into bulwark are checked, since the roster uses
 // both: `Barricades` is an active that feeds the Brace phase, and `Reinforced
 // Hull` is a passive Modify_Durability that never enters a phase at all. The site's
 // own durability reading is subtracted off so this asks about the *archetype's*
 // contribution rather than voyage_make_opponent_ship's baseline, which is a stakes
 // reading and is meant to move.
 @(test)
-the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing.T) {
+the_site_scales_what_a_hostile_deals_and_never_its_bulwark :: proc(t: ^testing.T) {
 	shallow_site := Scaling_Site{zone = .Coastal, depth = 0}
 	deep_site := Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}
 
@@ -203,7 +203,7 @@ the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing
 		testing.expectf(
 			t,
 			phase_magnitude(deep, .Brace) == phase_magnitude(shallow, .Brace),
-			"%v's brace output moved with the site — soak is subtracted from raw, so scaling it walls the player",
+			"%v's brace output moved with the site — bulwark is subtracted from raw, so scaling it walls the player",
 			archetype.name,
 		)
 		testing.expectf(
@@ -224,8 +224,8 @@ the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing
 // Sheathing, Outriggers, Enchanted Keel), and `.Muster` is a category the site now
 // scales. Only ship_fitting_output_scaled's refusal to touch anything but an active
 // Phase_Contribution keeps a Deep node from handing Reef Skimmer more Speed than a
-// Coastal one — which would quietly decide who is allowed to leave the fight, since
-// escape eligibility is *strictly faster* (combat_may_leave).
+// Coastal one — which would quietly decide who is allowed to break off, since
+// escape eligibility is *strictly faster* (combat_may_break_off).
 //
 // Two archetypes have real stakes in this: Smuggler's Run's Spare Rigging is what
 // takes it to an effective 8 so it bolts the round the gate opens, and Reef Skimmer
@@ -352,7 +352,7 @@ a_hundred_percent_power_leaves_an_archetype_exactly_as_authored :: proc(t: ^test
 
 // **The forward-ported #135 straddle** (ADR-0020, #176/#177): with Speed derived
 // from weight, the roster must still **straddle the player** — at least one hostile
-// slower (so Leave Combat is a real option) and at least one faster (so a hostile can
+// slower (so Break Off is a real option) and at least one faster (so a hostile can
 // flee first). #135 asserted this against the old flat FIGHT_OPPONENT_SPEED; it is
 // re-derived here now that a hostile's Speed falls out of its loadout plus its
 // flat-50% hold (#194).
@@ -395,7 +395,7 @@ the_hostile_roster_straddles_the_player_at_the_starting_cargo :: proc(t: ^testin
 	}
 
 	// The straddle: a hostile a starting player can outrun, and one that outruns them.
-	testing.expectf(t, slower >= 1, "no hostile is slower than the player's %d — Leave Combat is a dead option", player_speed)
+	testing.expectf(t, slower >= 1, "no hostile is slower than the player's %d — Break Off is a dead option", player_speed)
 	testing.expectf(t, faster >= 1, "no hostile is faster than the player's %d — nothing can flee first", player_speed)
 	// And a genuine spread, not one flat number: what a hostile carries moves its Speed.
 	testing.expect(t, len(distinct_speeds) > 1)
@@ -438,8 +438,8 @@ every_hostile_reads_a_nonnegative_speed_at_its_reachable_fill :: proc(t: ^testin
 //
 // **The floor is BASELINE_ROUND_COUNT, and #151 made that a real number rather than
 // a hopeful one.** It used to be 4 — *below* the escape gate — and it was never
-// reached anyway: every archetype died in 2-3 rounds, so `combat_may_leave` never
-// returned true and Leave Combat, which ADR-0006 calls "the primary tool for
+// reached anyway: every archetype died in 2-3 rounds, so `combat_may_break_off` never
+// returned true and Break Off, which ADR-0006 calls "the primary tool for
 // avoiding a run-ending mistake", was unreachable in every Coastal fight in the
 // game. A fight that ends before the gate is not a fight the captain gets to play;
 // it is a coin flip that resolves itself. So the bound is the gate itself, by
@@ -448,7 +448,7 @@ every_hostile_reads_a_nonnegative_speed_at_its_reachable_fill :: proc(t: ^testin
 a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 	// A fight that runs this long has stopped being one.
 	ROUND_CAP :: 30
-	// The intended fight length: long enough that Leave Combat comes off the bench.
+	// The intended fight length: long enough that Break Off comes off the bench.
 	MIN_PLAYER_ROUNDS :: combat.BASELINE_ROUND_COUNT
 
 	for archetype in voyage_hostile_roster() {
@@ -491,12 +491,12 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 		// And the fight actually ends, rather than grinding on the damage floor.
 		testing.expectf(t, battle.ended, "%v and a starting player cannot finish a fight at Coastal", archetype.name)
 		// The other wall, and the one #151 added: a fight must last long enough for
-		// the captain to have played it. Ending before the escape gate means Leave
-		// Combat was never on the menu, so the hostile resolved itself.
+		// the captain to have played it. Ending before the escape gate means Break
+		// Off was never on the menu, so the hostile resolved itself.
 		testing.expectf(
 			t,
 			battle.round >= MIN_PLAYER_ROUNDS,
-			"%v and a starting player finish at Coastal in %d round(s), before the escape gate at %d — Leave Combat never comes off the bench",
+			"%v and a starting player finish at Coastal in %d round(s), before the escape gate at %d — Break Off never comes off the bench",
 			archetype.name,
 			battle.round,
 			MIN_PLAYER_ROUNDS,
@@ -512,7 +512,7 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 // gate. Nothing checked the converse, because until #165 nothing could fail it —
 // every archetype out-damaged a starting ship at Coastal, which was the complaint.
 // A multiplicative site factor makes the opposite failure reachable for the first
-// time: damage is `max(0, raw - soak)`, a starting ship soaks 4, and an entry
+// time: damage is `max(0, raw - bulwark)`, a starting ship's bulwark is 4, and an entry
 // authored to deal 8 keeps 4 of it at Coastal — so the fight is a ten-round grind in
 // which the hostile lands *nothing*. That is the same dead node #151 found at the
 // ceiling, arrived at from underneath.
@@ -546,7 +546,7 @@ a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^
 		testing.expectf(
 			t,
 			player.hull < player.max_hull,
-			"%v cannot scratch a starting player at Coastal — half of its authored output is under a starting ship's soak, so the fight has no risk in it",
+			"%v cannot scratch a starting player at Coastal — half of its authored output is under a starting ship's bulwark, so the fight has no risk in it",
 			archetype.name,
 		)
 	}
@@ -589,7 +589,7 @@ a_selector_muster_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^te
 	testing.expectf(
 		t,
 		hostile.hull < hostile.max_hull,
-		"a starting player cannot scratch a four-Crew Admiral's Guard build — the muster is soaking again, and every Selector item is barred from half the game",
+		"a starting player cannot scratch a four-Crew Admiral's Guard build — the muster is feeding bulwark again, and every Selector item is barred from half the game",
 	)
 }
 

@@ -297,7 +297,7 @@ drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Comman
 	return res
 }
 
-BOOST_FIRE :: combat.Command_Boost{phase = .Fire}
+PRESS_FIRE :: combat.Command_Press{phase = .Fire}
 HOLD :: combat.Command_Hold{}
 
 @(test)
@@ -313,14 +313,14 @@ a_battle_free_route_reaches_the_haven_and_wins :: proc(t: ^testing.T) {
 	// catalog makes that 1-in-4 in Coastal but 1-in-2 in Open Sea and 3-in-5 in The
 	// Deep, so only 4 seeds in 40 still let a ship reach Haven untouched. Seed 9 is
 	// one; that it is now scarce is the hard mapping meaning something, not a bug.
-	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_FIRE))
+	res := drive_policy(9, .Avoid_Battles, combat.Command(PRESS_FIRE))
 	testing.expect_value(t, res.status, run.Voyage_Status.Won)
 	testing.expect_value(t, res.hull, ship.STARTING_HULL) // untouched: no battle fought
 }
 
 @(test)
 fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
-	// Fight the first (shallow, Coastal) battle the pilot reaches and boost
+	// Fight the first (shallow, Coastal) battle the pilot reaches and press
 	// Fire, then dodge the rest: the fresh ship wins it and sails on to
 	// Haven, taking some damage along the way.
 	//
@@ -332,7 +332,7 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	// a_battle_free_route_reaches_the_haven_and_wins sails: one map that both permits
 	// a route around every fight and rewards taking the first one is a better pair of
 	// scenarios than two unrelated seeds.
-	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(BOOST_FIRE))
+	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(PRESS_FIRE))
 	testing.expect_value(t, res.status, run.Voyage_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
 	testing.expect(t, res.hull < ship.STARTING_HULL) // a real fight cost some Hull
@@ -359,7 +359,7 @@ skipping_item_offers_on_the_route_leaves_the_loadout_unchanged :: proc(t: ^testi
 	// premise was checked rather than assumed on the way: seed 9's dodging route
 	// arrives at four Offer-opening nodes and is presented six option lists, so there
 	// is something here to skip.
-	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_FIRE))
+	res := drive_policy(9, .Avoid_Battles, combat.Command(PRESS_FIRE))
 	testing.expect_value(t, res.status, run.Voyage_Status.Won)
 }
 
@@ -1130,7 +1130,7 @@ reward_stage :: proc() -> run.Stage_Reward {
 
 // fight_stage bakes a Fight against a real PvE opponent the player can outrun and
 // out-last, so a test can drive the battle to whichever ending it wants: a slow
-// opponent (Leave Combat unlocks at the baseline round) with `hull` to choose between
+// opponent (Break Off unlocks at the baseline round) with `hull` to choose between
 // winning and fleeing. The opponent's layout is arena-backed like a generated one, so
 // sim_destroy reclaims it.
 //
@@ -1392,8 +1392,8 @@ rejecting_a_trade_halts_before_a_later_stage :: proc(t: ^testing.T) {
 }
 
 @(test)
-leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
-	// Fight's halt condition (ADR-0014): **Leave Combat halts** — ADR-0006's
+breaking_off_halts_before_a_later_stage :: proc(t: ^testing.T) {
+	// Fight's halt condition (ADR-0014): **Break Off halts** — ADR-0006's
 	// Speed-gated escape ends the encounter, not just the battle. This is the property
 	// the whole stage model was built to express, and it is now stated in the terms it
 	// was always meant to be: **no payout for escaping**. The Trade stood in here until
@@ -1412,14 +1412,14 @@ leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	// Hold until the Speed-gated escape unlocks (ADR-0006: not before the baseline
 	// round, and only for the strictly-faster side), then take it.
 	for combat.BASELINE_ROUND_COUNT * 2 > sim.battle.round {
-		if combat.combat_may_leave(&sim.battle, .A) {
+		if combat.combat_may_break_off(&sim.battle, .A) {
 			break
 		}
 		testing.expect(t, fight_round(&sim, &events)) // the battle must not end on its own
 	}
-	testing.expect(t, combat.combat_may_leave(&sim.battle, .A))
+	testing.expect(t, combat.combat_may_break_off(&sim.battle, .A))
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Leave_Combat{}}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Break_Off{}}))
 	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
@@ -1474,7 +1474,7 @@ a_reward_pays_out_and_completes_without_stopping_for_the_captain :: proc(t: ^tes
 
 @(test)
 winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testing.T) {
-	// The other side of leaving_combat_halts_before_a_later_stage, and the encounter
+	// The other side of breaking_off_halts_before_a_later_stage, and the encounter
 	// the whole model exists to express: [Fight, Reward] means "win, then loot" with no
 	// authored gate saying so. Victory completes the Fight, so the walk carries on to
 	// the Reward, which pays out and resolves the node without a further decision.
@@ -1495,7 +1495,7 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_FIRE}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_FIRE}))
 	refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
@@ -1523,7 +1523,7 @@ winning_a_fight_pays_the_sunk_opponents_hold_into_the_player :: proc(t: ^testing
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_FIRE}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_FIRE}))
 	refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
@@ -1554,7 +1554,7 @@ winning_a_fight_surfaces_the_wreck_cargo_that_overflows_the_hold :: proc(t: ^tes
 	install_encounter(&sim, 1, fight)
 	arrive_at(&sim, 1, &events)
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_FIRE}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_FIRE}))
 	refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
@@ -1580,7 +1580,7 @@ reallocating_cargo_in_battle_moves_cargo_through_the_sim_and_keeps_the_battle_go
 	// Command_Reallocate, the round resolves, and the wrapped Event_Cargo_Reallocated
 	// reaches presentation. It shifts no weight, so the cargo total is unchanged — it
 	// buys jettison granularity for a later round, and the battle carries on rather than
-	// ending like a Leave or a sinking would.
+	// ending like a Break Off or a sinking would.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
@@ -1654,7 +1654,7 @@ a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
 @(test)
 winning_a_fight_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^testing.T) {
 	// Victory completes (ADR-0014) — the paying half of [Fight, Reward], and the
-	// counterpart to leaving combat above. A one-Hull opponent goes down in the first
+	// counterpart to breaking off above. A one-Hull opponent goes down in the first
 	// round, so the walk advances onto the Trade.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
@@ -1759,7 +1759,7 @@ one_encounter_emits_one_snapshot_however_many_stages_resolve :: proc(t: ^testing
 	install_encounter(&sim, 1, fight, reward_stage())
 	arrive_at(&sim, 1, &events)
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_FIRE}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_FIRE}))
 	ev := refit_tick(&sim, &events)
 
 	snaps := resolved_snapshots(ev)
@@ -1792,14 +1792,14 @@ a_halted_encounter_emits_a_snapshot_of_the_ship_that_walked_away :: proc(t: ^tes
 
 	// Hold until the Speed-gated escape unlocks (ADR-0006), then take it.
 	for combat.BASELINE_ROUND_COUNT * 2 > sim.battle.round {
-		if combat.combat_may_leave(&sim.battle, .A) {
+		if combat.combat_may_break_off(&sim.battle, .A) {
 			break
 		}
 		testing.expect(t, fight_round(&sim, &events))
 	}
-	testing.expect(t, combat.combat_may_leave(&sim.battle, .A))
+	testing.expect(t, combat.combat_may_break_off(&sim.battle, .A))
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Leave_Combat{}}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Break_Off{}}))
 	ev := refit_tick(&sim, &events)
 
 	snaps := resolved_snapshots(ev)

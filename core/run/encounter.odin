@@ -34,7 +34,7 @@ voyage_start_battle :: proc(s: ^ship.Ship, fight: ^Stage_Fight) -> combat.Battle
 // (ADR-0014) — what this battle's ending means to the encounter, which is the one
 // thing a Fight has to say for itself once combat has stopped.
 //
-// **Leave Combat halts**: the captain took ADR-0006's Speed-gated escape, so the
+// **Break Off halts**: the captain took ADR-0006's Speed-gated escape, so the
 // encounter ends here and nothing downstream of the Fight is reached — flee a
 // [Fight, Reward] and the loot stage never fires, with no authored gate saying so.
 // Every other ending completes it: victory obviously, but also a round-cap

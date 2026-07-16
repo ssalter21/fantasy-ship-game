@@ -357,7 +357,7 @@ Event_Voyage_Started :: struct {
 // travel choice (voyage start, and after each arrival/encounter that returns to
 // Awaiting_Travel_Choice): options carries the Node_IDs legally reachable from
 // the current position. This is the travel analogue of Event_Battle_Menu's
-// may_leave — the legal-move set is state the Sim already computes
+// may_break_off — the legal-move set is state the Sim already computes
 // (voyage_travel_options, once per travel decision) that presentation and tests
 // otherwise have to re-derive off a shadow map/visited set they maintain
 // themselves (issue #83, ADR-0001's "presentation learns only through Events").
@@ -382,12 +382,12 @@ Event_Ship_Battle_Sighted :: struct {
 
 // Event_Battle_Menu is dispatched every time a battle command decision is
 // about to be asked for (battle start, and after every round that doesn't
-// end the battle): may_leave is genuinely Battle-internal state (depends on
+// end the battle): may_break_off is genuinely Battle-internal state (depends on
 // this-round's not-yet-reset temp Speed bonuses) the UI has no other way to
 // derive, unlike which slots are cargo (derivable from Event_Ship_Updated's
 // own ship copy).
 Event_Battle_Menu :: struct {
-	may_leave: bool,
+	may_break_off: bool,
 }
 
 // Event_Battle_Event wraps one event emitted by core/combat's
@@ -508,7 +508,7 @@ Event_Options_Presented :: struct {
 // genuinely Sim-side state, since it depends on the ship's *effective* stats — the
 // base fields on the last Event_Ship_Updated aren't enough to re-derive it, so
 // presentation would have to reimplement the floor rule to know whether accept is
-// a legal answer. This is the trade counterpart of Event_Battle_Menu's may_leave,
+// a legal answer. This is the trade counterpart of Event_Battle_Menu's may_break_off,
 // for the same reason.
 Event_Trade_Presented :: struct {
 	trade:      run.Stage_Trade,
