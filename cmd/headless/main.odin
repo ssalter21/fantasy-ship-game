@@ -37,7 +37,7 @@ Headless_State :: struct {
 // get_captain_choice is the headless Input_Source: no real player, so it
 // always resolves the current decision deterministically — Hold every battle
 // round, skip every Item Offer, and for travel pick a legal move that makes
-// forward progress toward Goal (any forward neighbour; the first emitted option
+// forward progress toward Haven (any forward neighbour; the first emitted option
 // otherwise). The travel options come from the Sim (issue #83), and kinds are
 // hidden, so the plan never depends on what an unvisited node holds — only on
 // the graph shape.
@@ -55,7 +55,7 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 		return sim.Command(sim.Command_Choose_Option{selection = nil})
 	case .Awaiting_Trade_Choice:
 		// Reject every Trade (issue #136): the scripted auto-player's job is to walk
-		// a route to Goal deterministically, and accepting would swap a stat the
+		// a route to Haven deterministically, and accepting would swap a stat the
 		// route's bargains happened to draw. Rejecting changes nothing, so the run
 		// stays a pure function of the graph.
 		return sim.Command(sim.Command_Trade_Choice{accept = false})
@@ -75,7 +75,7 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 // headless_next_node picks the auto-player's next travel destination from the
 // Sim's emitted legal options (issue #83): a forward neighbour (deeper layer)
 // if one is offered, else the first emitted option — always making progress
-// toward Goal without depending on any hidden encounter content.
+// toward Haven without depending on any hidden encounter content.
 headless_next_node :: proc(state: ^Headless_State) -> sim.Node_ID {
 	options := state.travel_options
 	assert(len(options) > 0, "no legal travel option from the current node")

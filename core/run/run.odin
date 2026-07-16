@@ -14,7 +14,7 @@ import "core:math"
 
 // Zone is one of the three fixed stakes bands a Node belongs to, in a fixed
 // linear order (CONTEXT.md): Coastal (nearest Start) -> Open_Sea -> Deep
-// (nearest Goal). How much is on the line at a node scales with zone. The
+// (nearest Haven). How much is on the line at a node scales with zone. The
 // zones survive the node-graph redesign (ADR-0009, which supersedes ADR-0007's
 // topology/fog) — only the map's shape and the within-zone gradient axis
 // changed.
@@ -352,10 +352,10 @@ run_reward_treasure :: proc(site: Scaling_Site) -> int {
 	return run_zone_depth_scaled(site, REWARD_TREASURE_PER_TIER, REWARD_TREASURE_PER_DEPTH)
 }
 
-// Node_Kind is what a Node is: the Start, an Encounter, or the Goal — ADR-0014's
+// Node_Kind is what a Node is: the Start, an Encounter, or the Haven — ADR-0014's
 // end state, reached in issue #137.
 //
-// It **survives** because Start and Goal are genuine landmarks: fixed, terminal,
+// It **survives** because Start and Haven are genuine landmarks: fixed, terminal,
 // carrying no encounter. That is a fact about a node's place in the graph rather
 // than about its content, so nothing in a stage list can express it. What it no
 // longer carries is content of any kind.
@@ -375,7 +375,7 @@ run_reward_treasure :: proc(site: Scaling_Site) -> int {
 Node_Kind :: enum {
 	Start,
 	Encounter,
-	Goal,
+	Haven,
 }
 
 // Node_ID identifies a node in a Map's nodes slice by position (ADR-0011:
@@ -390,17 +390,17 @@ Node_Kind :: enum {
 Node_ID :: distinct int
 
 // Node is a single node on the run's procedurally-generated map (ADR-0009).
-// zone is nil for Start and Goal, which sit outside the three stakes bands.
+// zone is nil for Start and Haven, which sit outside the three stakes bands.
 // encounter is set on every node that holds content — .Encounter nodes and the
-// bespoke-placed .Port ones alike (#134) — and nil on the Start/Goal landmarks,
+// bespoke-placed .Port ones alike (#134) — and nil on the Start/Haven landmarks,
 // which hold none. The separate `shop: Maybe(Stage_Shop)` a Port used to carry
 // (#98) is gone with the Port bucket: a port's stock is its [Shop] stage, so
 // there is one field content arrives in rather than a general one plus a
 // port-shaped exception. layer/lane are the node's position in the layered
-// forward graph — layer is its column (Start = 0, rising toward Goal), lane its
+// forward graph — layer is its column (Start = 0, rising toward Haven), lane its
 // row within that column; presentation derives screen coordinates from them, so
 // Nodes still carry no screen coordinates of their own. depth is the node's
-// normalized depth-within-zone (0 for Start/Goal). Adjacency lives on Map.edges,
+// normalized depth-within-zone (0 for Start/Haven). Adjacency lives on Map.edges,
 // not on the Node.
 Node :: struct {
 	id:        Node_ID,
@@ -430,14 +430,14 @@ Run_Status :: enum {
 }
 
 // run_status reports the run's outcome: lost at 0 HP (permadeath) regardless
-// of position, won by being at Goal with HP > 0, otherwise still in progress.
+// of position, won by being at Haven with HP > 0, otherwise still in progress.
 // HP loss itself happens in core/combat/core/ship; this is just the run-level
 // read of that state.
 run_status :: proc(s: ^ship.Ship, current: Node) -> Run_Status {
 	if s.hp <= 0 {
 		return .Lost
 	}
-	if current.kind == .Goal {
+	if current.kind == .Haven {
 		return .Won
 	}
 	return .In_Progress

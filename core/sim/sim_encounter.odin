@@ -107,7 +107,7 @@ shop_visit_draw_next :: proc(visit: ^Shop_Visit, stock_count: int) -> Maybe(Stoc
 }
 
 // sim_current_encounter returns a mutable pointer to the encounter held by the node
-// the ship is standing at, or ok=false for a node that holds none (Start and Goal —
+// the ship is standing at, or ok=false for a node that holds none (Start and Haven —
 // landmarks by graph position, which no stage list can express). The pointer aims
 // into the Sim's own private run_map, so advancing the cursor through it moves the
 // real encounter; public_nodes is a separate masked copy and is unaffected.

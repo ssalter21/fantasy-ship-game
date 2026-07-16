@@ -138,7 +138,7 @@ Sim :: struct {
 	resolved:          []bool,
 	// visited is parallel to run_map.nodes; true once the ship has been at a
 	// node (Start counts as visited from the outset). Distinct from resolved —
-	// a node holding no encounter (Start, Goal) is visited but never resolved — and it is what
+	// a node holding no encounter (Start, Haven) is visited but never resolved — and it is what
 	// run_travel_options consults to decide which backward-retrace moves are
 	// legal, so the Sim's travel gate reads it every travel choice.
 	visited:           []bool,
@@ -341,7 +341,7 @@ Event :: union {
 
 // Event_Run_Started is dispatched exactly once, on the very first sim_tick
 // call. run_map carries the full graph shape (nodes, edges, zones, layer/lane
-// layout) and the always-visible landmarks (Start/Port/Goal), but its
+// layout) and the always-visible landmarks (Start/Port/Haven), but its
 // non-revealing Encounter nodes have their *stages* withheld — run_map.nodes is
 // the Sim's masked public_nodes, not its private run_map. This is the hiding
 // contract (ADR-0009): what a node holds is a surprise revealed only on arrival,
@@ -625,7 +625,7 @@ sim_create :: proc(seed: u64) -> Sim {
 // stage in front of it — masked on the same rule, with no branch of its own.
 //
 // Since only the Port bucket opens on a Shop (catalog.odin), what survives this mask
-// today is exactly the six Ports plus Start and Goal. That is a *derived* constant,
+// today is exactly the six Ports plus Start and Haven. That is a *derived* constant,
 // not a stored one: author one [Shop, Fight] and it stops being true, which is why
 // the question is still asked of the stages rather than answered from the kind. See
 // ADR-0016 — that distinction is thinner than it reads, and deliberately kept.

@@ -15,7 +15,7 @@ import "core:math/rand"
 // no config file, no settings UI) -------------------------------------------
 
 // nodes_per_zone is each zone's total *node* budget (50 total across the
-// three zones, plus Start and Goal). A port consumes a slot rather than
+// three zones, plus Start and Haven). A port consumes a slot rather than
 // adding on top, so real encounter counts are these minus PORTS_PER_ZONE
 // (15 / 15 / 14 = 44 encounters).
 nodes_per_zone := [Zone]int{.Coastal = 17, .Open_Sea = 17, .Deep = 16}
@@ -33,7 +33,7 @@ PORTS_PER_ZONE :: 2
 // nodes, and the player can still route shallow deliberately.
 //
 // The bespoke placements are exempt: a Port is [Shop] even in The Deep
-// (run_port_bucket), and Start/Goal carry no encounter at all.
+// (run_port_bucket), and Start/Haven carry no encounter at all.
 zone_stage_count := [Zone]int{.Coastal = 1, .Open_Sea = 2, .Deep = 3}
 
 // LAYER_WIDTH_MIN/MAX bound how many nodes sit in one layer of the forward
@@ -42,7 +42,7 @@ LAYER_WIDTH_MIN :: 4
 LAYER_WIDTH_MAX :: 6
 
 // OUT_DEGREE_MAX bounds a regular node's forward out-edges (#60 locked 1..4);
-// every non-Goal node gets at least one forward edge by construction, so the
+// every non-Haven node gets at least one forward edge by construction, so the
 // effective range is 1..OUT_DEGREE_MAX. The Start node is exempt: it is the
 // sole source for the whole first layer, so it fans out to all of it.
 OUT_DEGREE_MAX :: 4
@@ -54,14 +54,14 @@ LATERAL_EDGE_CHANCE :: 0.15
 
 // run_map_create builds the run's procedurally-generated node graph from
 // seed: a layered forward graph grown zone-by-zone (Coastal -> Open_Sea ->
-// Deep, into Goal), with reachability and zero dead ends guaranteed by
+// Deep, into Haven), with reachability and zero dead ends guaranteed by
 // construction and extra edges for real branching. Same seed => identical
 // map. Caller owns the returned Map and must free it with run_map_destroy.
 run_map_create :: proc(seed: u64) -> Map {
 	state := rand.create_u64(seed)
 	gen := rand.default_random_generator(&state)
 
-	// --- 1. Lay out the layers: Start (1) -> each zone's layers -> Goal (1).
+	// --- 1. Lay out the layers: Start (1) -> each zone's layers -> Haven (1).
 	layer_zone: [dynamic]Maybe(Zone)
 	layer_width: [dynamic]int
 	defer delete(layer_zone)
@@ -101,7 +101,7 @@ run_map_create :: proc(seed: u64) -> Map {
 			if l == 0 {
 				kind = .Start
 			} else if l == n_layers - 1 {
-				kind = .Goal
+				kind = .Haven
 			}
 
 			depth := 0
@@ -183,7 +183,7 @@ run_map_create :: proc(seed: u64) -> Map {
 		// asking whether the node's kind is .Port (issue #137 retired that value).
 		// Asking whether a node already holds content is the better question anyway:
 		// a node is dealt a recipe because it has none, not because of how it was
-		// placed. Start and Goal are excluded by having no zone.
+		// placed. Start and Haven are excluded by having no zone.
 		enc_ids: [dynamic]int
 		for p in nodes {
 			pz, in_zone := p.zone.?
@@ -215,8 +215,8 @@ run_map_create :: proc(seed: u64) -> Map {
 		b1 := b0 + layer_width[l + 1]
 
 		// Out guarantee: every node in layer l gets at least one forward edge
-		// into layer l+1 — no dead ends, and every non-Goal node can always
-		// step forward toward Goal.
+		// into layer l+1 — no dead ends, and every non-Haven node can always
+		// step forward toward Haven.
 		for u in a0 ..< a1 {
 			v := b0 + rand.int_max(b1 - b0, gen)
 			run_add_edge(adj, u, v)
@@ -252,7 +252,7 @@ run_map_create :: proc(seed: u64) -> Map {
 		}
 	}
 
-	// Lateral edges within a layer (skip the single-node Start/Goal layers).
+	// Lateral edges within a layer (skip the single-node Start/Haven layers).
 	for l in 1 ..< n_layers - 1 {
 		a0 := layer_start_id[l]
 		w := layer_width[l]

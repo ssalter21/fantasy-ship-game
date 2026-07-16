@@ -11,7 +11,7 @@ NODE_RADIUS :: 12
 MAP_PAD :: 34
 
 // compute_node_positions places each node from the generator's layer/lane
-// metadata (issue #71): layer is the column (Start at the left, Goal at the
+// metadata (issue #71): layer is the column (Start at the left, Haven at the
 // right), lane the row within that column, evenly spread and centered so the
 // whole graph is visible at once with no camera or panning. Nodes still carry
 // no screen coordinates — that stays a presentation concern. Caller owns the
@@ -128,7 +128,7 @@ node_marker :: proc(opening: run.Stage_Kind) -> (color: rl.Color, label: string)
 // An Encounter whose content is still hidden is a generic zone-tinted marker with
 // no label (the Sim's hiding contract); one that has been visited, or that reveals
 // itself before arrival, shows its opening stage's colour and label. The Start and
-// Goal landmarks are always fully labelled.
+// Haven landmarks are always fully labelled.
 //
 // **Revealing is asked of the stage list, never of the node kind** (ADR-0014,
 // run_encounter_reveals). This used to read `case .Port` — a port was labelled
@@ -157,8 +157,8 @@ node_appearance :: proc(p: run.Node, visited: bool) -> (color: rl.Color, label: 
 	switch p.kind {
 	case .Start:
 		return rl.SKYBLUE, "Start"
-	case .Goal:
-		return rl.GOLD, "Goal"
+	case .Haven:
+		return rl.GOLD, "Haven"
 	case .Encounter:
 		// A masked node arrives with no encounter at all, so there is nothing to
 		// label; an unvisited one that does not reveal itself keeps its content back
