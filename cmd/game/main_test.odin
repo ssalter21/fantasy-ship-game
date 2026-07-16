@@ -325,7 +325,7 @@ fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
 	conditional := ship.Fitting{category = .Offensive, active = ship.Effect{magnitude = 8, conditional = ship.Condition_HP_Below{percent = 50}}}
 	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense below 50% HP")
 
-	cargo := ship.ship_fitting_cargo("Cargo", .Small)
+	cargo := ship.ship_fitting_cargo("Cargo", .Small, 10)
 	testing.expect_value(t, fitting_effect_intent(cargo), "no effect")
 }
 

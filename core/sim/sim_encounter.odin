@@ -2,6 +2,7 @@ package sim
 
 import "../combat"
 import "../run"
+import "../ship"
 
 // The generic encounter stage walk (issue #131, ADR-0014) — the Sim's single path
 // through *any* encounter, and the file that replaces the per-kind sim_item_offer.odin
@@ -334,13 +335,15 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	// A priced option is paid for before it changes hands; a free one has no price to
 	// check, so it skips the whole question rather than comparing against a zero cost.
 	if cost, priced := option.cost.?; priced {
-		if cost > sim.player.starting_treasure {
+		if cost > ship.ship_treasure(sim.player) {
 			// ADR-0012's "an unaffordable item cannot be bought": nothing is spent, no
 			// Refit opens, and the stage stays open for another choice.
 			append(events, Event(Event_Purchase_Rejected{option = option}))
 			return
 		}
-		sim.player.starting_treasure -= cost
+		// Spending comes out of the hold now (ADR-0020): re-stow the purse at its
+		// reduced total. The affordability check above guarantees purse >= cost.
+		ship.ship_stow_treasure(sim.player.layout, ship.ship_treasure(sim.player) - cost)
 		// Broadcast the spent purse before the Refit opens, so the deduction is visible
 		// even if the buyer discards the item in the Refit without installing it (no
 		// refund — no inventory, ADR-0012). The Refit's own install emits another.

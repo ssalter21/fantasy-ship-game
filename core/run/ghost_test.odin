@@ -66,16 +66,17 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 	captain := ship.Captain{name = "Blackheart"}
 	s := ship.Ship{
 		hp = 5, max_hp = 20, durability = 3, speed = 7,
-		starting_treasure = 100, base_cargo_capacity = 4, captain = captain,
+		captain = captain,
 	}
 
 	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
 	defer delete(snap.ship.layout)
 
+	// A ship's purse is no longer a scalar field (ADR-0020) — it rides in the
+	// cloned layout, covered by the cargo-clone test above; the scalars that carry
+	// through are durability, speed, and the captain.
 	testing.expect_value(t, snap.ship.durability, 3)
 	testing.expect_value(t, snap.ship.speed, 7)
-	testing.expect_value(t, snap.ship.starting_treasure, 100)
-	testing.expect_value(t, snap.ship.base_cargo_capacity, 4)
 	testing.expect_value(t, snap.ship.captain, Maybe(ship.Captain)(captain))
 }
 

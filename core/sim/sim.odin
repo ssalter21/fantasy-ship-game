@@ -41,7 +41,7 @@ Phase :: enum {
 	Awaiting_Battle_Command,
 	// Awaiting_Option_Choice is the "pick one of a few, or decline" decision every
 	// option-list stage parks in (issue #131): an Offer's items (pick to place, or
-	// skip) and a Shop's shelf (buy against starting_treasure, or leave) are the
+	// skip) and a Shop's shelf (buy against the ship's hold, or leave) are the
 	// same decision differing only in whether an option carries a price
 	// (Stage_Option.cost), so they share one phase, one Command, and one Event.
 	// What a selection *means* is the primitive's own business and belongs to the
@@ -477,8 +477,8 @@ Event_Encounter_Halted :: struct {
 // Presentation renders each option's tags, phase, size, effect intent — and its
 // cost where it has one — and offers a take-one-or-decline choice; taking a priced
 // option it can afford, or any free one, opens a Refit (Event_Refit_Started). The
-// purse affordability is measured against is the ship's starting_treasure, read off
-// the latest Event_Ship_Updated — not duplicated here, so the two can't disagree.
+// purse affordability is measured against is the ship's hold (ship_treasure), read
+// off the latest Event_Ship_Updated — not duplicated here, so the two can't disagree.
 Event_Options_Presented :: struct {
 	options: [STAGE_OPTION_MAX]Maybe(Stage_Option),
 }
@@ -501,7 +501,7 @@ Event_Trade_Presented :: struct {
 }
 
 // Event_Purchase_Rejected reports a buy the ship could not afford (issue #98): the
-// option's cost exceeds the current starting_treasure, so no treasure is spent and
+// option's cost exceeds the current hold (ship_treasure), so no treasure is spent and
 // no Refit opens — the stage simply stays open for another choice. `option` echoes
 // the refused line, at the price it was refused at, so presentation can explain it
 // — mirroring Event_Refit_Rejected's echo of a refused loadout command. Only a

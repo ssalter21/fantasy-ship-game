@@ -162,40 +162,45 @@ fitting_override_forces_a_concealed_slot_to_read_as_exposed :: proc(t: ^testing.
 }
 
 @(test)
-cargo_capacity_with_no_cargo_slots_filled_is_the_ship_baseline :: proc(t: ^testing.T) {
+cargo_capacity_excludes_a_slot_holding_a_non_cargo_fitting :: proc(t: ^testing.T) {
+	// A slot spent on a gun holds no treasure (ADR-0020, #157): its size does not
+	// count toward capacity, but empty and cargo-filled slots both do.
 	s := Ship{
-		base_cargo_capacity = 4,
 		layout = []Layout_Slot{
 			{slot = Slot{name = "gun deck", size = .Large, base_visibility = .Exposed}, fitting = Fitting{name = "Cannon", size = .Large}},
+			{slot = Slot{name = "hold 1", size = .Small, base_visibility = .Concealed}},
+			{slot = Slot{name = "hold 2", size = .Medium, base_visibility = .Concealed}, fitting = Fitting{name = "Cargo", size = .Medium, is_cargo = true, stack_count = 5}},
 		},
 	}
 
-	testing.expect_value(t, ship_cargo_capacity(s), 4)
+	// The empty Small (10) and the cargo-filled Medium (20); the gun's Large is out.
+	testing.expect_value(t, ship_cargo_capacity(s), 10 + 20)
 }
 
 @(test)
-cargo_capacity_increases_by_the_size_contribution_of_each_cargo_filled_slot :: proc(t: ^testing.T) {
+cargo_capacity_sums_each_cargo_capable_slots_size_contribution :: proc(t: ^testing.T) {
 	s := Ship{
-		base_cargo_capacity = 4,
 		layout = []Layout_Slot{
-			{slot = Slot{name = "hold 1", size = .Small, base_visibility = .Concealed}, fitting = Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 1}},
-			{slot = Slot{name = "hold 2", size = .Medium, base_visibility = .Concealed}, fitting = Fitting{name = "Cargo", size = .Medium, is_cargo = true, stack_count = 1}},
-			{slot = Slot{name = "hold 3", size = .Large, base_visibility = .Concealed}, fitting = Fitting{name = "Cargo", size = .Large, is_cargo = true, stack_count = 1}},
+			{slot = Slot{name = "hold 1", size = .Small, base_visibility = .Concealed}},
+			{slot = Slot{name = "hold 2", size = .Medium, base_visibility = .Concealed}},
+			{slot = Slot{name = "hold 3", size = .Large, base_visibility = .Concealed}},
 		},
 	}
 
-	// placeholder per-size contributions: small=1, medium=2, large=3
-	testing.expect_value(t, ship_cargo_capacity(s), 4 + 1 + 2 + 3)
+	// Small 10, Medium 20, Large 40 (#156: ×10 and doubling, a Large worth four Smalls).
+	testing.expect_value(t, ship_cargo_capacity(s), 10 + 20 + 40)
 }
 
 @(test)
-cargo_capacity_includes_the_ships_captains_structural_bonus :: proc(t: ^testing.T) {
-	s := Ship{
-		base_cargo_capacity = 4,
-		captain             = Captain{name = "Blackheart", cargo_capacity_bonus = 2},
-	}
+the_starting_hull_reads_ninety_capacity_against_a_fifty_purse :: proc(t: ^testing.T) {
+	// The destination's headroom by construction (ADR-0020, #156): the 8-slot hull
+	// with its three exposed guns has five cargo-capable slots — Large 40 + Medium
+	// 20 + three Small 30 = 90 — and is stowed with a 50 purse, leaving 40 spare.
+	s := ship_starting_ship()
+	defer delete(s.layout)
 
-	testing.expect_value(t, ship_cargo_capacity(s), 6)
+	testing.expect_value(t, ship_cargo_capacity(s), 90)
+	testing.expect_value(t, ship_treasure(s), 50)
 }
 
 @(test)

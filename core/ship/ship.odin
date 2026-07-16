@@ -319,14 +319,14 @@ Fitting :: struct {
 	passive:             Maybe(Effect),
 	active:              Maybe(Effect),
 	// is_cargo marks the one special-cased fitting kind (ADR-0004): stackable
-	// and effect-less, and the thing ship_cargo_capacity looks for when
-	// adjusting the ship's baseline cargo stat. ship_fit enforces both halves
-	// of that special-casing: no passive/active effects, and a stack_count
-	// of at least 1.
+	// and effect-less, and the fitting a ship's money lives in (ADR-0020) — a
+	// cargo fitting *is* its treasure. ship_fit enforces both halves of that
+	// special-casing: no passive/active effects, and a stack_count of at least 1.
 	is_cargo:            bool,
-	// stack_count is the quantity of stacked cargo units this fitting
-	// represents (ADR-0004: cargo is "stackable"). Only meaningful when
-	// is_cargo is true; ignored for every other fitting kind.
+	// stack_count is the treasure this cargo fitting holds (ADR-0020, #156: one
+	// stacked unit is one unit of treasure, and one unit of weight). Summed
+	// across a ship's cargo fittings it is the ship's purse (ship_treasure).
+	// Only meaningful when is_cargo is true; ignored for every other fitting kind.
 	stack_count:         int,
 }
 
@@ -341,9 +341,11 @@ Layout_Slot :: struct {
 // slot_index in core/combat).
 Slot_Index :: distinct int
 
-// Ship holds the run-persistent top-level stats (HP, Durability, Speed,
-// starting treasure) plus the fixed layout of slots that carries its combat
-// power. See CONTEXT.md's Ship & crew model glossary and ADR-0004.
+// Ship holds the run-persistent top-level stats (HP, Durability, Speed) plus
+// the fixed layout of slots that carries its combat power. A ship's money is
+// **not** a field: its purse is the treasure stowed in its cargo fittings
+// (ship_treasure), so there is no number on a ship representing money (ADR-0020,
+// #156). See CONTEXT.md's Ship & crew model glossary and ADR-0004.
 Ship :: struct {
 	hp:                  int,
 	// max_hp is the ship's undamaged HP ceiling (ADR-0008): hp is the
@@ -352,8 +354,6 @@ Ship :: struct {
 	max_hp:              int,
 	durability:          int,
 	speed:               int,
-	starting_treasure:   int,
-	base_cargo_capacity: int,
 	layout:              []Layout_Slot,
 	// captain is the run-start ship<->captain relationship (issue #18): a
 	// captain can influence a ship's slot limits/structure and grants
@@ -479,34 +479,92 @@ ship_effective_max_hp :: proc(s: ^Ship) -> int {
 	return ship_effective_stat(s, s.max_hp, .Modify_Max_HP)
 }
 
-// ship_cargo_capacity adjusts the ship's baseline cargo stat by the slots
-// currently allocated to cargo and by the ship's captain, if any
-// (Captain.cargo_capacity_bonus — issue #23). Per-size slot contribution
-// values are an arbitrary placeholder balancing choice, not backed by any
-// ADR yet.
+// ship_cargo_capacity is the treasure a ship can carry: the size contribution
+// of every slot **not** carrying a non-cargo fitting — empty slots and
+// cargo-filled slots both count, a slot spent on a gun does not (ADR-0020,
+// #157). So a broke ship still reads its full structural ceiling (the 8-slot
+// starting hull with its three exposed guns reads 90), and a slot spent on a
+// fitting is money the ship can no longer carry — the refit tension. Overflow
+// above this is lost (ship_stow_treasure), never stored: treasure lives only in
+// cargo fittings, which live only in finite slots.
 ship_cargo_capacity :: proc(s: Ship) -> int {
-	capacity := s.base_cargo_capacity
-	if captain, has_captain := s.captain.?; has_captain {
-		capacity += captain.cargo_capacity_bonus
-	}
+	capacity := 0
 	for layout_slot in s.layout {
-		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
-			capacity += ship_cargo_slot_contribution(layout_slot.slot.size)
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && !fitting.is_cargo {
+			continue
 		}
+		capacity += ship_cargo_slot_contribution(layout_slot.slot.size)
 	}
 	return capacity
 }
 
+// ship_cargo_slot_contribution is how much treasure a slot of `size` can hold —
+// and, since money is weight (ADR-0020), how much a full one weighs. The ×10-
+// and-doubling scale (#156) is what makes weight, capacity, and money one
+// commensurable system, and it is also the Speed table ×10 (a full Large is
+// worth four Smalls and, once Speed reads weight, costs four Smalls of Speed).
 ship_cargo_slot_contribution :: proc(size: Slot_Size) -> int {
 	switch size {
 	case .Small:
-		return 1
+		return 10
 	case .Medium:
-		return 2
+		return 20
 	case .Large:
-		return 3
+		return 40
 	}
 	return 0
+}
+
+// ship_treasure is a ship's purse: the treasure stowed across its cargo fittings
+// (ADR-0020, #156 — a cargo fitting's stack_count *is* its treasure, one unit
+// each). This is what "the purse" means now that no scalar money field rides on
+// a ship; a ship with no cargo fittings carries nothing.
+ship_treasure :: proc(s: Ship) -> int {
+	treasure := 0
+	for layout_slot in s.layout {
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
+			treasure += fitting.stack_count
+		}
+	}
+	return treasure
+}
+
+// ship_stow_treasure re-stows `amount` treasure across `layout`, smallest slots
+// first (ADR-0020, #172). It first clears every existing cargo fitting —
+// reallocation is free outside battle (#157), so a re-stow rebuilds the hold
+// from scratch — then fills the empty, non-gun slots smallest-first, each up to
+// its capacity, until `amount` is exhausted. **Overflow above capacity is lost**
+// (#157): treasure with no slot to land in simply drops. Used for the player's
+// bootstrap stow and for every out-of-battle purse change (a Reward gain, a Shop
+// or Trade spend): the caller passes the desired total, not a delta.
+//
+// Smallest-first is the rule, not authored numbers: the starting 50 falls out as
+// three Smalls at 10 + a Medium at 20, the Large left empty as headroom, and it
+// keeps #157's granularity property — fine change lives in the Smalls, so the
+// richer you get the coarser the only thing you can heave.
+ship_stow_treasure :: proc(layout: []Layout_Slot, amount: int) {
+	for &layout_slot in layout {
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
+			layout_slot.fitting = nil
+		}
+	}
+	remaining := amount
+	for size in ([3]Slot_Size{.Small, .Medium, .Large}) {
+		for &layout_slot in layout {
+			if remaining <= 0 {
+				return
+			}
+			if _, occupied := layout_slot.fitting.?; occupied {
+				continue
+			}
+			if layout_slot.slot.size != size {
+				continue
+			}
+			stow := min(remaining, ship_cargo_slot_contribution(size))
+			layout_slot.fitting = ship_fitting_cargo("Cargo", size, stow)
+			remaining -= stow
+		}
+	}
 }
 
 // ship_remove takes the fitting out of layout_slot, leaving the slot empty,
@@ -549,19 +607,19 @@ ship_move :: proc(from, to: ^Layout_Slot) -> (Fitting, bool) {
 }
 
 // Captain is structurally separate from the slot system: not a fitting,
-// consumes no slot. A run-start choice that can influence a ship's slot
-// limits/structure and grants additional manual per-round captain actions.
-// cargo_capacity_bonus is the vertical slice's one captain's concrete
-// slot-limit/structure influence (issue #23): added to the ship's cargo
-// capacity (ship_cargo_capacity) alongside base_cargo_capacity and any
-// cargo-filled slots — the closest existing "slot limit" stat for a captain
-// to move (CONTEXT.md: cargo capacity is "a baseline ship stat, adjusted...
-// by which slots get allocated to cargo"). This captain grants no
-// additional per-round action beyond the standard Command set: ADR-0006
-// already notes this slice's one captain uses the full
-// Boost/Man-the-Sails/Jettison-Cargo/Leave-Combat menu as its action set, so
-// there is nothing further to define here.
+// consumes no slot. A run-start choice that can influence a ship's starting
+// state and grants additional manual per-round captain actions.
+// starting_cargo_bonus is the vertical slice's one captain's concrete lever
+// (issue #23, #172): treasure the captain adds to the ship's bootstrap stow on
+// top of STARTING_CARGO, so the starting 50 is 40 (ship) + 10 (Odessa). Unlike
+// the deleted cargo_capacity_bonus — which promised room no slot provides and
+// so was unfillable (#157) — this is **fillable**: it adds treasure into the
+// headroom the 8-slot hull already has (#172), which is what revives the captain
+// from vestigial. This captain grants no additional per-round action beyond the
+// standard Command set: ADR-0006 already notes this slice's one captain uses the
+// full Boost/Man-the-Sails/Jettison-Cargo/Leave-Combat menu as its action set,
+// so there is nothing further to define here.
 Captain :: struct {
 	name:                 string,
-	cargo_capacity_bonus: int,
+	starting_cargo_bonus: int,
 }

@@ -393,6 +393,9 @@ arriving_at_a_trade_presents_the_bargain_instead_of_applying_it :: proc(t: ^test
 	testing.expect(t, node_id_in(opts, trade_node))
 
 	before := sim.player
+	// The purse lives in the layout now (ADR-0020), which `before` aliases — so
+	// snapshot it as an int to assert it genuinely did not move.
+	purse_before := ship.ship_treasure(sim.player)
 	submit_travel(&sim, trade_node)
 	clear(&events)
 	sim_tick(&sim, &events)
@@ -406,7 +409,7 @@ arriving_at_a_trade_presents_the_bargain_instead_of_applying_it :: proc(t: ^test
 	testing.expect_value(t, sim.player.durability, before.durability)
 	testing.expect_value(t, sim.player.speed, before.speed)
 	testing.expect_value(t, sim.player.hp, before.hp)
-	testing.expect_value(t, sim.player.starting_treasure, before.starting_treasure)
+	testing.expect_value(t, ship.ship_treasure(sim.player), purse_before)
 }
 
 // Accepting pays the cost. The gain side's arithmetic (caps, floors, ordering)
@@ -462,6 +465,7 @@ rejecting_a_trade_changes_nothing_and_still_resolves_the_node :: proc(t: ^testin
 	submit_travel(&sim, trade_node)
 	sim_tick(&sim, &events)
 	before := sim.player
+	purse_before := ship.ship_treasure(sim.player) // the purse aliases via `before`; snapshot the int
 
 	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = false}))
 	tick_travel_options(&sim, &events)
@@ -470,7 +474,7 @@ rejecting_a_trade_changes_nothing_and_still_resolves_the_node :: proc(t: ^testin
 	testing.expect_value(t, sim.player.max_hp, before.max_hp)
 	testing.expect_value(t, sim.player.durability, before.durability)
 	testing.expect_value(t, sim.player.speed, before.speed)
-	testing.expect_value(t, sim.player.starting_treasure, before.starting_treasure)
+	testing.expect_value(t, ship.ship_treasure(sim.player), purse_before)
 	testing.expect(t, sim.resolved[trade_node])
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 }
@@ -511,6 +515,7 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	opts = tick_travel_options(&sim, &events)
 
 	ship_after_trade := sim.player
+	purse_after_trade := ship.ship_treasure(sim.player) // aliased via ship_after_trade; snapshot the int
 	testing.expect(t, run.run_trade_stat_reading(&sim.player, trade.cost.stat) < cost_before) // the trade did fire
 	testing.expect(t, node_id_in(opts, 0)) // Start offered as a backward retrace
 
@@ -528,7 +533,7 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.player.durability, ship_after_trade.durability)
 	testing.expect_value(t, sim.player.speed, ship_after_trade.speed)
 	testing.expect_value(t, sim.player.hp, ship_after_trade.hp)
-	testing.expect_value(t, sim.player.starting_treasure, ship_after_trade.starting_treasure)
+	testing.expect_value(t, ship.ship_treasure(sim.player), purse_after_trade)
 }
 
 // tick_travel_options clears events, ticks the Sim once, and returns the travel
@@ -725,11 +730,6 @@ slot_is_empty :: proc(sim: ^Sim, slot: int) -> bool {
 	return !ok
 }
 
-slot_holds_cargo :: proc(sim: ^Sim, slot: int) -> bool {
-	f, ok := sim.player.layout[slot].fitting.?
-	return ok && f.is_cargo
-}
-
 @(test)
 a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :: proc(t: ^testing.T) {
 	// Drive a full loadout-editing sequence over the starting ship and assert
@@ -738,7 +738,7 @@ a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :
 	//   0 top deck (M) Captain's Quarters   4 hold 1 (M) Cargo
 	//   1 top crew (M) Top Crew             5 hold 2 (S) Cargo
 	//   2 gun deck (L) Gun Deck             6 hold 3 (S) Cargo
-	//   3 forecastle (L) Cargo              7 hold 4 (S) Cargo
+	//   3 forecastle (L) empty (headroom)  7 hold 4 (S) Cargo
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
@@ -758,19 +758,14 @@ a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :
 	_, still_pending := sim.refit_pending.?
 	testing.expect(t, still_pending)
 
-	// Install into an occupied same-size slot (Large slot 3 holds cargo): refused.
-	submit_refit(&sim, Refit_Install{slot = 3})
+	// Install into an occupied same-size slot (Large slot 2 holds the Gun Deck): refused.
+	submit_refit(&sim, Refit_Install{slot = 2})
 	ev = refit_tick(&sim, &events)
 	testing.expect(t, has_event(ev, Event_Refit_Rejected))
-	testing.expect(t, slot_holds_cargo(&sim, 3))
+	testing.expect_value(t, fitting_name_at(&sim, 2), "Gun Deck")
 
-	// Remove the Large cargo in slot 3: discarded (no inventory), slot empties.
-	submit_refit(&sim, Refit_Remove{slot = 3})
-	ev = refit_tick(&sim, &events)
-	testing.expect(t, has_event(ev, Event_Fitting_Removed))
-	testing.expect(t, slot_is_empty(&sim, 3))
-
-	// Move the Gun Deck (Large) from slot 2 into the now-empty Large slot 3.
+	// Move the Gun Deck (Large) from slot 2 into the empty Large forecastle (slot 3),
+	// which the starting stow leaves open as headroom (ADR-0020, #172).
 	submit_refit(&sim, Refit_Move{from = 2, to = 3})
 	ev = refit_tick(&sim, &events)
 	testing.expect(t, has_event(ev, Event_Fitting_Moved))
@@ -786,9 +781,11 @@ a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :
 	testing.expect(t, !pending_after_install) // consumed
 
 	// With nothing pending, an install even into an empty, size-matching slot is
-	// refused: free a Small slot, then try to install into it.
+	// refused: free a Small slot (removing its cargo is discarded — no inventory —
+	// and emits Event_Fitting_Removed), then try to install into it.
 	submit_refit(&sim, Refit_Remove{slot = 5})
-	refit_tick(&sim, &events)
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Fitting_Removed))
 	testing.expect(t, slot_is_empty(&sim, 5))
 	submit_refit(&sim, Refit_Install{slot = 5})
 	ev = refit_tick(&sim, &events)
@@ -1407,7 +1404,7 @@ leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	before := sim.player.starting_treasure
+	before := ship.ship_treasure(sim.player)
 	install_encounter(&sim, 1, fight_stage(&sim, 10_000), reward_stage()) // too tough to sink quickly
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
@@ -1426,7 +1423,7 @@ leaving_combat_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
-	testing.expect_value(t, sim.player.starting_treasure, before) // fled: no payout for escaping
+	testing.expect_value(t, ship.ship_treasure(sim.player), before) // fled: no payout for escaping
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
 
@@ -1459,11 +1456,11 @@ a_reward_pays_out_and_completes_without_stopping_for_the_captain :: proc(t: ^tes
 	events: [dynamic]Event
 	defer delete(events)
 
-	before := sim.player.starting_treasure
+	before := ship.ship_treasure(sim.player)
 	install_encounter(&sim, 1, reward_stage())
 	arrive_at(&sim, 1, &events)
 
-	testing.expect_value(t, sim.player.starting_treasure, before + REWARD_PAYOUT)
+	testing.expect_value(t, ship.ship_treasure(sim.player), before + REWARD_PAYOUT)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice) // never parked
 	testing.expect(t, sim.resolved[1])
 
@@ -1487,7 +1484,7 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	before := sim.player.starting_treasure
+	before := ship.ship_treasure(sim.player)
 	install_encounter(&sim, 1, fight_stage(&sim, 1), reward_stage()) // 1 HP: sinks in a round
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
@@ -1496,7 +1493,7 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 	refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
-	testing.expect_value(t, sim.player.starting_treasure, before + REWARD_PAYOUT)
+	testing.expect_value(t, ship.ship_treasure(sim.player), before + REWARD_PAYOUT)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
 }
@@ -1514,11 +1511,11 @@ a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	before := sim.player.starting_treasure
+	before := ship.ship_treasure(sim.player)
 	install_encounter(&sim, 1, offer_stage(), reward_stage())
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
-	testing.expect_value(t, sim.player.starting_treasure, before) // stage 1 not reached yet
+	testing.expect_value(t, ship.ship_treasure(sim.player), before) // stage 1 not reached yet
 
 	// Picking completes the Offer and opens a Refit; the walk resumes at its finish and
 	// runs through the Reward without stopping again.
@@ -1527,7 +1524,7 @@ a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
 	submit_refit(&sim, Refit_Finish{})
 	refit_tick(&sim, &events)
 
-	testing.expect_value(t, sim.player.starting_treasure, before + REWARD_PAYOUT)
+	testing.expect_value(t, ship.ship_treasure(sim.player), before + REWARD_PAYOUT)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
 }
@@ -1634,7 +1631,7 @@ one_encounter_emits_one_snapshot_however_many_stages_resolve :: proc(t: ^testing
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	before := sim.player.starting_treasure
+	before := ship.ship_treasure(sim.player)
 	install_encounter(&sim, 1, fight_stage(&sim, 1), reward_stage()) // 1 HP: sinks in a round
 	arrive_at(&sim, 1, &events)
 
@@ -1644,7 +1641,7 @@ one_encounter_emits_one_snapshot_however_many_stages_resolve :: proc(t: ^testing
 	snaps := resolved_snapshots(ev)
 	defer delete(snaps)
 	testing.expect_value(t, len(snaps), 1)
-	testing.expect_value(t, snaps[0].ship.starting_treasure, before + REWARD_PAYOUT)
+	testing.expect_value(t, ship.ship_treasure(snaps[0].ship), before + REWARD_PAYOUT)
 
 	// The node's own stakes ride along (ADR-0014), asked of the node the walk ended on
 	// rather than reconstructed by a stage — which is what retired Stage_Fight.depth and
@@ -1665,7 +1662,7 @@ a_halted_encounter_emits_a_snapshot_of_the_ship_that_walked_away :: proc(t: ^tes
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	before := sim.player.starting_treasure
+	before := ship.ship_treasure(sim.player)
 	install_encounter(&sim, 1, fight_stage(&sim, 10_000), reward_stage()) // too tough to sink quickly
 	arrive_at(&sim, 1, &events)
 
@@ -1685,7 +1682,7 @@ a_halted_encounter_emits_a_snapshot_of_the_ship_that_walked_away :: proc(t: ^tes
 	defer delete(snaps)
 	testing.expect(t, sim.resolved[1])
 	testing.expect_value(t, len(snaps), 1)
-	testing.expect_value(t, snaps[0].ship.starting_treasure, before) // fled: the ghost is unpaid too
+	testing.expect_value(t, ship.ship_treasure(snaps[0].ship), before) // fled: the ghost is unpaid too
 }
 
 @(test)
@@ -1766,7 +1763,7 @@ the_snapshot_carries_every_purchase_made_at_a_shop :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = 1000 // afford the visit outright; pricing is not this test's subject
+	ship.ship_stow_treasure(sim.player.layout, 90) // afford the visit outright; the hull's full capacity (ADR-0020)
 	arrive_at_shop(&sim, 1, flat_stock(10), &events) // stock position i is roster[i]
 
 	// Buy option 0 ("Deckhands"), install it, and return to the refilled shelf.
@@ -1808,7 +1805,7 @@ a_resolved_node_emits_no_second_snapshot_when_the_ship_returns :: proc(t: ^testi
 	events: [dynamic]Event
 	defer delete(events)
 
-	before := sim.player.starting_treasure
+	before := ship.ship_treasure(sim.player)
 	install_encounter(&sim, 1, reward_stage())
 	arrive_at(&sim, 1, &events)
 
@@ -1825,7 +1822,7 @@ a_resolved_node_emits_no_second_snapshot_when_the_ship_returns :: proc(t: ^testi
 	again := resolved_snapshots(events[:])
 	defer delete(again)
 	testing.expect_value(t, len(again), 0)
-	testing.expect_value(t, sim.player.starting_treasure, before + REWARD_PAYOUT) // and paid once
+	testing.expect_value(t, ship.ship_treasure(sim.player), before + REWARD_PAYOUT) // and paid once
 }
 
 // flat_stock bakes a shop stocked to `count` cards in roster order, every card priced
@@ -1925,7 +1922,7 @@ arriving_at_a_generated_port_opens_its_baked_shop :: proc(t: ^testing.T) {
 @(test)
 buying_an_affordable_item_deducts_treasure_and_opens_a_refit :: proc(t: ^testing.T) {
 	// The core of #123's acceptance: buying a shelf card the ship can afford
-	// deducts its cost from starting_treasure and opens a Refit staged with that
+	// deducts its cost from the hold and opens a Refit staged with that
 	// exact item, so the manual-loadout commands place it — the same path an Item
 	// Offer's pick takes.
 	sim := sim_create(0)
@@ -1933,7 +1930,7 @@ buying_an_affordable_item_deducts_treasure_and_opens_a_refit :: proc(t: ^testing
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = 50
+	ship.ship_stow_treasure(sim.player.layout, 50)
 	arrive_at_shop(&sim, 1, flat_stock(10), &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(1)}))
 	ev := refit_tick(&sim, &events)
@@ -1941,7 +1938,7 @@ buying_an_affordable_item_deducts_treasure_and_opens_a_refit :: proc(t: ^testing
 	roster := ship.ship_item_roster()
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Refit)
 	testing.expect(t, has_event(ev, Event_Refit_Started))
-	testing.expect_value(t, sim.player.starting_treasure, 40) // 50 - 10 spent
+	testing.expect_value(t, ship.ship_treasure(sim.player), 40) // 50 - 10 spent
 	incoming, pending := sim.refit_pending.?
 	testing.expect(t, pending)
 	testing.expect_value(t, incoming.name, roster[1].fitting.name) // shelf slot 1 == stock pos 1 == roster[1]
@@ -1965,14 +1962,14 @@ an_unaffordable_item_is_refused_and_the_shop_stays_open :: proc(t: ^testing.T) {
 
 	shop := flat_stock(10)
 	shop.stock[2].cost = 100 // slot 2 (stock pos 2) beyond any reachable purse
-	sim.player.starting_treasure = 50
+	ship.ship_stow_treasure(sim.player.layout, 50)
 	arrive_at_shop(&sim, 1, shop, &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(2)}))
 	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, has_event(ev, Event_Purchase_Rejected))
 	testing.expect(t, !has_event(ev, Event_Refit_Started))
-	testing.expect_value(t, sim.player.starting_treasure, 50) // nothing spent
+	testing.expect_value(t, ship.ship_treasure(sim.player), 50) // nothing spent
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice) // shop still open
 	_, pending := sim.refit_pending.?
 	testing.expect(t, !pending)
@@ -1990,13 +1987,13 @@ leaving_a_shop_completes_it_and_returns_to_travel :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = 50
+	ship.ship_stow_treasure(sim.player.layout, 50)
 	arrive_at_shop(&sim, 1, flat_stock(10), &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = nil}))
 	ev := refit_tick(&sim, &events)
 
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect_value(t, sim.player.starting_treasure, 50) // nothing spent
+	testing.expect_value(t, ship.ship_treasure(sim.player), 50) // nothing spent
 	testing.expect(t, !has_event(ev, Event_Refit_Started))
 	testing.expect(t, has_event(ev, Event_Travel_Options)) // back to a travel choice
 
@@ -2060,7 +2057,7 @@ buying_a_shelf_card_refills_the_slot_from_the_deck_on_the_refits_finish :: proc(
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = 50
+	ship.ship_stow_treasure(sim.player.layout, 50)
 	arrive_at_shop(&sim, 1, flat_stock(10), &events)
 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2091,7 +2088,7 @@ multiple_items_can_be_bought_in_one_visit_before_leaving :: proc(t: ^testing.T) 
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = 50
+	ship.ship_stow_treasure(sim.player.layout, 50)
 	arrive_at_shop(&sim, 1, flat_stock(10), &events)
 
 	for _ in 0 ..< 3 {
@@ -2103,7 +2100,7 @@ multiple_items_can_be_bought_in_one_visit_before_leaving :: proc(t: ^testing.T) 
 	}
 	// Three escalating buys (issue #124): base 10, then 10+step, then 10+2*step.
 	spent := 3 * 10 + SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)
-	testing.expect_value(t, sim.player.starting_treasure, 50 - spent)
+	testing.expect_value(t, ship.ship_treasure(sim.player), 50 - spent)
 
 	// Only Leave exits to travel.
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
@@ -2138,7 +2135,7 @@ buy_first_available :: proc(sim: ^Sim, events: ^[dynamic]Event) -> (ok: bool) {
 		}
 		cost, priced := option.cost.?
 		assert(priced, "a shop's option must carry a price")
-		if cost > sim.player.starting_treasure {
+		if cost > ship.ship_treasure(sim.player) {
 			return false // the purse gave out, not the shop
 		}
 		sim_submit_captain_choice(sim, Command(Command_Choose_Option{selection = Option_Index(i)}))
@@ -2169,8 +2166,8 @@ a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied :: proc(t: ^testing.T) 
 
 	// Deep enough that the *stock* runs out first and not the money — the point is that
 	// the hold empties, so affordability must not be what stops it.
-	sim.player.starting_treasure = 10_000
-	arrive_at_shop(&sim, 1, flat_stock(10, 6), &events)
+	ship.ship_stow_treasure(sim.player.layout, 90) // the hull's full capacity (ADR-0020)
+	arrive_at_shop(&sim, 1, flat_stock(1, 6), &events)
 	testing.expect_value(t, filled_option_count(sim.stage_options), run.SHOP_SHELF_SIZE)
 
 	// One buy: the lone reserve card refills the slot, so the shelf is still full.
@@ -2220,7 +2217,7 @@ a_chandlerys_reserve_outlasts_the_purse_a_captain_brings :: proc(t: ^testing.T) 
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = ship.STARTING_TREASURE
+	ship.ship_stow_treasure(sim.player.layout, ship.STARTING_CARGO + ship.CAPTAIN_STARTING_CARGO)
 	arrive_at_shop(&sim, 1, flat_stock(ship.ITEM_COST_SPLASH, run.run_stock_pool(.Chandlery).depth), &events)
 
 	bought := 0
@@ -2232,7 +2229,7 @@ a_chandlerys_reserve_outlasts_the_purse_a_captain_brings :: proc(t: ^testing.T) 
 	// bought from was refilled out of the reserve behind it.
 	testing.expect(t, bought > 0)
 	testing.expect_value(t, filled_option_count(sim.stage_options), run.SHOP_SHELF_SIZE)
-	testing.expect(t, sim.player.starting_treasure < ship.ITEM_COST_SPLASH)
+	testing.expect(t, ship.ship_treasure(sim.player) < ship.ITEM_COST_SPLASH)
 }
 
 @(test)
@@ -2252,7 +2249,7 @@ a_shop_is_walked_once_and_resolves_like_any_other_encounter :: proc(t: ^testing.
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = 50
+	ship.ship_stow_treasure(sim.player.layout, 50)
 	arrive_at_shop(&sim, 1, flat_stock(10), &events)
 
 	// Buy the top card, finish its refit, then leave.
@@ -2292,7 +2289,7 @@ each_shop_deals_its_own_fresh_shelf :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = 50
+	ship.ship_stow_treasure(sim.player.layout, 50)
 	roster := ship.ship_item_roster()
 
 	arrive_at_shop(&sim, 1, flat_stock(10), &events)
@@ -2323,7 +2320,7 @@ two_shops_in_one_recipe_each_deal_fresh :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim.player.starting_treasure = 100
+	ship.ship_stow_treasure(sim.player.layout, 50)
 	roster := ship.ship_item_roster()
 	install_encounter(&sim, 1, flat_stock(10), flat_stock(10))
 	arrive_at(&sim, 1, &events)
@@ -2358,10 +2355,10 @@ successive_buys_at_a_port_escalate_in_price :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	base :: 10
-	sim.player.starting_treasure = 100
+	ship.ship_stow_treasure(sim.player.layout, 90) // the hull's full capacity — the ceiling a purse can reach (ADR-0020)
 	arrive_at_shop(&sim, 1, flat_stock(base), &events)
 
-	purse := 100
+	purse := 90
 	for n in 0 ..< 3 {
 		want_price := base + SHOP_DEPTH_SURCHARGE_STEP * n
 
@@ -2373,13 +2370,13 @@ successive_buys_at_a_port_escalate_in_price :: proc(t: ^testing.T) {
 		sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
 		refit_tick(&sim, &events) // buy: charge want_price, open the refit
 		purse -= want_price
-		testing.expect_value(t, sim.player.starting_treasure, purse) // charged the shown price
+		testing.expect_value(t, ship.ship_treasure(sim.player), purse) // charged the shown price
 
 		submit_refit(&sim, Refit_Finish{})
 		refit_tick(&sim, &events) // finish -> back to the shop, re-presented one depth deeper
 	}
 	// base + (base+step) + (base+2*step) spent across the three escalating buys.
-	testing.expect_value(t, sim.player.starting_treasure, 100 - (3 * base + SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)))
+	testing.expect_value(t, ship.ship_treasure(sim.player), 90 - (3 * base + SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)))
 }
 
 @(test)
@@ -2399,7 +2396,7 @@ the_depth_surcharge_is_scoped_to_one_visit :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	base :: 10
-	sim.player.starting_treasure = 100
+	ship.ship_stow_treasure(sim.player.layout, 90) // the hull's full capacity (ADR-0020)
 	arrive_at_shop(&sim, 1, flat_stock(base), &events)
 
 	// One buy at the plain tier price, then leave.
@@ -2413,7 +2410,7 @@ the_depth_surcharge_is_scoped_to_one_visit :: proc(t: ^testing.T) {
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = nil}))
 	refit_tick(&sim, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect_value(t, sim.player.starting_treasure, 100 - base) // one buy at tier price
+	testing.expect_value(t, ship.ship_treasure(sim.player), 90 - base) // one buy at tier price
 
 	// A different shop starts at the plain tier price: the depth was this visit's, not
 	// the run's.
@@ -2434,7 +2431,7 @@ a_surcharge_can_make_a_buy_unaffordable_and_the_shop_stays_open :: proc(t: ^test
 
 	base :: 10
 	// Covers one buy at base with a little to spare, but not base + step for the next.
-	sim.player.starting_treasure = base + (base + SHOP_DEPTH_SURCHARGE_STEP) - 1
+	ship.ship_stow_treasure(sim.player.layout, base + (base + SHOP_DEPTH_SURCHARGE_STEP) - 1)
 	arrive_at_shop(&sim, 1, flat_stock(base), &events)
 
 	// First buy at the plain tier price succeeds.
@@ -2442,7 +2439,7 @@ a_surcharge_can_make_a_buy_unaffordable_and_the_shop_stays_open :: proc(t: ^test
 	refit_tick(&sim, &events)
 	submit_refit(&sim, Refit_Finish{})
 	refit_tick(&sim, &events)
-	remaining := sim.player.starting_treasure
+	remaining := ship.ship_treasure(sim.player)
 	testing.expect_value(t, remaining, base + SHOP_DEPTH_SURCHARGE_STEP - 1)
 
 	// Second buy: base + step now exceeds the remaining purse, so the surcharge alone
@@ -2451,7 +2448,7 @@ a_surcharge_can_make_a_buy_unaffordable_and_the_shop_stays_open :: proc(t: ^test
 	ev := refit_tick(&sim, &events)
 	testing.expect(t, has_event(ev, Event_Purchase_Rejected))
 	testing.expect(t, !has_event(ev, Event_Refit_Started))
-	testing.expect_value(t, sim.player.starting_treasure, remaining) // nothing spent
+	testing.expect_value(t, ship.ship_treasure(sim.player), remaining) // nothing spent
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice) // shop still open
 }
 
