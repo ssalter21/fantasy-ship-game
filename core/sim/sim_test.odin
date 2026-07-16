@@ -1988,6 +1988,73 @@ buying_an_affordable_item_deducts_treasure_and_opens_a_refit :: proc(t: ^testing
 }
 
 @(test)
+buying_a_fitting_over_a_cargo_hold_conserves_the_displaced_treasure :: proc(t: ^testing.T) {
+	// #198's double-swing, the conserving half: money *is* the cargo (ADR-0020), so a
+	// bought fitting placed over a cargo hold displaces real treasure. Reallocation is
+	// free outside battle (#157), so that treasure is not destroyed — it re-stows into
+	// whatever capacity remains, and only genuine overflow above the reduced ceiling is
+	// lost. Here the ceiling stays well above the purse, so nothing overflows: the buy
+	// costs exactly its price and not a coin more, even though the fitting lands on a
+	// full hold.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ship.ship_stow_treasure(sim.player.layout, 50) // the starting purse: holds full, forecastle empty
+	arrive_at_shop(&sim, 1, flat_stock(10), &events)
+
+	// Buy option 0 (Deckhands, Small, cost 10): the spend re-stows the purse to 40.
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	testing.expect_value(t, ship.ship_treasure(sim.player), 40)
+
+	// Place it over a full Small hold (slot 5). That slot becomes a gun, but the empty
+	// capacity elsewhere (the Medium hold and the empty forecastle) absorbs the displaced
+	// 10, so the purse stays 40 — the displaced treasure conserved, not burned.
+	submit_refit(&sim, Refit_Replace{slot = 5})
+	refit_tick(&sim, &events)
+
+	testing.expect_value(t, fitting_name_at(&sim, 5), "Deckhands")
+	testing.expect_value(t, ship.ship_treasure(sim.player), 40) // conserved: only the 10 cost is gone
+	testing.expect(t, ship.ship_treasure(sim.player) <= ship.ship_cargo_capacity(sim.player))
+}
+
+@(test)
+buying_a_fitting_that_overflows_the_hold_loses_only_the_true_overflow :: proc(t: ^testing.T) {
+	// #198's double-swing, the overflow half: when placing the bought fitting shrinks
+	// capacity below the purse, the surviving treasure re-stows to the new ceiling and
+	// only what will not fit is lost (ADR-0020, #157) — never the whole displaced hold,
+	// and never left in the impossible state of a purse over capacity. A rich ship buys
+	// a Small fitting and lands it on a Small hold: capacity drops by the Small's 10 and
+	// the purse is capped there, 5 falling overboard rather than the full displaced 10.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ship.ship_stow_treasure(sim.player.layout, 90) // brim-full: the whole 90-capacity hull laden
+	arrive_at_shop(&sim, 1, flat_stock(5), &events)
+
+	// Buy option 0 (Deckhands, Small, cost 5): the spend re-stows the purse to 85.
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	refit_tick(&sim, &events)
+	testing.expect_value(t, ship.ship_treasure(sim.player), 85)
+
+	// Land it on a Small hold (slot 5), turning that slot from cargo into a gun. The
+	// ceiling drops by 10 (to 80) and the purse — 85 with the slot now gone — re-stows
+	// to exactly 80. Only the 5 that no longer fits is lost; naive burning of the
+	// displaced slot would have destroyed the full 10, leaving 75.
+	submit_refit(&sim, Refit_Replace{slot = 5})
+	refit_tick(&sim, &events)
+
+	testing.expect_value(t, fitting_name_at(&sim, 5), "Deckhands")
+	testing.expect_value(t, ship.ship_cargo_capacity(sim.player), 80)
+	testing.expect_value(t, ship.ship_treasure(sim.player), 80) // capped at capacity: only 5 lost, not 10
+	testing.expect(t, ship.ship_treasure(sim.player) <= ship.ship_cargo_capacity(sim.player)) // never over capacity
+}
+
+@(test)
 an_unaffordable_item_is_refused_and_the_shop_stays_open :: proc(t: ^testing.T) {
 	// "an unaffordable item cannot be bought": a buy costing more than the purse is
 	// rejected, no treasure is spent, no Refit opens, and the shop stays open for
