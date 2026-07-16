@@ -1415,11 +1415,16 @@ run_apply_trade_runs_an_axis_in_either_direction :: proc(t: ^testing.T) {
 
 @(test)
 run_apply_trade_moves_treasure :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 4, starting_treasure = 50}
+	// Treasure is the holds now (ADR-0020), so a treasure trade moves cargo — the
+	// starting ship carries its 50 purse in real slots (capacity 90, room to gain).
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	s.durability = 4
+	testing.expect_value(t, ship.ship_treasure(s), 50)
 
 	run_apply_trade(&s, trade_of(.Treasure, 15, .Durability, 2))
 
-	testing.expect_value(t, s.starting_treasure, 65)
+	testing.expect_value(t, ship.ship_treasure(s), 65)
 	testing.expect_value(t, s.durability, 2)
 }
 
@@ -1450,13 +1455,16 @@ run_apply_trade_never_overheals :: proc(t: ^testing.T) {
 // precisely so an entry can trade one for the other.
 @(test)
 run_apply_trade_gaining_max_hp_raises_the_ceiling_without_filling_it :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 12, max_hp = 20, starting_treasure = 50}
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	s.hp = 12
+	s.max_hp = 20
 
 	run_apply_trade(&s, trade_of(.Max_HP, 5, .Treasure, 15))
 
 	testing.expect_value(t, s.max_hp, 25)
 	testing.expect_value(t, s.hp, 12)
-	testing.expect_value(t, s.starting_treasure, 35)
+	testing.expect_value(t, ship.ship_treasure(s), 35)
 }
 
 // Spending Max HP below current HP can't leave the ship holding more HP than it

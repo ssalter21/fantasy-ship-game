@@ -97,7 +97,7 @@ run_trade_stat_reading :: proc(s: ^ship.Ship, stat: Trade_Stat) -> int {
 	case .Speed:
 		return ship.ship_effective_speed(s)
 	case .Treasure:
-		return s.starting_treasure
+		return ship.ship_treasure(s^)
 	}
 	unreachable()
 }
@@ -121,12 +121,16 @@ run_trade_can_accept :: proc(s: ^ship.Ship, trade: Stage_Trade) -> bool {
 	return run_trade_stat_reading(s, trade.cost.stat) - trade.cost.amount >= run_trade_stat_floor(trade.cost.stat)
 }
 
-// run_trade_pay deducts a trade's cost. The amount is measured against the
-// effective stat (run_trade_can_accept) but *paid out of the base field*, which
-// is the only field a run owns — so a heavily-fitted ship can pay a cost its base
-// alone couldn't cover, and the base may land negative. That is fine and
-// deliberate: nothing reads the base directly, so what the ship has is still
-// effective >= the floor.
+// run_trade_pay deducts a trade's cost. For the base-field stats the amount is
+// measured against the effective stat (run_trade_can_accept) but *paid out of the
+// base field*, which is the only field a run owns — so a heavily-fitted ship can
+// pay a cost its base alone couldn't cover, and the base may land negative. That
+// is fine and deliberate: nothing reads the base directly, so what the ship has
+// is still effective >= the floor.
+//
+// Treasure has no base field (ADR-0020): it is the holds, so paying re-stows the
+// purse at its reduced total (ship_stow_treasure), the affordability gate having
+// already guaranteed purse >= amount.
 //
 // Spending Max HP pulls the ceiling down under current HP, so hp re-clamps to the
 // new effective ceiling — the ship cannot be left holding more HP than it can now
@@ -143,7 +147,7 @@ run_trade_pay :: proc(s: ^ship.Ship, cost: Trade_Term) {
 	case .Speed:
 		s.speed -= cost.amount
 	case .Treasure:
-		s.starting_treasure -= cost.amount
+		ship.ship_stow_treasure(s.layout, ship.ship_treasure(s^) - cost.amount)
 	}
 }
 
@@ -163,7 +167,9 @@ run_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 	case .Speed:
 		s.speed += gain.amount
 	case .Treasure:
-		s.starting_treasure += gain.amount
+		// Treasure is the holds now (ADR-0020): re-stow the raised total, so a gain
+		// above capacity is lost (#157) rather than banked in a scalar field.
+		ship.ship_stow_treasure(s.layout, ship.ship_treasure(s^) + gain.amount)
 	}
 }
 
@@ -203,5 +209,8 @@ run_apply_trade :: proc(s: ^ship.Ship, trade: Stage_Trade) {
 // (Stage_Outcome.Completed), which is what makes [Fight, Reward] read as "win, then
 // loot" with no authored gate — the halt on fleeing is Fight's, not Reward's.
 run_apply_reward :: proc(s: ^ship.Ship, reward: Stage_Reward) {
-	s.starting_treasure += reward.treasure
+	// The reward stows into the holds (ADR-0020): a payout above the ship's
+	// remaining cargo capacity is lost (#157), which is the mainline case once a
+	// rich ship's slots are full.
+	ship.ship_stow_treasure(s.layout, ship.ship_treasure(s^) + reward.treasure)
 }

@@ -354,7 +354,7 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	header := "Choose an item to take, or skip."
 	decline_label := "Skip (take nothing)"
 	if priced {
-		header = fmt.tprintf("Shop - treasure: %d. Buy an item, or leave.", state.player.starting_treasure)
+		header = fmt.tprintf("Shop - treasure: %d. Buy an item, or leave.", ship.ship_treasure(state.player))
 		decline_label = "Leave (buy nothing)"
 	}
 
@@ -363,7 +363,7 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		draw_scene_contents(state, header)
 		for slot, i in options {
 			if option, filled := slot.?; filled {
-				draw_option_box(boxes[i], option, state.player.starting_treasure)
+				draw_option_box(boxes[i], option, ship.ship_treasure(state.player))
 			}
 		}
 		draw_labeled_box(boxes[decline_index], decline_label, "", "")

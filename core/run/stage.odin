@@ -91,8 +91,9 @@ SHOP_STOCK_MAX :: 12
 // offer and its `cost` in treasure. Cost is stored as a plain int, priced once at
 // generation from the item's Tier (ship.ship_item_cost) — tier itself doesn't
 // ride along because nothing past pricing reads it, and a bare Fitting is what
-// the Refit ultimately places. Buying deducts cost from the ship's
-// starting_treasure and opens a Refit to place the fitting.
+// the Refit ultimately places. Buying deducts cost from the ship's hold
+// (ship_treasure / ship_stow_treasure, ADR-0020) and opens a Refit to place the
+// fitting.
 Shop_Item :: struct {
 	fitting: ship.Fitting,
 	cost:    int,

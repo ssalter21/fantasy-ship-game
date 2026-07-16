@@ -11,6 +11,11 @@ package ship
 TOP_CREW_BUFF_MAGNITUDE :: 3
 CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE :: 2
 GUN_DECK_OFFENSE_MAGNITUDE :: 5
+
+// CARGO_STACK_COUNT is the placeholder treasure a hostile's spare slot is filled
+// with (ship_fill_empty_slots_with_cargo). The *player's* stow is amount-driven
+// (ship_stow_treasure), so this only survives as the hostile's per-slot fill
+// until hostile ship templates and #176's flat-50% fill land (out of scope here).
 CARGO_STACK_COUNT :: 1
 
 // STARTING_HP is a **scale**, and #151 (ADR-0017) found the old 20 could not
@@ -28,12 +33,17 @@ CARGO_STACK_COUNT :: 1
 STARTING_HP :: 100
 STARTING_DURABILITY :: 2
 STARTING_SPEED :: 4
-STARTING_TREASURE :: 50
-STARTING_BASE_CARGO_CAPACITY :: 2
 
-// CAPTAIN_CARGO_CAPACITY_BONUS is the one captain's cargo_capacity_bonus —
-// see the Captain struct's doc comment for the design rationale.
-CAPTAIN_CARGO_CAPACITY_BONUS :: 1
+// STARTING_CARGO is the treasure a fresh ship is stowed with, and
+// CAPTAIN_STARTING_CARGO the extra the one captain (Odessa) names on top
+// (ADR-0020, #172): 40 + 10 = the starting 50, no longer a Ship.starting_treasure
+// field but treasure actually stowed into the holds (ship_stow_treasure). The
+// 40/10 split is what makes the captain lever live rather than ornamental — the
+// captain names part of the amount, and it lands as real treasure in the hull's
+// headroom (ship_cargo_capacity reads 90). "A full purse" is now derived from
+// this sum, not a constant (see content_test's Deep-item affordability check).
+STARTING_CARGO :: 40
+CAPTAIN_STARTING_CARGO :: 10
 
 // ship_fitting_top_crew, ship_fitting_captains_quarters, and
 // ship_fitting_gun_deck are the three starting fittings (issue #23) that
@@ -117,8 +127,9 @@ Roster_Item :: struct {
 // ITEM_COST_SPLASH / _SHALLOW / _DEEP are the Port-shop prices of a roster item
 // by its authored Tier (#98, ADR-0012: "tier scales an item's power and its shop
 // cost"). Graded weakest-to-strongest like the tiers themselves, and scaled
-// against STARTING_TREASURE so the fixed budget actually bites — the starting
-// purse buys one Deep item (and little else), a couple of Shallow ones, or a
+// against the starting purse (STARTING_CARGO + CAPTAIN_STARTING_CARGO = 50) so
+// the fixed budget actually bites — the starting purse buys one Deep item (and
+// little else), a couple of Shallow ones, or a
 // handful of Splash ones, so an unaffordable item is a real, reachable state
 // rather than a theoretical one. Placeholder economy tuning like every other
 // balance constant here, expected to move in playtest (ADR-0012).
@@ -357,16 +368,19 @@ ship_fitting_output_scaled :: proc(base: Fitting, percent: int) -> Fitting {
 	return f
 }
 
-// ship_fitting_cargo builds one of the ship template's default cargo fillers
-// (issue #23: "cargo fills the concealed slots by default"). name lets a
-// caller flavor multiple cargo instances (e.g. a PvE opponent's "Spoils")
-// without a separate fitting type (ADR-0004). size is caller-supplied so cargo
-// can fill a slot of any size under the exact-size-match fit rule (issue #91:
-// every empty slot, not just the small holds, can be spent on cargo capacity —
-// a larger slot's cargo is worth more, see ship_cargo_slot_contribution). Cargo
+// ship_fitting_cargo builds a cargo fitting holding `treasure` (ADR-0020: a
+// cargo fitting *is* its treasure, so stack_count carries the amount — #156).
+// name lets a caller flavor multiple cargo instances (e.g. a PvE opponent's
+// "Spoils") without a separate fitting type (ADR-0004). size is caller-supplied
+// so cargo can fill a slot of any size under the exact-size-match fit rule (issue
+// #91: every empty slot, not just the small holds, can hold treasure — a larger
+// slot's cargo is worth more, see ship_cargo_slot_contribution). Callers that
+// stow a purse (ship_stow_treasure) pass the treasure that fits the slot;
+// treasure must be at least 1 (an empty hold is an *empty slot*, #157, not a
+// zero-count cargo fitting — ship_fitting_fits rejects stack_count < 1). Cargo
 // carries the Cargo tag family (#90).
-ship_fitting_cargo :: proc(name: string, size: Slot_Size) -> Fitting {
-	return Fitting{name = name, size = size, tags = {.Cargo}, is_cargo = true, stack_count = CARGO_STACK_COUNT}
+ship_fitting_cargo :: proc(name: string, size: Slot_Size, treasure: int) -> Fitting {
+	return Fitting{name = name, size = size, tags = {.Cargo}, is_cargo = true, stack_count = treasure}
 }
 
 // ship_template_layout is the vertical slice's one ship template (issue #91,
@@ -392,28 +406,29 @@ ship_template_layout :: proc() -> []Layout_Slot {
 // ship_starting_captain is the vertical slice's one captain (issue #23,
 // CONTEXT.md: "Exactly one captain").
 ship_starting_captain :: proc() -> Captain {
-	return Captain{name = "Captain Odessa Vane", cargo_capacity_bonus = CAPTAIN_CARGO_CAPACITY_BONUS}
+	return Captain{name = "Captain Odessa Vane", starting_cargo_bonus = CAPTAIN_STARTING_CARGO}
 }
 
 // ship_starting_ship assembles the run's starting Ship (issue #23): the one
 // template, filled with its fixed starting loadout — Captain's Quarters and
 // Top Crew in the two medium exposed slots, Gun Deck in the large exposed
-// slot, cargo filling every remaining slot by default (issue #91) — plus the
+// slot, the starting purse stowed into the rest (ADR-0020, #172) — plus the
 // one captain. Hand-placement of Captain's Quarters into "top deck" and Top
 // Crew into "top crew" is a flavor-only pairing (ADR-0004: slot names impose
 // no restriction on what fills them). Caller owns the returned Ship's
 // layout slice.
 // ship_fit_starting_loadout fits the fixed combat loadout into ship_starting_ship's
-// exposed slots and hands the rest to ship_fill_empty_slots_with_cargo (issue
-// #54: an or_return chain replacing hand-threaded ok/assert pairs — a false
-// return here means the template and its starting fittings have drifted out of
-// sync, a content bug caught immediately by this package's own tests, not a
-// real runtime condition).
-ship_fit_starting_loadout :: proc(layout: []Layout_Slot) -> bool {
+// exposed slots (issue #54: an or_return chain — a false return means the
+// template and its starting fittings have drifted out of sync, a content bug
+// caught immediately by this package's own tests, not a real runtime condition)
+// and stows `treasure` across the remaining slots smallest-first
+// (ship_stow_treasure), which leaves the Large forecastle empty as headroom.
+ship_fit_starting_loadout :: proc(layout: []Layout_Slot, treasure: int) -> bool {
 	ship_fit(&layout[0], ship_fitting_captains_quarters()) or_return
 	ship_fit(&layout[1], ship_fitting_top_crew()) or_return
 	ship_fit(&layout[2], ship_fitting_gun_deck()) or_return
-	return ship_fill_empty_slots_with_cargo(layout, "Cargo")
+	ship_stow_treasure(layout, treasure)
+	return true
 }
 
 // ship_fill_empty_slots_with_cargo fills every still-empty slot of `layout`
@@ -429,23 +444,27 @@ ship_fill_empty_slots_with_cargo :: proc(layout: []Layout_Slot, name: string) ->
 		if _, occupied := layout_slot.fitting.?; occupied {
 			continue
 		}
-		ship_fit(&layout_slot, ship_fitting_cargo(name, layout_slot.slot.size)) or_return
+		ship_fit(&layout_slot, ship_fitting_cargo(name, layout_slot.slot.size, CARGO_STACK_COUNT)) or_return
 	}
 	return true
 }
 
 ship_starting_ship :: proc() -> Ship {
+	captain := ship_starting_captain()
 	layout := ship_template_layout()
-	assert(ship_fit_starting_loadout(layout), "starting loadout: a fitting failed to fit its template slot")
+	// The captain names part of the starting purse (#172), so the stow amount is
+	// STARTING_CARGO + the captain's bonus — 40 + 10 = 50, stowed into the holds.
+	assert(
+		ship_fit_starting_loadout(layout, STARTING_CARGO + captain.starting_cargo_bonus),
+		"starting loadout: a fitting failed to fit its template slot",
+	)
 
 	return Ship{
-		hp                  = STARTING_HP,
-		max_hp              = STARTING_HP,
-		durability          = STARTING_DURABILITY,
-		speed               = STARTING_SPEED,
-		starting_treasure   = STARTING_TREASURE,
-		base_cargo_capacity = STARTING_BASE_CARGO_CAPACITY,
-		layout              = layout,
-		captain             = ship_starting_captain(),
+		hp         = STARTING_HP,
+		max_hp     = STARTING_HP,
+		durability = STARTING_DURABILITY,
+		speed      = STARTING_SPEED,
+		layout     = layout,
+		captain    = captain,
 	}
 }
