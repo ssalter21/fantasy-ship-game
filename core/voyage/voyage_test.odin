@@ -1334,9 +1334,10 @@ voyage_finish_ship_battle_completes_the_fight_when_nobody_escaped :: proc(t: ^te
 
 	// A round-cap stalemate: the fight is over, and it pays nothing (#159 — only a
 	// wreck pays; a draw leaves no wreck).
-	outcome, payout := voyage_finish_ship_battle(&battle)
+	outcome, payout, spilled := voyage_finish_ship_battle(&battle)
 	testing.expect_value(t, outcome, Stage_Outcome.Completed)
 	testing.expect_value(t, payout, 0)
+	testing.expect_value(t, spilled, 0) // a payout-less ending spills nothing
 }
 
 @(test)
@@ -1347,7 +1348,7 @@ voyage_finish_ship_battle_halts_the_encounter_when_the_captain_took_break_off ::
 
 	// Fight's halt condition (ADR-0014): flee a [Fight, Reward] and the loot stage
 	// downstream of the Fight is never reached, with no authored gate saying so.
-	outcome, _ := voyage_finish_ship_battle(&battle)
+	outcome, _, _ := voyage_finish_ship_battle(&battle)
 	testing.expect_value(t, outcome, Stage_Outcome.Halted)
 }
 
@@ -1364,9 +1365,10 @@ voyage_finish_ship_battle_completes_the_fight_when_the_opponent_escaped :: proc(
 	// being over rather than as a halt — the asymmetry that makes the halt *the
 	// captain's* choice, and the reason this is read off `escaped` per side rather
 	// than off "did anyone escape".
-	outcome, payout := voyage_finish_ship_battle(&battle)
+	outcome, payout, spilled := voyage_finish_ship_battle(&battle)
 	testing.expect_value(t, outcome, Stage_Outcome.Completed)
 	testing.expect_value(t, payout, 0)
+	testing.expect_value(t, spilled, 0) // a runner is no wreck: nothing paid, nothing spilled
 }
 
 @(test)
@@ -1398,10 +1400,11 @@ voyage_finish_ship_battle_pays_the_sunk_opponents_hold_into_the_player :: proc(t
 	ship.ship_stow_cargo(fight.opponent.layout, 30)
 	battle := battle_destroyed_won_by_the_player(&player, &fight)
 
-	outcome, payout := voyage_finish_ship_battle(&battle)
+	outcome, payout, spilled := voyage_finish_ship_battle(&battle)
 
 	testing.expect_value(t, outcome, Stage_Outcome.Completed)
 	testing.expect_value(t, payout, 30) // the whole wreck's hold
+	testing.expect_value(t, spilled, 0) // 40 stowed into 50 of capacity: nothing overboard
 	testing.expect_value(t, ship.ship_cargo(player), 40) // 10 aboard + 30 looted, within capacity
 	testing.expect_value(t, ship.ship_cargo(fight.opponent), 30) // the wreck's hold is read, never emptied
 }
@@ -1422,10 +1425,11 @@ voyage_finish_ship_battle_payout_above_capacity_falls_overboard :: proc(t: ^test
 	ship.ship_stow_cargo(fight.opponent.layout, 30)
 	battle := battle_destroyed_won_by_the_player(&player, &fight)
 
-	outcome, payout := voyage_finish_ship_battle(&battle)
+	outcome, payout, spilled := voyage_finish_ship_battle(&battle)
 
 	testing.expect_value(t, outcome, Stage_Outcome.Completed)
 	testing.expect_value(t, payout, 30) // the gross hold looted, before the ship's capacity clips it
+	testing.expect_value(t, spilled, 25) // 45 aboard + 30 looted, capped at 50: the other 25 overboard
 	testing.expect_value(t, ship.ship_cargo(player), 50) // clamped to capacity — the other 25 went overboard
 }
 
@@ -1440,10 +1444,11 @@ voyage_finish_ship_battle_a_kill_of_a_broke_opponent_pays_nothing :: proc(t: ^te
 	fight := Stage_Fight{opponent = ship.Ship{layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}}}}}
 	battle := battle_destroyed_won_by_the_player(&player, &fight)
 
-	outcome, payout := voyage_finish_ship_battle(&battle)
+	outcome, payout, spilled := voyage_finish_ship_battle(&battle)
 
 	testing.expect_value(t, outcome, Stage_Outcome.Completed)
 	testing.expect_value(t, payout, 0)
+	testing.expect_value(t, spilled, 0) // an empty hold pays nothing and spills nothing
 	testing.expect_value(t, ship.ship_cargo(player), 0)
 }
 

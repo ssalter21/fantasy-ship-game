@@ -203,6 +203,64 @@ the_starting_hull_reads_ninety_capacity_against_a_fifty_cargo :: proc(t: ^testin
 	testing.expect_value(t, ship_cargo(s), 50)
 }
 
+// The stow-overflow tests below share a two-slot hold — Small 10 + Large 40 = 50 of
+// capacity — so the returned `spilled` reads against a capacity that is easy to see.
+
+@(test)
+stowing_within_capacity_returns_zero_spilled :: proc(t: ^testing.T) {
+	// A stow that fits reports no loss: the return is the overflow, and there is none.
+	s := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+	testing.expect_value(t, ship_stow_cargo(s.layout, 30), 0) // 30 into 50 of capacity
+	testing.expect_value(t, ship_cargo(s), 30)
+}
+
+@(test)
+stowing_exactly_to_capacity_returns_zero_spilled :: proc(t: ^testing.T) {
+	// The fits-exactly boundary: filling every slot to the brim drops nothing.
+	s := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+	testing.expect_value(t, ship_stow_cargo(s.layout, 50), 0) // exactly capacity
+	testing.expect_value(t, ship_cargo(s), 50)
+}
+
+@(test)
+stowing_above_capacity_returns_the_overflow :: proc(t: ^testing.T) {
+	// Overflow above capacity is dropped (#157) and returned, never stored: the holds
+	// fill to 50 and the return names the 15 that found no slot.
+	s := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+	testing.expect_value(t, ship_stow_cargo(s.layout, 65), 15) // 15 over a 50 capacity
+	testing.expect_value(t, ship_cargo(s), 50)
+}
+
+@(test)
+refilling_an_emptied_hold_reports_its_overflow_afresh :: proc(t: ^testing.T) {
+	// A re-stow rebuilds the hold from scratch, so the return reflects the new total,
+	// not the old: brim-fill, empty, then refill past capacity, and each stow reports
+	// its own overflow.
+	s := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+	testing.expect_value(t, ship_stow_cargo(s.layout, 50), 0) // brim-full
+	testing.expect_value(t, ship_stow_cargo(s.layout, 0), 0) // emptied: nothing to spill
+	testing.expect_value(t, ship_cargo(s), 0)
+	testing.expect_value(t, ship_stow_cargo(s.layout, 70), 20) // refilled past capacity
+	testing.expect_value(t, ship_cargo(s), 50)
+}
+
+@(test)
+ship_stow_spill_predicts_the_overflow_a_stow_would_drop :: proc(t: ^testing.T) {
+	// The predictive twin agrees with the mutating stow's return across the range, so a
+	// caller that must name the loss before stowing (the Reward beat) gets the same
+	// number ship_stow_cargo would report after.
+	for amount in ([]int{0, 30, 50, 65, 120}) {
+		predicted := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+		actual := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+		testing.expectf(
+			t,
+			ship_stow_spill(predicted, amount) == ship_stow_cargo(actual.layout, amount),
+			"ship_stow_spill disagreed with ship_stow_cargo at amount %d",
+			amount,
+		)
+	}
+}
+
 @(test)
 ship_with_no_captain_assigned_has_no_captain :: proc(t: ^testing.T) {
 	s := Ship{}
