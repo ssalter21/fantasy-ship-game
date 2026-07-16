@@ -28,7 +28,7 @@ main :: proc() {
 	state := Game_State{}
 	defer delete(state.visited)
 	defer delete(state.positions)
-	defer delete(state.run_map.nodes) // UI-owned clone of the masked map (edges are borrowed)
+	defer delete(state.voyage_map.nodes) // UI-owned clone of the masked map (edges are borrowed)
 
 	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
 	sink := sim.Event_Sink{data = &state, dispatch = dispatch}
@@ -45,9 +45,9 @@ main :: proc() {
 // get_captain_choice's awaiting parameter (issue #39) — not any field here
 // — is what decides which decision menu to render.
 Game_State :: struct {
-	run_map:          run.Map,
-	positions:        []rl.Vector2, // parallel to run_map.nodes; screen position
-	visited:          []bool, // parallel to run_map.nodes; kept for rendering (revealing kinds, colouring nodes)
+	voyage_map:          run.Map,
+	positions:        []rl.Vector2, // parallel to voyage_map.nodes; screen position
+	visited:          []bool, // parallel to voyage_map.nodes; kept for rendering (revealing kinds, colouring nodes)
 	travel_options:   []sim.Node_ID, // borrowed from the latest Event_Travel_Options; the Sim's legal moves for the decision path
 	current_node_id:  sim.Node_ID,
 	player:           ship.Ship,
@@ -85,7 +85,7 @@ Game_State :: struct {
 	// refit_move_from is the slot a two-click Refit move has selected as its
 	// source, or nil when no move is in progress (issue #96).
 	refit_move_from:  Maybe(ship.Slot_Index),
-	status:           run.Run_Status,
+	status:           run.Voyage_Status,
 }
 
 // get_captain_choice is the game Input_Source: it picks which blocking
@@ -121,24 +121,24 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 
 // dispatch is the game Event_Sink: updates Game_State from every event and,
 // for the events that warrant it (a sighted opponent, a battle round, an
-// applied upgrade, the run ending), plays a blocking beat via play_beat/
+// applied upgrade, the voyage ending), plays a blocking beat via play_beat/
 // play_battle_event_beat before returning control to run_session.
 dispatch :: proc(data: rawptr, event: sim.Event) {
 	state := cast(^Game_State)data
 
 	switch e in event {
-	case sim.Event_Run_Started:
-		// e.run_map is the Sim's masked public map (unvisited encounters' stages
+	case sim.Event_Voyage_Started:
+		// e.voyage_map is the Sim's masked public map (unvisited encounters' stages
 		// hidden). Its nodes are cloned into UI-owned storage so arrivals can
-		// reveal kinds into it (state.run_map.nodes[id] = revealed node); the
+		// reveal kinds into it (state.voyage_map.nodes[id] = revealed node); the
 		// edges/adjacency are borrowed (they never change). Start (id 0) counts
 		// as visited from the outset, matching the Sim's own visited set.
-		state.run_map.nodes = slice.clone(e.run_map.nodes)
-		state.run_map.edges = e.run_map.edges
+		state.voyage_map.nodes = slice.clone(e.voyage_map.nodes)
+		state.voyage_map.edges = e.voyage_map.edges
 		state.player = e.ship
-		state.visited = make([]bool, len(e.run_map.nodes))
+		state.visited = make([]bool, len(e.voyage_map.nodes))
 		state.visited[0] = true
-		state.positions = compute_node_positions(e.run_map)
+		state.positions = compute_node_positions(e.voyage_map)
 
 	case sim.Event_Travel_Options:
 		// The Sim's legal moves for the upcoming travel decision (issue #83);
@@ -153,7 +153,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Arrived_At_Node:
 		state.current_node_id = e.node.id
 		state.visited[e.node.id] = true
-		state.run_map.nodes[e.node.id] = e.node // reveal this node's now-known kind
+		state.voyage_map.nodes[e.node.id] = e.node // reveal this node's now-known kind
 
 	case sim.Event_Ship_Battle_Sighted:
 		state.in_battle = true
@@ -231,7 +231,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		// arena and is reclaimed wholesale by sim_destroy (issue #52), and
 		// the UI has no use for a ghost snapshot beyond this dispatch.
 
-	case sim.Event_Run_Ended:
+	case sim.Event_Voyage_Ended:
 		state.status = e.status
 		message := "Your ship has been lost."
 		if e.status == .Won {

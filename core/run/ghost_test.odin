@@ -7,7 +7,7 @@ import "core:testing"
 capture_resets_hull_to_max_hull_regardless_of_current_hull :: proc(t: ^testing.T) {
 	s := ship.Ship{hull = 3, max_hull = 20}
 
-	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
+	snap := voyage_ghost_snapshot_capture(voyage_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
 	defer delete(snap.ship.layout)
 
 	testing.expect_value(t, snap.ship.hull, 20)
@@ -24,7 +24,7 @@ capture_resets_hull_to_effective_max_hull_including_a_max_hull_fitting :: proc(t
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = ballast}},
 	}
 
-	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
+	snap := voyage_ghost_snapshot_capture(voyage_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
 	defer delete(snap.ship.layout)
 
 	// Effective max Hull = raw 20 + the +Max_Hull fitting's 10 (issue #92).
@@ -39,7 +39,7 @@ capture_clones_the_layout_so_later_mutation_to_the_source_ship_does_not_leak_int
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
 	}
 
-	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
+	snap := voyage_ghost_snapshot_capture(voyage_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
 	defer delete(snap.ship.layout)
 
 	// Jettison Cargo empties the source ship's slot after capture (ADR-0006).
@@ -54,7 +54,7 @@ capture_carries_the_given_progress_fields_through_unchanged :: proc(t: ^testing.
 	s := ship.Ship{hull = 20, max_hull = 20}
 
 	site := Scaling_Site{zone = .Open_Sea, depth = 2}
-	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 7, site))
+	snap := voyage_ghost_snapshot_capture(voyage_ghost_snapshot_of(&s, 7, site))
 	defer delete(snap.ship.layout)
 
 	testing.expect_value(t, snap.progress.steps, 7)
@@ -69,7 +69,7 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 		captain = captain,
 	}
 
-	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
+	snap := voyage_ghost_snapshot_capture(voyage_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
 	defer delete(snap.ship.layout)
 
 	// A ship's cargo is no longer a scalar field (ADR-0020) — it rides in the
@@ -84,5 +84,5 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 // none of them return one any more (issue #162). A ghost is captured once per
 // encounter, at the end of the node's walk, so "what does a resolved encounter's
 // snapshot say" is core/sim's question and is asked there — this file is left with
-// the capture itself: what run_ghost_snapshot_of describes and what
-// run_ghost_snapshot_capture owns.
+// the capture itself: what voyage_ghost_snapshot_of describes and what
+// voyage_ghost_snapshot_capture owns.

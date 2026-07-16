@@ -77,7 +77,7 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", 
 // **Size — eight.** A run traverses only ~3-4 nodes per zone (~11-14 of 50), so
 // this is sized like trade_roster (six) but deliberately larger, for two reasons.
 // Fight is the primitive that appears in the *most* recipes — it is [Fight] today
-// and the spine of [Fight, Reward], this effort's headline recipe (#138) — so a run
+// and the spine of [Fight, Reward], this effort's headline recipe (#138) — so a voyage
 // meets more Fights than Trades, and six would repeat inside a single zone. And a
 // hostile is the most-*looked-at* content in the game: you stare at its layout for a
 // whole battle, where a Trade is one line you read and answer. The bar for "I have
@@ -94,7 +94,7 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", 
 //
 // **The authoring rule: an archetype is character, stakes is power** — and as of
 // #165 (ADR-0019) the table has a **weight**: an entry is authored at **Open Sea**,
-// the zone where run_fight_opponent_power reads 100%. A captain meets an entry as it
+// the zone where voyage_fight_opponent_power reads 100%. A captain meets an entry as it
 // is written here in the middle zone, at half of it in the Coastal shallows, and at
 // half again on top in The Deep. Entries stay authored to a *comparable* band — the
 // Fight analogue of trade_roster's "every axis is one swing for one swing" — because
@@ -170,7 +170,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// gun — the reason it was unaffordable before, and the reason it is worth having
 	// now. It is also the entry that most needed the multiplier rather than a bigger
 	// bonus: a Selector build is exactly what an additive share mis-scaled (see
-	// run_fit_hostile_loadout). War Hound's own magnitude is gated below half Hull, so
+	// voyage_fit_hostile_loadout). War Hound's own magnitude is gated below half Hull, so
 	// the Pack's count rises immediately and the Hound's gun only joins once the
 	// Menagerie is dying. **Authored slow, it now derives *fast* — and that is the
 	// flat-50% placeholder's accepted cost** (#176, map out-of-scope): three small
@@ -247,17 +247,17 @@ hostile_roster := [?]Hostile_Archetype {
 	{name = "Reef Skimmer", items = REEF_SKIMMER_ITEMS[:]},
 }
 
-// run_hostile_roster returns every authored hostile archetype. run_pve_opponent
+// voyage_hostile_roster returns every authored hostile archetype. voyage_pve_opponent
 // deals from this rather than building one hardcoded loadout, so the set of
 // hostiles in the game is this table and nothing else — the Fight half of the same
 // authored-content rule catalog.odin states for recipes and trade_roster for trades.
-run_hostile_roster :: proc() -> []Hostile_Archetype {
+voyage_hostile_roster :: proc() -> []Hostile_Archetype {
 	return hostile_roster[:]
 }
 
-// run_make_opponent_ship computes a Ship Battle opponent's stakes-scaled stats (hull,
+// voyage_make_opponent_ship computes a Ship Battle opponent's stakes-scaled stats (hull,
 // durability) from the node's Scaling_Site — the numeric half of a PvE opponent
-// (issue #23). run_pve_opponent layers an archetype's loadout on top of these; this
+// (issue #23). voyage_pve_opponent layers an archetype's loadout on top of these; this
 // proc has no layout/captain of its own and is not itself a complete opponent.
 //
 // It sets the uniform `speed` base (ADR-0020, #158/#180): every ship's base term is
@@ -266,17 +266,17 @@ run_hostile_roster :: proc() -> []Hostile_Archetype {
 // site-specific to say about the base. Speed *left* this proc with #135, when it was
 // an authored per-archetype field; it comes back with #194 now that the base is the
 // same on every hull and only the derived reading varies.
-run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
-	hull := run_fight_opponent_hull(site)
+voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
+	hull := voyage_fight_opponent_hull(site)
 	return ship.Ship{
 		hull         = hull,
 		max_hull     = hull,
-		durability = run_fight_opponent_durability(site),
+		durability = voyage_fight_opponent_durability(site),
 		speed      = ship.BASE_SPEED,
 	}
 }
 
-// run_stakes_scales_category reports whether the site's power reading scales a
+// voyage_stakes_scales_category reports whether the site's power reading scales a
 // fitting of this Category — the whole of the rule, which is: **stakes scales what a
 // hostile deals, never what it soaks.**
 //
@@ -301,7 +301,7 @@ run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 // `.Muster` also holds every Modify_Speed item in the roster; it is
 // ship_fitting_output_scaled that declines to touch those, and the reason it must is
 // on that proc.
-run_stakes_scales_category :: proc(category: ship.Category) -> bool {
+voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	switch category {
 	case .Fire, .Muster:
 		return true // raw_damage = Fire + Muster (core/combat, ADR-0017)
@@ -311,7 +311,7 @@ run_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	return false
 }
 
-// run_fit_hostile_loadout fits an archetype's authored items into the one ship
+// voyage_fit_hostile_loadout fits an archetype's authored items into the one ship
 // template (ADR-0004), each scaled to this site's power reading, and hands the
 // leftovers to ship_fill_empty_slots_with_cargo (issue #91: the opponent's spare
 // slots fill with "Spoils" the way the player's fill with "Cargo"). An or_return
@@ -326,7 +326,7 @@ run_stakes_scales_category :: proc(category: ship.Category) -> bool {
 // reading: a three-gun build would collect three times a one-gun build's uplift, so
 // which archetype you drew would move a hostile's power more than how deep you were
 // — the gradient swamped by the draw. It therefore shared **one total** across the
-// guns (run_offense_share, now deleted), and paid for that with the machinery.
+// guns (voyage_offense_share, now deleted), and paid for that with the machinery.
 //
 // A multiplier is **scale-invariant**, so the dilemma dissolves rather than moving:
 // three guns at 50% is the same proportion as one gun at 50%, and the count cannot
@@ -345,13 +345,13 @@ run_stakes_scales_category :: proc(category: ship.Category) -> bool {
 // mechanism it was protecting against**, one level down: not count-of-guns, but
 // count-of-Beasts. The multiplier is the first shape that actually holds it, and
 // holds it through a selector for the same structural reason.
-run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_Archetype, power_percent: int) -> bool {
+voyage_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_Archetype, power_percent: int) -> bool {
 	for name in archetype.items {
 		item, found := ship.ship_item_by_name(name)
 		assert(found, "hostile archetype names an item that is not in the roster")
 
 		fitting := item.fitting
-		if run_stakes_scales_category(fitting.category) {
+		if voyage_stakes_scales_category(fitting.category) {
 			fitting = ship.ship_fitting_output_scaled(fitting, power_percent)
 		}
 		ship.ship_fit_first_empty_slot(layout, fitting) or_return
@@ -359,13 +359,13 @@ run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_A
 	return ship.ship_fill_empty_slots_with_cargo(layout, "Spoils")
 }
 
-// run_pve_opponent builds a full Ship Battle opponent by drawing one archetype from
+// voyage_pve_opponent builds a full Ship Battle opponent by drawing one archetype from
 // the hostile roster (#135) and baking it at this node's stakes: the archetype
 // supplies the loadout (and, through its weight, its Speed), the site supplies hull,
 // durability, and the fire bonus. Draws off the map generator's RNG (`gen`) — so *which* hostile a
 // node holds is reproducible per seed yet varies node to node, exactly like an
 // Offer's items, a Shop's deck and a Trade's axis — and is called from
-// run_bake_stage at generation time. Nothing rolls on arrival (ADR-0013).
+// voyage_bake_stage at generation time. Nothing rolls on arrival (ADR-0013).
 //
 // The draw reads no zone: archetype and stakes are independent axes, so a Deep node
 // gets a *tougher* hostile, not a different pool of them. Whether some archetypes
@@ -373,20 +373,20 @@ run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_A
 // map's "per-zone eligibility beyond stage count" fog), not this draw's.
 //
 // Carries no captain — a captain is a player-side, run-start choice (CONTEXT.md),
-// not opponent content. Caller owns the returned Ship's layout slice; run_map_destroy
+// not opponent content. Caller owns the returned Ship's layout slice; voyage_map_destroy
 // frees it per Fight stage.
-run_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
-	roster := run_hostile_roster()
+voyage_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
+	roster := voyage_hostile_roster()
 	archetype := roster[rand.int_max(len(roster), gen)]
 
-	// run_make_opponent_ship sets the uniform BASE_SPEED base; a hostile's actual
+	// voyage_make_opponent_ship sets the uniform BASE_SPEED base; a hostile's actual
 	// Speed falls out of its weight like every other ship's (ADR-0020, #176/#180) —
 	// its loadout plus its flat-50% hold decide what it reads (ship_effective_speed).
-	s := run_make_opponent_ship(site)
+	s := voyage_make_opponent_ship(site)
 
 	layout := ship.ship_template_layout()
 	assert(
-		run_fit_hostile_loadout(layout, archetype, run_fight_opponent_power(site)),
+		voyage_fit_hostile_loadout(layout, archetype, voyage_fight_opponent_power(site)),
 		"hostile archetype loadout: a fitting failed to fit the ship template",
 	)
 
@@ -395,7 +395,7 @@ run_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
 }
 
 // OFFER_ITEM_QUALITY_DIVISOR converts a node's Offer quality reading
-// (run_offer_item_quality) into a flat magnitude bonus added to each offered
+// (voyage_offer_item_quality) into a flat magnitude bonus added to each offered
 // item (issue #96): a smaller, more legible number than raw quality while still
 // scaling with it — the same knob the old Upgrade Offer applied to its three
 // fixed variants, now spread across the roster items on offer. Not a stakes
@@ -403,18 +403,18 @@ run_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
 // stays here with its consumer rather than joining the scaling group.
 OFFER_ITEM_QUALITY_DIVISOR :: 5
 
-// run_item_offer_options picks the distinct roster items an Offer stage presents
+// voyage_item_offer_options picks the distinct roster items an Offer stage presents
 // (issue #96, ADR-0012): it samples ITEM_OFFER_OPTION_COUNT distinct items from
 // ship_item_roster — shuffling the pool's indices with the map generator's RNG
 // (`gen`) so an offer's items are reproducible per seed yet vary node to node —
 // and scales each by this node's stakes. Baked at generation time
-// (run_bake_stage), so the offer carries its items as content, like a Fight
-// carries its opponent. Retires run_upgrade_offer_options' fixed three-upgrade
+// (voyage_bake_stage), so the offer carries its items as content, like a Fight
+// carries its opponent. Retires voyage_upgrade_offer_options' fixed three-upgrade
 // menu.
-run_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM_OFFER_OPTION_COUNT]ship.Fitting {
-	bonus := run_offer_item_quality(site) / OFFER_ITEM_QUALITY_DIVISOR
+voyage_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM_OFFER_OPTION_COUNT]ship.Fitting {
+	bonus := voyage_offer_item_quality(site) / OFFER_ITEM_QUALITY_DIVISOR
 	roster := ship.ship_item_roster()
-	indices := run_shuffled_roster_indices(gen)
+	indices := voyage_shuffled_roster_indices(gen)
 
 	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting
 	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
@@ -426,18 +426,18 @@ run_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM
 	return options
 }
 
-// run_shuffled_roster_indices returns the roster's indices
+// voyage_shuffled_roster_indices returns the roster's indices
 // (0..<ship.ITEM_ROSTER_SIZE) in a per-seed-reproducible shuffled order — the
 // front half of sampling N distinct roster items for the Offer stage
-// (run_item_offer_options), which takes the first ITEM_OFFER_OPTION_COUNT.
+// (voyage_item_offer_options), which takes the first ITEM_OFFER_OPTION_COUNT.
 //
 // The Shop stage used to share this (issue #98, when both sampled the whole
 // roster) and no longer does: a shop draws from its **stock pool**, not the
 // roster (issue #137), so it shuffles that pool's candidate subset instead
-// (run_bake_shop). The two samplers have deliberately diverged — an Offer's pool
+// (voyage_bake_shop). The two samplers have deliberately diverged — an Offer's pool
 // *is* the roster because an offer is what the sea happens to wash up, while a
 // shop is a business that chose what to carry.
-run_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SIZE]int {
+voyage_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SIZE]int {
 	indices: [ship.ITEM_ROSTER_SIZE]int
 	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
 		indices[i] = i
@@ -448,7 +448,7 @@ run_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SI
 
 // Trade_Axis is one authored entry in the Trade primitive's content roster
 // (issue #136): a named bargain, and the two stats it swaps. It carries no
-// magnitudes — those are each stat's swing at the node's site (run_trade_swing),
+// magnitudes — those are each stat's swing at the node's site (voyage_trade_swing),
 // so an axis is authored purely as "what for what" and the site decides how big.
 //
 // This is the type that unwelds Stage_Trade's +Durability/-Speed: the axis used
@@ -471,8 +471,8 @@ Trade_Axis :: struct {
 // stat a Trade can pay out of or bank into, so the three Speed-touching rows
 // (Braced Bulkheads, Stripped Spars, Lightened Hold) are removed. Speed returns
 // later as *fittings* that modify it, traded as fittings. The remaining three are
-// accepted as a deliberately thin roster in the meantime — a run meets only a
-// handful of trades, so a run is still mostly non-repeating.
+// accepted as a deliberately thin roster in the meantime — a voyage meets only a
+// handful of trades, so a voyage is still mostly non-repeating.
 //
 // **Coverage — thinner now, and consciously so.** Hull is gain-only (Cannibalized
 // Timbers), Max Hull and Cargo sit on both sides, and **Durability is cost-only**
@@ -495,19 +495,19 @@ trade_roster := [?]Trade_Axis {
 	{name = "Shipwright's Bargain", gain = .Max_Hull, cost = .Cargo},
 }
 
-// run_trade_roster returns every authored trade axis. run_make_trade deals from
+// voyage_trade_roster returns every authored trade axis. voyage_make_trade deals from
 // this rather than reading a hardcoded pair off Stage_Trade's fields, so the set
 // of trades in the game is this table and nothing else — the Trade half of the
 // same authored-content rule catalog.odin states for recipes.
-run_trade_roster :: proc() -> []Trade_Axis {
+voyage_trade_roster :: proc() -> []Trade_Axis {
 	return trade_roster[:]
 }
 
-// run_make_trade bakes a Trade stage (issue #136): it draws one axis from the
+// voyage_make_trade bakes a Trade stage (issue #136): it draws one axis from the
 // roster off the map generator's RNG — so which bargain a node offers is
 // reproducible per seed yet varies node to node, like an Offer's items and a
 // Shop's deck — and reads each side's magnitude as that stat's swing in this
-// node's zone. Called from run_bake_stage at generation time; nothing rolls on
+// node's zone. Called from voyage_bake_stage at generation time; nothing rolls on
 // arrival.
 //
 // Both terms read the *same* zone, so stakes move the whole trade together: a
@@ -517,16 +517,16 @@ run_trade_roster :: proc() -> []Trade_Axis {
 // It takes a Zone rather than the node's full Scaling_Site because a swing is
 // zone-scaled and nothing else (#146: an exchange rate has no room for a second
 // axis — see TRADE_SWING_* in run.odin). So a Trade is the one primitive that
-// reads *part* of its node's stakes; the Shop arm beside it in run_bake_stage
+// reads *part* of its node's stakes; the Shop arm beside it in voyage_bake_stage
 // reads none.
-run_make_trade :: proc(zone: Zone, gen: rand.Generator) -> Stage_Trade {
-	roster := run_trade_roster()
+voyage_make_trade :: proc(zone: Zone, gen: rand.Generator) -> Stage_Trade {
+	roster := voyage_trade_roster()
 	axis := roster[rand.int_max(len(roster), gen)]
 
 	return Stage_Trade{
 		name = axis.name,
-		gain = Trade_Term{stat = axis.gain, amount = run_trade_swing(zone, axis.gain)},
-		cost = Trade_Term{stat = axis.cost, amount = run_trade_swing(zone, axis.cost)},
+		gain = Trade_Term{stat = axis.gain, amount = voyage_trade_swing(zone, axis.gain)},
+		cost = Trade_Term{stat = axis.cost, amount = voyage_trade_swing(zone, axis.cost)},
 	}
 }
 
@@ -620,7 +620,7 @@ Stock :: struct {
 //     three cards even at the cheapest tier (10, then #124's surcharge makes it 15, 20),
 //     so the shelf is still full when the money runs out — the captain gives up before
 //     the shop does. It is not infinite: buying all 12 out at the cheapest tier costs
-//     10+15+…+65 = 450, nine times what a run starts with, so emptying a Port means
+//     10+15+…+65 = 450, nine times what a voyage starts with, so emptying a Port means
 //     arriving with a fortune and spending the lot on trinkets.
 //   - A specialist's 6 leaves a reserve of **1**. The *second* purchase of a visit
 //     already bares a slot. That is the difference, and it lands within the two or
@@ -654,15 +654,15 @@ stock_pools := [Stock_Pool]Stock {
 	.Curiosity_Dealer = {name = "Curiosity Dealer", families = bit_set[ship.Tag]{.Artifact}, depth = 6},
 }
 
-// run_stock_pool returns one pool's authored stock. The Shop half of the same
+// voyage_stock_pool returns one pool's authored stock. The Shop half of the same
 // authored-content rule catalog.odin states for recipes and trade_roster for trades:
 // the shops in the game are this table and nothing else.
-run_stock_pool :: proc(pool: Stock_Pool) -> Stock {
+voyage_stock_pool :: proc(pool: Stock_Pool) -> Stock {
 	return stock_pools[pool]
 }
 
-// run_stock_candidates returns the roster indices a pool is allowed to stock, in
-// roster order, and how many there are — the filter half of run_bake_shop, split out
+// voyage_stock_candidates returns the roster indices a pool is allowed to stock, in
+// roster order, and how many there are — the filter half of voyage_bake_shop, split out
 // so the pool table can be checked against the roster by test without baking a shop.
 //
 // An unfiltered pool (families = nil) yields the whole roster in order, untouched.
@@ -674,7 +674,7 @@ run_stock_pool :: proc(pool: Stock_Pool) -> Stock {
 // multi-tag item (Naval Gun Crew is Crew+Weapon) is stocked by both an Ordnance Hoy
 // and a Press Gang, the same way selector_matches counts it under each of its tags
 // (ADR-0012).
-run_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZE]int, count: int) {
+voyage_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZE]int, count: int) {
 	roster := ship.ship_item_roster()
 	families, filtered := stock.families.?
 	for item, i in roster {
@@ -687,7 +687,7 @@ run_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZE]i
 	return
 }
 
-// run_bake_shop bakes a Shop stage's stock from its authored pool (issue #137,
+// voyage_bake_shop bakes a Shop stage's stock from its authored pool (issue #137,
 // superseding ADR-0013's whole-roster deck): the pool's candidates shuffled into a
 // per-seed-reproducible order off the map generator's RNG — so stock varies node to
 // node yet reproduces per seed, like an Offer's items and a Fight's archetype — cut
@@ -705,11 +705,11 @@ run_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZE]i
 // the same progression from both ends — richer captain *and* better shelf. So the
 // market is a fixed market, and the gradient a shop faces is the cargo the captain
 // brings to it. That is why this proc has no `site` parameter to ignore.
-run_bake_shop :: proc(pool: Stock_Pool, gen: rand.Generator) -> Stage_Shop {
-	stock := run_stock_pool(pool)
+voyage_bake_shop :: proc(pool: Stock_Pool, gen: rand.Generator) -> Stage_Shop {
+	stock := voyage_stock_pool(pool)
 	roster := ship.ship_item_roster()
 
-	candidates, n := run_stock_candidates(stock)
+	candidates, n := voyage_stock_candidates(stock)
 	rand.shuffle(candidates[:n], gen)
 
 	shop := Stage_Shop{count = min(stock.depth, n)}

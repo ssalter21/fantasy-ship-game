@@ -68,7 +68,7 @@ Command_Leave_Combat :: struct {}
 Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
-// fought (their run-persistent Hull/Durability/Speed live on *ship.Ship and
+// fought (their voyage-persistent Hull/Durability/Speed live on *ship.Ship and
 // are mutated in place) plus this-battle-only bookkeeping.
 Battle :: struct {
 	ships:      [Side]^ship.Ship,
@@ -80,7 +80,7 @@ Battle :: struct {
 	escaped:    bit_set[Side],
 	ended:      bool,
 	// reason/winner mirror the Event_Battle_Ended emitted the moment the battle
-	// ends, so a caller holding only the Battle — run_finish_ship_battle, which must
+	// ends, so a caller holding only the Battle — voyage_finish_ship_battle, which must
 	// pay the wreck's hold to a captain who sank it (#159) — can read *how* it ended
 	// without replaying the event stream. Meaningful only once `ended`: on an unended
 	// battle `reason` reads as its zero value (.Destroyed) and must not be consulted.

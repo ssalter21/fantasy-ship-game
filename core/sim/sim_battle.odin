@@ -7,7 +7,7 @@ import "../ship"
 // sim_process_battle_round applies a submitted Command_Battle_Choice as the
 // player's (Side.A's) command for the current round, computes the scripted
 // opponent's (Side.B's) command (ADR-0008), and resolves the round via
-// core/combat. If the battle ends, it asks run.run_finish_ship_battle what that
+// core/combat. If the battle ends, it asks run.voyage_finish_ship_battle what that
 // ending means to the Fight stage and hands the outcome back to the walk.
 sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
@@ -37,20 +37,20 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	// Sinking is **neither** outcome (ADR-0014): the run is over by permadeath
+	// Sinking is **neither** outcome (ADR-0014): the voyage is over by permadeath
 	// (ADR-0006), so the walk stops dead rather than completing the Fight and applying
 	// whatever came after it to a sunk ship — a [Fight, Reward] must not pay out to a
 	// captain who went down with it. The node is never resolved, so it emits no
-	// Ghost_Snapshot either (issue #162) — the one encounter in a run that leaves no
-	// ghost, and Event_Run_Ended is what marks it. sim_tick's status check ends the run
+	// Ghost_Snapshot either (issue #162) — the one encounter in a voyage that leaves no
+	// ghost, and Event_Voyage_Ended is what marks it. sim_tick's status check ends the voyage
 	// on the way out of this tick, and it is deliberately not consulted here: the walk
-	// stopping and the run ending are separate facts, and only one of them is this
+	// stopping and the voyage ending are separate facts, and only one of them is this
 	// proc's.
 	//
-	// Checked **before** run_finish_ship_battle so the wreck payout only ever runs for
-	// a captain who survived: a Destroyed ending reaching run_finish is then always the
+	// Checked **before** voyage_finish_ship_battle so the wreck payout only ever runs for
+	// a captain who survived: a Destroyed ending reaching voyage_finish is then always the
 	// player's kill (#159), never a mutual kill or the player's own sinking.
-	if !run.run_can_travel(&sim.player) {
+	if !run.voyage_can_travel(&sim.player) {
 		return
 	}
 
@@ -61,13 +61,13 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	//
 	// `payout` is the wreck's *gross* hold; the player keeps only what fit, the rest
 	// lost above capacity (#157) — the mainline case (#176/#196). We measure the spill
-	// off the player's own cargo across the payout — run_finish stows into
-	// battle.ships[.A], which aliases sim.player (run_start_battle) — so `gained` is the
+	// off the player's own cargo across the payout — voyage_finish stows into
+	// battle.ships[.A], which aliases sim.player (voyage_start_battle) — so `gained` is the
 	// real delta and `spilled` the remainder, and Event_Wreck_Looted carries both so
 	// presentation can name the haul and any overboard loss rather than let it vanish
 	// silently (issue #201).
 	cargo_before := ship.ship_cargo(sim.player)
-	outcome, payout := run.run_finish_ship_battle(&sim.battle)
+	outcome, payout := run.voyage_finish_ship_battle(&sim.battle)
 	if payout > 0 {
 		spilled := payout - (ship.ship_cargo(sim.player) - cargo_before)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
