@@ -11,11 +11,9 @@ NODE_RADIUS :: 12
 MAP_PAD :: 34
 
 // compute_node_positions places each node from the generator's layer/lane
-// metadata (issue #71): layer is the column (Start at the left, Haven at the
-// right), lane the row within that column, evenly spread and centered so the
-// whole graph is visible at once with no camera or panning. Nodes still carry
-// no screen coordinates — that stays a presentation concern. Caller owns the
-// returned slice.
+// metadata: layer is the column (Start left, Haven right), lane the row within
+// it, evenly spread and centered so the whole graph fits with no camera or
+// panning. Caller owns the returned slice.
 compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 	positions := make([]rl.Vector2, len(voyage_map.nodes))
 
@@ -42,8 +40,7 @@ compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 }
 
 // zone_tint is the ambient colour of a zone, used both for the background
-// gradient band and for an unvisited encounter's generic marker (issue #71) —
-// the colour a player reads as "how deep into the voyage this is".
+// gradient band and for an unvisited encounter's generic marker.
 zone_tint :: proc(zone: Maybe(voyage.Zone)) -> rl.Color {
 	z, ok := zone.?
 	if !ok {
@@ -60,10 +57,9 @@ zone_tint :: proc(zone: Maybe(voyage.Zone)) -> rl.Color {
 	return rl.Color{90, 100, 120, 255}
 }
 
-// stage_kind_label names a stage primitive for the captain (issue #139) — the one
-// place a Stage_Kind becomes words, shared by the encounter strip, a halt's beat, and
-// (via node_marker) the map. The enum's own spelling is the authoring vocabulary, not
-// the player's: nobody boards a "Stage_Offer".
+// stage_kind_label is the one place a Stage_Kind becomes player-facing words,
+// shared by the encounter strip, a halt's beat, and (via node_marker) the map. The
+// enum spelling is authoring vocabulary, not the player's.
 stage_kind_label :: proc(kind: voyage.Stage_Kind) -> string {
 	switch kind {
 	case .Fight:
@@ -98,24 +94,13 @@ stage_tint :: proc(kind: voyage.Stage_Kind) -> rl.Color {
 	return rl.GRAY
 }
 
-// node_marker is the map's colour and label for an encounter, given the stage it
-// **opens** with (issues #71, #139). The opening stage is what the encounter is from
-// the map's point of view — the same fact the Sim's mask reveals it on (ADR-0016) —
-// so the marker and the mask are answering one question, not two that agree.
-//
-// **A Shop reads "Port" here, and only here.** Everywhere else — the encounter strip,
-// a halt's beat — a Shop stage is a "Market" (stage_kind_label). The two disagree
-// because they name different things: this names a *node*, and a node that opens on a
-// Shop **is** a Port. That equivalence is ADR-0016's, and it is the whole of why the
-// six visible markers on a map are exactly the six Ports — "opens on a Shop" ≡
-// "reveals" ≡ "is a Port". A merchant's Shop is a stage *inside* an encounter that
-// opens on something else, so it is a market met at sea and never wears this label.
-//
-// Like voyage_encounter_reveals, that rests on the authoring convention that only the
-// Port bucket opens on a Shop (catalog.odin), not on a type-level fact — author one
-// `[Shop, Fight]` and this label starts lying. ADR-0016 records that cost knowingly;
-// the_only_encounters_a_captain_can_see_coming_are_ports is the test that makes
-// breaking it loud.
+// node_marker is the map's colour and label for an encounter, keyed on the stage it
+// opens with. A Shop opening reads "Port" here, and only here — everywhere else a Shop
+// stage is a "Market" (stage_kind_label) — because this names a *node*, and a node
+// opening on a Shop is a Port (ADR-0016). That rests on the authoring convention that
+// only the Port bucket opens on a Shop (catalog.odin): author one `[Shop, Fight]` and
+// this label starts lying, which the_only_encounters_a_captain_can_see_coming_are_ports
+// guards.
 node_marker :: proc(opening: voyage.Stage_Kind) -> (color: rl.Color, label: string) {
 	label = stage_kind_label(opening)
 	if opening == .Shop {
@@ -124,35 +109,13 @@ node_marker :: proc(opening: voyage.Stage_Kind) -> (color: rl.Color, label: stri
 	return rl.Fade(stage_tint(opening), 0.7), label
 }
 
-// node_appearance picks the marker colour and label for a node (issue #71).
-// An Encounter whose content is still hidden is a generic zone-tinted marker with
-// no label (the Sim's hiding contract); one that has been visited, or that reveals
-// itself before arrival, shows its opening stage's colour and label. The Start and
-// Haven landmarks are always fully labelled.
+// node_appearance picks the marker colour and label for a node. A hidden Encounter is
+// a generic zone-tinted marker with no label (the Sim's hiding contract); a visited one,
+// or one that reveals before arrival, shows its opening stage's colour and label, faded
+// when visited so the map keeps a memory of the route. Start and Haven are always labelled.
 //
-// **Revealing is asked of the stage list, never of the node kind** (ADR-0014,
-// voyage_encounter_reveals). This used to read `case .Port` — a port was labelled
-// because of what kind of node it was — and issue #137 deleted that value, so the
-// question is now the same one the Sim's mask asks.
-//
-// An encounter reveals iff its **first** stage reveals (ADR-0016), and only the
-// Port bucket opens on a Shop, so the only encounters revealed before arrival are
-// the six Ports. A merchant vessel carries its Shop behind a stage and stays dark:
-// a market you can route to is what a Port is *for*, and a merchant is a windfall.
-//
-// **The label now asks voyage_encounter_opening, closing #161's drift** — it used to ask
-// voyage_encounter_current, i.e. the cursor, while reveal asked stage 0. #161 left that
-// commented at both ends on the reading that a walked-out node's cursor sits past the
-// end and falls through to a blank marker. It never did: the walk advances the *Sim's*
-// private map, and this node is presentation's copy taken at arrival
-// (Event_Arrived_At_Node fires before sim_walk_encounter), so its cursor is frozen at
-// 0 for the rest of the voyage. The two rules could not drift because one of them was
-// reading a constant. Asking for the opening stage says what was always meant, and the
-// blank-marker case it was supposed to produce is written below instead.
-//
-// A **visited** node keeps its marker, faded: the walk is over and there is nothing to
-// go back for (ADR-0014 resolves a node once), but where the captain has been — and
-// what it was — is the map's memory of the route, which a blank dot throws away.
+// Revealing is asked of the stage list, never the node kind (ADR-0014,
+// voyage_encounter_reveals) — the same question the Sim's mask asks.
 node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:
@@ -160,11 +123,10 @@ node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, labe
 	case .Haven:
 		return rl.GOLD, "Haven"
 	case .Encounter:
-		// A masked node arrives with no encounter at all, so there is nothing to
-		// label; an unvisited one that does not reveal itself keeps its content back
-		// until arrival. Both cases are the Sim's answer, rendered — never re-derived
-		// here (ADR-0009): the stages of a hidden encounter are absent from the payload
-		// presentation was handed, so there is nothing to leak.
+		// A masked node has no encounter to label; an unvisited one that doesn't reveal
+		// keeps its content back until arrival. Both are the Sim's answer rendered, never
+		// re-derived here (ADR-0009): a hidden encounter's stages aren't in presentation's
+		// payload, so there's nothing to leak.
 		encounter, has_encounter := p.encounter.?
 		if !has_encounter || (!visited && !voyage.voyage_encounter_reveals(encounter)) {
 			return zone_tint(p.zone), ""
@@ -182,17 +144,15 @@ node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, labe
 	return rl.GRAY, ""
 }
 
-// move_fires reports whether traveling to node p would trigger a fresh
-// encounter: only an unvisited Encounter fires (a landmark never does, a
-// revisit never does). The UI uses this to colour-code offered moves without
-// needing to know the still-hidden kind (issue #71).
+// move_fires reports whether traveling to node p would trigger a fresh encounter:
+// only an unvisited Encounter fires (never a landmark, never a revisit). Lets the UI
+// colour-code offered moves without knowing the still-hidden kind.
 move_fires :: proc(p: voyage.Node, visited: bool) -> bool {
 	return p.kind == .Encounter && !visited
 }
 
-// draw_zone_background paints a Coastal -> Open_Sea -> Deep band behind the
-// graph as an ambient depth cue (issue #71): each zone's faint tint spans the
-// x-range of the columns belonging to it.
+// draw_zone_background paints a faint per-zone tint band behind the graph as an
+// ambient depth cue: each zone's tint spans the x-range of its columns.
 draw_zone_background :: proc(state: ^Game_State) {
 	for zone in voyage.Zone {
 		lo, hi: f32 = 1e9, -1e9
@@ -219,11 +179,10 @@ draw_zone_background :: proc(state: ^Game_State) {
 	}
 }
 
-// draw_map draws the whole graph at once (issue #71): the zone-gradient
-// background, every edge, every node's marker (unvisited encounters hidden as
-// generic zone dots), the player's current location, and a numbered highlight
-// on each directly-reachable node — colour-coded for whether stepping there
-// fires a fresh encounter (red) or is safe (green: a revisit or a landmark).
+// draw_map draws the whole graph at once: the zone background, every edge, every
+// node's marker (unvisited encounters as generic zone dots), the current location,
+// and a numbered highlight on each reachable node — red if stepping there fires a
+// fresh encounter, green if safe.
 draw_map :: proc(state: ^Game_State) {
 	draw_zone_background(state)
 	rl.DrawRectangleLinesEx(MAP_AREA, 2, rl.GRAY)
@@ -238,15 +197,12 @@ draw_map :: proc(state: ^Game_State) {
 		}
 	}
 
-	// Rendering path (issue #83): draw_map recomputes the reachable set from the
-	// same predicate + visited the Sim uses, rather than borrowing the emitted
-	// state.travel_options. The two agree at a travel decision, but this map is
-	// also drawn mid-encounter (behind the upgrade menu, the end-of-voyage beat)
-	// when no travel options are current — the fresh recompute rings the nodes
-	// reachable from wherever the ship *is*. The decision path (travel_menu_loop)
-	// is what consumes the Sim's emitted options.
-	// options is voyage_travel_options' temp_allocator scratch (see its contract),
-	// reclaimed by the per-frame free_all in draw_scene — no hand-free here.
+	// Recompute the reachable set here rather than borrow the emitted state.travel_options:
+	// the map is also drawn mid-encounter (behind the upgrade menu, the end-of-voyage beat)
+	// when no travel options are current, so the fresh recompute rings the nodes reachable
+	// from wherever the ship is. travel_menu_loop is what consumes the Sim's emitted options.
+	// options is voyage_travel_options' temp_allocator scratch — reclaimed by the per-frame
+	// free_all in draw_scene, no hand-free here.
 	options := voyage.voyage_travel_options(state.voyage_map, state.current_node_id, state.visited)
 
 	for p, i in state.voyage_map.nodes {
@@ -271,17 +227,16 @@ draw_map :: proc(state: ^Game_State) {
 	rl.DrawCircleLinesV(cur, NODE_RADIUS + 7, rl.BLACK)
 }
 
-// draw_ship_panel renders a 6-slot ship readout at origin. When
-// gate_visibility is true (rendering an opponent being scouted before a
-// Ship Battle), a concealed slot's fitting is hidden per ADR-0005 — the
-// player's own ship is always rendered ungated.
+// draw_ship_panel renders a ship readout at origin. When gate_visibility is true
+// (an opponent scouted before a Ship Battle), a concealed slot's fitting is hidden
+// per ADR-0005; the player's own ship is always rendered ungated.
 draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_visibility: bool) {
 	x := i32(origin.x)
 	y := i32(origin.y)
 	rl.DrawText(fmt.ctprintf("%s", title), x, y, 20, rl.DARKGRAY)
-	// SPD is the *effective* Speed now (ADR-0020): s.speed is only the base term,
-	// and a ship's real Speed reads its weight (ship_effective_speed). Showing the
-	// raw base here would print 16 for a ship that actually sails at 4.
+	// SPD is the *effective* Speed (ADR-0020): s.speed is only the base term; a ship's
+	// real Speed reads its weight via ship_effective_speed. Printing the raw base would
+	// overstate a heavily-laden ship.
 	rl.DrawText(
 		fmt.ctprintf("Hull %d/%d   DUR %d   SPD %d", s.hull, s.max_hull, s.durability, ship.ship_effective_speed(s)),
 		x,
@@ -289,18 +244,10 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 		16,
 		rl.BLACK,
 	)
-	// The weight economy, in the glossary's words (issue #201, ADR-0020). Weight is
-	// the subtrahend the SPD above reads (ship_effective_speed subtracts weight/10), so
-	// the captain can finally see the number that governs their Speed. "Hold X/Y" renders
-	// the cargo in the holds against the hull's capacity
-	// (ship_cargo / ship_cargo_capacity) — no bare money number rides on a ship, and
-	// "your hold is full" now means cargo has met capacity. It doubles as the ceiling
-	// readout #157/#196 make load-bearing: a payout above capacity spills overboard, so
-	// this is how a captain reads their headroom *before* walking into a Reward.
-	//
-	// Own ship only. A scouted opponent's wealth stays behind the concealment gate
-	// (ADR-0005) — the same reason its concealed fittings read "???" below — so the
-	// weight/hold line is drawn only when the panel is ungated.
+	// Hold and Weight, drawn own-ship only: a scouted opponent's wealth stays behind the
+	// concealment gate (ADR-0005), the same reason its fittings read "???" below. "Hold X/Y"
+	// is cargo against hull capacity; Weight is the term ship_effective_speed reads down
+	// from Speed.
 	if !gate_visibility {
 		rl.DrawText(
 			fmt.ctprintf(
@@ -338,13 +285,12 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 }
 
 // fitting_tags_label renders a fitting's tag families as a comma-separated list
-// ("Crew, Weapon"), or "none" when it carries none. Used by the Item Offer and
-// Refit screens (issue #96) to show which families an item belongs to.
+// ("Crew, Weapon"), or "none" when it carries none. Used by the Item Offer and Refit
+// screens.
 //
-// "none" rather than an em-dash: rl.DrawText's built-in font only carries
-// codepoints 32-255, so a "—" (U+2014) rasterises as "?" (issue #168). A "·"
-// (U+00B7) is inside that range and draws fine — the limit is Latin-1, not
-// ASCII. Anything above U+00FF needs a real font loaded first.
+// "none" rather than an em-dash: rl.DrawText's built-in font only carries codepoints
+// 32-255, so "—" (U+2014) rasterises as "?"; "·" (U+00B7) is inside that Latin-1 range
+// and draws fine. Anything above U+00FF needs a real font loaded first.
 fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 	label := ""
 	for tag in ship.Tag {
@@ -360,12 +306,11 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 	return len(label) > 0 ? label : "none"
 }
 
-// fitting_effect_intent renders a one-line, human-readable summary of what a
-// fitting's effect does (issue #96's "effect intent"): the magnitude and what it
-// feeds — a combat phase (its Category), or a ship stat for a stat-modifier —
-// with the synergy/conditional context spelled out ("+2 Muster per Weapon",
-// "+8 Offense below 50% Hull"). Reads whichever of active/passive carries the one
-// effect a roster item has; returns "no effect" for a cargo filler.
+// fitting_effect_intent renders a one-line summary of what a fitting's effect does:
+// the magnitude and what it feeds — a combat phase (its Category) or a ship stat —
+// with synergy/conditional context spelled out ("+2 Muster per Weapon", "+8 Offense
+// below 50% Hull"). Reads whichever of active/passive carries the effect; "no effect"
+// for a cargo filler.
 fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 	effect: ship.Effect
 	if active, ok := f.active.?; ok {
@@ -406,7 +351,7 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 }
 
 // condition_intent renders a conditional effect's trigger as a short clause the
-// Item Offer / Refit UI appends to the effect intent (issue #96).
+// Item Offer / Refit UI appends to the effect intent.
 condition_intent :: proc(condition: ship.Condition) -> string {
 	switch c in condition {
 	case ship.Condition_Hull_Below:
@@ -423,31 +368,26 @@ condition_intent :: proc(condition: ship.Condition) -> string {
 	return ""
 }
 
-// fitting_summary_lines renders the two detail lines the Item Offer and Refit
-// screens show under an item's name (issue #96's tags / phase / size / effect
-// intent): the first its size, phase (Category), and tag families; the second
-// its effect intent.
+// fitting_summary_lines renders the two detail lines shown under an item's name on
+// the Item Offer and Refit screens: the first its size, phase (Category), and tag
+// families; the second its effect intent.
 fitting_summary_lines :: proc(f: ship.Fitting) -> (string, string) {
 	spec := fmt.tprintf("%v · %v · %s", f.size, f.category, fitting_tags_label(f.tags))
 	return spec, fitting_effect_intent(f)
 }
 
 // ENCOUNTER_STRIP is the band the stage sequence is drawn in while an encounter is
-// being walked (issue #139). It sits over the top of the map area on purpose: it is the
-// one region free in **both** of draw_scene_contents' layouts — the map screens and the
-// battle screen, which leaves the whole left column empty — so the strip is in the same
-// place whichever stage the captain is on, which is the point of it. Covering the map's
-// top band costs nothing while an encounter is up, since routing is not the decision in
-// front of you.
+// walked. It overlaps the map's top band on purpose: it is the one region free in both
+// of draw_scene_contents' layouts (map and battle), so the strip stays put whichever
+// screen the captain is on.
 ENCOUNTER_STRIP := rl.Rectangle{x = 20, y = 20, width = 620, height = 54}
 STAGE_CHIP_W :: 112
 STAGE_CHIP_H :: 22
 
-// current_encounter is the encounter at the node the ship is standing at, as
-// presentation was handed it on Event_Arrived_At_Node (issue #139). Not a copy of the
-// Sim's live walk — the cursor in here is frozen at the moment of arrival — so it
-// answers "what does this encounter consist of" and never "where is the walk now",
-// which is Event_Stage_Entered's job.
+// current_encounter is the encounter at the node the ship is standing at, as handed to
+// presentation on Event_Arrived_At_Node. Its cursor is frozen at the moment of arrival,
+// so it answers what the encounter consists of, never where the walk is now (that's
+// Event_Stage_Entered's job).
 current_encounter :: proc(state: ^Game_State) -> (voyage.Encounter, bool) {
 	if len(state.voyage_map.nodes) == 0 {
 		return {}, false
@@ -456,10 +396,9 @@ current_encounter :: proc(state: ^Game_State) -> (voyage.Encounter, bool) {
 }
 
 // encounter_stage is the stage at `index` of the current encounter, baked content and
-// all — how presentation reads the *shape* of what it is walking (issue #139). The shape
-// comes from the arrival copy rather than from the walk's events because arrival is
-// already where an encounter's content is handed over (ADR-0009's contract is about what
-// happens *before* you get there); the events carry only the cursor, which no copy can.
+// all — how presentation reads the shape of what it is walking. The shape comes from the
+// arrival copy, not the walk's events (which carry only the cursor): arrival is where an
+// encounter's content is handed over (ADR-0009).
 encounter_stage :: proc(state: ^Game_State, index: int) -> (voyage.Stage, bool) {
 	encounter, has_encounter := current_encounter(state)
 	if !has_encounter || index < 0 || index >= encounter.count {
@@ -479,20 +418,14 @@ encounter_stage_kind :: proc(state: ^Game_State, index: int) -> (voyage.Stage_Ki
 }
 
 // draw_encounter_strip draws the encounter's whole stage sequence with the current one
-// picked out — "Stage 2 of 3", over chips reading Battle | Market | Loot (issue #139).
-// Drawn on every screen an encounter can be on, so a 3-stage Deep encounter reads as one
-// sequence being walked rather than three unrelated popups. Nothing is drawn between
-// encounters: state.stage_progress is nil unless the walk is on a stage.
+// picked out — "Stage 2 of 3" over chips reading Battle | Market | Loot. Drawn on every
+// screen an encounter can be on, so a multi-stage encounter reads as one sequence rather
+// than unrelated popups. Nothing is drawn between encounters: state.stage_progress is nil
+// unless the walk is on a stage.
 //
-// **The stages ahead are shown, not just the position**, and that is a decision the
-// pacing question on #127 was carrying. Arrival reveals the node — the hiding contract
-// is about what a captain can see *before* routing there (ADR-0009/ADR-0016) — so there
-// is nothing left to withhold once the walk starts, and showing only "2 of 3" would
-// withhold it anyway. It is what makes a halt a decision instead of a surprise: a
-// captain looking at Battle | Loot can see what Break Off costs *before* paying for
-// it, which is the same legibility the halt beat gives afterwards. Since #151 made Break
-// Off fire at all (0/189 measured escapes, then 21/177), that is a live choice rather
-// than a hypothetical one.
+// The stages *ahead* are shown, not just the position: arrival already reveals the node
+// (ADR-0009/ADR-0016), so there is nothing left to withhold, and seeing Battle | Loot is
+// what lets a captain weigh Break Off before paying for it.
 draw_encounter_strip :: proc(state: ^Game_State) {
 	progress, walking := state.stage_progress.?
 	if !walking {
@@ -520,10 +453,9 @@ draw_encounter_strip :: proc(state: ^Game_State) {
 	}
 }
 
-// draw_stage_chip draws one stage of the strip in one of three states (issue #139): the
-// stage under the cursor is filled in its own colour, a stage already walked is dimmed,
-// and a stage still ahead is an outline. The three read as done / here / to come, which
-// is what turns a halt into a visible loss — the outlines are what the captain forfeits.
+// draw_stage_chip draws one stage of the strip in one of three states: the stage under
+// the cursor is filled in its own colour, one already walked is dimmed, one still ahead
+// is an outline — done / here / to come.
 draw_stage_chip :: proc(state: ^Game_State, chip: rl.Rectangle, index: int, cursor: int) {
 	kind, known := encounter_stage_kind(state, index)
 	if !known {
@@ -546,12 +478,10 @@ draw_stage_chip :: proc(state: ^Game_State, chip: rl.Rectangle, index: int, curs
 	}
 }
 
-// draw_scene_contents draws whichever screen is currently relevant (battle
-// or map), the player's own ship panel, and an optional overlay banner.
-// Does not Begin/EndDrawing itself — callers that need to draw more on top
-// (menu.odin's button lists) share one Begin/End pair by calling this
-// in between; draw_scene below is the standalone wrapper for callers with
-// nothing further to draw.
+// draw_scene_contents draws whichever screen is relevant (battle or map), the player's
+// ship panel, and an optional overlay banner. It does not Begin/EndDrawing itself, so a
+// caller that draws more on top (menu.odin's button lists) can share one Begin/End pair
+// around it; draw_scene is the standalone wrapper for callers with nothing further.
 draw_scene_contents :: proc(state: ^Game_State, overlay: string) {
 	rl.ClearBackground(rl.RAYWHITE)
 
@@ -565,8 +495,8 @@ draw_scene_contents :: proc(state: ^Game_State, overlay: string) {
 		draw_ship_panel(&state.player, rl.Vector2{SHIP_PANEL_X, 20}, "Your Ship", false)
 	}
 
-	// Last of the left column, so it sits over the map rather than under it — and drawn
-	// for both layouts, since an encounter is walked across all of them (issue #139).
+	// Last of the left column, so it sits over the map rather than under it — drawn for
+	// both layouts, since an encounter is walked across all of them.
 	draw_encounter_strip(state)
 
 	if len(overlay) > 0 {
@@ -577,10 +507,10 @@ draw_scene_contents :: proc(state: ^Game_State, overlay: string) {
 	draw_version_stamp()
 }
 
-// draw_version_stamp draws the build's VERSION (issue #44) in the top-right
-// corner of every scene, right-aligned so a short "dev" and a full git SHA
-// both sit flush to the edge. Guards on IsWindowReady() like the rest of the
-// render layer (ADR-0003) so it's a no-op under `odin test`.
+// draw_version_stamp draws the build's VERSION in the top-right corner of every scene,
+// right-aligned so a short "dev" and a full git SHA both sit flush to the edge. Guards on
+// IsWindowReady() like the rest of the render layer (ADR-0003), so it's a no-op under
+// `odin test`.
 draw_version_stamp :: proc() {
 	if !rl.IsWindowReady() {
 		return
