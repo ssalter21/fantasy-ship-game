@@ -7,147 +7,90 @@ import "core:math/rand"
 import "core:mem"
 import "core:mem/virtual"
 
-// Phase is what kind of captain decision Sim is (or is about to be) awaiting
-// (issue #24 — wiring core/voyage/core/combat under the shared run_session
-// loop, ADR-0002). run_session passes sim.phase into
-// Input_Source.get_captain_choice (issue #39) so adapters route to the
-// right decision UI directly instead of re-deriving it from the Event
-// stream themselves.
+// Phase is the kind of captain decision the Sim is (or is about to be) awaiting.
+// run_session passes it into Input_Source.get_captain_choice (ADR-0002) so adapters
+// route straight to the right decision UI instead of re-deriving it from the Event
+// stream.
 //
-// There is deliberately **no phase per stage primitive** (issue #131, ADR-0014).
-// A Phase names a *kind of decision*, and an encounter's stages are walked by one
-// generic path (sim_encounter.odin) that parks in whichever phase the stage under
-// the cursor asks for. Awaiting_Item_Choice and Awaiting_Shop_Choice — the same
-// "pick from a small option list" decision, written twice — collapsed into
-// Awaiting_Option_Choice; adding a primitive must not add a phase.
-//
-// The survivors each earn their place on a decision shape, not on a kind:
-//   - Awaiting_Travel_Choice is not a stage decision at all — it is the routing
-//     choice *between* encounters, which no stage list can express.
-//   - Awaiting_Battle_Command is a multi-round sub-mode over a foreign command
-//     vocabulary (combat.Command, ADR-0006), not a one-shot pick from a list.
-//   - Awaiting_Trade_Choice is a one-bargain accept/reject (issue #136) — two
-//     answers over no list, which is genuinely not the "pick one of N, or decline"
-//     shape Awaiting_Option_Choice names. It is the closest thing here to a phase
-//     per primitive, and it is worth being honest that it sits in tension with the
-//     rule above: it earns its keep on the decision's *arity*, and a second
-//     accept/reject primitive must reuse it rather than add its neighbour.
-//   - Awaiting_Refit is a sub-mode over the loadout, and is **shared** by every
-//     stage that hands the player an item (an Offer's pick, a Shop's buy) — the
-//     opposite of a per-kind phase.
+// A Phase names a *kind of decision*, not a stage primitive (ADR-0014): an encounter's
+// stages are walked by one generic path (sim_encounter.odin) that parks in whichever
+// phase the stage under the cursor asks for, so adding a stage primitive must not add a
+// phase. Each survivor earns its place on a distinct decision *shape*:
+//   - Awaiting_Travel_Choice — the routing choice *between* encounters, which no stage
+//     list can express.
+//   - Awaiting_Battle_Command — a multi-round sub-mode over combat.Command (ADR-0006),
+//     not a one-shot pick from a list.
+//   - Awaiting_Option_Choice — "pick one of a few, or decline", shared by every
+//     option-list stage (an Offer's items, a Shop's shelf).
+//   - Awaiting_Trade_Choice — a one-bargain accept/reject: two answers over no list, so
+//     not the "pick one of N, or decline" shape. A second accept/reject primitive must
+//     reuse it rather than add its neighbour.
+//   - Awaiting_Refit — a sub-mode over the loadout, shared by every stage that hands the
+//     player an item.
 //   - Ended is terminal.
 Phase :: enum {
 	Awaiting_Travel_Choice,
 	Awaiting_Battle_Command,
-	// Awaiting_Option_Choice is the "pick one of a few, or decline" decision every
-	// option-list stage parks in (issue #131): an Offer's items (pick to place, or
-	// skip) and a Shop's shelf (buy against the ship's hold, or leave) are the
-	// same decision differing only in whether an option carries a price
-	// (Stage_Option.cost), so they share one phase, one Command, and one Event.
-	// What a selection *means* is the primitive's own business and belongs to the
-	// stage under the cursor, not to the phase: an Offer's pick completes the stage
-	// and a skip halts it, while a Shop's buy keeps the stage open (the multi-buy
-	// loop) and only leaving completes it.
 	Awaiting_Option_Choice,
-	// Awaiting_Trade_Choice is the Trade decision (issue #136, ADR-0014): the ship
-	// arrived at a Trade stage and is accepting or rejecting the bargain it drew
-	// from the axis roster. Accepting **completes** the stage; rejecting **halts**
-	// it — so a rejected [Trade, Reward] never reaches the Reward, which is the
-	// distinction #136 could describe but not yet enforce, since it predated the
-	// cursor (issue #131) and every recipe was one stage long.
-	//
-	// This phase is new. A Trade used to have no decision at all — it applied on
-	// arrival, "matching no-decline" — so it never waited on the captain for
-	// anything. Under ADR-0014 a Trade is a stage like any other and its outcome is
-	// the player's.
 	Awaiting_Trade_Choice,
-	// Awaiting_Refit is the manual-loadout mode (issue #95, ADR-0012): the ship
-	// is rearranged through install / move / remove commands, ended by a finish
-	// command. Opened by sim_open_refit — which any stage that hands the player an
-	// item calls once it is picked or bought.
 	Awaiting_Refit,
 	Ended,
 }
 
-// Node_ID identifies a node in voyage_map.nodes by position — used across the Sim
-// boundary via Command_Travel_To and Event_Travel_Options. It is an alias of
-// voyage.Node_ID (issue #112): run owns the Map, so it owns the canonical distinct
-// type (see voyage.odin for the ADR-0011 rationale); aliasing here means one
-// distinct type crosses the run/sim boundary with no int conversion.
+// Node_ID identifies a node in voyage_map.nodes by position, crossing the Sim boundary
+// via Command_Travel_To and Event_Travel_Options. An alias of voyage.Node_ID: run owns
+// the Map and so owns the canonical distinct type (ADR-0011), and aliasing lets that one
+// type cross the run/sim boundary with no int conversion.
 Node_ID :: voyage.Node_ID
 
-// Option_Index identifies one of an option-list stage's presented options by
-// position (issue #54: distinct from a plain int for the same reason as Node_ID,
-// so an option index can't be passed where a node id or slot index belongs). It
-// indexes the options the Sim stages in stage_options — an Offer's items or a
-// Shop's shelf cards alike, since #131 collapsed those into one presented list.
+// Option_Index identifies one of an option-list stage's presented options by position —
+// distinct from a plain int (ADR-0011) so it can't be passed where a node id or slot
+// index belongs. Indexes stage_options, an Offer's items or a Shop's shelf alike.
 Option_Index :: distinct int
 
-// STAGE_OPTION_MAX is how many options the largest option-list stage can present,
-// and so the width of the one presented list every such stage shares
-// (Event_Options_Presented, Sim.stage_options). Derived from the primitives'
-// own counts rather than picked, so a roomier stage can never quietly overflow
-// the array the Sim stages it in: a Shop's shelf is the widest today.
+// STAGE_OPTION_MAX is the width of the one presented list every option-list stage shares
+// (Event_Options_Presented, Sim.stage_options). Derived from the primitives' own counts
+// rather than picked, so a roomier stage can never overflow the array the Sim stages it in.
 STAGE_OPTION_MAX :: max(voyage.ITEM_OFFER_OPTION_COUNT, voyage.SHOP_SHELF_SIZE)
 
-// Stage_Option is one line of an option-list stage's presented list (issue #131):
-// the `fitting` on offer, and what it `cost`s in cargo — nil when the option is
-// free.
-//
-// That Maybe is the *entire* difference between an Item Offer's options and a Port
-// shop's shelf cards, which is why they are one type and not two. Both present a
-// few distinct roster items and ask the captain to take one or decline; a Shop's
-// carry a price and an Offer's don't. A nil cost is not "free" as a magic zero — it
-// says there is no price to check, so sim_process_option_choice skips
-// affordability entirely rather than comparing against 0 and hoping the cargo is
-// never negative.
+// Stage_Option is one line of an option-list stage's presented list: the `fitting` on
+// offer and what it `cost`s in cargo — nil when the option is free. A nil cost is not a
+// magic zero: it says there is no price to check, so sim_process_option_choice skips
+// affordability entirely rather than comparing against 0.
 Stage_Option :: struct {
 	fitting: ship.Fitting,
 	cost:    Maybe(int),
 }
 
 Sim :: struct {
-	// rng is kept per ADR-0001 ("Sim owns its own seeded RNG... for
-	// deterministic replay"); nothing in this vertical slice's domain logic
-	// is actually random yet (map layout and combat resolution are both
-	// fully deterministic), but the field/seed stays since ADR-0001 commits
-	// to it as Sim's shape, not something this ticket revisits.
+	// rng is kept per ADR-0001 (Sim owns its own seeded RNG for deterministic replay).
+	// Nothing in the domain logic is random yet — map layout and combat are deterministic —
+	// but the field stays because ADR-0001 commits to it as Sim's shape.
 	rng:               rand.Default_Random_State,
 	voyage_map:           voyage.Map,
-	// public_nodes is the masked view of voyage_map.nodes the Sim broadcasts at voyage
-	// start (the hiding contract): a copy that nils every hidden encounter's stage
-	// list while preserving graph shape and landmarks, so presentation cannot leak
-	// what a node holds before the ship arrives. An encounter holding a revealing
-	// stage (ADR-0014) passes through unmasked — that is what makes it visible on the
-	// map, and it is asked of the stage list alone, never of the node's kind. Content
-	// is revealed per-node on arrival via Event_Arrived_At_Node, which carries the
-	// full Node. The edges it pairs with are shared (borrowed) from voyage_map. See
-	// sim_mask_encounters.
+	// public_nodes is the masked view of voyage_map.nodes the Sim broadcasts at voyage start
+	// (the hiding contract, ADR-0009): a copy that nils every hidden encounter's stage list
+	// while preserving graph shape and landmarks, so presentation cannot leak what a node
+	// holds before arrival. An encounter with a revealing stage (ADR-0014) passes through
+	// unmasked — asked of the stage list alone, never the node's kind. Content is revealed
+	// per-node on arrival via Event_Arrived_At_Node. See sim_mask_encounters.
 	public_nodes:      []voyage.Node,
 	player:            ship.Ship,
 	current:           Node_ID, // index into voyage_map.nodes; Start is always 0
-	// resolved is parallel to voyage_map.nodes; true once the encounter at that node has
-	// been walked to the end — every stage completed, or one of them halted (issue
-	// #131, ADR-0014). It stays **node-level and once**, for every encounter alike:
-	// sim_walk_encounter is the only writer, so "resolved" means exactly "this node's
-	// walk is over" rather than whatever each per-kind path used to mean by it. A Port
-	// is no exception any more — it is walked and resolved like anything else.
-	// Deliberately []bool rather than bit_set (issue #54): bit_set needs a
-	// compile-time-bounded index, but resolved is indexed by Node_ID, sized at runtime
-	// off voyage_map_create's generated node count.
+	// resolved is parallel to voyage_map.nodes: true once the encounter at that node has been
+	// walked to the end — every stage completed, or one halted (ADR-0014). Node-level and
+	// once, for every encounter alike; sim_walk_encounter is its only writer. []bool rather
+	// than bit_set because bit_set needs a compile-time-bounded index, but resolved is indexed
+	// by Node_ID, sized at runtime off voyage_map_create's node count.
 	resolved:          []bool,
-	// visited is parallel to voyage_map.nodes; true once the ship has been at a
-	// node (Start counts as visited from the outset). Distinct from resolved —
-	// a node holding no encounter (Start, Haven) is visited but never resolved — and it is what
-	// voyage_travel_options consults to decide which backward-retrace moves are
-	// legal, so the Sim's travel gate reads it every travel choice.
+	// visited is parallel to voyage_map.nodes: true once the ship has been at a node (Start
+	// counts from the outset). Distinct from resolved — a node holding no encounter (Start,
+	// Haven) is visited but never resolved — and it is what voyage_travel_options consults to
+	// decide which backward-retrace moves are legal.
 	visited:           []bool,
-	// travel_options stages the legal travel destinations the Sim broadcasts on
-	// Event_Travel_Options every time it begins awaiting a travel choice (issue
-	// #83): run-scoped arena storage (created under the arena in sim_create),
-	// cleared and refilled from voyage_travel_options once per travel decision and
-	// borrowed by the emitted event, so adapters and tests consume the moves the
-	// Sim already computed instead of re-deriving legality off a shadow map.
+	// travel_options stages the legal travel destinations broadcast on Event_Travel_Options
+	// when awaiting a travel choice: run-scoped arena storage, cleared and refilled from
+	// voyage_travel_options once per travel decision and borrowed by the emitted event.
 	travel_options:    [dynamic]Node_ID,
 	steps:             int, // Ghost_Snapshot progress counter, +1 per travel
 	status:            voyage.Voyage_Status,
@@ -156,46 +99,31 @@ Sim :: struct {
 	pending_command:   Maybe(Command),
 	battle:            combat.Battle,
 	active_encounter:  voyage.Stage_Fight,
-	// stage_options is the option list the stage under the cursor is presenting
-	// (issue #131) — an Offer's items or a Shop's shelf, staged the same way because
-	// they are the same decision. Filled by sim_enter_stage as the cursor lands on an
-	// option-list stage, broadcast on Event_Options_Presented, and indexed by a
-	// Command_Choose_Option's Option_Index to resolve the selection back to its
-	// fitting and price. A nil slot is a position with no option on it (a Shop shelf
-	// past the deck's tail, or any slot past a narrower stage's count), never
-	// selectable.
+	// stage_options is the option list the stage under the cursor is presenting — an Offer's
+	// items or a Shop's shelf. Filled by sim_enter_stage, broadcast on Event_Options_Presented,
+	// and indexed by a Command_Choose_Option's Option_Index to resolve the selection back to
+	// its fitting and price. A nil slot is a position with no option (a Shop shelf past the
+	// deck's tail, or any slot past a narrower stage's count), never selectable.
 	stage_options:     [STAGE_OPTION_MAX]Maybe(Stage_Option),
-	// shop_visit is the working state of the Shop stage under the cursor, and only
-	// that one (issue #131) — a single visit, not a row per node. sim_advance_stage
-	// clears it as the cursor leaves the stage, so the next Shop reached (a later
-	// stage of the same recipe, or another node's) always deals itself a fresh shelf.
-	//
-	// This is what retires ADR-0013's cross-visit persistence, and it is the generic
-	// walk that forces it: an encounter is walked once and marked resolved, so a Port
-	// no longer has a second visit for a draw-down to persist *into* — keeping
-	// port_shelves would have left a per-node array no arrival could ever read twice.
-	// The multi-buy loop within a visit survives untouched (#137 owns the stock-pool
-	// rework and recording the supersession).
+	// shop_visit is the working state of the one Shop stage under the cursor — a single visit,
+	// not a row per node. sim_advance_stage clears it as the cursor leaves the stage, so the
+	// next Shop reached always deals itself a fresh shelf.
 	shop_visit:        Shop_Visit,
-	// active_trade is the bargain the Trade stage under the cursor is offering (issue
-	// #136): staged from the stage as the cursor lands on it and broadcast on
-	// Event_Trade_Presented, then applied by a Command_Trade_Choice that accepts. The
-	// choice arrives a tick after the stage is entered, so the stage's baked content
-	// has to outlive the entry. A plain value, not a Maybe: it is only ever read while
+	// active_trade is the bargain the Trade stage under the cursor is offering: staged as the
+	// cursor lands on it and broadcast on Event_Trade_Presented, then applied by a
+	// Command_Trade_Choice that accepts. The choice arrives a tick after entry, so the stage's
+	// baked content must outlive the entry. A plain value, not a Maybe: only ever read while
 	// the phase says a trade is on screen.
 	active_trade:      voyage.Stage_Trade,
-	// refit_pending is the incoming fitting an open Refit (Awaiting_Refit) was
-	// opened to place (issue #95): set by sim_open_refit, consumed when a
-	// Refit_Install lands it in a slot, and discarded (nil) when the refit
-	// finishes without installing it — there is no inventory to hold it
-	// (ADR-0012). nil for a rearrange-only refit or once the item is placed.
+	// refit_pending is the incoming fitting an open Refit was opened to place: set by
+	// sim_open_refit, consumed when a Refit_Install lands it in a slot, and nil'd when the
+	// refit finishes without installing it — there is no inventory to hold it (ADR-0012). nil
+	// for a rearrange-only refit or once the item is placed.
 	refit_pending:     Maybe(ship.Fitting),
-	// arena is the Sim's run-scoped allocator (issue #52): every allocation
-	// that lives no longer than the Sim itself — the map's Nodes and each
-	// Ship Battle opponent's layout, the player's own layout, and every
-	// Ghost_Snapshot handed out via Event_Encounter_Resolved — comes from here,
-	// so sim_destroy can reclaim all of it in one call instead of a hand-written
-	// per-field delete list.
+	// arena is the Sim's run-scoped allocator: every allocation that lives no longer than the
+	// Sim — the map's Nodes, each Battle opponent's layout, the player's layout, every
+	// Ghost_Snapshot handed out via Event_Encounter_Resolved — comes from here, so sim_destroy
+	// reclaims it all in one call (ADR-0010).
 	arena:             virtual.Arena,
 }
 
@@ -218,56 +146,42 @@ Command_Battle_Choice :: struct {
 	combat_command: combat.Command,
 }
 
-// Command_Choose_Option answers whichever option-list stage is under the cursor
-// (issue #131), valid only while Sim is in the Awaiting_Option_Choice phase.
-// `selection` is the option the captain took (an Option_Index into the presented
-// stage_options), or nil to **decline** — skipping an Offer, leaving a Shop. A
-// Maybe rather than a sentinel index, so declining is a distinct, unmistakable
-// value.
-//
-// It is one Command rather than the pick/buy pair it replaces because the pair
-// were the same message: identical Maybe(Option_Index) shapes, differing only in
-// which phase accepted them. What the answer *does* is the stage's business, not
-// the Command's — the same selection completes an Offer and loops a Shop — so a
-// new option-list primitive needs no new Command.
+// Command_Choose_Option answers whichever option-list stage is under the cursor, valid only
+// in the Awaiting_Option_Choice phase. `selection` is the option the captain took (an
+// Option_Index into stage_options), or nil to **decline** — skipping an Offer, leaving a
+// Shop. A Maybe rather than a sentinel index, so declining is a distinct, unmistakable value.
 Command_Choose_Option :: struct {
 	selection: Maybe(Option_Index),
 }
 
-// Command_Trade_Choice answers the Trade stage under the cursor (issue #136,
-// ADR-0014), valid only while Sim is in the Awaiting_Trade_Choice phase. `accept`
-// takes the bargain — paying its cost for its gain, permanently — and completes the
-// stage; false rejects it, changing nothing and **halting** the encounter, so a
-// stage behind a rejected Trade is never reached.
+// Command_Trade_Choice answers the Trade stage under the cursor, valid only in the
+// Awaiting_Trade_Choice phase. `accept` takes the bargain — paying its cost for its gain,
+// permanently — and completes the stage; false rejects it, changing nothing and **halting**
+// the encounter, so a stage behind a rejected Trade is never reached.
 //
-// A plain bool rather than Command_Choose_Option's Maybe: an option list picks one
-// of N *or* declines, so "decline" needs to be a value distinct from every index,
-// whereas a trade is one bargain with exactly two answers. There is nothing for a
-// Maybe to hold — which is also why it does not fold into Command_Choose_Option.
+// A plain bool, not a Maybe: a trade is one bargain with exactly two answers, so there is no
+// "decline distinct from every index" to represent.
 //
-// Accepting a trade the ship cannot pay for (voyage_trade_can_accept — the cost
-// would break the stat's floor) is a driver bug, not a runtime rejection: the
-// Sim broadcasts can_accept on Event_Trade_Presented, so presentation knows not
-// to offer it.
+// Accepting a trade the ship cannot pay for (voyage_trade_can_accept) is a driver bug, not a
+// runtime rejection: the Sim broadcasts can_accept on Event_Trade_Presented, so presentation
+// knows not to offer it.
 Command_Trade_Choice :: struct {
 	accept: bool,
 }
 
-// Command_Refit carries one loadout operation during a Refit (issue #95,
-// ADR-0012), valid only while Sim is in the Awaiting_Refit phase. The inner
-// Refit_Command says which operation. Wrapped as a single Command variant
-// (rather than four) so the Sim's Command/Phase vocabulary — and every
-// exhaustive switch over it — gains one case, not four, mirroring
-// Command_Battle_Choice, which likewise carries an inner (combat) union.
+// Command_Refit carries one loadout operation during a Refit, valid only in the
+// Awaiting_Refit phase. The inner Refit_Command says which operation. Wrapped as a single
+// Command variant (not four) so the Sim's Command/Phase vocabulary — and every exhaustive
+// switch over it — gains one case, not four, mirroring Command_Battle_Choice, which likewise
+// carries an inner (combat) union.
 Command_Refit :: struct {
 	command: Refit_Command,
 }
 
-// Refit_Command is the closed set of loadout operations a Refit accepts (issue
-// #95). Install places the refit's pending incoming fitting into an empty slot
-// and Replace swaps it into a filled one; Move and Remove act on already-
-// installed fittings; Finish ends the refit. Every operation enforces ADR-0004's
-// exact-size fit rule and is rejected without disturbing the layout
+// Refit_Command is the closed set of loadout operations a Refit accepts. Install places the
+// pending incoming fitting into an empty slot and Replace swaps it into a filled one; Move
+// and Remove act on already-installed fittings; Finish ends the refit. Every operation
+// enforces ADR-0004's exact-size fit rule and is rejected without disturbing the layout
 // (Event_Refit_Rejected) when it cannot apply.
 Refit_Command :: union {
 	Refit_Install,
@@ -277,40 +191,37 @@ Refit_Command :: union {
 	Refit_Finish,
 }
 
-// Refit_Install places the refit's pending incoming fitting into `slot` (issue
-// #95). Rejected if there is no pending fitting, the slot is occupied, or the
-// sizes differ (ADR-0004).
+// Refit_Install places the refit's pending incoming fitting into `slot`. Rejected if there is
+// no pending fitting, the slot is occupied, or the sizes differ (ADR-0004).
 Refit_Install :: struct {
 	slot: ship.Slot_Index,
 }
 
-// Refit_Replace swaps the refit's pending incoming fitting into `slot`,
-// discarding whatever occupied it (no inventory — ADR-0012). It is the
-// place-or-swap counterpart to Refit_Install: Install targets an empty slot,
-// Replace a filled one, so presentation names the operation by the slot's state
-// without re-checking the fit itself (issue #111). Rejected — layout untouched —
-// if there is no pending fitting or the sizes differ (ADR-0004).
+// Refit_Replace swaps the refit's pending incoming fitting into `slot`, discarding whatever
+// occupied it (no inventory — ADR-0012). The place-or-swap counterpart to Refit_Install:
+// Install targets an empty slot, Replace a filled one, so presentation names the operation by
+// the slot's state. Rejected — layout untouched — if there is no pending fitting or the sizes
+// differ (ADR-0004).
 Refit_Replace :: struct {
 	slot: ship.Slot_Index,
 }
 
-// Refit_Move relocates the fitting in `from` into the empty, same-size `to`
-// (issue #95, ADR-0004's fit rule). Rejected without disturbing the layout
-// when the source is empty, the destination is occupied, or the sizes differ.
+// Refit_Move relocates the fitting in `from` into the empty, same-size `to` (ADR-0004).
+// Rejected without disturbing the layout when the source is empty, the destination is
+// occupied, or the sizes differ.
 Refit_Move :: struct {
 	from: ship.Slot_Index,
 	to:   ship.Slot_Index,
 }
 
-// Refit_Remove discards the fitting in `slot` (issue #95) — there is no
-// inventory, so a removed fitting is gone (ADR-0012). Rejected if the slot is
-// already empty.
+// Refit_Remove discards the fitting in `slot` — there is no inventory, so a removed fitting is
+// gone (ADR-0012). Rejected if the slot is already empty.
 Refit_Remove :: struct {
 	slot: ship.Slot_Index,
 }
 
-// Refit_Finish ends the refit and returns Sim to awaiting a travel choice
-// (issue #95). Any pending incoming fitting still unplaced is discarded.
+// Refit_Finish ends the refit and returns Sim to awaiting a travel choice. Any pending
+// incoming fitting still unplaced is discarded.
 Refit_Finish :: struct {}
 
 // Event is the only way presentation learns what happened inside the Sim
@@ -339,31 +250,23 @@ Event :: union {
 	Event_Voyage_Ended,
 }
 
-// Event_Voyage_Started is dispatched exactly once, on the very first sim_tick
-// call. voyage_map carries the full graph shape (nodes, edges, zones, layer/lane
-// layout) and the always-visible landmarks (Start/Port/Haven), but its
-// non-revealing Encounter nodes have their *stages* withheld — voyage_map.nodes is
-// the Sim's masked public_nodes, not its private voyage_map. This is the hiding
-// contract (ADR-0009): what a node holds is a surprise revealed only on arrival,
-// via Event_Arrived_At_Node carrying that node's full Node, unless the encounter
-// contains a revealing stage (ADR-0014). Withholding is a guaranteed data
-// property of the emitted event, not a presentation courtesy.
+// Event_Voyage_Started is dispatched exactly once, on the first sim_tick. voyage_map carries
+// the full graph shape and always-visible landmarks (Start/Port/Haven), but non-revealing
+// Encounter nodes have their *stages* withheld — it carries the masked public_nodes, not the
+// private voyage_map. This is the hiding contract (ADR-0009): what a node holds is revealed
+// only on arrival via Event_Arrived_At_Node, unless the encounter has a revealing stage
+// (ADR-0014). Withholding is a guaranteed data property of the event, not a courtesy.
 Event_Voyage_Started :: struct {
 	voyage_map: voyage.Map,
 	ship:    ship.Ship,
 }
 
-// Event_Travel_Options is dispatched every time the Sim begins awaiting a
-// travel choice (voyage start, and after each arrival/encounter that returns to
-// Awaiting_Travel_Choice): options carries the Node_IDs legally reachable from
-// the current position. This is the travel analogue of Event_Battle_Menu's
-// may_break_off — the legal-move set is state the Sim already computes
-// (voyage_travel_options, once per travel decision) that presentation and tests
-// otherwise have to re-derive off a shadow map/visited set they maintain
-// themselves (issue #83, ADR-0001's "presentation learns only through Events").
-// The slice borrows the Sim's run-scoped travel_options buffer: valid across
-// this tick's whole dispatch batch, overwritten only at the next travel
-// decision, so a sink that needs it past then must copy it out.
+// Event_Travel_Options is dispatched every time the Sim begins awaiting a travel choice:
+// options carries the Node_IDs legally reachable from the current position, state the Sim
+// already computes (voyage_travel_options) so presentation and tests need not re-derive it off
+// a shadow map (ADR-0001). The slice borrows the Sim's run-scoped travel_options buffer: valid
+// across this tick's dispatch batch, overwritten at the next travel decision, so a sink that
+// needs it later must copy it out.
 Event_Travel_Options :: struct {
 	options: []Node_ID,
 }
@@ -372,171 +275,124 @@ Event_Arrived_At_Node :: struct {
 	node: voyage.Node,
 }
 
-// Event_Ship_Battle_Sighted is dispatched once, when a Ship Battle starts:
-// the opponent's full ship data (issue #24: the UI applies
-// ship.ship_effective_visibility per slot itself when rendering it — see
-// Event_Voyage_Started's doc comment for why Sim doesn't gate this itself).
+// Event_Ship_Battle_Sighted is dispatched once, when a Ship Battle starts: the opponent's full
+// ship data. The UI applies ship.ship_effective_visibility per slot itself when rendering it
+// (see Event_Voyage_Started for why Sim doesn't gate this).
 Event_Ship_Battle_Sighted :: struct {
 	opponent: ship.Ship,
 }
 
-// Event_Battle_Menu is dispatched every time a battle command decision is
-// about to be asked for (battle start, and after every round that doesn't
-// end the battle): may_break_off is genuinely Battle-internal state (depends on
-// this-round's not-yet-reset temp Speed bonuses) the UI has no other way to
-// derive, unlike which slots are cargo (derivable from Event_Ship_Updated's
-// own ship copy).
+// Event_Battle_Menu is dispatched every time a battle command decision is about to be asked
+// for (battle start, and after every round that doesn't end the battle): may_break_off is
+// Battle-internal state (depends on this round's not-yet-reset temp Speed bonuses) the UI has
+// no other way to derive.
 Event_Battle_Menu :: struct {
 	may_break_off: bool,
 }
 
-// Event_Battle_Event wraps one event emitted by core/combat's
-// combat_resolve_round for a single round (Event_Damage_Dealt,
-// Event_Ship_Sunk, Event_Cargo_Jettisoned, Event_Battle_Ended) — the
-// canonical ADR-0002 "UI plays this batch back with animation" case.
+// Event_Battle_Event wraps one event emitted by core/combat's combat_resolve_round for a
+// single round (Event_Damage_Dealt, Event_Ship_Sunk, Event_Cargo_Jettisoned,
+// Event_Battle_Ended) — the ADR-0002 "UI plays this batch back with animation" case.
 Event_Battle_Event :: struct {
 	inner: combat.Event,
 }
 
-// Event_Ship_Updated carries a plain (non-ghost) copy of the player's ship,
-// dispatched at voyage start and whenever its stats/layout change (after a
-// combat round, an accepted Trade, or an Upgrade applied). Needed because
-// Ghost_Snapshot always resets hull to max_hull on capture (ADR-0008), which
-// makes Event_Encounter_Resolved's snapshot unsuitable for an accurate live
-// Hull readout.
+// Event_Ship_Updated carries a plain (non-ghost) copy of the player's ship, at voyage start
+// and whenever its stats/layout change (a combat round, an accepted Trade, an Upgrade). Needed
+// because Ghost_Snapshot resets hull to max_hull on capture (ADR-0008), so
+// Event_Encounter_Resolved's snapshot is unsuitable for an accurate live Hull readout.
 Event_Ship_Updated :: struct {
 	ship: ship.Ship,
 }
 
-// Event_Wreck_Looted is dispatched when a won Fight pays out the sunk opponent's
-// hold (#159, #196): `gross` is the wreck's whole cargo, `spilled` how much of
-// it fell overboard because the player's hold was already near capacity (#157).
-// The `ship` change itself still rides Event_Ship_Updated (the panel re-renders off
-// that alone); this is the extra fact presentation needs to *say what happened* —
-// naming the haul, and any spill, on the beat a Reward payout gets from its own
-// stage-entry beat. It carries the amounts rather than the ship because the spilled
-// cargo is by definition not on the post-payout ship: it is the difference
-// between what the wreck held and what actually fit, so it cannot be re-derived
+// Event_Wreck_Looted is dispatched when a won Fight pays out the sunk opponent's hold: `gross`
+// is the wreck's whole cargo, `spilled` how much fell overboard because the player's hold was
+// near capacity. The ship change itself rides Event_Ship_Updated; this is the extra fact
+// presentation needs to say what happened. It carries the amounts rather than the ship because
+// the spilled cargo is by definition not on the post-payout ship, so it cannot be re-derived
 // from Event_Ship_Updated's copy. `spilled` is 0 for the common in-capacity payout.
 Event_Wreck_Looted :: struct {
 	gross:   int,
 	spilled: int,
 }
 
-// Event_Stage_Entered says where the encounter's walk is: the cursor has landed on
-// `index` of `count` stages, and that stage is a `kind` (issue #139). Dispatched by
-// sim_walk_encounter as it enters each stage, before whatever that primitive presents.
+// Event_Stage_Entered says where the encounter's walk is: the cursor has landed on `index` of
+// `count` stages, and that stage is a `kind`. Dispatched by sim_walk_encounter as it enters
+// each stage. The cursor is the one fact about a walk presentation cannot hold a copy of —
+// Event_Arrived_At_Node hands over the node's whole Encounter, but that copy's cursor is frozen
+// at arrival while the walk advances the Sim's *private* map. It is not a "which screen" signal:
+// that is Phase's job.
 //
-// The **cursor is the fact** here, and it is the one thing about a walk that
-// presentation cannot hold a copy of. Event_Arrived_At_Node already hands over the
-// node's whole Encounter — its stage list is right there, and the map view reads it to
-// label the node (ADR-0016) — but that copy's cursor is frozen at the moment of
-// arrival, because the walk advances the Sim's *private* map. So presentation knows the
-// encounter's shape and needs to be told its position, which is exactly what this
-// carries. It is not a "which screen do I show" signal: that is Phase's job (issue
-// #39), and a stage that presents something presents it on its own event.
-//
-// `kind` and `count` are on it despite being derivable from that copy, because the
-// event stream is itself an artifact — cmd/headless prints every event, and the voyages
-// pinned per seed are read by people. `Event_Stage_Entered{kind = .Reward, index = 1,
-// count = 2}` says what happened; a bare index does not, unless the reader
-// cross-references a map they were handed several hundred lines earlier. They cannot
-// drift from the copy either: a walk moves the cursor and nothing else.
-//
-// **Re-entering a stage re-emits this**, which is deliberate and shared with
-// Event_Options_Presented: a Shop's buy routes back through the walk to re-present the
-// refilled shelf, and re-stating "still stage 2 of 3" is the honest account of that.
+// `kind` and `count` ride along despite being derivable from that copy because the event stream
+// is itself an artifact — cmd/headless prints every event, and pinned voyages are read by
+// people, so `{kind = .Reward, index = 1, count = 2}` says what happened where a bare index
+// would not. Re-entering a stage re-emits this (shared with Event_Options_Presented): a Shop's
+// buy routes back through the walk to re-present the refilled shelf.
 Event_Stage_Entered :: struct {
 	kind:  voyage.Stage_Kind,
 	index: int,
 	count: int,
 }
 
-// Event_Encounter_Halted reports a stage resolving to .Halted (issue #139, ADR-0014):
-// the encounter ends at stage `index` of `count`, and the stages behind it are never
-// reached. `at` is the primitive that halted — a Fight taking ADR-0006's escape, an
-// Offer skipped, a Trade rejected.
+// Event_Encounter_Halted reports a stage resolving to .Halted (ADR-0014): the encounter ends
+// at stage `index` of `count`, and the stages behind it are never reached. `at` is the
+// primitive that halted — a Fight escaping (ADR-0006), an Offer skipped, a Trade rejected.
 //
-// **Only the halt is announced, and the asymmetry is the point.** A completion needs no
-// event because it is already visible: the next stage arrives and says so, or the walk
-// ends and Event_Travel_Options puts the captain back on the map. A halt is the one
-// outcome with *nothing to show* — the stages that should have followed simply don't —
-// so a captain who flees a [Fight, Reward] watches the loot not happen and has no way
-// to tell "you gave that up" from "the game forgot". That is the difference between
-// learning the rule and filing a bug, and it is why complete-or-halt needs a voice here
-// but not a symmetric pair of events.
-//
-// What was forfeited is *not* carried: presentation names it off the Encounter it was
-// handed at arrival (stages `index+1 ..< count`), the same copy the map view already
-// labels nodes from. `index` and `count` are what pick that range out, and they are all
-// the walk knows that the copy doesn't.
+// Only the halt is announced, and the asymmetry is the point: a completion needs no event
+// because it is already visible (the next stage arrives, or the walk ends and
+// Event_Travel_Options returns the captain to the map), whereas a halt is the one outcome with
+// nothing to show, so a captain who flees a [Fight, Reward] can't otherwise tell "you gave that
+// up" from "the game forgot". What was forfeited is not carried: presentation names it off the
+// Encounter it was handed at arrival (stages `index+1 ..< count`); `index` and `count` pick
+// that range out.
 Event_Encounter_Halted :: struct {
 	at:    voyage.Stage_Kind,
 	index: int,
 	count: int,
 }
 
-// Event_Options_Presented carries the option list of whichever option-list stage
-// the cursor just landed on (issue #131) — an Offer's distinct roster items or a
-// Shop's shelf cards, one event because they are one presentation. Dispatched as
-// the stage is entered, and again on each return from a buy's Refit so a shop's
-// live draw-down is always visible.
+// Event_Options_Presented carries the option list of whichever option-list stage the cursor
+// just landed on — an Offer's roster items or a Shop's shelf cards. Dispatched as the stage is
+// entered, and again on each return from a buy's Refit so a shop's live draw-down stays visible.
 //
-// Each `options` slot is a Maybe(Stage_Option): the option on that position, or nil
-// for a position carrying nothing — a Shop shelf past the deck's tail (the graceful
-// short-deck case, never reached at the real roster size) or any slot past a
-// narrower stage's count (an Offer presents ITEM_OFFER_OPTION_COUNT of
-// STAGE_OPTION_MAX). A slot's index is its Command_Choose_Option Option_Index, so
-// presentation must keep positions, not compact the list.
-//
-// Presentation renders each option's tags, phase, size, effect intent — and its
-// cost where it has one — and offers a take-one-or-decline choice; taking a priced
-// option it can afford, or any free one, opens a Refit (Event_Refit_Started). The
-// cargo affordability is measured against is the ship's hold (ship_cargo), read
-// off the latest Event_Ship_Updated — not duplicated here, so the two can't disagree.
+// Each slot is a Maybe(Stage_Option): the option there, or nil for a position carrying nothing
+// (a Shop shelf past the deck's tail, or a slot past a narrower stage's count). A slot's index
+// is its Command_Choose_Option Option_Index, so presentation must keep positions, not compact
+// the list. Affordability is measured against the ship's hold (ship_cargo) read off the latest
+// Event_Ship_Updated, not duplicated here, so the two can't disagree.
 Event_Options_Presented :: struct {
 	options: [STAGE_OPTION_MAX]Maybe(Stage_Option),
 }
 
-// Event_Trade_Presented carries the bargain a Trade stage is offering (issue
-// #136, ADR-0014), dispatched as the cursor lands on a Trade stage. `trade` is
-// the axis the node drew from the roster at generation, with both sides'
-// magnitudes already baked from its site — presentation renders it as "gain this,
-// cost that" off the two terms' stats and amounts, and offers accept-or-reject.
-//
-// `can_accept` is whether the ship can pay the cost in full (voyage_trade_can_accept):
-// genuinely Sim-side state, since it depends on the ship's *effective* stats — the
-// base fields on the last Event_Ship_Updated aren't enough to re-derive it, so
-// presentation would have to reimplement the floor rule to know whether accept is
-// a legal answer. This is the trade counterpart of Event_Battle_Menu's may_break_off,
-// for the same reason.
+// Event_Trade_Presented carries the bargain a Trade stage is offering, dispatched as the cursor
+// lands on a Trade stage. `trade` is the axis the node drew at generation, with both sides'
+// magnitudes baked from its site. `can_accept` is whether the ship can pay the cost in full
+// (voyage_trade_can_accept): Sim-side state, since it depends on the ship's *effective* stats,
+// which the base fields on Event_Ship_Updated aren't enough to re-derive. This is the trade
+// counterpart of Event_Battle_Menu's may_break_off.
 Event_Trade_Presented :: struct {
 	trade:      voyage.Stage_Trade,
 	can_accept: bool,
 }
 
-// Event_Purchase_Rejected reports a buy the ship could not afford (issue #98): the
-// option's cost exceeds the current hold (ship_cargo), so no cargo is spent and
-// no Refit opens — the stage simply stays open for another choice. `option` echoes
-// the refused line, at the price it was refused at, so presentation can explain it
-// — mirroring Event_Refit_Rejected's echo of a refused loadout command. Only a
-// priced option can be rejected, so the echoed option's cost is always set.
+// Event_Purchase_Rejected reports a buy the ship could not afford: the option's cost exceeds
+// the current hold (ship_cargo), so no cargo is spent and no Refit opens — the stage stays open
+// for another choice. `option` echoes the refused line at its price so presentation can explain
+// it. Only a priced option can be rejected, so the echoed option's cost is always set.
 Event_Purchase_Rejected :: struct {
 	option: Stage_Option,
 }
 
-// Event_Refit_Started brackets the opening of a Refit (issue #95): `incoming`
-// is the fitting the refit was opened to place (from an Item Offer or Port
-// shop — #96/#98), or nil for a rearrange-only refit. Presentation opens its
-// loadout-editing menu on this and closes it on Event_Refit_Finished.
+// Event_Refit_Started brackets the opening of a Refit: `incoming` is the fitting the refit was
+// opened to place (from an Offer or Shop), or nil for a rearrange-only refit. Presentation
+// opens its loadout-editing menu on this and closes it on Event_Refit_Finished.
 Event_Refit_Started :: struct {
 	incoming: Maybe(ship.Fitting),
 }
 
-// Event_Fitting_Installed / _Moved / _Removed each describe one applied loadout
-// change during a Refit (issue #95). _Removed's fitting is discarded (no
-// inventory — ADR-0012); it is carried here only so presentation can name what
-// was dropped, not because anything still holds it.
+// Event_Fitting_Installed / _Moved / _Removed each describe one applied loadout change during a
+// Refit. _Removed's fitting is discarded (no inventory — ADR-0012); it is carried only so
+// presentation can name what was dropped.
 Event_Fitting_Installed :: struct {
 	slot:    ship.Slot_Index,
 	fitting: ship.Fitting,
@@ -553,34 +409,28 @@ Event_Fitting_Removed :: struct {
 	fitting: ship.Fitting,
 }
 
-// Event_Refit_Rejected reports a loadout command that violated the fit rule
-// (ADR-0004) and was refused without disturbing the layout (issue #95): a size
-// mismatch, an occupied or empty target, or an install with nothing pending.
-// `command` echoes the refused operation so presentation can explain it.
+// Event_Refit_Rejected reports a loadout command that violated the fit rule (ADR-0004) and was
+// refused without disturbing the layout: a size mismatch, an occupied or empty target, or an
+// install with nothing pending. `command` echoes the refused operation.
 Event_Refit_Rejected :: struct {
 	command: Refit_Command,
 }
 
-// Event_Refit_Finished brackets the close of a Refit (issue #95): Sim returns
-// to awaiting a travel choice and any still-unplaced incoming fitting is
-// discarded.
+// Event_Refit_Finished brackets the close of a Refit: Sim returns to awaiting a travel choice
+// and any still-unplaced incoming fitting is discarded.
 Event_Refit_Finished :: struct {}
 
-// Event_Encounter_Resolved carries a resolved encounter's Ghost_Snapshot
-// (ADR-0008) out through Sim's own Event boundary. The snapshot (including its
-// cloned layout) is allocated from the Sim's own run-scoped arena (issue #52):
-// valid for as long as the Sim itself and reclaimed in one shot by
-// sim_destroy, not owned or freed per-recipient. A sink that needs a snapshot
-// to outlive the Sim must copy it out explicitly.
+// Event_Encounter_Resolved carries a resolved encounter's Ghost_Snapshot (ADR-0008) out through
+// Sim's Event boundary. The snapshot (including its cloned layout) is allocated from the Sim's
+// run-scoped arena: valid as long as the Sim and reclaimed in one shot by sim_destroy. A sink
+// that needs it to outlive the Sim must copy it out.
 //
-// **Once per encounter** — per *node*, not per stage (issue #162, ADR-0008 as
-// amended): the ship the captain leaves the node with, whatever the whole stage
-// list made of it. So a [Fight, Reward] emits one snapshot, taken post-loot; an
-// Offer or a Shop emits one carrying what was taken aboard; a halt emits one (the
-// fled ship is a real ship); and a **sinking emits none**, because the walk stops
-// dead and the node is never resolved. Snapshot count per voyage is therefore the
-// number of encounter nodes resolved, and Event_Ship_Updated — not this — is what
-// reports each individual change on the way through.
+// Once per encounter — per *node*, not per stage (ADR-0008 as amended): the ship the captain
+// leaves the node with, whatever the whole stage list made of it. A [Fight, Reward] emits one
+// snapshot taken post-loot; an Offer or Shop emits one carrying what was taken aboard; a halt
+// emits one (the fled ship is a real ship); a **sinking emits none**, because the walk stops
+// dead and the node is never resolved. Event_Ship_Updated — not this — reports each individual
+// change on the way through.
 Event_Encounter_Resolved :: struct {
 	snapshot: voyage.Ghost_Snapshot,
 }
@@ -602,37 +452,26 @@ sim_create :: proc(seed: u64) -> Sim {
 	s.resolved = make([]bool, len(s.voyage_map.nodes))
 	s.visited = make([]bool, len(s.voyage_map.nodes))
 	s.visited[0] = true // the ship starts at Start (id 0), so retrace to it is legal from the outset.
-	s.travel_options = make([dynamic]Node_ID, 0, 8) // arena-backed (context.allocator is the arena here); reused every travel decision.
+	s.travel_options = make([dynamic]Node_ID, 0, 8) // arena-backed; reused every travel decision.
 	s.status = .In_Progress
 	s.phase = .Awaiting_Travel_Choice
 	return s
 }
 
-// sim_mask_encounters builds the masked public view of nodes (the hiding
-// contract): a fresh copy in which every hidden encounter's content is withheld
-// (encounter = nil), while landmarks and revealing encounters pass through fully
-// described. Graph shape (zone, layer, lane, id) is preserved on every node.
-// Allocated from whatever allocator is in scope (the Sim's run-scoped arena at
-// sim_create time).
+// sim_mask_encounters builds the masked public view of nodes (the hiding contract, ADR-0009):
+// a fresh copy in which every hidden encounter's content is withheld (encounter = nil), while
+// landmarks and revealing encounters pass through fully described. Graph shape (zone, layer,
+// lane, id) is preserved on every node. Allocated from whatever allocator is in scope (the
+// Sim's run-scoped arena at sim_create time), so a masked node's stages are absent from the
+// Event_Voyage_Started payload and presentation cannot leak what it never received.
 //
 // What gets withheld is asked of the **stage list and nothing else**
-// (voyage.voyage_encounter_reveals, ADR-0014/ADR-0016): an encounter whose **first** stage
-// reveals shows itself on the map before arrival, so it passes through unmasked, and
-// a node with no encounter has nothing to withhold. The node *kind* is not consulted
-// at all — that is the point. It is what lets a Port be an ordinary node that happens
-// to carry a [Shop] recipe (visible because Shop reveals, not because .Port is
-// exempt), and what keeps a merchant vessel at sea — which carries a Shop but puts a
-// stage in front of it — masked on the same rule, with no branch of its own.
-//
-// Since only the Port bucket opens on a Shop (catalog.odin), what survives this mask
-// today is exactly the six Ports plus Start and Haven. That is a *derived* constant,
-// not a stored one: author one [Shop, Fight] and it stops being true, which is why
-// the question is still asked of the stages rather than answered from the kind. See
-// ADR-0016 — that distinction is thinner than it reads, and deliberately kept.
-//
-// Withholding stays a guaranteed data property of the emitted event, not a
-// presentation courtesy (ADR-0009): a masked node's stages are absent from the
-// Event_Voyage_Started payload, so presentation cannot leak what it never received.
+// (voyage.voyage_encounter_reveals, ADR-0014/ADR-0016): an encounter whose first stage reveals
+// shows itself on the map before arrival and passes through unmasked; a node with no encounter
+// has nothing to withhold. The node *kind* is not consulted at all — that is what lets a Port
+// be an ordinary node carrying a [Shop] recipe (visible because Shop reveals, not because .Port
+// is exempt), and keeps a merchant vessel that fronts its Shop with another stage masked on the
+// same rule.
 sim_mask_encounters :: proc(nodes: []voyage.Node) -> []voyage.Node {
 	masked := make([]voyage.Node, len(nodes))
 	for p, i in nodes {
@@ -646,26 +485,24 @@ sim_mask_encounters :: proc(nodes: []voyage.Node) -> []voyage.Node {
 	return masked
 }
 
-// sim_destroy tears down the Sim's run-scoped arena in one call (issue #52):
-// every run-lifetime allocation — the map's Nodes and each Ship Battle
-// opponent's layout, the player's own layout, and any outstanding
-// Ghost_Snapshot — lives in it, so there's nothing left to free by hand.
+// sim_destroy tears down the Sim's run-scoped arena in one call: every run-lifetime allocation
+// — the map's Nodes, each Battle opponent's layout, the player's layout, any outstanding
+// Ghost_Snapshot — lives in it, so there is nothing left to free by hand.
 sim_destroy :: proc(sim: ^Sim) {
 	virtual.arena_destroy(&sim.arena)
 }
 
-// sim_arena_allocator is the Sim's run-scoped allocator (issue #52), shared
-// by every sim_process_* call site that scopes context.allocator to it
-// around one arena-backed allocation (a Ghost_Snapshot capture).
+// sim_arena_allocator is the Sim's run-scoped allocator, shared by every sim_process_* call site
+// that scopes context.allocator to it around an arena-backed allocation (a Ghost_Snapshot
+// capture).
 sim_arena_allocator :: proc(sim: ^Sim) -> mem.Allocator {
 	return virtual.arena_allocator(&sim.arena)
 }
 
-// sim_tick resolves one unit of work and batch-emits the resulting events.
-// What that unit of work is depends on Phase: applying a just-submitted
-// travel choice (which may itself trigger an encounter), resolving one
-// battle round, or applying an upgrade pick. Calling sim_tick again while
-// still awaiting a decision is a driver bug (ADR-0001), same as before.
+// sim_tick resolves one unit of work and batch-emits the resulting events. What that unit is
+// depends on Phase: applying a just-submitted travel choice (which may trigger an encounter),
+// resolving one battle round, or applying an upgrade pick. Calling sim_tick again while awaiting
+// a decision is a driver bug (ADR-0001).
 sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	assert(!sim.awaiting_decision, "sim_tick called while a captain decision is still outstanding")
 
@@ -695,12 +532,10 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	// Whatever unit of work just ran, if the Sim is now awaiting a travel choice
-	// (voyage start, or a battle/upgrade/trade that returned to it) broadcast the
-	// legal destinations so consumers pick from what the Sim computed, not a
-	// re-derivation (issue #83). Concentrating the emit here — rather than at
-	// each phase-transition site — is why every path back to a travel choice
-	// carries the options with no per-site repetition.
+	// If the Sim is now awaiting a travel choice, broadcast the legal destinations so consumers
+	// pick from what the Sim computed, not a re-derivation. Concentrating the emit here — rather
+	// than at each phase-transition site — is why every path back to a travel choice carries the
+	// options with no per-site repetition.
 	if sim.phase == .Awaiting_Travel_Choice {
 		sim_emit_travel_options(sim, events)
 	}
@@ -708,15 +543,12 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	sim.awaiting_decision = true
 }
 
-// sim_emit_travel_options computes the legal destinations from the current
-// node — voyage_travel_options, the single legality predicate, called once per
-// travel decision (issue #83) — stages them (as Node_IDs) in the Sim's
-// run-scoped travel_options buffer, and emits them on Event_Travel_Options.
-// voyage_travel_options' own returned slice is Tick-lifetime temp_allocator
-// scratch, reclaimed at the run_session free_all boundary; the reused buffer
-// is what the event borrows, so the emitted payload survives the tick's whole
-// dispatch batch yet isn't a fresh arena allocation per decision (which would
-// pile up unreclaimed until sim_destroy).
+// sim_emit_travel_options computes the legal destinations from the current node
+// (voyage_travel_options, the single legality predicate, once per travel decision), stages them
+// in the Sim's run-scoped travel_options buffer, and emits them on Event_Travel_Options.
+// voyage_travel_options' own slice is Tick-lifetime temp_allocator scratch; the reused buffer is
+// what the event borrows, so the payload survives the tick's dispatch batch without a fresh
+// arena allocation per decision (which would pile up unreclaimed until sim_destroy).
 sim_emit_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	options := voyage.voyage_travel_options(sim.voyage_map, sim.current, sim.visited)
 
@@ -727,9 +559,8 @@ sim_emit_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event(Event_Travel_Options{options = sim.travel_options[:]}))
 }
 
-// sim_submit_captain_choice validates cmd against Sim's current Phase (the
-// same assert-and-store shape as before, just per-phase now) and stores it
-// for the next sim_tick call to consume.
+// sim_submit_captain_choice validates cmd against Sim's current Phase and stores it for the next
+// sim_tick call to consume.
 sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	assert(sim.awaiting_decision, "submitted a captain choice while the sim wasn't awaiting one")
 
@@ -757,18 +588,13 @@ sim_submit_captain_choice :: proc(sim: ^Sim, cmd: Command) {
 	sim.awaiting_decision = false
 }
 
-// sim_emit_encounter_resolved captures the ship the captain is leaving this node
-// with as a Ghost_Snapshot on the Sim's run-scoped arena, and emits it (issue #82,
-// ADR-0008). voyage_ghost_snapshot_of describes the ship with a *borrowed* layout;
-// voyage_ghost_snapshot_capture clones that layout under the arena so it outlives the
-// tick (issue #52) and lives as long as the Sim. Concentrating the arena ritual
-// here is why the make-scratch / scope-arena / forward dance appears once.
-//
-// Called from exactly one place — sim_walk_encounter, as the cursor runs off the
-// end of the node's stage list (issue #162) — so voyage_ghost_snapshot_of has one call
-// site and both halves of #82's borrowed-vs-owned handoff sit in one proc. That is
-// also why it takes no site or step count: at the walk's end the node the ship is
-// standing at *is* the node being snapshotted, so the two are simply at hand.
+// sim_emit_encounter_resolved captures the ship the captain is leaving this node with as a
+// Ghost_Snapshot on the Sim's run-scoped arena, and emits it (ADR-0008). voyage_ghost_snapshot_of
+// describes the ship with a *borrowed* layout; voyage_ghost_snapshot_capture clones that layout
+// under the arena so it outlives the tick and lives as long as the Sim. Called from exactly one
+// place — sim_walk_encounter, as the cursor runs off the end of the node's stage list — which is
+// why it takes no site or step count: at the walk's end the node the ship stands at *is* the node
+// being snapshotted.
 sim_emit_encounter_resolved :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	context.allocator = sim_arena_allocator(sim)
 	captured := voyage.voyage_ghost_snapshot_capture(
