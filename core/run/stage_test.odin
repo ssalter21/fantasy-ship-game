@@ -185,7 +185,7 @@ run_encounter_from_recipe_bakes_every_authored_stage_in_order :: proc(t: ^testin
 	// opponent and the Offer real items.
 	fight, is_fight := e.stages[0].(Stage_Fight)
 	testing.expect(t, is_fight)
-	testing.expect(t, fight.opponent.hp > 0)
+	testing.expect(t, fight.opponent.hull > 0)
 }
 
 @(test)

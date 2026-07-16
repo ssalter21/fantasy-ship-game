@@ -56,7 +56,7 @@ Magnitude :: distinct int
 // the magnitude feeds the owning fitting's combat phase (its Category, decided
 // by the combat resolver — ADR-0006, core/combat). The Modify_* kinds instead
 // adjust one of the owning ship's effective stats (ship_effective_durability /
-// _speed / _max_hp), so a fitting can raise Durability / Speed / Max HP
+// _speed / _max_hull), so a fitting can raise Durability / Speed / Max Hull
 // without contributing to a phase (issue #88: "fittings may modify ship
 // stats"). Kept as an enum rather than a tagged union — the house idiom for a
 // closed variant set — because for this ticket's closed set every kind carries
@@ -73,7 +73,7 @@ Effect_Kind :: enum {
 	Phase_Contribution,
 	Modify_Durability,
 	Modify_Speed,
-	Modify_Max_HP,
+	Modify_Max_Hull,
 }
 
 // Selector picks the fittings a synergy effect counts (issue #93, ADR-0012):
@@ -102,7 +102,7 @@ Selector :: union {
 // payload, a trigger") — so the trigger *is* its parameters and its type is the
 // discriminant. Plain data, so it round-trips through a Ghost_Snapshot
 // (ADR-0008) like the rest of an Effect. The four axes required by #94:
-//   - HP threshold        -> Condition_HP_Below      (a ship-state trigger)
+//   - Hull threshold        -> Condition_Hull_Below      (a ship-state trigger)
 //   - round number        -> Condition_Round_At_Least (a battle-state trigger)
 //   - own concealment     -> Condition_Self_Visibility (a ship-state trigger)
 //   - opponent faster/slower -> Condition_Opponent_Faster / _Slower (battle-state)
@@ -110,20 +110,20 @@ Selector :: union {
 // combat, so they are simply unmet when an effect resolves off the battlefield
 // (e.g. an effective-stat read between encounters).
 Condition :: union {
-	Condition_HP_Below,
+	Condition_Hull_Below,
 	Condition_Round_At_Least,
 	Condition_Self_Visibility,
 	Condition_Opponent_Faster,
 	Condition_Opponent_Slower,
 }
 
-// Condition_HP_Below holds while the owner's current HP is strictly below
-// `percent` percent of its max HP — "below half HP" is `percent = 50`. Compared
-// against the raw Ship.max_hp field, not ship_effective_max_hp: an effective
-// read would recurse (a Modify_Max_HP effect that is itself HP-conditional would
-// re-enter this check), and the run-persistent HP ceiling a threshold means is
+// Condition_Hull_Below holds while the owner's current Hull is strictly below
+// `percent` percent of its max Hull — "below half Hull" is `percent = 50`. Compared
+// against the raw Ship.max_hull field, not ship_effective_max_hull: an effective
+// read would recurse (a Modify_Max_Hull effect that is itself Hull-conditional would
+// re-enter this check), and the run-persistent Hull ceiling a threshold means is
 // the base field anyway (ADR-0008).
-Condition_HP_Below :: struct {
+Condition_Hull_Below :: struct {
 	percent: int,
 }
 
@@ -162,7 +162,7 @@ Condition_Opponent_Slower :: struct {}
 //     each Weapon, +Offense").
 //   - conditional (issue #94) gates the whole magnitude on a battle-/ship-state
 //     trigger, yielding it the rounds the Condition holds and 0 otherwise
-//     ("below half HP, +Offense").
+//     ("below half Hull, +Offense").
 // The two compose (a gated synergy resolves to 0 while its Condition is unmet,
 // its build-scaled count otherwise). The concrete fitting roster and its balance
 // values belong to the content tickets (issue #23), not this data model.
@@ -251,8 +251,8 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 // ctx.self_slot and is unmet without one.
 condition_met :: proc(condition: Condition, ctx: Effect_Context) -> bool {
 	switch c in condition {
-	case Condition_HP_Below:
-		return ctx.owner.hp * 100 < ctx.owner.max_hp * c.percent
+	case Condition_Hull_Below:
+		return ctx.owner.hull * 100 < ctx.owner.max_hull * c.percent
 	case Condition_Round_At_Least:
 		battle, in_battle := ctx.battle.?
 		return in_battle && battle.round >= c.round
@@ -348,17 +348,17 @@ Layout_Slot :: struct {
 // slot_index in core/combat).
 Slot_Index :: distinct int
 
-// Ship holds the run-persistent top-level stats (HP, Durability, Speed) plus
+// Ship holds the run-persistent top-level stats (Hull, Durability, Speed) plus
 // the fixed layout of slots that carries its combat power. A ship's money is
 // **not** a field: its purse is the treasure stowed in its cargo fittings
 // (ship_treasure), so there is no number on a ship representing money (ADR-0020,
 // #156). See CONTEXT.md's Ship & crew model glossary and ADR-0004.
 Ship :: struct {
-	hp:                  int,
-	// max_hp is the ship's undamaged HP ceiling (ADR-0008): hp is the
-	// run-persistent value combat depletes, max_hp never changes during a
-	// run and is what a Ghost_Snapshot resets hp to on capture.
-	max_hp:              int,
+	hull:                  int,
+	// max_hull is the ship's undamaged Hull ceiling (ADR-0008): hull is the
+	// run-persistent value combat depletes, max_hull never changes during a
+	// run and is what a Ghost_Snapshot resets hull to on capture.
+	max_hull:              int,
 	durability:          int,
 	// speed is the `base` term of the derived Speed reading (ADR-0020, #158/#180):
 	// effective Speed is `speed + Σ Modify_Speed − weight/10` (ship_effective_speed),
@@ -457,7 +457,7 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx:
 }
 
 // ship_effective_stat is the shared shape behind ship_effective_durability /
-// _speed / _max_hp (issue #92): the raw base stat plus every installed
+// _speed / _max_hull (issue #92): the raw base stat plus every installed
 // fitting's matching Stat_Modifier contribution. `base` is the ship's own
 // field and `kind` the Modify_* kind that targets it. self_slot is set per
 // iteration (issue #94) so a conditional stat modifier gated on its own
@@ -476,18 +476,18 @@ ship_effective_stat :: proc(s: ^Ship, base: int, kind: Effect_Kind) -> int {
 	return total
 }
 
-// ship_effective_durability / _speed / _max_hp return a ship's stat after its
+// ship_effective_durability / _speed / _max_hull return a ship's stat after its
 // installed fittings' Stat_Modifier effects apply on top of the raw Ship field
 // (issue #92). Combat reads these rather than the raw fields (see core/combat's
 // combat_effective_speed and its damage calc; ADR-0008's ghost capture resets
-// hp to effective max HP), so a fitting can raise Durability / Speed / Max HP.
+// hull to effective max Hull), so a fitting can raise Durability / Speed / Max Hull.
 ship_effective_durability :: proc(s: ^Ship) -> int {
 	return ship_effective_stat(s, s.durability, .Modify_Durability)
 }
 
 // ship_effective_speed derives a ship's Speed from its weight (ADR-0020, #158):
 // `base + Σ Modify_Speed − weight/10`. The base and the additive Modify_Speed
-// modifiers come through ship_effective_stat exactly as Durability and Max HP do;
+// modifiers come through ship_effective_stat exactly as Durability and Max Hull do;
 // the new term is `− ship_weight/10`, so **no ship's Speed can be read without
 // asking what it is carrying** (the destination test). The `/10` divisor is the
 // money↔Speed exchange rate — #156's ×10-and-doubling capacity table read as a
@@ -530,8 +530,8 @@ ship_weight :: proc(s: Ship) -> int {
 	return total
 }
 
-ship_effective_max_hp :: proc(s: ^Ship) -> int {
-	return ship_effective_stat(s, s.max_hp, .Modify_Max_HP)
+ship_effective_max_hull :: proc(s: ^Ship) -> int {
+	return ship_effective_stat(s, s.max_hull, .Modify_Max_Hull)
 }
 
 // ship_cargo_capacity is the treasure a ship can carry: the size contribution

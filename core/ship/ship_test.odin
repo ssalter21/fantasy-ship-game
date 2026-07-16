@@ -480,17 +480,17 @@ effect_magnitude_of_a_synergy_with_no_matches_is_zero :: proc(t: ^testing.T) {
 effective_stats_equal_the_raw_fields_when_no_stat_modifier_is_installed :: proc(t: ^testing.T) {
 	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Offensive, active = Effect{magnitude = 10}}
 	s := Ship{
-		durability = 2, speed = 4, max_hp = 20,
+		durability = 2, speed = 4, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},
 	}
 
-	// A plain fitting adds no stat modifier, so Durability and Max HP read their
+	// A plain fitting adds no stat modifier, so Durability and Max Hull read their
 	// raw fields. Speed is different now (ADR-0020): every non-cargo fitting has an
 	// authored weight, so effective Speed is base − weight/10, not the raw field. The
 	// Large Cannon weighs 38, so 4 − 3 = 1.
 	testing.expect_value(t, ship_effective_durability(&s), 2)
 	testing.expect_value(t, ship_effective_speed(&s), 4 - ship_weight(s) / 10)
-	testing.expect_value(t, ship_effective_max_hp(&s), 20)
+	testing.expect_value(t, ship_effective_max_hull(&s), 20)
 }
 
 @(test)
@@ -500,23 +500,23 @@ a_stat_modifier_fitting_raises_the_matching_effective_stat_only :: proc(t: ^test
 		passive = Effect{kind = .Modify_Durability, magnitude = 3},
 	}
 	s := Ship{
-		durability = 2, speed = 4, max_hp = 20,
+		durability = 2, speed = 4, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = reinforced}},
 	}
 
 	testing.expect_value(t, ship_effective_durability(&s), 2 + 3)
 	testing.expect_value(t, ship_effective_speed(&s), 4) // unaffected
-	testing.expect_value(t, ship_effective_max_hp(&s), 20) // unaffected
+	testing.expect_value(t, ship_effective_max_hull(&s), 20) // unaffected
 }
 
 @(test)
-stat_modifiers_stack_across_slots_and_span_max_hp_and_speed :: proc(t: ^testing.T) {
+stat_modifiers_stack_across_slots_and_span_max_hull_and_speed :: proc(t: ^testing.T) {
 	hull := Fitting{name = "Reinforced Hull", size = .Small, weight = 8, passive = Effect{kind = .Modify_Durability, magnitude = 3}}
 	plating := Fitting{name = "Iron Plating", size = .Small, weight = 8, passive = Effect{kind = .Modify_Durability, magnitude = 2}}
 	sails := Fitting{name = "Fast Sails", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 4}}
-	ballast := Fitting{name = "Ballast Tanks", size = .Small, weight = 8, passive = Effect{kind = .Modify_Max_HP, magnitude = 10}}
+	ballast := Fitting{name = "Ballast Tanks", size = .Small, weight = 8, passive = Effect{kind = .Modify_Max_Hull, magnitude = 10}}
 	s := Ship{
-		durability = 1, speed = 5, max_hp = 20,
+		durability = 1, speed = 5, max_hull = 20,
 		layout = []Layout_Slot{
 			{slot = Slot{size = .Small}, fitting = hull},
 			{slot = Slot{size = .Small}, fitting = plating},
@@ -528,7 +528,7 @@ stat_modifiers_stack_across_slots_and_span_max_hp_and_speed :: proc(t: ^testing.
 	testing.expect_value(t, ship_effective_durability(&s), 1 + 3 + 2)
 	// base 5 + Modify_Speed 4, minus the four Small fittings' weight/10 (ADR-0020).
 	testing.expect_value(t, ship_effective_speed(&s), 5 + 4 - ship_weight(s) / 10)
-	testing.expect_value(t, ship_effective_max_hp(&s), 20 + 10)
+	testing.expect_value(t, ship_effective_max_hull(&s), 20 + 10)
 }
 
 // The calibration BASE_SPEED is solved against (ADR-0020, #158): the starting ship
@@ -561,17 +561,17 @@ a_full_hold_floors_the_starting_ship_speed_at_zero_never_below :: proc(t: ^testi
 }
 
 @(test)
-hp_below_conditional_resolves_to_zero_above_the_threshold_and_full_below :: proc(t: ^testing.T) {
-	effect := Effect{magnitude = 6, conditional = Condition_HP_Below{percent = 50}}
-	s := Ship{max_hp = 20}
+hull_below_conditional_resolves_to_zero_above_the_threshold_and_full_below :: proc(t: ^testing.T) {
+	effect := Effect{magnitude = 6, conditional = Condition_Hull_Below{percent = 50}}
+	s := Ship{max_hull = 20}
 
-	s.hp = 20 // full: above the half-HP threshold
+	s.hull = 20 // full: above the half-Hull threshold
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
 
-	s.hp = 10 // exactly half: strictly-below means still unmet
+	s.hull = 10 // exactly half: strictly-below means still unmet
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
 
-	s.hp = 9 // below half: full magnitude
+	s.hull = 9 // below half: full magnitude
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(6))
 }
 
@@ -628,20 +628,20 @@ opponent_speed_conditionals_compare_the_live_battle_speeds :: proc(t: ^testing.T
 
 @(test)
 a_conditional_stat_modifier_applies_only_while_its_condition_holds :: proc(t: ^testing.T) {
-	// A "below half HP, +Durability" plating: the effective-stat readers gate it
+	// A "below half Hull, +Durability" plating: the effective-stat readers gate it
 	// through the same conditional seam, self_slot filled per slot.
 	plating := Fitting{
 		name = "Panic Plating", size = .Small,
-		passive = Effect{kind = .Modify_Durability, magnitude = 5, conditional = Condition_HP_Below{percent = 50}},
+		passive = Effect{kind = .Modify_Durability, magnitude = 5, conditional = Condition_Hull_Below{percent = 50}},
 	}
 	s := Ship{
-		durability = 2, max_hp = 20,
+		durability = 2, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = plating}},
 	}
 
-	s.hp = 20 // above the threshold: raw durability only
+	s.hull = 20 // above the threshold: raw durability only
 	testing.expect_value(t, ship_effective_durability(&s), 2)
 
-	s.hp = 8 // below the threshold: the +Durability kicks in
+	s.hull = 8 // below the threshold: the +Durability kicks in
 	testing.expect_value(t, ship_effective_durability(&s), 2 + 5)
 }

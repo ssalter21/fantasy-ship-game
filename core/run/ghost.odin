@@ -21,7 +21,7 @@ Ghost_Snapshot :: struct {
 // the field to have anything to say. Stakes is the concept that survives, and
 // Scaling_Site is what expresses it, so the snapshot carries the site itself
 // rather than one primitive's reading of it: the reading is recoverable
-// (run_fight_opponent_hp(site) and friends), a bare int isn't, and no primitive
+// (run_fight_opponent_hull(site) and friends), a bare int isn't, and no primitive
 // has to lie about which number it owns. Scaling_Site carries the zone, so the
 // old separate zone field is subsumed rather than duplicated.
 Ghost_Progress :: struct {
@@ -30,9 +30,9 @@ Ghost_Progress :: struct {
 }
 
 // run_ghost_snapshot_of assembles a Ghost_Snapshot describing ship s at the
-// given run progress, without cloning: hp is reset to s's effective max HP
+// given run progress, without cloning: hull is reset to s's effective max Hull
 // (ADR-0008: a ghost always starts at full health; issue #92: effective, so a
-// +Max_HP fitting counts), but the returned snapshot's layout
+// +Max_Hull fitting counts), but the returned snapshot's layout
 // *aliases* s.layout rather than owning a copy. It is a borrowed description
 // valid only as long as s and its layout are — a caller that must hand the
 // snapshot out past s's lifetime (core/sim, via Event_Encounter_Resolved)
@@ -45,7 +45,7 @@ Ghost_Progress :: struct {
 // the ship (issue #162, ADR-0008 as amended; see encounter.odin's header).
 run_ghost_snapshot_of :: proc(s: ^ship.Ship, steps: int, site: Scaling_Site) -> Ghost_Snapshot {
 	snap_ship := s^
-	snap_ship.hp = ship.ship_effective_max_hp(s)
+	snap_ship.hull = ship.ship_effective_max_hull(s)
 
 	return Ghost_Snapshot{
 		ship = snap_ship,

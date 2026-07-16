@@ -91,12 +91,12 @@ run_finish_ship_battle :: proc(battle: ^combat.Battle) -> (outcome: Stage_Outcom
 
 // run_trade_stat_floor is the lowest a stat may be left by paying a trade's cost
 // (issue #136). Durability and Treasure floor at 0 — a ship with none of them is a
-// valid, badly-off ship. HP and Max HP floor at **1**: a trade is a bargain struck
+// valid, badly-off ship. Hull and Max Hull floor at **1**: a trade is a bargain struck
 // on a menu, and sinking the ship there would hand permadeath to a stage whose
 // whole job is a choice, duplicating Fight's outcome while dodging its agency.
 run_trade_stat_floor :: proc(stat: Trade_Stat) -> int {
 	switch stat {
-	case .HP, .Max_HP:
+	case .Hull, .Max_Hull:
 		return 1
 	case .Durability, .Treasure:
 		return 0
@@ -110,15 +110,15 @@ run_trade_stat_floor :: proc(stat: Trade_Stat) -> int {
 // It reads the **effective** stat, never the raw base field (ADR-0012, issue
 // #92): a fitting that grants +Durability genuinely makes a Durability cost
 // affordable, because effective is the number combat and escape actually resolve
-// against, so it is the number the ship truly "has". HP is its own reading rather
-// than an effective one because Ship.hp has no modifier path — fittings move the
-// *ceiling* (Modify_Max_HP), not the current value.
+// against, so it is the number the ship truly "has". Hull is its own reading rather
+// than an effective one because Ship.hull has no modifier path — fittings move the
+// *ceiling* (Modify_Max_Hull), not the current value.
 run_trade_stat_reading :: proc(s: ^ship.Ship, stat: Trade_Stat) -> int {
 	switch stat {
-	case .HP:
-		return s.hp
-	case .Max_HP:
-		return ship.ship_effective_max_hp(s)
+	case .Hull:
+		return s.hull
+	case .Max_Hull:
+		return ship.ship_effective_max_hull(s)
 	case .Durability:
 		return ship.ship_effective_durability(s)
 	case .Treasure:
@@ -157,16 +157,16 @@ run_trade_can_accept :: proc(s: ^ship.Ship, trade: Stage_Trade) -> bool {
 // purse at its reduced total (ship_stow_treasure), the affordability gate having
 // already guaranteed purse >= amount.
 //
-// Spending Max HP pulls the ceiling down under current HP, so hp re-clamps to the
-// new effective ceiling — the ship cannot be left holding more HP than it can now
+// Spending Max Hull pulls the ceiling down under current Hull, so hull re-clamps to the
+// new effective ceiling — the ship cannot be left holding more Hull than it can now
 // hold.
 run_trade_pay :: proc(s: ^ship.Ship, cost: Trade_Term) {
 	switch cost.stat {
-	case .HP:
-		s.hp -= cost.amount
-	case .Max_HP:
-		s.max_hp -= cost.amount
-		s.hp = min(s.hp, ship.ship_effective_max_hp(s))
+	case .Hull:
+		s.hull -= cost.amount
+	case .Max_Hull:
+		s.max_hull -= cost.amount
+		s.hull = min(s.hull, ship.ship_effective_max_hull(s))
 	case .Durability:
 		s.durability -= cost.amount
 	case .Treasure:
@@ -174,17 +174,17 @@ run_trade_pay :: proc(s: ^ship.Ship, cost: Trade_Term) {
 	}
 }
 
-// run_trade_grant applies a trade's gain. Gaining HP is a repair and so caps at
-// the ship's effective max (issue #92: effective, so a +Max_HP fitting's headroom
-// counts) — there is no overheal. Gaining Max HP raises the ceiling without
+// run_trade_grant applies a trade's gain. Gaining Hull is a repair and so caps at
+// the ship's effective max (issue #92: effective, so a +Max_Hull fitting's headroom
+// counts) — there is no overheal. Gaining Max Hull raises the ceiling without
 // filling it: it is headroom, not a repair, and the two stats stay distinct
 // precisely so a roster entry can trade one for the other.
 run_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 	switch gain.stat {
-	case .HP:
-		s.hp = min(s.hp + gain.amount, ship.ship_effective_max_hp(s))
-	case .Max_HP:
-		s.max_hp += gain.amount
+	case .Hull:
+		s.hull = min(s.hull + gain.amount, ship.ship_effective_max_hull(s))
+	case .Max_Hull:
+		s.max_hull += gain.amount
 	case .Durability:
 		s.durability += gain.amount
 	case .Treasure:
@@ -208,7 +208,7 @@ run_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 // before anything is applied.
 //
 // **Cost is paid before the gain is granted**, which is load-bearing for
-// Cannibalized Timbers (+HP for -Max HP): lowering the ceiling first means the repair
+// Cannibalized Timbers (+Hull for -Max Hull): lowering the ceiling first means the repair
 // caps against the ceiling the player just sold, not the one they had. Any trade
 // whose two stats don't interact is unaffected by the order.
 //

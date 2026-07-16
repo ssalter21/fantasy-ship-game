@@ -4,38 +4,38 @@ import "../ship"
 import "core:testing"
 
 @(test)
-capture_resets_hp_to_max_hp_regardless_of_current_hp :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 3, max_hp = 20}
+capture_resets_hull_to_max_hull_regardless_of_current_hull :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 3, max_hull = 20}
 
 	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
 	defer delete(snap.ship.layout)
 
-	testing.expect_value(t, snap.ship.hp, 20)
+	testing.expect_value(t, snap.ship.hull, 20)
 }
 
 @(test)
-capture_resets_hp_to_effective_max_hp_including_a_max_hp_fitting :: proc(t: ^testing.T) {
+capture_resets_hull_to_effective_max_hull_including_a_max_hull_fitting :: proc(t: ^testing.T) {
 	ballast := ship.Fitting{
 		name = "Ballast Tanks", size = .Small,
-		passive = ship.Effect{kind = .Modify_Max_HP, magnitude = 10},
+		passive = ship.Effect{kind = .Modify_Max_Hull, magnitude = 10},
 	}
 	s := ship.Ship{
-		hp = 3, max_hp = 20,
+		hull = 3, max_hull = 20,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = ballast}},
 	}
 
 	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 0, Scaling_Site{zone = .Coastal, depth = 0}))
 	defer delete(snap.ship.layout)
 
-	// Effective max HP = raw 20 + the +Max_HP fitting's 10 (issue #92).
-	testing.expect_value(t, snap.ship.hp, 30)
+	// Effective max Hull = raw 20 + the +Max_Hull fitting's 10 (issue #92).
+	testing.expect_value(t, snap.ship.hull, 30)
 }
 
 @(test)
 capture_clones_the_layout_so_later_mutation_to_the_source_ship_does_not_leak_into_the_snapshot :: proc(t: ^testing.T) {
 	cargo := ship.Fitting{name = "Rations", is_cargo = true, stack_count = 1}
 	s := ship.Ship{
-		hp = 20, max_hp = 20,
+		hull = 20, max_hull = 20,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
 	}
 
@@ -51,7 +51,7 @@ capture_clones_the_layout_so_later_mutation_to_the_source_ship_does_not_leak_int
 
 @(test)
 capture_carries_the_given_progress_fields_through_unchanged :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20}
+	s := ship.Ship{hull = 20, max_hull = 20}
 
 	site := Scaling_Site{zone = .Open_Sea, depth = 2}
 	snap := run_ghost_snapshot_capture(run_ghost_snapshot_of(&s, 7, site))
@@ -65,7 +65,7 @@ capture_carries_the_given_progress_fields_through_unchanged :: proc(t: ^testing.
 capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^testing.T) {
 	captain := ship.Captain{name = "Blackheart"}
 	s := ship.Ship{
-		hp = 5, max_hp = 20, durability = 3, speed = 7,
+		hull = 5, max_hull = 20, durability = 3, speed = 7,
 		captain = captain,
 	}
 

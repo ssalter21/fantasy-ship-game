@@ -68,7 +68,7 @@ Command_Leave_Combat :: struct {}
 Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
-// fought (their run-persistent HP/Durability/Speed live on *ship.Ship and
+// fought (their run-persistent Hull/Durability/Speed live on *ship.Ship and
 // are mutated in place) plus this-battle-only bookkeeping.
 Battle :: struct {
 	ships:      [Side]^ship.Ship,
@@ -393,13 +393,13 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		// fittings, so a +Durability fitting measurably reduces damage taken.
 		final := max(0, round_state[side].raw_damage-(ship.ship_effective_durability(target_ship) + round_state[target].defense_bonus))
 		if final > 0 {
-			target_ship.hp = max(0, target_ship.hp-final)
+			target_ship.hull = max(0, target_ship.hull-final)
 			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, raw_damage = round_state[side].raw_damage, final_damage = final}))
 		}
 	}
 
 	for side in Side {
-		if battle.ships[side].hp <= 0 {
+		if battle.ships[side].hull <= 0 {
 			round_state[side].sunk = true
 			append(events, Event(Event_Ship_Sunk{round = battle.round, side = side}))
 		}
@@ -423,7 +423,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	if battle.round >= HARD_ROUND_CAP {
 		battle.ended = true
 		battle.reason = .Round_Cap
-		battle.winner = combat_hp_tiebreak(battle)
+		battle.winner = combat_hull_tiebreak(battle)
 		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
 	}
 }
@@ -443,15 +443,15 @@ combat_speed_tiebreak :: proc(battle: ^Battle) -> Maybe(Side) {
 	}
 }
 
-// combat_hp_tiebreak resolves a hard-round-cap stalemate by higher HP,
-// falling back to combat_speed_tiebreak on an exact HP tie (ADR-0006).
-combat_hp_tiebreak :: proc(battle: ^Battle) -> Maybe(Side) {
-	hp_a := battle.ships[.A].hp
-	hp_b := battle.ships[.B].hp
+// combat_hull_tiebreak resolves a hard-round-cap stalemate by higher Hull,
+// falling back to combat_speed_tiebreak on an exact Hull tie (ADR-0006).
+combat_hull_tiebreak :: proc(battle: ^Battle) -> Maybe(Side) {
+	hull_a := battle.ships[.A].hull
+	hull_b := battle.ships[.B].hull
 	switch {
-	case hp_a > hp_b:
+	case hull_a > hull_b:
 		return Side.A
-	case hp_b > hp_a:
+	case hull_b > hull_a:
 		return Side.B
 	case:
 		return combat_speed_tiebreak(battle)

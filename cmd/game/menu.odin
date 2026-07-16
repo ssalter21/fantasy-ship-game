@@ -548,14 +548,14 @@ draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, purse: int)
 }
 
 // trade_stat_label names a tradeable stat for the player (issue #136). The enum's
-// own spelling is close but not presentable (Max_HP), and a Trade is the first
+// own spelling is close but not presentable (Max_Hull), and a Trade is the first
 // screen that shows a stat by name rather than as a labeled row of the ship panel.
 trade_stat_label :: proc(stat: run.Trade_Stat) -> string {
 	switch stat {
-	case .HP:
-		return "HP"
-	case .Max_HP:
-		return "Max HP"
+	case .Hull:
+		return "Hull"
+	case .Max_Hull:
+		return "Max Hull"
 	case .Durability:
 		return "Durability"
 	case .Treasure:

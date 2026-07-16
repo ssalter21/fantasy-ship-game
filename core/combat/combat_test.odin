@@ -6,8 +6,8 @@ import "core:testing"
 
 @(test)
 round_with_no_fittings_and_no_commands_deals_no_damage :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 20, durability = 0, speed = 5}
-	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	a := ship.Ship{hull = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, durability = 0, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -16,8 +16,8 @@ round_with_no_fittings_and_no_commands_deals_no_damage :: proc(t: ^testing.T) {
 	combat_resolve_round(&battle, cmds, &events)
 
 	testing.expect_value(t, battle.round, 1)
-	testing.expect_value(t, a.hp, 20)
-	testing.expect_value(t, b.hp, 20)
+	testing.expect_value(t, a.hull, 20)
+	testing.expect_value(t, b.hull, 20)
 	testing.expect_value(t, len(events), 0)
 	testing.expect(t, !battle.ended)
 }
@@ -26,10 +26,10 @@ round_with_no_fittings_and_no_commands_deals_no_damage :: proc(t: ^testing.T) {
 offensive_fitting_deals_damage_reduced_by_target_durability :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hp = 20, durability = 3, speed = 5,
+		hull = 20, durability = 3, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hp = 20, durability = 3, speed = 5}
+	b := ship.Ship{hull = 20, durability = 3, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -37,8 +37,8 @@ offensive_fitting_deals_damage_reduced_by_target_durability :: proc(t: ^testing.
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hp, 20 - (10 - 3))
-	testing.expect_value(t, a.hp, 20)
+	testing.expect_value(t, b.hull, 20 - (10 - 3))
+	testing.expect_value(t, a.hull, 20)
 	testing.expect_value(t, len(events), 1)
 	dealt, ok := events[0].(Event_Damage_Dealt)
 	testing.expect(t, ok)
@@ -51,10 +51,10 @@ offensive_fitting_deals_damage_reduced_by_target_durability :: proc(t: ^testing.
 damage_is_floored_at_zero_when_durability_exceeds_raw_damage :: proc(t: ^testing.T) {
 	dagger := ship.Fitting{name = "Dagger", category = .Offensive, active = ship.Effect{magnitude = 2}}
 	a := ship.Ship{
-		hp = 20, durability = 10, speed = 5,
+		hull = 20, durability = 10, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = dagger}},
 	}
-	b := ship.Ship{hp = 20, durability = 10, speed = 5}
+	b := ship.Ship{hull = 20, durability = 10, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -62,7 +62,7 @@ damage_is_floored_at_zero_when_durability_exceeds_raw_damage :: proc(t: ^testing
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hp, 20)
+	testing.expect_value(t, b.hull, 20)
 	testing.expect_value(t, len(events), 0)
 }
 
@@ -71,11 +71,11 @@ defensive_fitting_adds_a_temporary_damage_reduction_stacking_with_durability :: 
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	b := ship.Ship{
-		hp = 20, durability = 1, speed = 5,
+		hull = 20, durability = 1, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = shield}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -86,7 +86,7 @@ defensive_fitting_adds_a_temporary_damage_reduction_stacking_with_durability :: 
 	combat_resolve_round(&battle, cmds, &events)
 
 	// 10 raw, minus durability(1) + this-round defense bonus(4) = 5 final.
-	testing.expect_value(t, b.hp, 15)
+	testing.expect_value(t, b.hull, 15)
 }
 
 @(test)
@@ -94,13 +94,13 @@ buff_output_adds_into_the_same_rounds_defensive_and_offensive_totals :: proc(t: 
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = warcry},
 			{slot = ship.Slot{size = .Large}, fitting = cannon},
 		},
 	}
-	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, durability = 0, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -109,7 +109,7 @@ buff_output_adds_into_the_same_rounds_defensive_and_offensive_totals :: proc(t: 
 	combat_resolve_round(&battle, cmds, &events)
 
 	// Offensive output = cannon(10) + buff(3) = 13 raw damage.
-	testing.expect_value(t, b.hp, 20-13)
+	testing.expect_value(t, b.hull, 20-13)
 }
 
 // The inverse of the pre-#151 test of the same shape, which pinned buff folding
@@ -122,14 +122,14 @@ buff_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
 	a := ship.Ship{
-		hp = 20, durability = 1, speed = 5,
+		hull = 20, durability = 1, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = warcry},
 			{slot = ship.Slot{size = .Small}, fitting = shield},
 		},
 	}
 	b := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -141,7 +141,7 @@ buff_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 
 	// A's soak = durability(1) + defensive(4) = 5 — the War Cry's 3 is *not* in it.
 	// B's raw damage = 20, so final = 20 - 5 = 15. (Pre-#151 this was 20 - 8 = 12.)
-	testing.expect_value(t, a.hp, 20-15)
+	testing.expect_value(t, a.hull, 20-15)
 }
 
 // The same magnitude on a Buff fitting reaches Offensive and nothing else: the
@@ -151,13 +151,13 @@ buff_output_still_raises_the_same_sides_offensive_total :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = warcry},
 			{slot = ship.Slot{size = .Large}, fitting = cannon},
 		},
 	}
-	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, durability = 0, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -165,18 +165,18 @@ buff_output_still_raises_the_same_sides_offensive_total :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hp, 20-(5+3))
+	testing.expect_value(t, b.hull, 20-(5+3))
 }
 
 @(test)
 boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	b := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -187,8 +187,8 @@ boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^test
 	cmds[.A] = Command(Command_Boost{phase = .Offensive})
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hp, 20-10*BOOST_MULTIPLIER)
-	testing.expect_value(t, a.hp, 20-10)
+	testing.expect_value(t, b.hull, 20-10*BOOST_MULTIPLIER)
+	testing.expect_value(t, a.hull, 20-10)
 }
 
 // Inverted by #151: a Boost multiplies its own phase's fittings, which is what
@@ -200,13 +200,13 @@ boost_offensive_multiplies_the_offensive_fittings_but_not_the_folded_buff :: pro
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = warcry},
 			{slot = ship.Slot{size = .Large}, fitting = cannon},
 		},
 	}
-	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, durability = 0, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -216,7 +216,7 @@ boost_offensive_multiplies_the_offensive_fittings_but_not_the_folded_buff :: pro
 	combat_resolve_round(&battle, cmds, &events)
 
 	// cannon(5)*BOOST_MULTIPLIER + buff(2) = 12. (Pre-#151: (5+2)*2 = 14.)
-	testing.expect_value(t, b.hp, 20-(5*BOOST_MULTIPLIER+2))
+	testing.expect_value(t, b.hull, 20-(5*BOOST_MULTIPLIER+2))
 }
 
 // The other half of the same rule, and the reason it is worth having: Boost Buff
@@ -227,13 +227,13 @@ boost_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = warcry},
 			{slot = ship.Slot{size = .Large}, fitting = cannon},
 		},
 	}
-	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, durability = 0, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -244,7 +244,7 @@ boost_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^
 
 	// cannon(5) + buff(2)*BOOST_MULTIPLIER = 9. Worth less than Boost Offensive's
 	// 12 for *this* build, and worth more for a build whose crew outweighs its guns.
-	testing.expect_value(t, b.hp, 20-(5+2*BOOST_MULTIPLIER))
+	testing.expect_value(t, b.hull, 20-(5+2*BOOST_MULTIPLIER))
 }
 
 // Also inverted by #151: Boost Defensive doubles the Defensive fittings alone,
@@ -255,14 +255,14 @@ boost_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = warcry},
 			{slot = ship.Slot{size = .Small}, fitting = shield},
 		},
 	}
 	b := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -275,7 +275,7 @@ boost_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 
 	// A's boosted soak = shield(4) * BOOST_MULTIPLIER = 8, the War Cry's 3 excluded;
 	// B's raw damage = 20, so final = 20 - 8 = 12. (Pre-#151: (4+3)*2 = 14, so 6.)
-	testing.expect_value(t, a.hp, 20-12)
+	testing.expect_value(t, a.hull, 20-12)
 }
 
 @(test)
@@ -290,25 +290,25 @@ a_durability_stat_modifier_fitting_measurably_reduces_damage_taken :: proc(t: ^t
 	// fitting installed on the target.
 	fire_once :: proc(target_layout: []ship.Layout_Slot, attacker: ship.Fitting) -> int {
 		a := ship.Ship{
-			hp = 20, durability = 0, speed = 5,
+			hull = 20, durability = 0, speed = 5,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = attacker}},
 		}
-		b := ship.Ship{hp = 20, durability = 1, speed = 5, layout = target_layout}
+		b := ship.Ship{hull = 20, durability = 1, speed = 5, layout = target_layout}
 		battle := combat_battle_create(&a, &b)
 		events: [dynamic]Event
 		defer delete(events)
 		cmds: [Side]Maybe(Command)
 		combat_resolve_round(&battle, cmds, &events)
-		return b.hp
+		return b.hull
 	}
 
-	bare_hp := fire_once(nil, cannon)
-	reinforced_hp := fire_once([]ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = reinforced}}, cannon)
+	bare_hull := fire_once(nil, cannon)
+	reinforced_hull := fire_once([]ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = reinforced}}, cannon)
 
-	// Bare: 10 raw - durability(1) = 9 -> hp 11. Reinforced: 10 - (1+4) = 5 -> hp 15.
-	testing.expect_value(t, bare_hp, 20 - 9)
-	testing.expect_value(t, reinforced_hp, 20 - 5)
-	testing.expect(t, reinforced_hp > bare_hp) // the +Durability fitting measurably reduced damage
+	// Bare: 10 raw - durability(1) = 9 -> hull 11. Reinforced: 10 - (1+4) = 5 -> hull 15.
+	testing.expect_value(t, bare_hull, 20 - 9)
+	testing.expect_value(t, reinforced_hull, 20 - 5)
+	testing.expect(t, reinforced_hull > bare_hull) // the +Durability fitting measurably reduced damage
 }
 
 @(test)
@@ -320,10 +320,10 @@ a_speed_stat_modifier_fitting_raises_effective_speed_for_escape_eligibility :: p
 	// Equal base Speed (5), but A carries a +3 Speed fitting: past the baseline
 	// round count only the strictly-faster side may leave, so A is eligible.
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = fast_sails}},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
@@ -351,10 +351,10 @@ the_three_starting_fittings_phase_output_matches_their_magnitude_constants :: pr
 hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 5,
+		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, durability = 0, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -365,16 +365,16 @@ hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 
 	// Same outcome as the no-command baseline round (cannon(10) unboosted,
 	// no Man the Sails/Jettison/Leave side effects): Hold contributes nothing.
-	testing.expect_value(t, b.hp, 20-10)
-	testing.expect_value(t, a.hp, 20)
+	testing.expect_value(t, b.hull, 20-10)
+	testing.expect_value(t, a.hull, 20)
 	testing.expect_value(t, combat_effective_speed(&battle, .A), 5)
 	testing.expect(t, !battle.ended)
 }
 
 @(test)
 man_the_sails_grants_a_speed_boost_for_this_round_only :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 20, speed = 5}
-	b := ship.Ship{hp = 20, speed = 5}
+	a := ship.Ship{hull = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -398,10 +398,10 @@ jettison_cargo_empties_the_slot_and_speeds_the_ship_up_by_shedding_weight :: pro
 	// lighter hull, not a granted bonus (JETTISON_SPEED_BONUS is retired, #158).
 	cargo := ship.Fitting{name = "Rations", size = .Small, is_cargo = true, stack_count = 10}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	testing.expect_value(t, combat_effective_speed(&battle, .A), 4) // laden: 5 − 10/10
@@ -441,10 +441,10 @@ jettison_cargo_on_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
 
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -465,13 +465,13 @@ reallocate_moves_treasure_between_holds_without_changing_weight_or_speed :: proc
 	// slot's size is the denomination, #156).
 	large_cargo := ship.Fitting{name = "Cargo", size = .Large, is_cargo = true, stack_count = 40}
 	a := ship.Ship{
-		hp = 20, speed = 10,
+		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
 			{slot = ship.Slot{size = .Small}},
 		},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	before := combat_effective_speed(&battle, .A) // 10 − 40/10 = 6
@@ -513,13 +513,13 @@ reallocate_buys_a_finer_jettison_than_the_hold_allowed :: proc(t: ^testing.T) {
 	// than was reachable before the reallocation, paid for with the round it cost.
 	large_cargo := ship.Fitting{name = "Cargo", size = .Large, is_cargo = true, stack_count = 40}
 	a := ship.Ship{
-		hp = 20, speed = 10,
+		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
 			{slot = ship.Slot{size = .Small}},
 		},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	laden := combat_effective_speed(&battle, .A) // 10 − 40/10 = 6
@@ -549,13 +549,13 @@ reallocate_into_a_partial_hold_grows_it_up_to_capacity :: proc(t: ^testing.T) {
 	large_cargo := ship.Fitting{name = "Cargo", size = .Large, is_cargo = true, stack_count = 40}
 	medium_cargo := ship.Fitting{name = "Cargo", size = .Medium, is_cargo = true, stack_count = 5}
 	a := ship.Ship{
-		hp = 20, speed = 10,
+		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
 			{slot = ship.Slot{size = .Medium}, fitting = medium_cargo},
 		},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -580,13 +580,13 @@ reallocate_that_empties_the_source_nulls_the_slot :: proc(t: ^testing.T) {
 	// and leaves the Small slot empty.
 	small_cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
 	a := ship.Ship{
-		hp = 20, speed = 10,
+		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = small_cargo},
 			{slot = ship.Slot{size = .Medium}},
 		},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -609,10 +609,10 @@ reallocate_from_a_slot_to_itself_asserts :: proc(t: ^testing.T) {
 	}
 	cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	events: [dynamic]Event
 	defer delete(events)
@@ -629,13 +629,13 @@ reallocate_from_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
 	}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Large}, fitting = cannon},
 			{slot = ship.Slot{size = .Small}},
 		},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	events: [dynamic]Event
 	defer delete(events)
@@ -653,13 +653,13 @@ reallocate_into_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
 	cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = cargo},
 			{slot = ship.Slot{size = .Large}, fitting = cannon},
 		},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	events: [dynamic]Event
 	defer delete(events)
@@ -680,13 +680,13 @@ reallocate_into_a_full_hold_moves_nothing_and_asserts :: proc(t: ^testing.T) {
 	from_cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
 	full_small := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = from_cargo},
 			{slot = ship.Slot{size = .Small}, fitting = full_small},
 		},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	events: [dynamic]Event
 	defer delete(events)
@@ -698,8 +698,8 @@ reallocate_into_a_full_hold_moves_nothing_and_asserts :: proc(t: ^testing.T) {
 
 @(test)
 may_leave_is_false_before_the_baseline_round_count_even_if_faster :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 20, speed = 10}
-	b := ship.Ship{hp = 20, speed = 5}
+	a := ship.Ship{hull = 20, speed = 10}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT - 1
 
@@ -708,8 +708,8 @@ may_leave_is_false_before_the_baseline_round_count_even_if_faster :: proc(t: ^te
 
 @(test)
 may_leave_is_false_after_baseline_when_not_the_faster_side :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 20, speed = 5}
-	b := ship.Ship{hp = 20, speed = 10}
+	a := ship.Ship{hull = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 10}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
@@ -718,8 +718,8 @@ may_leave_is_false_after_baseline_when_not_the_faster_side :: proc(t: ^testing.T
 
 @(test)
 may_leave_is_true_after_baseline_for_the_strictly_faster_side :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 20, speed = 10}
-	b := ship.Ship{hp = 20, speed = 5}
+	a := ship.Ship{hull = 20, speed = 10}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
@@ -728,8 +728,8 @@ may_leave_is_true_after_baseline_for_the_strictly_faster_side :: proc(t: ^testin
 
 @(test)
 scripted_command_holds_when_not_escape_eligible :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 20, speed = 10}
-	b := ship.Ship{hp = 20, speed = 5}
+	a := ship.Ship{hull = 20, speed = 10}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT - 1
 
@@ -738,8 +738,8 @@ scripted_command_holds_when_not_escape_eligible :: proc(t: ^testing.T) {
 
 @(test)
 scripted_command_leaves_once_escape_eligible :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 20, speed = 10}
-	b := ship.Ship{hp = 20, speed = 5}
+	a := ship.Ship{hull = 20, speed = 10}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
@@ -750,10 +750,10 @@ scripted_command_leaves_once_escape_eligible :: proc(t: ^testing.T) {
 leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hp = 20, speed = 10,
+		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
@@ -764,7 +764,7 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 	combat_resolve_round(&battle, cmds, &events)
 
 	testing.expect(t, battle.ended)
-	testing.expect_value(t, b.hp, 20) // no offensive phase resolved this round
+	testing.expect_value(t, b.hull, 20) // no offensive phase resolved this round
 	testing.expect_value(t, len(events), 1)
 	ended, ok := events[0].(Event_Battle_Ended)
 	testing.expect(t, ok)
@@ -784,10 +784,10 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hp = 20, durability = 0, speed = 10,
+		hull = 20, durability = 0, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hp = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, durability = 0, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
@@ -802,13 +802,13 @@ an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc
 	combat_resolve_round(&battle, cmds, &events)
 
 	testing.expect(t, !battle.ended)
-	testing.expect_value(t, b.hp, 20-10)
+	testing.expect_value(t, b.hull, 20-10)
 }
 
 @(test)
 man_the_sails_speed_boost_can_swing_escape_eligibility_for_the_round_it_was_used :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 20, speed = 5}
-	b := ship.Ship{hp = 20, speed = 5}
+	a := ship.Ship{hull = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT - 1
 
@@ -833,13 +833,13 @@ man_the_sails_speed_boost_can_swing_escape_eligibility_for_the_round_it_was_used
 }
 
 @(test)
-a_ship_reduced_to_zero_hp_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T) {
+a_ship_reduced_to_zero_hull_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 25}}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -847,7 +847,7 @@ a_ship_reduced_to_zero_hp_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hp, 0)
+	testing.expect_value(t, b.hull, 0)
 	testing.expect(t, battle.ended)
 
 	// The Battle mirrors the emitted ending (#159): a kill is queryable off it.
@@ -878,11 +878,11 @@ a_ship_reduced_to_zero_hp_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T) {
 a_mutual_kill_in_the_same_round_is_won_by_the_higher_speed_side :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 25}}
 	a := ship.Ship{
-		hp = 20, speed = 10,
+		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	b := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -892,8 +892,8 @@ a_mutual_kill_in_the_same_round_is_won_by_the_higher_speed_side :: proc(t: ^test
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, a.hp, 0)
-	testing.expect_value(t, b.hp, 0)
+	testing.expect_value(t, a.hull, 0)
+	testing.expect_value(t, b.hull, 0)
 
 	for event in events {
 		if ended, ok := event.(Event_Battle_Ended); ok {
@@ -908,11 +908,11 @@ a_mutual_kill_in_the_same_round_is_won_by_the_higher_speed_side :: proc(t: ^test
 a_mutual_kill_with_equal_speed_has_no_winner :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 25}}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	b := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -931,9 +931,9 @@ a_mutual_kill_with_equal_speed_has_no_winner :: proc(t: ^testing.T) {
 }
 
 @(test)
-hard_round_cap_forces_resolution_by_higher_hp :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 15, speed = 5}
-	b := ship.Ship{hp = 10, speed = 5}
+hard_round_cap_forces_resolution_by_higher_hull :: proc(t: ^testing.T) {
+	a := ship.Ship{hull = 15, speed = 5}
+	b := ship.Ship{hull = 10, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -966,9 +966,9 @@ hard_round_cap_forces_resolution_by_higher_hp :: proc(t: ^testing.T) {
 }
 
 @(test)
-hard_round_cap_tie_break_falls_back_to_speed_when_hp_is_tied :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 10, speed = 8}
-	b := ship.Ship{hp = 10, speed = 5}
+hard_round_cap_tie_break_falls_back_to_speed_when_hull_is_tied :: proc(t: ^testing.T) {
+	a := ship.Ship{hull = 10, speed = 8}
+	b := ship.Ship{hull = 10, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = HARD_ROUND_CAP - 1
 
@@ -985,9 +985,9 @@ hard_round_cap_tie_break_falls_back_to_speed_when_hp_is_tied :: proc(t: ^testing
 }
 
 @(test)
-hard_round_cap_tie_break_has_no_winner_when_hp_and_speed_are_both_tied :: proc(t: ^testing.T) {
-	a := ship.Ship{hp = 10, speed = 5}
-	b := ship.Ship{hp = 10, speed = 5}
+hard_round_cap_tie_break_has_no_winner_when_hull_and_speed_are_both_tied :: proc(t: ^testing.T) {
+	a := ship.Ship{hull = 10, speed = 5}
+	b := ship.Ship{hull = 10, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = HARD_ROUND_CAP - 1
 
@@ -1019,10 +1019,10 @@ find_battle_ended :: proc(events: []Event) -> (Event_Battle_Ended, bool) {
 jettisoned_cargo_is_destroyed_with_nothing_to_settle :: proc(t: ^testing.T) {
 	cargo := ship.Fitting{name = "Rations", size = .Small, is_cargo = true, stack_count = 10}
 	a := ship.Ship{
-		hp = 20, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
 	}
-	b := ship.Ship{hp = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	testing.expect_value(t, ship.ship_treasure(a), 10)
 
@@ -1041,11 +1041,11 @@ identical_ships_and_commands_produce_identical_results_every_time :: proc(t: ^te
 	make_ships :: proc() -> (ship.Ship, ship.Ship) {
 		cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 7}}
 		a := ship.Ship{
-			hp = 30, durability = 1, speed = 5,
+			hull = 30, durability = 1, speed = 5,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 		}
 		b := ship.Ship{
-			hp = 30, durability = 2, speed = 6,
+			hull = 30, durability = 2, speed = 6,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 		}
 		return a, b
@@ -1061,14 +1061,14 @@ identical_ships_and_commands_produce_identical_results_every_time :: proc(t: ^te
 			clear(&events)
 			combat_resolve_round(&battle, cmds, &events)
 		}
-		return a.hp, b.hp
+		return a.hull, b.hull
 	}
 
-	a_hp_1, b_hp_1 := run_five_rounds()
-	a_hp_2, b_hp_2 := run_five_rounds()
+	a_hull_1, b_hull_1 := run_five_rounds()
+	a_hull_2, b_hull_2 := run_five_rounds()
 
-	testing.expect_value(t, a_hp_1, a_hp_2)
-	testing.expect_value(t, b_hp_1, b_hp_2)
+	testing.expect_value(t, a_hull_1, a_hull_2)
+	testing.expect_value(t, b_hull_1, b_hull_2)
 }
 
 // Demo (issue #93): a synergy fitting's combat output scales with the count of
@@ -1120,33 +1120,33 @@ synergy_offense_rises_and_falls_with_the_weapon_count_aboard :: proc(t: ^testing
 }
 
 @(test)
-a_below_half_hp_conditional_offense_fitting_contributes_only_below_the_threshold :: proc(t: ^testing.T) {
-	// Demo for issue #94: a "below half HP, +Offense" fitting resolves its
+a_below_half_hull_conditional_offense_fitting_contributes_only_below_the_threshold :: proc(t: ^testing.T) {
+	// Demo for issue #94: a "below half Hull, +Offense" fitting resolves its
 	// Offensive phase output through the conditional seam, so it adds nothing
-	// while the ship is above half HP and its full magnitude once below.
+	// while the ship is above half Hull and its full magnitude once below.
 	desperado := ship.Fitting{
 		name = "Desperado Cannon", size = .Large, category = .Offensive,
-		active = ship.Effect{magnitude = 10, conditional = ship.Condition_HP_Below{percent = 50}},
+		active = ship.Effect{magnitude = 10, conditional = ship.Condition_Hull_Below{percent = 50}},
 	}
 
 	// Same fitting fired against the same bare target, differing only in the
-	// attacker's current HP relative to its half-HP threshold.
-	damage_dealt_at_hp :: proc(attacker: ship.Fitting, attacker_hp: int) -> int {
+	// attacker's current Hull relative to its half-Hull threshold.
+	damage_dealt_at_hull :: proc(attacker: ship.Fitting, attacker_hull: int) -> int {
 		a := ship.Ship{
-			hp = attacker_hp, max_hp = 20, durability = 0, speed = 5,
+			hull = attacker_hull, max_hull = 20, durability = 0, speed = 5,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = attacker}},
 		}
-		b := ship.Ship{hp = 20, max_hp = 20, durability = 0, speed = 5}
+		b := ship.Ship{hull = 20, max_hull = 20, durability = 0, speed = 5}
 		battle := combat_battle_create(&a, &b)
 		events: [dynamic]Event
 		defer delete(events)
 		cmds: [Side]Maybe(Command)
 		combat_resolve_round(&battle, cmds, &events)
-		return 20 - b.hp
+		return 20 - b.hull
 	}
 
-	above := damage_dealt_at_hp(desperado, 20) // full HP: above the threshold
-	below := damage_dealt_at_hp(desperado, 9) // below half of 20
+	above := damage_dealt_at_hull(desperado, 20) // full Hull: above the threshold
+	below := damage_dealt_at_hull(desperado, 9) // below half of 20
 
 	testing.expect_value(t, above, 0) // contributes nothing above the threshold
 	testing.expect_value(t, below, 10) // its full bonus below it
@@ -1165,18 +1165,18 @@ a_while_concealed_conditional_offense_fitting_reads_its_own_slot_visibility :: p
 
 	damage_from_slot :: proc(attacker: ship.Fitting, base_visibility: ship.Visibility) -> int {
 		a := ship.Ship{
-			hp = 20, max_hp = 20, durability = 0, speed = 5,
+			hull = 20, max_hull = 20, durability = 0, speed = 5,
 			layout = []ship.Layout_Slot{
 				{slot = ship.Slot{size = .Large, base_visibility = base_visibility}, fitting = attacker},
 			},
 		}
-		b := ship.Ship{hp = 20, max_hp = 20, durability = 0, speed = 5}
+		b := ship.Ship{hull = 20, max_hull = 20, durability = 0, speed = 5}
 		battle := combat_battle_create(&a, &b)
 		events: [dynamic]Event
 		defer delete(events)
 		cmds: [Side]Maybe(Command)
 		combat_resolve_round(&battle, cmds, &events)
-		return 20 - b.hp
+		return 20 - b.hull
 	}
 
 	testing.expect_value(t, damage_from_slot(ambush, .Exposed), 0)

@@ -92,8 +92,8 @@ expect_rises_by_zone_and_depth :: proc(t: ^testing.T, f: proc(Scaling_Site) -> i
 }
 
 @(test)
-fight_opponent_hp_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, run_fight_opponent_hp)
+fight_opponent_hull_rises_by_zone_and_depth :: proc(t: ^testing.T) {
+	expect_rises_by_zone_and_depth(t, run_fight_opponent_hull)
 }
 
 @(test)
@@ -132,7 +132,7 @@ trade_swing_rises_by_zone_for_every_stat :: proc(t: ^testing.T) {
 
 // The exchange rate's defining property (#146): **one rate, not twelve.** Every
 // row is `tier x rate`, so the ratio between any two stats' swings is the same in
-// every zone — sell a swing of Speed for a swing of Max HP and you get the same
+// every zone — sell a swing of Speed for a swing of Max Hull and you get the same
 // bargain wherever you strike it. This is what the depth axis broke and what
 // dropping it repaired: with per-tier and per-depth as independent knobs, the same
 // named entry was fair at the top of a zone and a 1.75x gift at the bottom.
@@ -187,11 +187,11 @@ a_reward_outpays_selling_a_stat_at_the_same_site :: proc(t: ^testing.T) {
 }
 
 @(test)
-run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t: ^testing.T) {
+run_make_opponent_ship_sets_both_hull_and_durability_from_zone_and_depth :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Deep, depth = 2}
 	opponent := run_make_opponent_ship(site)
 
-	testing.expect_value(t, opponent.hp, run_fight_opponent_hp(site))
+	testing.expect_value(t, opponent.hull, run_fight_opponent_hull(site))
 	testing.expect_value(t, opponent.durability, run_fight_opponent_durability(site))
 }
 
@@ -201,8 +201,8 @@ run_make_opponent_ship_sets_both_hp_and_durability_from_zone_and_depth :: proc(t
 @(test)
 the_primitives_readings_of_one_site_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
 	coastal := Scaling_Site{zone = .Coastal, depth = 0}
-	testing.expect(t, run_fight_opponent_hp(coastal) != run_offer_item_quality(coastal))
-	testing.expect(t, run_fight_opponent_hp(coastal) != run_trade_swing(coastal.zone, .Durability))
+	testing.expect(t, run_fight_opponent_hull(coastal) != run_offer_item_quality(coastal))
+	testing.expect(t, run_fight_opponent_hull(coastal) != run_trade_swing(coastal.zone, .Durability))
 	testing.expect(t, run_offer_item_quality(coastal) != run_trade_swing(coastal.zone, .Durability))
 }
 
@@ -1179,7 +1179,7 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 			if shallow >= 0 && deep >= 0 && m.nodes[shallow].depth != m.nodes[deep].depth {
 				sb, _ := only_stage(m.nodes[shallow].encounter.?, Stage_Fight)
 				db, _ := only_stage(m.nodes[deep].encounter.?, Stage_Fight)
-				testing.expect(t, db.opponent.hp > sb.opponent.hp)
+				testing.expect(t, db.opponent.hull > sb.opponent.hull)
 				found = true
 			}
 		}
@@ -1282,8 +1282,8 @@ can_travel_to_rejects_a_non_adjacent_destination :: proc(t: ^testing.T) {
 
 @(test)
 run_start_battle_hands_off_to_combat_with_the_ship_and_the_fight_stages_opponent :: proc(t: ^testing.T) {
-	player := ship.Ship{hp = 20, speed = 5}
-	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	player := ship.Ship{hull = 20, speed = 5}
+	fight := Stage_Fight{opponent = ship.Ship{hull = 10, speed = 3}}
 
 	battle := run_start_battle(&player, &fight)
 
@@ -1328,8 +1328,8 @@ battle_destroyed_won_by_the_player :: proc(player: ^ship.Ship, fight: ^Stage_Fig
 
 @(test)
 run_finish_ship_battle_completes_the_fight_when_nobody_escaped :: proc(t: ^testing.T) {
-	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
-	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	player := ship.Ship{hull = 20, max_hull = 20, speed = 5}
+	fight := Stage_Fight{opponent = ship.Ship{hull = 10, speed = 3}}
 	battle := battle_ended_with({}, &player, &fight)
 
 	// A round-cap stalemate: the fight is over, and it pays nothing (#159 — only a
@@ -1341,8 +1341,8 @@ run_finish_ship_battle_completes_the_fight_when_nobody_escaped :: proc(t: ^testi
 
 @(test)
 run_finish_ship_battle_halts_the_encounter_when_the_captain_took_leave_combat :: proc(t: ^testing.T) {
-	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
-	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	player := ship.Ship{hull = 20, max_hull = 20, speed = 5}
+	fight := Stage_Fight{opponent = ship.Ship{hull = 10, speed = 3}}
 	battle := battle_ended_with({.A}, &player, &fight)
 
 	// Fight's halt condition (ADR-0014): flee a [Fight, Reward] and the loot stage
@@ -1353,10 +1353,10 @@ run_finish_ship_battle_halts_the_encounter_when_the_captain_took_leave_combat ::
 
 @(test)
 run_finish_ship_battle_completes_the_fight_when_the_opponent_escaped :: proc(t: ^testing.T) {
-	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
+	player := ship.Ship{hull = 20, max_hull = 20, speed = 5}
 	// The opponent has a laden hold, but flees rather than sinking — so it is not a
 	// wreck, and pays nothing (#159: you loot a wreck, not a winner nor a runner).
-	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3, layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}}}}}
+	fight := Stage_Fight{opponent = ship.Ship{hull = 10, speed = 3, layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}}}}}
 	ship.ship_stow_treasure(fight.opponent.layout, 15)
 	battle := battle_ended_with({.B}, &player, &fight)
 
@@ -1375,8 +1375,8 @@ run_finish_ship_battle_on_a_battle_that_has_not_ended_asserts :: proc(t: ^testin
 		return
 	}
 
-	player := ship.Ship{hp = 20, max_hp = 20, speed = 5}
-	fight := Stage_Fight{opponent = ship.Ship{hp = 10, speed = 3}}
+	player := ship.Ship{hull = 20, max_hull = 20, speed = 5}
+	fight := Stage_Fight{opponent = ship.Ship{hull = 10, speed = 3}}
 	battle := run_start_battle(&player, &fight)
 
 	testing.expect_assert(t, "run_finish_ship_battle called before the battle ended")
@@ -1388,7 +1388,7 @@ run_finish_ship_battle_pays_the_sunk_opponents_hold_into_the_player :: proc(t: ^
 	// A wreck pays its hold as it stands (#159): the player receives exactly the
 	// treasure still stowed in the sunk opponent's cargo slots.
 	player := ship.Ship {
-		hp = 20, max_hp = 20,
+		hull = 20, max_hull = 20,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}}, {slot = ship.Slot{size = .Small}}},
 	}
 	ship.ship_stow_treasure(player.layout, 10) // room for 50 (Large 40 + Small 10), 10 aboard
@@ -1412,7 +1412,7 @@ run_finish_ship_battle_payout_above_capacity_falls_overboard :: proc(t: ^testing
 	// the payout that will not fit in the holds is lost, not banked. payout is the
 	// gross hold looted; what the player keeps is capped at capacity.
 	player := ship.Ship {
-		hp = 20, max_hp = 20,
+		hull = 20, max_hull = 20,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}}, {slot = ship.Slot{size = .Small}}},
 	}
 	ship.ship_stow_treasure(player.layout, 45) // capacity 50, only 5 of room left
@@ -1434,7 +1434,7 @@ run_finish_ship_battle_a_kill_of_a_broke_opponent_pays_nothing :: proc(t: ^testi
 	// A wreck with an empty hold pays 0, and that is not a special case — a sinking
 	// pays whatever is aboard, which may be nothing.
 	player := ship.Ship {
-		hp = 20, max_hp = 20,
+		hull = 20, max_hull = 20,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}}},
 	}
 	fight := Stage_Fight{opponent = ship.Ship{layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}}}}}
@@ -1462,23 +1462,23 @@ trade_of :: proc(gain: Trade_Stat, gain_amount: int, cost: Trade_Stat, cost_amou
 
 @(test)
 run_apply_trade_permanently_swaps_the_cost_stat_for_the_gain_stat :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 2}
+	s := ship.Ship{hull = 20, max_hull = 20, durability = 2}
 
-	run_apply_trade(&s, trade_of(.Durability, 3, .Max_HP, 1))
+	run_apply_trade(&s, trade_of(.Durability, 3, .Max_Hull, 1))
 
 	testing.expect_value(t, s.durability, 5)
-	testing.expect_value(t, s.max_hp, 19)
+	testing.expect_value(t, s.max_hull, 19)
 }
 
 // The axis is data now, so the *inverse* trade must work as well as the original
 // — that's the whole of what unwelding bought.
 @(test)
 run_apply_trade_runs_an_axis_in_either_direction :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 5}
+	s := ship.Ship{hull = 20, max_hull = 20, durability = 5}
 
-	run_apply_trade(&s, trade_of(.Max_HP, 2, .Durability, 3))
+	run_apply_trade(&s, trade_of(.Max_Hull, 2, .Durability, 3))
 
-	testing.expect_value(t, s.max_hp, 22)
+	testing.expect_value(t, s.max_hull, 22)
 	testing.expect_value(t, s.durability, 2)
 }
 
@@ -1529,79 +1529,79 @@ run_apply_trade_scrapped_armour_gain_above_capacity_is_lost :: proc(t: ^testing.
 	testing.expect(t, ship.ship_effective_speed(&s) < speed_before)
 }
 
-// Cannibalized Timbers (+HP for -Max HP) is why the pay-then-grant order is
+// Cannibalized Timbers (+Hull for -Max Hull) is why the pay-then-grant order is
 // load-bearing: selling the ceiling first means the repair caps against the
-// ceiling you just sold. 12 HP of a 20 ceiling, sell 6 of the ceiling, then
+// ceiling you just sold. 12 Hull of a 20 ceiling, sell 6 of the ceiling, then
 // repair 8 — the repair stops at the new ceiling of 14, not the old 20.
 @(test)
 run_apply_trade_pays_before_granting_so_a_repair_caps_against_the_sold_ceiling :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 12, max_hp = 20}
+	s := ship.Ship{hull = 12, max_hull = 20}
 
-	run_apply_trade(&s, trade_of(.HP, 8, .Max_HP, 6))
+	run_apply_trade(&s, trade_of(.Hull, 8, .Max_Hull, 6))
 
-	testing.expect_value(t, s.max_hp, 14)
-	testing.expect_value(t, s.hp, 14)
+	testing.expect_value(t, s.max_hull, 14)
+	testing.expect_value(t, s.hull, 14)
 }
 
 @(test)
 run_apply_trade_never_overheals :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 18, max_hp = 20, durability = 4}
+	s := ship.Ship{hull = 18, max_hull = 20, durability = 4}
 
-	run_apply_trade(&s, trade_of(.HP, 10, .Durability, 1))
+	run_apply_trade(&s, trade_of(.Hull, 10, .Durability, 1))
 
-	testing.expect_value(t, s.hp, 20)
+	testing.expect_value(t, s.hull, 20)
 }
 
-// Gaining Max HP is headroom, not a repair — the two stats stay distinct
+// Gaining Max Hull is headroom, not a repair — the two stats stay distinct
 // precisely so an entry can trade one for the other.
 @(test)
-run_apply_trade_gaining_max_hp_raises_the_ceiling_without_filling_it :: proc(t: ^testing.T) {
+run_apply_trade_gaining_max_hull_raises_the_ceiling_without_filling_it :: proc(t: ^testing.T) {
 	s := ship.ship_starting_ship()
 	defer delete(s.layout)
-	s.hp = 12
-	s.max_hp = 20
+	s.hull = 12
+	s.max_hull = 20
 
-	run_apply_trade(&s, trade_of(.Max_HP, 5, .Treasure, 15))
+	run_apply_trade(&s, trade_of(.Max_Hull, 5, .Treasure, 15))
 
-	testing.expect_value(t, s.max_hp, 25)
-	testing.expect_value(t, s.hp, 12)
+	testing.expect_value(t, s.max_hull, 25)
+	testing.expect_value(t, s.hull, 12)
 	testing.expect_value(t, ship.ship_treasure(s), 35)
 }
 
-// Spending Max HP below current HP can't leave the ship holding more HP than it
+// Spending Max Hull below current Hull can't leave the ship holding more Hull than it
 // can now hold.
 @(test)
-run_apply_trade_paying_max_hp_pulls_current_hp_down_to_the_new_ceiling :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 1}
+run_apply_trade_paying_max_hull_pulls_current_hull_down_to_the_new_ceiling :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 20, max_hull = 20, durability = 1}
 
-	run_apply_trade(&s, trade_of(.Durability, 2, .Max_HP, 8))
+	run_apply_trade(&s, trade_of(.Durability, 2, .Max_Hull, 8))
 
-	testing.expect_value(t, s.max_hp, 12)
-	testing.expect_value(t, s.hp, 12)
+	testing.expect_value(t, s.max_hull, 12)
+	testing.expect_value(t, s.hull, 12)
 }
 
 // --- Trade: affordability (issue #136) --------------------------------------
 
 @(test)
 run_trade_can_accept_refuses_a_cost_that_would_break_the_floor :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 4}
+	s := ship.Ship{hull = 20, max_hull = 20, durability = 4}
 
 	// Durability floors at 0, so spending exactly all of it is still a trade...
-	testing.expect(t, run_trade_can_accept(&s, trade_of(.Max_HP, 8, .Durability, 4)))
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Max_Hull, 8, .Durability, 4)))
 	// ...but one more than the ship has is not.
-	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Max_HP, 8, .Durability, 5)))
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Max_Hull, 8, .Durability, 5)))
 }
 
-// HP and Max HP floor at 1: a trade is a bargain on a menu and must not be able
+// Hull and Max Hull floor at 1: a trade is a bargain on a menu and must not be able
 // to sink the ship there.
 @(test)
 run_trade_can_accept_never_lets_a_trade_sink_the_ship :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 10, max_hp = 10, durability = 1}
+	s := ship.Ship{hull = 10, max_hull = 10, durability = 1}
 
-	testing.expect(t, run_trade_can_accept(&s, trade_of(.Durability, 1, .HP, 9)))
-	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Durability, 1, .HP, 10)))
-	testing.expect(t, run_trade_can_accept(&s, trade_of(.Durability, 1, .Max_HP, 9)))
-	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Durability, 1, .Max_HP, 10)))
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Durability, 1, .Hull, 9)))
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Durability, 1, .Hull, 10)))
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Durability, 1, .Max_Hull, 9)))
+	testing.expect(t, !run_trade_can_accept(&s, trade_of(.Durability, 1, .Max_Hull, 10)))
 }
 
 // The ADR-0012 constraint the ticket names: a trade reads the **effective** stat,
@@ -1617,19 +1617,19 @@ run_trade_measures_the_cost_against_the_effective_stat_not_the_base_field :: pro
 		passive = ship.Effect{kind = .Modify_Durability, magnitude = 3},
 	}
 	s := ship.Ship{
-		hp = 20, max_hp = 20, durability = 2,
+		hull = 20, max_hull = 20, durability = 2,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = plating}},
 	}
 	testing.expect_value(t, ship.ship_effective_durability(&s), 5)
 
 	// The base alone (2) could never pay 5; the fitting's contribution is what
 	// makes it affordable.
-	testing.expect(t, run_trade_can_accept(&s, trade_of(.Max_HP, 1, .Durability, 5)))
-	run_apply_trade(&s, trade_of(.Max_HP, 1, .Durability, 5))
+	testing.expect(t, run_trade_can_accept(&s, trade_of(.Max_Hull, 1, .Durability, 5)))
+	run_apply_trade(&s, trade_of(.Max_Hull, 1, .Durability, 5))
 
 	testing.expect_value(t, s.durability, -3) // the base field went negative...
 	testing.expect_value(t, ship.ship_effective_durability(&s), 0) // ...and effective landed on the floor.
-	testing.expect_value(t, s.max_hp, 21)
+	testing.expect_value(t, s.max_hull, 21)
 }
 
 @(test)
@@ -1637,41 +1637,41 @@ run_apply_trade_asserts_on_a_trade_the_ship_cannot_pay_for :: proc(t: ^testing.T
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
-	s := ship.Ship{hp = 20, max_hp = 20, durability = 2}
+	s := ship.Ship{hull = 20, max_hull = 20, durability = 2}
 
-	run_apply_trade(&s, trade_of(.Max_HP, 8, .Durability, 5))
+	run_apply_trade(&s, trade_of(.Max_Hull, 8, .Durability, 5))
 
 	testing.expect_assert(t, "run_apply_trade on a trade the ship cannot pay for")
 }
 
 @(test)
-run_status_is_won_when_the_ship_reaches_goal_with_positive_hp :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 1}
+run_status_is_won_when_the_ship_reaches_goal_with_positive_hull :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 1}
 	goal := Node{kind = .Goal}
 
 	testing.expect_value(t, run_status(&s, goal), Run_Status.Won)
 }
 
 @(test)
-run_status_is_lost_when_hp_reaches_zero_even_at_the_goal :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 0}
+run_status_is_lost_when_hull_reaches_zero_even_at_the_goal :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 0}
 	goal := Node{kind = .Goal}
 
 	testing.expect_value(t, run_status(&s, goal), Run_Status.Lost)
 }
 
 @(test)
-run_status_is_in_progress_away_from_goal_with_positive_hp :: proc(t: ^testing.T) {
-	s := ship.Ship{hp = 20}
+run_status_is_in_progress_away_from_goal_with_positive_hull :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 20}
 	encounter_node := Node{kind = .Encounter}
 
 	testing.expect_value(t, run_status(&s, encounter_node), Run_Status.In_Progress)
 }
 
 @(test)
-run_can_travel_is_false_once_hp_reaches_zero :: proc(t: ^testing.T) {
-	sunk := ship.Ship{hp = 0}
-	afloat := ship.Ship{hp = 1}
+run_can_travel_is_false_once_hull_reaches_zero :: proc(t: ^testing.T) {
+	sunk := ship.Ship{hull = 0}
+	afloat := ship.Ship{hull = 1}
 
 	testing.expect(t, !run_can_travel(&sunk))
 	testing.expect(t, run_can_travel(&afloat))

@@ -322,8 +322,8 @@ fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
 	synergy := ship.Fitting{category = .Buff, active = ship.Effect{magnitude = 2, synergy = ship.Selector(ship.Tag.Weapon)}}
 	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Buff per Weapon")
 
-	conditional := ship.Fitting{category = .Offensive, active = ship.Effect{magnitude = 8, conditional = ship.Condition_HP_Below{percent = 50}}}
-	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense below 50% HP")
+	conditional := ship.Fitting{category = .Offensive, active = ship.Effect{magnitude = 8, conditional = ship.Condition_Hull_Below{percent = 50}}}
+	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense below 50% Hull")
 
 	cargo := ship.ship_fitting_cargo("Cargo", .Small, 10)
 	testing.expect_value(t, fitting_effect_intent(cargo), "no effect")
