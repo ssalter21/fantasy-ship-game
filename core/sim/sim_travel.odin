@@ -2,25 +2,18 @@ package sim
 
 import "../voyage"
 
-// sim_process_travel applies a submitted Command_Travel_To (issue #24):
-// arrives at the target node, and if it holds an as-yet-unresolved Encounter,
-// hands off to the stage walk that fires it ("auto-triggers, no decline"). The
-// very first call — before any travel choice has been submitted — has nothing to
-// apply yet and just announces the voyage's starting state, broadcasting the masked
-// public map (graph shape + landmarks, hidden encounters' stages withheld
-// — the hiding contract) rather than the private voyage_map.
+// sim_process_travel applies a submitted Command_Travel_To: it arrives at the target
+// node and, if the node holds an unresolved encounter, hands off to the stage walk that
+// fires it (auto-triggers, no decline). The very first call — before any travel choice
+// has been submitted — has nothing to apply and just announces the voyage's starting
+// state, broadcasting the masked public map (graph shape + landmarks, hidden encounters'
+// stages withheld) rather than the private voyage_map.
 //
-// Travel is gated by voyage_travel_options' legality rule (forward and lateral
-// neighbors always, backward neighbors only by retrace to an already-visited
-// node): an illegal destination is a driver bug and asserts, matching the
-// assert-on-driver-bug style of the phase checks. An encounter fires only once —
-// resolved[] tracks that, so re-arriving after a retrace is a no-op.
-//
-// **Every** encounter, Port included (issue #131). Ports used to re-open their shop
-// on each arrival, exempt from resolved[] as revisitable landmarks; ADR-0014 drops
-// that, so a Port is walked and resolved like anything else and its stock is not
-// something to come back to. Start and Haven are still pass-through waypoints, but by
-// carrying no encounter rather than by being asked what kind they are.
+// An illegal destination is a driver bug and asserts (voyage_can_travel_to's legality
+// rule), matching the phase checks. An encounter fires only once — resolved[] tracks
+// that, so re-arriving after a retrace is a no-op. Every node is walked and resolved the
+// same way, Port included (ADR-0014); Start and Haven are pass-through by carrying no
+// encounter, not by being special-cased.
 sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	if !has_pending {
@@ -47,11 +40,8 @@ sim_process_travel :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event(Event_Arrived_At_Node{node = node}))
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 
-	// An arrival hands off to the generic stage walk and asks nothing about what
-	// kind of node this is (issue #131): the walk finds no encounter at a landmark
-	// and leaves the ship at a travel choice, so Start and Haven need no branch of
-	// their own — and neither does a Port, which generation bakes as a node
-	// carrying the [Shop] recipe (issue #134).
+	// The stage walk asks nothing about what kind of node this is — a landmark simply
+	// has no encounter to find — so Start, Haven, and Port need no branch of their own.
 	if already_resolved {
 		return
 	}
