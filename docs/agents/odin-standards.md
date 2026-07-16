@@ -2,9 +2,9 @@
 
 The house style for Odin in this repo. `/code-review`'s **Standards axis** checks diffs against this file; a deviation should be fixed or justified in the PR. These are conventions, not laws — a rule that fights a specific case can be broken with a one-line note saying why. Drifting off them silently is what's not acceptable.
 
-## Comments: describe the code, not its history
+## Comments: describe the code, not its history or its content
 
-A comment earns its place by explaining **what the code does** or **why a non-obvious constraint holds right now** — not by narrating how the code got here. The reader is trying to understand the code in front of them, and a paragraph about what it used to be is noise between them and that goal.
+A comment earns its place by explaining **what the code does** or **why a non-obvious constraint holds right now** — not by narrating how the code got here, and not by restating what the code already says. The reader is trying to understand the code in front of them; a paragraph about what it used to be, or a prose copy of the data sitting right below, is noise between them and that goal.
 
 **Cut** — these describe the past or roads not taken, and belong in git history, the PR, or the issue, never in the source:
 
@@ -17,9 +17,17 @@ A comment earns its place by explaining **what the code does** or **why a non-ob
 - **What the code does** — the plain description of behavior, especially where the mechanism isn't obvious from the names.
 - **Still-true, non-obvious rationale** — the "why" a reader needs *now* to avoid breaking something: an invariant, an ordering dependency, a footgun. Keep it if it's both true today and non-obvious; drop it if it's obvious from the code or no longer holds. A live guardrail ("order is authoring — placement decides deck vs hold") stays; the story of how we learned it goes.
 
+**Don't narrate the data.** The code and its literals are the source of truth; a comment that restates them just duplicates a fact that drifts the moment the data changes. Cut anything a reader can read directly off the construct the comment sits on:
+
+- **Counts and members** — "eight entries", or listing an enum's cases / a roster's rows in prose. The literal is right there and authoritative.
+- **Field values and per-entry attributes** — describing each archetype's items or an entry's flavor when the struct literal already shows them. The name and fields *are* the description; a per-row comment that only re-says them is deleted.
+- **Current game state** — what a particular entry *is* thematically ("guns, no tricks", "the fastest ship in the game"). That's content, and it lives in the data — a name, a field — not narrated above it. It also isn't what the code *does*.
+
+Comment the **structure and mechanics** instead: the role a type plays, the invariant *every* entry must satisfy, how a proc transforms its inputs, the non-obvious wiring — the things that stay true no matter what the content happens to be today. Describe what the code *does and represents*, not the state of the game it currently produces.
+
 **Salvage, don't spill.** When a comment is really an undocumented design *decision* — load-bearing "why" that outlives this file — capture it in an ADR (`docs/adr/`) and leave a one-line pointer (`// deck-vs-hold placement: ADR-00NN`) rather than an essay. Everything else that's cut is simply deleted; `git blame` preserves it.
 
-**The test:** read the comment and ask *"does this help me understand or safely change the code as it is?"* If it only tells me a story about the code, delete it. Prefer a two-line comment that a reader finishes over a twenty-line one they skip.
+**Two tests:** *"does this help me understand or safely change the code as it is?"* — if it only tells a story about the code, delete it. And *"would this still be correct if someone added a row or renamed one?"* — if editing the data nearby would falsify the comment, the comment is narrating the data, so cut it down to the part that survives (the structure, the invariant) or cut it entirely. Prefer a two-line comment that a reader finishes over a twenty-line one they skip.
 
 ## Naming
 
