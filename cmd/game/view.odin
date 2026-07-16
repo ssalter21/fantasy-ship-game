@@ -279,7 +279,17 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 	x := i32(origin.x)
 	y := i32(origin.y)
 	rl.DrawText(fmt.ctprintf("%s", title), x, y, 20, rl.DARKGRAY)
-	rl.DrawText(fmt.ctprintf("HP %d/%d   DUR %d   SPD %d", s.hp, s.max_hp, s.durability, s.speed), x, y + 26, 16, rl.BLACK)
+	// SPD is the *effective* Speed now (ADR-0020): s.speed is only the base term,
+	// and a ship's real Speed reads its weight (ship_effective_speed). Showing the
+	// raw base here would print 16 for a ship that actually sails at 4. A richer
+	// readout of weight and the hold is the map's UI fog, not this line.
+	rl.DrawText(
+		fmt.ctprintf("HP %d/%d   DUR %d   SPD %d", s.hp, s.max_hp, s.durability, ship.ship_effective_speed(s)),
+		x,
+		y + 26,
+		16,
+		rl.BLACK,
+	)
 
 	for layout_slot, i in s.layout {
 		row_y := y + 56 + i32(i) * 24

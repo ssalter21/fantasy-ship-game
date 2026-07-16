@@ -192,11 +192,10 @@ Sim :: struct {
 	refit_pending:     Maybe(ship.Fitting),
 	// arena is the Sim's run-scoped allocator (issue #52): every allocation
 	// that lives no longer than the Sim itself — the map's Nodes and each
-	// Ship Battle opponent's layout, the player's own layout, resolved, the
-	// current battle's jettisoned records, and every Ghost_Snapshot handed
-	// out via Event_Encounter_Resolved — comes from here, so sim_destroy can
-	// reclaim all of it in one call instead of a hand-written per-field
-	// delete list.
+	// Ship Battle opponent's layout, the player's own layout, and every
+	// Ghost_Snapshot handed out via Event_Encounter_Resolved — comes from here,
+	// so sim_destroy can reclaim all of it in one call instead of a hand-written
+	// per-field delete list.
 	arena:             virtual.Arena,
 }
 
@@ -633,17 +632,15 @@ sim_mask_encounters :: proc(nodes: []run.Node) -> []run.Node {
 
 // sim_destroy tears down the Sim's run-scoped arena in one call (issue #52):
 // every run-lifetime allocation — the map's Nodes and each Ship Battle
-// opponent's layout, the player's own layout, resolved, the current battle's
-// jettisoned-cargo records, and any outstanding Ghost_Snapshot — lives in it,
-// so there's nothing left to free by hand.
+// opponent's layout, the player's own layout, and any outstanding
+// Ghost_Snapshot — lives in it, so there's nothing left to free by hand.
 sim_destroy :: proc(sim: ^Sim) {
 	virtual.arena_destroy(&sim.arena)
 }
 
 // sim_arena_allocator is the Sim's run-scoped allocator (issue #52), shared
 // by every sim_process_* call site that scopes context.allocator to it
-// around one arena-backed allocation (a Ghost_Snapshot capture, a
-// lazily-allocated jettisoned dynamic array).
+// around one arena-backed allocation (a Ghost_Snapshot capture).
 sim_arena_allocator :: proc(sim: ^Sim) -> mem.Allocator {
 	return virtual.arena_allocator(&sim.arena)
 }

@@ -353,6 +353,13 @@ Ship :: struct {
 	// run and is what a Ghost_Snapshot resets hp to on capture.
 	max_hp:              int,
 	durability:          int,
+	// speed is the `base` term of the derived Speed reading (ADR-0020, #158/#180):
+	// effective Speed is `speed + Σ Modify_Speed − weight/10` (ship_effective_speed),
+	// so this field no longer *is* a ship's Speed — it is a calibration initialised
+	// to BASE_SPEED uniformly across ships (a ship's character is its items and its
+	// purse, not a per-hull base). It survives as a field (not collapsed to a
+	// literal) because Modify_Speed fittings and, later, captains act through the
+	// additive modifier term on top of it.
 	speed:               int,
 	layout:              []Layout_Slot,
 	// captain is the run-start ship<->captain relationship (issue #18): a
@@ -471,8 +478,58 @@ ship_effective_durability :: proc(s: ^Ship) -> int {
 	return ship_effective_stat(s, s.durability, .Modify_Durability)
 }
 
+// ship_effective_speed derives a ship's Speed from its weight (ADR-0020, #158):
+// `base + Σ Modify_Speed − weight/10`. The base and the additive Modify_Speed
+// modifiers come through ship_effective_stat exactly as Durability and Max HP do;
+// the new term is `− ship_weight/10`, so **no ship's Speed can be read without
+// asking what it is carrying** (the destination test). The `/10` divisor is the
+// money↔Speed exchange rate — #156's ×10-and-doubling capacity table read as a
+// Speed table (a full Small hold = 1 Speed, Medium = 2, Large = 4) — and it is
+// forced (#158): any coarser divisor makes jettisoning a Small hold buy 0 Speed.
+// It lives only here. Speed stays an `int` (every escape gate and tie-break
+// compares Speeds with `>`); weight is a subtrahend, never a clamp — authoring
+// keeps `base − weight/10 >= 0` for every ship at its realistic full hold (#175,
+// the floor invariant), so `max(0, …)` is never written.
 ship_effective_speed :: proc(s: ^Ship) -> int {
-	return ship_effective_stat(s, s.speed, .Modify_Speed)
+	return ship_effective_stat(s, s.speed, .Modify_Speed) - ship_weight(s^) / 10
+}
+
+// ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): a
+// cargo fitting weighs its treasure (its stack_count, #156 — so an empty hold
+// weighs nothing and a full one weighs its contents 1:1), while a non-cargo
+// fitting weighs an authored amount. The non-cargo weight is a **placeholder
+// derived from slot size** until the item-weight authoring pass (#143 fog) gives
+// each roster item its own authored weight in #156's band (Large ~30-45, Medium
+// ~15-25, Small ~5-12) — a per-item balance choice, not this size derivation. The
+// band midpoints here are what let Speed read a real weight today; guns are
+// permanently heavy, cargo heavy only while full, so emptiness is what varies.
+ship_fitting_weight :: proc(f: Fitting) -> int {
+	if f.is_cargo {
+		return f.stack_count
+	}
+	switch f.size {
+	case .Small:
+		return 8
+	case .Medium:
+		return 20
+	case .Large:
+		return 38
+	}
+	return 0
+}
+
+// ship_weight is a ship's total weight: every installed fitting's contribution
+// (ship_fitting_weight). This is the subtrahend in ship_effective_speed, so a
+// ship's Speed falls as it loads treasure or heavy fittings and rises as it sheds
+// them — getting rich is what makes you catchable (ADR-0020).
+ship_weight :: proc(s: Ship) -> int {
+	total := 0
+	for layout_slot in s.layout {
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+			total += ship_fitting_weight(fitting)
+		}
+	}
+	return total
 }
 
 ship_effective_max_hp :: proc(s: ^Ship) -> int {

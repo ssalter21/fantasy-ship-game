@@ -1104,7 +1104,7 @@ trade_stage :: proc() -> run.Stage_Trade {
 	return run.Stage_Trade {
 		name = "Test Bargain",
 		gain = run.Trade_Term{stat = .Durability, amount = TRADE_GAIN},
-		cost = run.Trade_Term{stat = .Speed, amount = 0},
+		cost = run.Trade_Term{stat = .Max_HP, amount = 0},
 	}
 }
 

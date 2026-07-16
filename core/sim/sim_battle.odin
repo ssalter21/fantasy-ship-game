@@ -18,19 +18,13 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	opponent_command := combat.combat_scripted_command(&sim.battle, .B)
 	cmds := [combat.Side]Maybe(combat.Command){.A = cmd.combat_command, .B = opponent_command}
 
-	// combat_events is per-tick scratch (issue #53): explicitly locked to
-	// context.temp_allocator so the arena-scoped block below (needed for
-	// battle.jettisoned, issue #52) can't reach it — run_session frees it via
-	// free_all(context.temp_allocator) once per driver iteration.
+	// combat_events is per-tick scratch (issue #53): context.temp_allocator, freed
+	// by run_session via free_all(context.temp_allocator) once per driver
+	// iteration. A round no longer allocates anything run-lifetime — jettison now
+	// destroys the heaved cargo rather than recording it (ADR-0020, #159), so the
+	// run-scoped arena block that used to wrap this call (issue #52) is gone.
 	combat_events := make([dynamic]combat.Event, 0, 0, context.temp_allocator)
-	{
-		// A Jettison Cargo command records its fitting on sim.battle.jettisoned
-		// (issue #52: run-lifetime, freed only by sim_destroy), so it must
-		// allocate from the Sim's own run-scoped arena rather than whatever
-		// transient allocator the caller happens to be using.
-		context.allocator = sim_arena_allocator(sim)
-		combat.combat_resolve_round(&sim.battle, cmds, &combat_events)
-	}
+	combat.combat_resolve_round(&sim.battle, cmds, &combat_events)
 
 	for e in combat_events {
 		append(events, Event(Event_Battle_Event{inner = e}))

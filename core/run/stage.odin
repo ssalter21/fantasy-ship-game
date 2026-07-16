@@ -129,20 +129,19 @@ Stage_Offer :: struct {
 // baked Trade stays copyable into a Ghost_Snapshot like every other stage's
 // content.
 //
-// Closed at five because these are the ship stats a trade can move and have the
-// move *mean* something. **Cargo capacity is deliberately absent**, despite the
-// glossary's "stat-for-stat or stat-for-cargo": ship_cargo_capacity computes a
-// number that nothing in the game reads, so both halves of a cargo-capacity
-// trade would be no-ops — gaining it grants nothing and spending it costs
-// nothing. Trading it becomes real when treasure takes cargo slots (#143), and
-// Treasure is the axis that carries "stat-for-cargo" in the meantime: it is the
-// resource a Shop actually spends and a Reward actually grants (#132), and #143
-// is precisely the change that makes spending it *be* spending cargo.
+// Closed at four because these are the ship stats a trade can move and have the
+// move *mean* something. **Speed is deliberately absent** (ADR-0020, #180): Speed
+// is a derived read-out of a ship's weight now, not a stored stat, so a Trade
+// cannot pay it out of a field or bank it into one — a Speed axis has no home. It
+// returns later as fittings that modify Speed, traded as fittings, not raw stats.
+// **Cargo capacity is likewise absent**: ship_cargo_capacity is structural, so
+// both halves of a cargo-capacity trade would be no-ops. Treasure carries
+// "stat-for-cargo" — the resource a Shop spends and a Reward grants (#132), which
+// #143 made *be* the cargo in the holds (ship_treasure).
 Trade_Stat :: enum {
 	HP,
 	Max_HP,
 	Durability,
-	Speed,
 	Treasure,
 }
 

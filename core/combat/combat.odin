@@ -8,7 +8,6 @@ BASELINE_ROUND_COUNT :: 5
 HARD_ROUND_CAP :: 20
 BOOST_MULTIPLIER :: 2
 MAN_THE_SAILS_SPEED_BONUS :: 2
-JETTISON_SPEED_BONUS :: 1
 
 // Side identifies one of the two ships in a Battle.
 Side :: enum {
@@ -36,8 +35,10 @@ Command_Boost :: struct {
 // Command_Man_The_Sails grants a temporary Speed boost lasting this round only.
 Command_Man_The_Sails :: struct {}
 
-// Command_Jettison_Cargo empties the cargo fitting at slot_index for a
-// permanent (rest-of-battle) Speed boost, tracked for post-battle settlement.
+// Command_Jettison_Cargo empties the cargo fitting at slot_index, shedding its
+// weight — which makes the ship faster because it is lighter (ADR-0020), not by
+// any granted bonus. The heaved treasure is destroyed, never settled: nothing is
+// tracked past the emptying.
 Command_Jettison_Cargo :: struct {
 	slot_index: ship.Slot_Index,
 }
@@ -58,8 +59,6 @@ Battle :: struct {
 	ships:      [Side]^ship.Ship,
 	round:      int,
 	temp_speed: [Side]int,
-	perm_speed: [Side]int,
-	jettisoned: [Side][dynamic]ship.Fitting,
 	// escaped is which side(s) have taken Command_Leave_Combat this battle
 	// (issue #54: a genuine set-of-enum over Side, so bit_set replaces the
 	// [Side]bool membership array).
@@ -129,17 +128,23 @@ combat_opposite_side :: proc(side: Side) -> Side {
 	return .B if side == .A else .A
 }
 
-// combat_effective_speed is a side's Speed for escape/tiebreak purposes:
-// the ship's effective Speed (base plus any Stat_Modifier fittings — issue
-// #92, ship_effective_speed) plus this-round Man the Sails and any permanent
-// Jettison Cargo bonuses accumulated so far.
+// combat_effective_speed is a side's Speed for escape/tiebreak purposes: the
+// ship's effective Speed (ship_effective_speed — base plus Modify_Speed fittings,
+// minus weight/10, so a heavier hold is a slower ship) plus this-round Man the
+// Sails. Jettison no longer adds a bonus here — dropping a hold lowers the ship's
+// weight, so the faster reading comes straight out of ship_effective_speed
+// (ADR-0020, #158): Speed is emergent, not granted.
 combat_effective_speed :: proc(battle: ^Battle, side: Side) -> int {
-	return ship.ship_effective_speed(battle.ships[side]) + battle.temp_speed[side] + battle.perm_speed[side]
+	return ship.ship_effective_speed(battle.ships[side]) + battle.temp_speed[side]
 }
 
-// combat_apply_jettison empties the cargo fitting at slot_index on side's
-// ship for a permanent Speed boost, recording the fitting for post-battle
-// settlement (ADR-0006).
+// combat_apply_jettison empties the cargo fitting at slot_index on side's ship,
+// shedding its weight (ADR-0020, #159): null the slot and emit the event, nothing
+// more. The freed weight makes the ship faster through ship_effective_speed on its
+// own, and the heaved treasure is destroyed rather than settled. The assert that
+// the slot holds a cargo fitting is what keeps an empty hold from being heaved for
+// free Speed — an empty hold weighs nothing, so there is no Speed in it to buy
+// (no new rule).
 combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot_Index, events: ^[dynamic]Event) {
 	s := battle.ships[side]
 	assert(slot_index >= 0 && int(slot_index) < len(s.layout), "Command_Jettison_Cargo slot_index out of range")
@@ -147,8 +152,6 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 	fitting, has_fitting := layout_slot.fitting.?
 	assert(has_fitting && fitting.is_cargo, "Command_Jettison_Cargo slot_index does not hold a cargo fitting")
 	layout_slot.fitting = nil
-	battle.perm_speed[side] += JETTISON_SPEED_BONUS
-	append(&battle.jettisoned[side], fitting)
 	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = fitting}))
 }
 
@@ -204,18 +207,6 @@ combat_scripted_command :: proc(battle: ^Battle, side: Side) -> Command {
 		return Command_Leave_Combat{}
 	}
 	return Command_Hold{}
-}
-
-// combat_settle_jettisoned_cargo resolves side's jettisoned cargo once the
-// battle has ended (ADR-0006): lost if side is the one that left combat,
-// otherwise claimed by the opponent as spoils (destroyed or round-cap
-// stalemate — settlement doesn't distinguish between those two).
-combat_settle_jettisoned_cargo :: proc(battle: ^Battle, side: Side) -> (spoils: []ship.Fitting, lost: bool) {
-	assert(battle.ended, "combat_settle_jettisoned_cargo called before the battle ended")
-	if side in battle.escaped {
-		return nil, true
-	}
-	return battle.jettisoned[side][:], false
 }
 
 combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events: ^[dynamic]Event) {

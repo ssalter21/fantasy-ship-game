@@ -374,7 +374,13 @@ run_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
 	archetype := roster[rand.int_max(len(roster), gen)]
 
 	s := run_make_opponent_ship(site)
-	s.speed = archetype.speed
+	// A hostile's Speed falls out of its weight like every other ship's now
+	// (ADR-0020, #176/#180): its base is the uniform BASE_SPEED, and its loadout
+	// plus its cargo fill decide what it actually reads (ship_effective_speed).
+	// archetype.speed is vestigial pending the item-weight authoring pass (#143
+	// fog), which re-derives the roster's Speed spread from authored weights and a
+	// flat-50% hold and forward-ports #135's straddle test — it is no longer read.
+	s.speed = ship.BASE_SPEED
 
 	layout := ship.ship_template_layout()
 	assert(
@@ -458,36 +464,31 @@ Trade_Axis :: struct {
 // unlike recipe_catalog these entries are constant initializers (no slices of
 // other arrays), so the table can live in read-only memory.
 //
-// **Size — six.** A run traverses only ~3-4 nodes per zone (~11-14 of 50), and a
-// Trade is one recipe among the catalog's three, so a single run meets a handful
-// of trades at most. Six is the smallest size that still makes a *run* mostly
-// non-repeating while making consecutive runs visibly different — the roster's
-// actual job. Going wider buys variance the player never lives long enough to
-// see; going narrower (four, say) and a single run would routinely draw the same
-// bargain twice, which is exactly the sameness this ticket exists to kill.
+// **Size — three, for now (ADR-0020, #180).** The roster was six until Speed left
+// the Trade vocabulary: Speed is a derived read-out of weight now, not a stored
+// stat a Trade can pay out of or bank into, so the three Speed-touching rows
+// (Braced Bulkheads, Stripped Spars, Lightened Hold) are removed. Speed returns
+// later as *fittings* that modify it, traded as fittings. The remaining three are
+// accepted as a deliberately thin roster in the meantime — a run meets only a
+// handful of trades, so a run is still mostly non-repeating.
 //
-// **Coverage.** Every stat is gained by some entry and — except HP — spent by
-// some entry. HP is deliberately gain-only: nothing else in the game heals
-// (combat is the only writer of Ship.hp, and it only ever subtracts), which makes
-// repair the scarcest thing a trade can offer. Costing HP is available in the
-// model (run_trade_pay handles it, floored) but unauthored: a trade that damages
-// you is a Fight without the fight, and it is the one cost that could end a run
-// on a menu.
+// **Coverage — thinner now, and consciously so.** HP is gain-only (Cannibalized
+// Timbers), Max HP and Treasure sit on both sides, and **Durability is cost-only**
+// (Scrapped Armour) — it lost its one gainer when Braced Bulkheads left with Speed.
+// HP stays gain-only on purpose: nothing else in the game heals (combat is the only
+// writer of Ship.hp, and it only ever subtracts), so repair is the scarcest thing a
+// trade can offer, and a trade that damages you is a Fight without the fight. That
+// Durability is no longer gainable is the accepted cost of the #180 cut; a
+// Durability-gaining row returns whenever the roster is re-widened.
 // Names are checked against core/ship's fitting roster and deliberately don't
 // collide with it: a Trade is not a thing you install, and "Reinforced Hull"
 // already names a Medium Defensive fitting the player can be holding while a
 // trade is on screen.
 @(rodata)
 trade_roster := [?]Trade_Axis {
-	// The welded axis, now merely the first row. Durability and Speed kept their
-	// old constants, so this entry reproduces the pre-#136 Bargain exactly.
-	{name = "Braced Bulkheads", gain = .Durability, cost = .Speed},
-	// The inverse — the entry that proves the axis is a space and not a point.
-	{name = "Stripped Spars", gain = .Speed, cost = .Durability},
 	// Patch the damage you have by permanently lowering the ceiling. The one
 	// entry that trades HP against Max HP, which is why both are distinct stats.
 	{name = "Cannibalized Timbers", gain = .HP, cost = .Max_HP},
-	{name = "Lightened Hold", gain = .Speed, cost = .Max_HP},
 	{name = "Scrapped Armour", gain = .Treasure, cost = .Durability},
 	{name = "Shipwright's Bargain", gain = .Max_HP, cost = .Treasure},
 }

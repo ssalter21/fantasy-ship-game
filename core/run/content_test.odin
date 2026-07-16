@@ -19,7 +19,7 @@ test_opponent :: proc(site: Scaling_Site, seed: u64) -> ship.Ship {
 // across seeds.
 test_hostile :: proc(archetype: Hostile_Archetype, site: Scaling_Site) -> ship.Ship {
 	s := run_make_opponent_ship(site)
-	s.speed = archetype.speed
+	s.speed = ship.BASE_SPEED
 	layout := ship.ship_template_layout()
 	assert(run_fit_hostile_loadout(layout, archetype, run_fight_opponent_power(site)))
 	s.layout = layout
@@ -55,7 +55,7 @@ hostile_output :: proc(hostile: ^ship.Ship, round: int = 1) -> int {
 // as (100%) independently of where it was met.
 hostile_at_power :: proc(archetype: Hostile_Archetype, percent: int) -> ship.Ship {
 	s := ship.Ship{}
-	s.speed = archetype.speed
+	s.speed = ship.BASE_SPEED
 	layout := ship.ship_template_layout()
 	assert(run_fit_hostile_loadout(layout, archetype, percent))
 	s.layout = layout
@@ -332,7 +332,7 @@ a_hundred_percent_power_leaves_an_archetype_exactly_as_authored :: proc(t: ^test
 		}
 		testing.expect(t, ship.ship_fill_empty_slots_with_cargo(layout, "Spoils"))
 
-		unscaled := ship.Ship{layout = layout, speed = archetype.speed}
+		unscaled := ship.Ship{layout = layout, speed = ship.BASE_SPEED}
 		testing.expectf(
 			t,
 			loadout_signature(scaled) == loadout_signature(unscaled),
@@ -350,31 +350,32 @@ a_hundred_percent_power_leaves_an_archetype_exactly_as_authored :: proc(t: ^test
 	}
 }
 
-// Speed is the archetype's axis, not the site's — the whole reason the flat
-// FIGHT_OPPONENT_SPEED was retired. The roster must actually *use* the axis in both
-// directions against a starting player's 4: something slower (so Leave Combat is a
-// real option) and something faster (so a hostile can leave first).
+// **Speed is derived from weight now** (ADR-0020, #158): a hostile's Speed falls
+// out of what it is carrying, so the roster reads a *spread* of Speeds rather than
+// one flat number — the property this ticket delivers ("no ship's Speed can be read
+// without asking what it is carrying").
+//
+// The stronger property #135 pinned — the roster **straddling** the player, one
+// hostile slower (Leave Combat is a real option) and one faster (a hostile can flee
+// first) — is **forward-ported by the item-weight authoring pass** (#176/#177, #143
+// fog), not asserted here. It needs the flat-50% hostile fill and authored per-item
+// weights, both out of scope for this ticket, and it must pin the player's purse
+// explicitly rather than reading STARTING_SPEED (#176). Under the placeholder
+// size-band weights and the near-empty ("Spoils" = 1) fill this ticket ships,
+// hostiles read light and fast, so only the derived-spread half holds today.
 @(test)
-the_hostile_roster_spans_speeds_either_side_of_a_starting_ship :: proc(t: ^testing.T) {
-	player := ship.ship_starting_ship()
-	defer delete(player.layout)
-	base := ship.ship_effective_speed(&player)
-
-	slower, faster := false, false
+the_hostile_roster_derives_a_spread_of_speeds_from_weight :: proc(t: ^testing.T) {
+	seen: map[int]bool
+	defer delete(seen)
 	for archetype in run_hostile_roster() {
 		hostile := test_hostile(archetype, Scaling_Site{zone = .Coastal, depth = 0})
 		defer delete(hostile.layout)
-
-		switch {
-		case ship.ship_effective_speed(&hostile) < base:
-			slower = true
-		case ship.ship_effective_speed(&hostile) > base:
-			faster = true
-		}
+		seen[ship.ship_effective_speed(&hostile)] = true
 	}
 
-	testing.expect(t, slower) // a hostile the player may walk away from
-	testing.expect(t, faster) // a hostile that will walk away from the player
+	// More than one distinct derived Speed across the roster: what a hostile carries
+	// moves its Speed, which is the whole of the weight model on the hostile side.
+	testing.expect(t, len(seen) > 1)
 }
 
 // **The roster's authoring rule, made checkable**: an archetype is character, stakes
@@ -706,12 +707,14 @@ every_trade_roster_entry_swaps_two_different_stats_and_is_named :: proc(t: ^test
 	}
 }
 
-// The roster's coverage rule (content.odin): every stat is gained by some entry,
-// and every stat except HP is spent by some entry. HP is gain-only on purpose —
-// nothing else in the game heals, and a trade that damages you is a Fight
-// without the fight.
+// The roster's coverage after the #180 cut (content.odin): Speed left the Trade
+// vocabulary, dropping the roster to three rows, so coverage is deliberately
+// partial. HP is gain-only (nothing else heals), Durability is now cost-only (it
+// lost its gainer when Braced Bulkheads left), and Max HP / Treasure sit on both
+// sides. This pins that exact shape so a re-widening of the roster is a conscious
+// edit here rather than a silent drift.
 @(test)
-the_trade_roster_gains_every_stat_and_costs_every_stat_but_hp :: proc(t: ^testing.T) {
+the_trade_roster_covers_the_stats_the_surviving_three_rows_can :: proc(t: ^testing.T) {
 	gained: bit_set[Trade_Stat]
 	cost: bit_set[Trade_Stat]
 	for axis in run_trade_roster() {
@@ -719,10 +722,8 @@ the_trade_roster_gains_every_stat_and_costs_every_stat_but_hp :: proc(t: ^testin
 		cost += {axis.cost}
 	}
 
-	for stat in Trade_Stat {
-		testing.expectf(t, stat in gained, "no roster entry gains %v", stat)
-	}
-	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_HP, .Durability, .Speed, .Treasure})
+	testing.expect_value(t, gained, bit_set[Trade_Stat]{.HP, .Max_HP, .Treasure})
+	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_HP, .Durability, .Treasure})
 }
 
 // baked_trade is a roster axis priced at a zone — exactly what run_make_trade
