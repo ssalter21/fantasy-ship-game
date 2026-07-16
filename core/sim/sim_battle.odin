@@ -37,14 +37,14 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	// Sinking is **neither** outcome (ADR-0014): the run is over by permadeath
+	// Sinking is **neither** outcome (ADR-0014): the voyage is over by permadeath
 	// (ADR-0006), so the walk stops dead rather than completing the Fight and applying
 	// whatever came after it to a sunk ship — a [Fight, Reward] must not pay out to a
 	// captain who went down with it. The node is never resolved, so it emits no
-	// Ghost_Snapshot either (issue #162) — the one encounter in a run that leaves no
-	// ghost, and Event_Run_Ended is what marks it. sim_tick's status check ends the run
+	// Ghost_Snapshot either (issue #162) — the one encounter in a voyage that leaves no
+	// ghost, and Event_Voyage_Ended is what marks it. sim_tick's status check ends the voyage
 	// on the way out of this tick, and it is deliberately not consulted here: the walk
-	// stopping and the run ending are separate facts, and only one of them is this
+	// stopping and the voyage ending are separate facts, and only one of them is this
 	// proc's.
 	//
 	// Checked **before** voyage_finish_ship_battle so the wreck payout only ever runs for

@@ -26,7 +26,7 @@ GUN_DECK_OFFENSE_MAGNITUDE :: 5
 HOSTILE_FILL_PERCENT :: 50
 
 // STARTING_HP is a **scale**, and #151 (ADR-0017) found the old 20 could not
-// express a survivable fight. HP persists all run with no healing and a run meets
+// express a survivable fight. HP persists all voyage with no healing and a voyage meets
 // ~5 fights, so a fight must cost ~20% of the pool; over the ~6 rounds a fight
 // should last (the escape gate is at BASELINE_ROUND_COUNT = 5), that is 0.67 damage
 // a round — below 1, the smallest number the model has. At 20 the only expressible
@@ -129,7 +129,7 @@ ship_fitting_upgraded_gun_deck :: proc(bonus: int) -> Fitting {
 
 // Tier is the catalog-authoring power/cost grade a roster item is written at
 // (ADR-0012, #97): Splash (lightest / cheapest) -> Shallow (mid) -> Deep
-// (strongest), echoing the Coastal -> Open Sea -> The Deep run progression. It
+// (strongest), echoing the Coastal -> Open Sea -> The Deep voyage progression. It
 // is deliberately *not* a field on Fitting: tier scales an item's authored
 // magnitudes and (once #98 lands) its shop cost, but combat resolution and a
 // Ghost_Snapshot never read it, so it rides alongside the fitting on Roster_Item
@@ -440,7 +440,7 @@ ship_starting_captain :: proc() -> Captain {
 	return Captain{name = "Captain Odessa Vane", starting_cargo_bonus = CAPTAIN_STARTING_CARGO}
 }
 
-// ship_starting_ship assembles the run's starting Ship (issue #23): the one
+// ship_starting_ship assembles the voyage's starting Ship (issue #23): the one
 // template, filled with its fixed starting loadout — Captain's Quarters and
 // Top Crew in the two medium exposed slots, Gun Deck in the large exposed
 // slot, the starting purse stowed into the rest (ADR-0020, #172) — plus the

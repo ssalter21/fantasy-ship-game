@@ -55,7 +55,7 @@ Stock_Position :: distinct int
 //
 // It is **one visit, not a row per node** — the change that retires ADR-0013's
 // cross-visit persistence (issue #131). The old port_shelves array kept every Port's
-// shelf, cursor, and purchase count alive for the rest of the run so a revisit could
+// shelf, cursor, and purchase count alive for the rest of the voyage so a revisit could
 // resume it; under the generic walk an encounter is walked once and marked resolved,
 // so no arrival can ever read that state a second time. Rather than keep a per-node
 // array that nothing could reach, the state shrinks to the shop actually being stood
@@ -109,10 +109,10 @@ shop_visit_draw_next :: proc(visit: ^Shop_Visit, stock_count: int) -> Maybe(Stoc
 // sim_current_encounter returns a mutable pointer to the encounter held by the node
 // the ship is standing at, or ok=false for a node that holds none (Start and Goal —
 // landmarks by graph position, which no stage list can express). The pointer aims
-// into the Sim's own private run_map, so advancing the cursor through it moves the
+// into the Sim's own private voyage_map, so advancing the cursor through it moves the
 // real encounter; public_nodes is a separate masked copy and is unaffected.
 sim_current_encounter :: proc(sim: ^Sim) -> (^run.Encounter, bool) {
-	encounter, ok := &sim.run_map.nodes[sim.current].encounter.?
+	encounter, ok := &sim.voyage_map.nodes[sim.current].encounter.?
 	return encounter, ok
 }
 
@@ -125,7 +125,7 @@ sim_current_encounter :: proc(sim: ^Sim) -> (^run.Encounter, bool) {
 // differently, so it is asked here once rather than reassembled from node.zone and
 // node.depth at each primitive's arm.
 sim_current_site :: proc(sim: ^Sim) -> run.Scaling_Site {
-	node := sim.run_map.nodes[sim.current]
+	node := sim.voyage_map.nodes[sim.current]
 	zone, has_zone := node.zone.?
 	assert(has_zone, "an Encounter node must have a zone")
 	return run.Scaling_Site{zone = zone, depth = node.depth}
@@ -160,7 +160,7 @@ sim_current_site :: proc(sim: ^Sim) -> run.Scaling_Site {
 // this flag was still false. A **halt** emits — the cursor jumps to the end and
 // lands here, and a fled ship is a real ship a lobby can serve. A **sinking** does
 // not: the walk stops dead in sim_process_battle_round, the node is never resolved,
-// and this branch is never reached (Event_Run_Ended already marks the death).
+// and this branch is never reached (Event_Voyage_Ended already marks the death).
 // Landmarks emit nothing — !has_encounter returns above, before the loop.
 sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	encounter, has_encounter := sim_current_encounter(sim)

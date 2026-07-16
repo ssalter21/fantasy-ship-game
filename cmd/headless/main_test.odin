@@ -23,7 +23,7 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 		travel_options[i] = id
 	}
 
-	state := Headless_State{run_map = m, current = 0, travel_options = travel_options}
+	state := Headless_State{voyage_map = m, current = 0, travel_options = travel_options}
 
 	cmd := get_captain_choice(&state, .Awaiting_Travel_Choice)
 
@@ -62,7 +62,7 @@ get_captain_choice_declines_when_awaiting_an_option_choice :: proc(t: ^testing.T
 }
 
 @(test)
-the_auto_player_reaches_a_run_ended_event_navigating_the_graph :: proc(t: ^testing.T) {
+the_auto_player_reaches_a_voyage_ended_event_navigating_the_graph :: proc(t: ^testing.T) {
 	s := sim.sim_create(0)
 	defer sim.sim_destroy(&s)
 
@@ -74,6 +74,6 @@ the_auto_player_reaches_a_run_ended_event_navigating_the_graph :: proc(t: ^testi
 	sim.run_session(&s, input, sink)
 
 	last := state.events[len(state.events)-1]
-	_, ok := last.(sim.Event_Run_Ended)
+	_, ok := last.(sim.Event_Voyage_Ended)
 	testing.expect(t, ok)
 }

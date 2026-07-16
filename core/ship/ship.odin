@@ -121,7 +121,7 @@ Condition :: union {
 // `percent` percent of its max HP — "below half HP" is `percent = 50`. Compared
 // against the raw Ship.max_hp field, not ship_effective_max_hp: an effective
 // read would recurse (a Modify_Max_HP effect that is itself HP-conditional would
-// re-enter this check), and the run-persistent HP ceiling a threshold means is
+// re-enter this check), and the voyage-persistent HP ceiling a threshold means is
 // the base field anyway (ADR-0008).
 Condition_HP_Below :: struct {
 	percent: int,
@@ -348,7 +348,7 @@ Layout_Slot :: struct {
 // slot_index in core/combat).
 Slot_Index :: distinct int
 
-// Ship holds the run-persistent top-level stats (HP, Durability, Speed) plus
+// Ship holds the voyage-persistent top-level stats (HP, Durability, Speed) plus
 // the fixed layout of slots that carries its combat power. A ship's money is
 // **not** a field: its purse is the treasure stowed in its cargo fittings
 // (ship_treasure), so there is no number on a ship representing money (ADR-0020,
@@ -356,8 +356,8 @@ Slot_Index :: distinct int
 Ship :: struct {
 	hp:                  int,
 	// max_hp is the ship's undamaged HP ceiling (ADR-0008): hp is the
-	// run-persistent value combat depletes, max_hp never changes during a
-	// run and is what a Ghost_Snapshot resets hp to on capture.
+	// voyage-persistent value combat depletes, max_hp never changes during a
+	// voyage and is what a Ghost_Snapshot resets hp to on capture.
 	max_hp:              int,
 	durability:          int,
 	// speed is the `base` term of the derived Speed reading (ADR-0020, #158/#180):
@@ -369,7 +369,7 @@ Ship :: struct {
 	// additive modifier term on top of it.
 	speed:               int,
 	layout:              []Layout_Slot,
-	// captain is the run-start ship<->captain relationship (issue #18): a
+	// captain is the voyage-start ship<->captain relationship (issue #18): a
 	// captain can influence a ship's slot limits/structure and grants
 	// additional manual per-round captain actions. The vertical slice's one
 	// concrete captain (issue #23) is ship_starting_captain in content.odin.
@@ -662,7 +662,7 @@ ship_move :: proc(from, to: ^Layout_Slot) -> (Fitting, bool) {
 }
 
 // Captain is structurally separate from the slot system: not a fitting,
-// consumes no slot. A run-start choice that can influence a ship's starting
+// consumes no slot. A voyage-start choice that can influence a ship's starting
 // state and grants additional manual per-round captain actions.
 // starting_cargo_bonus is the vertical slice's one captain's concrete lever
 // (issue #23, #172): treasure the captain adds to the ship's bootstrap stow on

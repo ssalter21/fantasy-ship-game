@@ -68,7 +68,7 @@ Command_Leave_Combat :: struct {}
 Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
-// fought (their run-persistent HP/Durability/Speed live on *ship.Ship and
+// fought (their voyage-persistent HP/Durability/Speed live on *ship.Ship and
 // are mutated in place) plus this-battle-only bookkeeping.
 Battle :: struct {
 	ships:      [Side]^ship.Ship,

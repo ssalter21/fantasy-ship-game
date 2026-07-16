@@ -16,20 +16,20 @@ MAP_PAD :: 34
 // whole graph is visible at once with no camera or panning. Nodes still carry
 // no screen coordinates — that stays a presentation concern. Caller owns the
 // returned slice.
-compute_node_positions :: proc(run_map: run.Map) -> []rl.Vector2 {
-	positions := make([]rl.Vector2, len(run_map.nodes))
+compute_node_positions :: proc(voyage_map: run.Map) -> []rl.Vector2 {
+	positions := make([]rl.Vector2, len(voyage_map.nodes))
 
 	max_layer := 0
 	layer_counts: map[int]int
 	defer delete(layer_counts)
-	for p in run_map.nodes {
+	for p in voyage_map.nodes {
 		max_layer = max(max_layer, p.layer)
 		layer_counts[p.layer] += 1
 	}
 
 	usable_w := MAP_AREA.width - 2 * MAP_PAD
 	usable_h := MAP_AREA.height - 2 * MAP_PAD
-	for p in run_map.nodes {
+	for p in voyage_map.nodes {
 		fx := max_layer > 0 ? f32(p.layer) / f32(max_layer) : 0
 		w := layer_counts[p.layer]
 		fy := f32(p.lane + 1) / f32(w + 1)
@@ -43,7 +43,7 @@ compute_node_positions :: proc(run_map: run.Map) -> []rl.Vector2 {
 
 // zone_tint is the ambient colour of a zone, used both for the background
 // gradient band and for an unvisited encounter's generic marker (issue #71) —
-// the colour a player reads as "how deep into the run this is".
+// the colour a player reads as "how deep into the voyage this is".
 zone_tint :: proc(zone: Maybe(run.Zone)) -> rl.Color {
 	z, ok := zone.?
 	if !ok {
@@ -146,7 +146,7 @@ node_marker :: proc(opening: run.Stage_Kind) -> (color: rl.Color, label: string)
 // end and falls through to a blank marker. It never did: the walk advances the *Sim's*
 // private map, and this node is presentation's copy taken at arrival
 // (Event_Arrived_At_Node fires before sim_walk_encounter), so its cursor is frozen at
-// 0 for the rest of the run. The two rules could not drift because one of them was
+// 0 for the rest of the voyage. The two rules could not drift because one of them was
 // reading a constant. Asking for the opening stage says what was always meant, and the
 // blank-marker case it was supposed to produce is written below instead.
 //
@@ -197,7 +197,7 @@ draw_zone_background :: proc(state: ^Game_State) {
 	for zone in run.Zone {
 		lo, hi: f32 = 1e9, -1e9
 		found := false
-		for p, i in state.run_map.nodes {
+		for p, i in state.voyage_map.nodes {
 			pz, ok := p.zone.?
 			if !ok || pz != zone {
 				continue
@@ -229,8 +229,8 @@ draw_map :: proc(state: ^Game_State) {
 	rl.DrawRectangleLinesEx(MAP_AREA, 2, rl.GRAY)
 
 	// Edges (drawn under the nodes; each undirected pair once).
-	for p in state.run_map.nodes {
-		for v in state.run_map.edges[p.id] {
+	for p in state.voyage_map.nodes {
+		for v in state.voyage_map.edges[p.id] {
 			if v <= p.id {
 				continue
 			}
@@ -241,15 +241,15 @@ draw_map :: proc(state: ^Game_State) {
 	// Rendering path (issue #83): draw_map recomputes the reachable set from the
 	// same predicate + visited the Sim uses, rather than borrowing the emitted
 	// state.travel_options. The two agree at a travel decision, but this map is
-	// also drawn mid-encounter (behind the upgrade menu, the end-of-run beat)
+	// also drawn mid-encounter (behind the upgrade menu, the end-of-voyage beat)
 	// when no travel options are current — the fresh recompute rings the nodes
 	// reachable from wherever the ship *is*. The decision path (travel_menu_loop)
 	// is what consumes the Sim's emitted options.
 	// options is voyage_travel_options' temp_allocator scratch (see its contract),
 	// reclaimed by the per-frame free_all in draw_scene — no hand-free here.
-	options := run.voyage_travel_options(state.run_map, state.current_node_id, state.visited)
+	options := run.voyage_travel_options(state.voyage_map, state.current_node_id, state.visited)
 
-	for p, i in state.run_map.nodes {
+	for p, i in state.voyage_map.nodes {
 		pos := state.positions[i]
 		color, label := node_appearance(p, state.visited[i])
 		rl.DrawCircleV(pos, NODE_RADIUS, color)
@@ -261,7 +261,7 @@ draw_map :: proc(state: ^Game_State) {
 	// Reachable-next highlights, numbered, over the base markers.
 	for dest, n in options {
 		pos := state.positions[dest]
-		ring := move_fires(state.run_map.nodes[dest], state.visited[dest]) ? rl.RED : rl.GREEN
+		ring := move_fires(state.voyage_map.nodes[dest], state.visited[dest]) ? rl.RED : rl.GREEN
 		rl.DrawCircleLinesV(pos, NODE_RADIUS + 4, ring)
 		rl.DrawText(fmt.ctprintf("%d", n + 1), i32(pos.x - 4), i32(pos.y - 7), 14, rl.WHITE)
 	}
@@ -449,10 +449,10 @@ STAGE_CHIP_H :: 22
 // answers "what does this encounter consist of" and never "where is the walk now",
 // which is Event_Stage_Entered's job.
 current_encounter :: proc(state: ^Game_State) -> (run.Encounter, bool) {
-	if len(state.run_map.nodes) == 0 {
+	if len(state.voyage_map.nodes) == 0 {
 		return {}, false
 	}
-	return state.run_map.nodes[state.current_node_id].encounter.?
+	return state.voyage_map.nodes[state.current_node_id].encounter.?
 }
 
 // encounter_stage is the stage at `index` of the current encounter, baked content and

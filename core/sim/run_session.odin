@@ -50,15 +50,15 @@ run_session :: proc(sim: ^Sim, input: Input_Source, sink: Event_Sink) {
 		clear(&events)
 		sim_tick(sim, &events)
 
-		run_ended := false
+		voyage_ended := false
 		for event in events {
 			sink.dispatch(sink.data, event)
-			if _, ok := event.(Event_Run_Ended); ok {
-				run_ended = true
+			if _, ok := event.(Event_Voyage_Ended); ok {
+				voyage_ended = true
 			}
 		}
 
-		if run_ended {
+		if voyage_ended {
 			return
 		}
 
