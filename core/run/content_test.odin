@@ -172,25 +172,25 @@ a_deeper_node_gives_the_opponent_harder_hitting_offensive_fittings :: proc(t: ^t
 	testing.expect(t, deep.durability > coastal.durability)
 }
 
-// **Stakes scales what a hostile deals, never what it soaks** — the surviving half
+// **Stakes scales what a hostile deals, never its bulwark** — the surviving half
 // of #135's rule (run_stakes_scales_category), and the half whose reason is still
-// alive: soak is subtracted from raw damage, so a site that scaled it would make a
+// alive: bulwark is subtracted from raw damage, so a site that scaled it would make a
 // deep hostile impossible to *hurt* rather than harder to fight.
 //
 // The other half of #135's rule — "Buff is not scaled either" — is deliberately
 // **gone** (#165), because #151 took Buff out of `defense_bonus`, so a scaled Buff
-// fitting now hits harder rather than soaking harder. That the two halves had one
+// fitting now hits harder rather than raising its bulwark. That the two halves had one
 // stated reason and only one of them still holds is why this test names the
 // property rather than the category list.
 //
-// Both of a Defensive fitting's routes into soak are checked, since the roster uses
+// Both of a Defensive fitting's routes into bulwark are checked, since the roster uses
 // both: `Barricades` is an active that feeds the Defensive phase, and `Reinforced
 // Hull` is a passive Modify_Durability that never enters a phase at all. The site's
 // own durability reading is subtracted off so this asks about the *archetype's*
 // contribution rather than run_make_opponent_ship's baseline, which is a stakes
 // reading and is meant to move.
 @(test)
-the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing.T) {
+the_site_scales_what_a_hostile_deals_and_never_its_bulwark :: proc(t: ^testing.T) {
 	shallow_site := Scaling_Site{zone = .Coastal, depth = 0}
 	deep_site := Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}
 
@@ -203,7 +203,7 @@ the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing
 		testing.expectf(
 			t,
 			phase_magnitude(deep, .Defensive) == phase_magnitude(shallow, .Defensive),
-			"%v's defensive output moved with the site — soak is subtracted from raw, so scaling it walls the player",
+			"%v's defensive output moved with the site — bulwark is subtracted from raw, so scaling it walls the player",
 			archetype.name,
 		)
 		testing.expectf(
@@ -512,7 +512,7 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 // gate. Nothing checked the converse, because until #165 nothing could fail it —
 // every archetype out-damaged a starting ship at Coastal, which was the complaint.
 // A multiplicative site factor makes the opposite failure reachable for the first
-// time: damage is `max(0, raw - soak)`, a starting ship soaks 4, and an entry
+// time: damage is `max(0, raw - bulwark)`, a starting ship's bulwark is 4, and an entry
 // authored to deal 8 keeps 4 of it at Coastal — so the fight is a ten-round grind in
 // which the hostile lands *nothing*. That is the same dead node #151 found at the
 // ceiling, arrived at from underneath.
@@ -546,7 +546,7 @@ a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^
 		testing.expectf(
 			t,
 			player.hp < player.max_hp,
-			"%v cannot scratch a starting player at Coastal — half of its authored output is under a starting ship's soak, so the fight has no risk in it",
+			"%v cannot scratch a starting player at Coastal — half of its authored output is under a starting ship's bulwark, so the fight has no risk in it",
 			archetype.name,
 		)
 	}
@@ -589,7 +589,7 @@ a_selector_buff_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^test
 	testing.expectf(
 		t,
 		hostile.hp < hostile.max_hp,
-		"a starting player cannot scratch a four-Crew Admiral's Guard build — the buff is soaking again, and every Selector item is barred from half the game",
+		"a starting player cannot scratch a four-Crew Admiral's Guard build — the buff is feeding bulwark again, and every Selector item is barred from half the game",
 	)
 }
 

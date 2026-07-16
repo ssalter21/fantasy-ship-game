@@ -363,13 +363,13 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// which made it the one category worth twice its own number: a magnitude spent
 	// on Buff raised your damage *and* lowered your opponent's, so a single item
 	// pushed both walls of the band at once and there was no direction left to tune
-	// it in. It also fabricated soak out of nothing — a ship with no Defensive
-	// fitting still soaked its own buff — which is what pinned soak at ~90% of raw
+	// it in. It also fabricated bulwark out of nothing — a ship with no Defensive
+	// fitting still absorbed its own buff — which is what pinned bulwark at ~90% of raw
 	// and made a starting ship unable to sink its own mirror (20 rounds, 1 damage a
-	// round). Decisively: soak is *subtracted* from raw, so soak's vocabulary has to
+	// round). Decisively: bulwark is *subtracted* from raw, so bulwark's vocabulary has to
 	// stay small, and Buff's does not — Admiral's Guard is +3 per Crew aboard, so a
 	// Crew build folded +12 into its own defence and became unbeatable by any
-	// starting ship. Raw can absorb a 12; soak cannot. See the band note on
+	// starting ship. Raw can absorb a 12; bulwark cannot. See the band note on
 	// core/run's hostile_roster.
 	//
 	// **A Press multiplies its own phase's fittings, and nothing else** — the

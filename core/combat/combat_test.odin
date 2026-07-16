@@ -113,8 +113,8 @@ buff_output_adds_into_the_same_rounds_defensive_and_offensive_totals :: proc(t: 
 }
 
 // The inverse of the pre-#151 test of the same shape, which pinned buff folding
-// into its own side's Defensive total. It no longer does: soak is subtracted from
-// raw, so soak's vocabulary has to stay small, and Buff's does not (Admiral's
+// into its own side's Defensive total. It no longer does: bulwark is subtracted from
+// raw, so bulwark's vocabulary has to stay small, and Buff's does not (Admiral's
 // Guard is +3 per Crew aboard). See combat_resolve_round's band note.
 @(test)
 buff_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
@@ -139,7 +139,7 @@ buff_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's soak = durability(1) + defensive(4) = 5 — the War Cry's 3 is *not* in it.
+	// A's bulwark = durability(1) + defensive(4) = 5 — the War Cry's 3 is *not* in it.
 	// B's raw damage = 20, so final = 20 - 5 = 15. (Pre-#151 this was 20 - 8 = 12.)
 	testing.expect_value(t, a.hp, 20-15)
 }
@@ -248,7 +248,7 @@ press_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^
 }
 
 // Also inverted by #151: Press Defensive doubles the Defensive fittings alone,
-// since buff no longer reaches soak at all.
+// since buff no longer reaches bulwark at all.
 @(test)
 press_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
@@ -273,7 +273,7 @@ press_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 	cmds[.A] = Command(Command_Press{phase = .Defensive})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's pressed soak = shield(4) * PRESS_MULTIPLIER = 8, the War Cry's 3 excluded;
+	// A's pressed bulwark = shield(4) * PRESS_MULTIPLIER = 8, the War Cry's 3 excluded;
 	// B's raw damage = 20, so final = 20 - 8 = 12. (Pre-#151: (4+3)*2 = 14, so 6.)
 	testing.expect_value(t, a.hp, 20-12)
 }
