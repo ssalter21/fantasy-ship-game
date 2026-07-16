@@ -5,68 +5,39 @@ import "../voyage"
 import "../ship"
 
 // The generic encounter stage walk (issue #131, ADR-0014) — the Sim's single path
-// through *any* encounter, and the file that replaces the per-kind sim_item_offer.odin
-// and sim_shop.odin.
+// through *any* encounter. An Encounter is an ordered stage list plus a cursor
+// (core/voyage/stage.odin), and walking it is the whole of the Sim's encounter control
+// flow: enter the stage under the cursor, let it resolve to completed or halted, advance
+// or stop. There is no phase graph per encounter kind, because there are no encounter
+// kinds — a recipe's stages are drawn from one closed primitive alphabet, and the walk
+// asks each primitive what it needs rather than knowing the encounter's shape in advance.
+// So adding a stage primitive means adding an arm to the two switches below; adding an
+// encounter means adding a catalog entry and touching this file not at all.
 //
-// An Encounter is an ordered stage list plus a cursor (core/voyage/stage.odin), and
-// walking it is the whole of the Sim's encounter control flow: enter the stage under
-// the cursor, let that stage resolve to completed or halted, advance or stop. There
-// is no phase graph per encounter kind, because there are no encounter kinds — a
-// recipe's stages are drawn from one closed primitive alphabet, and the walk asks
-// each primitive what it needs rather than knowing in advance what shape the
-// encounter has.
-//
-// What that buys, concretely: adding a stage primitive means adding an arm to the
-// two switches below and (if it presents an option list) nothing else. Adding an
-// *encounter* — the common case — means adding a catalog entry and touching this
-// file not at all.
-//
-// The four procs are the whole walk:
-//   - sim_walk_encounter  — present the stage under the cursor, or finish the encounter
-//   - sim_enter_stage     — start one stage: park in its phase, or resolve it outright
-//   - sim_advance_stage   — record a stage's outcome and move the cursor off it
-//   - sim_process_option_choice — answer the one decision two primitives share
-//
-// Everything that resolves a stage — a battle ending (sim_battle.odin), an option
-// chosen here, a Refit finishing (sim_refit.odin) — comes back through
-// sim_walk_encounter rather than reaching for a travel choice itself. That is why
-// "what happens after this stage" has exactly one answer: whatever the cursor is on.
+// Everything that resolves a stage — a battle ending (sim_battle.odin), an option chosen
+// here, a Refit finishing (sim_refit.odin) — comes back through sim_walk_encounter rather
+// than reaching for a travel choice itself, so "what happens after this stage" has exactly
+// one answer: whatever the cursor is on.
 
-// Stock_Position identifies a card by its position in a Shop stage's baked stock
-// (ADR-0011: distinct from a plain int so a stock position can't be silently swapped
-// with an Option_Index — the shelf-slot index into the *same* shop — or any other
-// index). It indexes voyage.Stage_Shop.stock; the shop the ship is currently in tracks
-// its shelf by it (Shop_Visit).
+// Stock_Position indexes a card in a Shop stage's baked stock (voyage.Stage_Shop.stock).
+// distinct from a plain int (ADR-0011) so it can't be silently swapped with an
+// Option_Index — the shelf-slot index into the *same* shop — or any other index.
 Stock_Position :: distinct int
 
-// Shop_Visit is the working state of the Shop stage under the cursor: `slots` holds
-// the stock position currently shown in each shelf slot (nil once the stock behind
-// the shelf runs out), `next_draw` is the next stock position to draw when a slot
-// refills after a buy, and `purchases` counts the buys made at this shop so far,
-// driving the depth surcharge (issue #124, shop_visit_price). `open` is false until
-// the cursor lands on a Shop and sim_deal_shop_visit deals its shelf.
+// Shop_Visit is the working state of the Shop stage under the cursor: `slots` holds the
+// stock position shown in each shelf slot (nil once the stock behind it runs out),
+// `next_draw` is the next stock position to draw when a slot refills after a buy,
+// `purchases` counts the buys made here so far (driving the depth surcharge,
+// shop_visit_price), and `open` is false until the cursor lands on a Shop and
+// sim_deal_shop_visit deals its shelf.
 //
-// A nil slot used to be the "graceful short-deck case, unreachable at the real
-// roster size" — a shop's stock was the whole 50-item roster, so nothing could
-// empty one. Issue #137 made it **reachable and deliberate**: a shop's stock is its
-// pool's authored depth, and a narrow merchant hold (six cards against a shelf of
-// five) can be bought out inside one visit. Running a shop dry is now content, not
+// A nil slot is a bought-out or short-decked shelf (issue #137): a shop's stock is its
+// pool's authored depth, and a narrow hold can be emptied inside one visit — content, not
 // a defensive branch.
 //
-// It is **one visit, not a row per node** — the change that retires ADR-0013's
-// cross-visit persistence (issue #131). The old port_shelves array kept every Port's
-// shelf, cursor, and purchase count alive for the rest of the voyage so a revisit could
-// resume it; under the generic walk an encounter is walked once and marked resolved,
-// so no arrival can ever read that state a second time. Rather than keep a per-node
-// array that nothing could reach, the state shrinks to the shop actually being stood
-// in, and sim_advance_stage discards it as the cursor leaves. A recipe holding two
-// Shop stages therefore deals each a fresh shelf, which is the honest reading of two
-// shops.
-//
-// The multi-buy loop *within* a visit is untouched: buying refills the slot in place
-// and the Refit's finish re-enters this same stage. (#137 owns the stock-pool rework,
-// re-examining whether the deck-plus-window shape still earns its keep, and recording
-// the ADR-0013 supersession.)
+// The state is one visit, not a row per node: an encounter is walked once and marked
+// resolved, so no arrival reads it a second time, and sim_advance_stage discards it as the
+// cursor leaves. A recipe holding two Shop stages therefore deals each a fresh shelf.
 Shop_Visit :: struct {
 	slots:     [voyage.SHOP_SHELF_SIZE]Maybe(Stock_Position),
 	next_draw: Stock_Position,
@@ -74,29 +45,23 @@ Shop_Visit :: struct {
 	open:      bool,
 }
 
-// SHOP_DEPTH_SURCHARGE_STEP is the per-purchase shop price surcharge (issue #124,
-// ADR-0013): each successive buy at a given shop costs this much more than the last,
-// so digging one shop deep is expensive and the player is pushed to check shop
-// against shop rather than draining the nearest one. Additive and depth-linear (see
-// shop_visit_price), with the first buy at the plain tier price. A single placeholder
-// constant, isolated here from the deck/refill logic so it can move in playtest
-// without touching it — the leading shape is not committed (ADR-0012's
-// placeholder-economy convention).
+// SHOP_DEPTH_SURCHARGE_STEP is the per-purchase shop price surcharge (issue #124): each
+// successive buy at a shop costs this much more than the last (additive and depth-linear,
+// see shop_visit_price), so digging one shop deep is expensive and the player is pushed to
+// compare shop against shop. A placeholder magnitude, not committed (ADR-0012).
 SHOP_DEPTH_SURCHARGE_STEP :: 5
 
-// shop_visit_price is the cargo a shelf card costs given how many items have
-// already been bought at this shop (issue #124): its tier base plus the depth
-// surcharge, `base + SHOP_DEPTH_SURCHARGE_STEP × purchases`. The one place the
-// surcharge is applied — the shelf's presented prices and the charge at buy both read
-// it off the staged option, so the two cannot disagree. purchases is 0 on the first
-// buy, so it charges the plain tier base.
+// shop_visit_price is the cargo a shelf card costs: its tier base plus the depth surcharge,
+// `base + SHOP_DEPTH_SURCHARGE_STEP × purchases` (issue #124). The one place the surcharge
+// is applied — the shelf's presented prices and the charge at buy both read it off the
+// staged option, so the two cannot disagree.
 shop_visit_price :: proc(base_cost: int, purchases: int) -> int {
 	return base_cost + SHOP_DEPTH_SURCHARGE_STEP * purchases
 }
 
-// shop_visit_draw_next hands out the next undrawn stock position and advances the
-// cursor, or nil once the shop's stock is exhausted (issue #123) — the one place the
-// draw-or-exhaust decision lives, shared by the opening deal and each buy's refill.
+// shop_visit_draw_next hands out the next undrawn stock position and advances the cursor,
+// or nil once the shop's stock is exhausted — the one place the draw-or-exhaust decision
+// lives, shared by the opening deal and each buy's refill.
 shop_visit_draw_next :: proc(visit: ^Shop_Visit, stock_count: int) -> Maybe(Stock_Position) {
 	if int(visit.next_draw) >= stock_count {
 		return nil
@@ -116,14 +81,11 @@ sim_current_encounter :: proc(sim: ^Sim) -> (^voyage.Encounter, bool) {
 	return encounter, ok
 }
 
-// sim_current_site is the stakes of the node the ship is standing at (ADR-0014) —
-// what the stage under the cursor was baked against, and what its resolution stamps
-// onto its Ghost_Snapshot. A node holding an encounter always has a zone, so a
-// missing one is a generation bug rather than a case to handle.
-//
-// Every stage that resolves at arrival needs this and none of them needs it
-// differently, so it is asked here once rather than reassembled from node.zone and
-// node.depth at each primitive's arm.
+// sim_current_site is the stakes of the node the ship is standing at (ADR-0014) — what
+// the stage under the cursor was baked against, and what its resolution stamps onto its
+// Ghost_Snapshot. A node holding an encounter always has a zone, so a missing one is a
+// generation bug, not a case to handle. Asked here once rather than reassembled from
+// node.zone and node.depth at each primitive's arm.
 sim_current_site :: proc(sim: ^Sim) -> voyage.Scaling_Site {
 	node := sim.voyage_map.nodes[sim.current]
 	zone, has_zone := node.zone.?
@@ -135,33 +97,25 @@ sim_current_site :: proc(sim: ^Sim) -> voyage.Scaling_Site {
 // if the walk is over — the read half of complete-or-halt, and the single answer to
 // "what happens next" that every resolution path routes back through.
 //
-// It loops rather than presenting one stage, because nothing guarantees a stage stops
-// for the captain: one that resolves outright advances the cursor and the next stage is
-// entered in the same tick. Reward is that stage (#133) — a boon has nothing to
-// decline, so it pays out and the walk carries straight on to whatever follows it,
-// which is how [Fight, Reward] resolves the node the moment the battle is won. Every
-// other primitive parks. The loop ends the moment a stage parks in a decision phase, or
-// the cursor runs off the end.
+// It loops rather than presenting a single stage: nothing guarantees a stage stops for
+// the captain — one that resolves outright advances the cursor and the next is entered in
+// the same tick (a Reward has nothing to decline, so [Fight, Reward] resolves the node the
+// moment the battle is won). The loop ends when a stage parks in a decision phase or the
+// cursor runs off the end.
 //
-// Finishing marks the node resolved — **node-level, once**, exactly like every other
-// encounter (ADR-0014). This is where Port repeatability dies: a Port is walked and
-// resolved like anything else, because complete-or-halt has no revisit semantics and
-// a repeatable encounter would be the only primitive with a lifecycle of its own.
-// Halting finishes the walk too — voyage_encounter_resolve_stage jumps the cursor to the
-// end — so a captain who flees a [Fight, Reward] never reaches the loot, with no
-// authored gate saying so.
+// Finishing marks the node resolved — node-level, once (ADR-0014): a Port is walked and
+// resolved like anything else, so complete-or-halt has no revisit semantics. Halting
+// finishes the walk too (voyage_encounter_resolve_stage jumps the cursor to the end), so a
+// captain who flees a [Fight, Reward] never reaches the loot, with no authored gate.
 //
-// Finishing is also where the node's Ghost_Snapshot is captured (issue #162,
-// ADR-0008 as amended): a ghost is an opponent — the build a captain left this node
-// with — so it is one per encounter, taken where the walk ends and the ship is
-// whatever the whole node made of it. That the emit and `resolved` are set in the
-// same breath is the point: Event_Encounter_Resolved's "resolved" and the Sim's are
-// now one fact, where the retired per-apply-proc emits fired at three moments when
-// this flag was still false. A **halt** emits — the cursor jumps to the end and
-// lands here, and a fled ship is a real ship a lobby can serve. A **sinking** does
-// not: the walk stops dead in sim_process_battle_round, the node is never resolved,
-// and this branch is never reached (Event_Voyage_Ended already marks the death).
-// Landmarks emit nothing — !has_encounter returns above, before the loop.
+// Finishing is also where the node's Ghost_Snapshot is captured (issue #162, ADR-0008 as
+// amended): a ghost is the build a captain left this node with, so it is one per encounter,
+// taken where the walk ends. The emit and `resolved` are set in the same breath, so
+// Event_Encounter_Resolved's "resolved" and the Sim's are one fact. A **halt** reaches
+// here (the cursor jumps to the end) and emits — a fled ship is a real ship a lobby can
+// serve. A **sinking** does not: the walk stops dead in sim_process_battle_round, the node
+// is never resolved, and Event_Voyage_Ended already marks the death. Landmarks emit
+// nothing — !has_encounter returns above, before the loop.
 sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	encounter, has_encounter := sim_current_encounter(sim)
 	if !has_encounter {
@@ -178,11 +132,9 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 			return
 		}
 
-		// Where the cursor is, said out loud (issue #139) — the one thing about the walk
-		// presentation cannot read off the Encounter it was handed at arrival. Emitted
-		// here rather than in sim_enter_stage's arms so it is one site for all five
-		// primitives, and *before* the stage presents, so "stage 2 of 3" is on screen by
-		// the time its decision is.
+		// Where the cursor is, said out loud (issue #139) — emitted here rather than in
+		// sim_enter_stage's arms so it is one site for all primitives, and *before* the
+		// stage presents, so "stage 2 of 3" is on screen by the time its decision is.
 		append(events, Event(Event_Stage_Entered{
 			kind  = voyage.voyage_stage_kind(stage),
 			index = encounter.cursor,
@@ -197,14 +149,12 @@ sim_walk_encounter :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	}
 }
 
-// sim_enter_stage starts the stage under the cursor: it presents whatever the
-// primitive shows and parks the Sim in the phase that primitive's decision needs.
-// Returns that stage's outcome when it resolves with nothing to ask the captain, or
-// nil when it has parked and the walk must wait — the Maybe *is* the "does this stage
-// stop for the player" question, asked of the primitive instead of assumed.
-//
-// The switch is exhaustive over the closed primitive set, so a sixth primitive is a
-// compile error here rather than a stage the walk silently skips.
+// sim_enter_stage starts the stage under the cursor: it presents whatever the primitive
+// shows and parks the Sim in the phase that decision needs. Returns the stage's outcome
+// when it resolves with nothing to ask the captain, or nil when it has parked — the Maybe
+// *is* the "does this stage stop for the player" question, asked of the primitive rather
+// than assumed. The switch is exhaustive, so a new primitive is a compile error here
+// rather than a stage the walk silently skips.
 sim_enter_stage :: proc(sim: ^Sim, stage: voyage.Stage, events: ^[dynamic]Event) -> Maybe(voyage.Stage_Outcome) {
 	switch s in stage {
 	case voyage.Stage_Fight:
@@ -252,14 +202,10 @@ sim_enter_stage :: proc(sim: ^Sim, stage: voyage.Stage, events: ^[dynamic]Event)
 	case voyage.Stage_Reward:
 		// The one primitive that parks nowhere (#132, #133): a boon has nothing to
 		// decline, so it pays out and hands back .Completed in the same breath, and
-		// sim_walk_encounter's loop carries straight on to whatever follows it. This is
-		// the case that loop was built for — every other primitive stops for a decision.
-		//
-		// Event_Ship_Updated is how presentation learns the cargo moved (ADR-0001 — it
-		// learns nothing except through Events), and it is the *only* event a payout
-		// owes: the node's ghost is captured once, where the walk ends, so a Reward
-		// mid-recipe no longer emits one of its own (issue #162). Same as an accepted
-		// Trade, the other stage that grants on resolution.
+		// sim_walk_encounter's loop carries straight on to whatever follows. Event_Ship_Updated
+		// is how presentation learns the cargo moved (ADR-0001 — it learns nothing except
+		// through Events) and the only event a payout owes: the node's ghost is captured
+		// once where the walk ends, not here (same as an accepted Trade).
 		voyage.voyage_apply_reward(&sim.player, s)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		return .Completed
@@ -277,11 +223,10 @@ sim_enter_stage :: proc(sim: ^Sim, stage: voyage.Stage, events: ^[dynamic]Event)
 // advancing, so the same finish re-enters the shop. Which of those happens is read
 // off the cursor at that point, which is why neither needs a remembered origin.
 //
-// A **halt** is announced on the way through (issue #139); a completion is not. This is
-// the only place both facts are in hand — voyage_encounter_resolve_stage takes the outcome
-// and the cursor still names the stage it applies to — and the asymmetry is
-// Event_Encounter_Halted's, not this proc's: a completion shows itself by what happens
-// next, a halt is the outcome with nothing to show.
+// A **halt** is announced on the way through (issue #139); a completion is not — this is
+// the only place both facts are in hand (the outcome, and the cursor still naming the
+// stage it applies to). A completion shows itself by what happens next; a halt is the
+// outcome with nothing else to show.
 sim_advance_stage :: proc(sim: ^Sim, outcome: voyage.Stage_Outcome, events: ^[dynamic]Event) {
 	encounter, has_encounter := sim_current_encounter(sim)
 	assert(has_encounter, "resolved a stage at a node that holds no encounter")
@@ -300,15 +245,12 @@ sim_advance_stage :: proc(sim: ^Sim, outcome: voyage.Stage_Outcome, events: ^[dy
 	sim.shop_visit = {} // the cursor is leaving; a stage's working state dies with it
 }
 
-// sim_process_option_choice applies a submitted Command_Choose_Option — the one
-// decision an Offer and a Shop share (issue #131), and the whole of what
-// sim_item_offer.odin and sim_shop.odin used to do apart.
-//
-// Taking an option is uniform: bounds-check it, charge it if it carries a price, and
-// open a Refit to place it (the acquisition channel owns resolving its own stage, so
-// the Refit stays a pure reusable sub-mode). What differs is what taking or declining
-// means to the *stage*, which is the primitive's business (ADR-0014) and is asked of
-// it below rather than baked into the phase.
+// sim_process_option_choice applies a submitted Command_Choose_Option — the one decision
+// an Offer and a Shop share (issue #131). Taking an option is uniform: bounds-check it,
+// charge it if it carries a price, and open a Refit to place it (the Refit stays a pure
+// reusable sub-mode that owns resolving its own stage). What taking or declining means to
+// the *stage* is the primitive's business (ADR-0014), asked of it below rather than baked
+// into the phase.
 sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	assert(has_pending, "sim_process_option_choice called without a pending command")
@@ -358,8 +300,8 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	case voyage.Stage_Shop:
 		// A buy does *not* resolve the Shop: the cursor stays put, so the Refit's finish
-		// re-enters this same stage and re-presents it refilled — the multi-buy loop,
-		// now a property of where the cursor is rather than of a remembered origin.
+		// re-enters this same stage and re-presents it refilled — the multi-buy loop, a
+		// property of where the cursor is rather than a remembered origin.
 		sim.shop_visit.purchases += 1 // this shop is one item deeper; the next buy here costs more
 		sim.shop_visit.slots[selection] = shop_visit_draw_next(&sim.shop_visit, s.count)
 
@@ -370,15 +312,13 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	sim_open_refit(sim, option.fitting, events)
 }
 
-// sim_stage_decline_outcome is what declining an option list does to the encounter —
-// the primitive's own definition of completion (ADR-0014), asked of the stage rather
-// than assumed by the phase they share. Skipping an Offer **halts**, so a captain who
-// wants none of the items gets nothing downstream of it either; leaving a Shop
-// **completes**, because a shop cannot be failed — Shop is the one primitive with no
-// halt.
-//
-// Exhaustive rather than "halt unless Shop": a sixth option-list primitive must state
-// its own answer here, not inherit one by falling through.
+// sim_stage_decline_outcome is what declining an option list does to the encounter — the
+// primitive's own definition of completion (ADR-0014), asked of the stage rather than
+// assumed by the phase they share. Skipping an Offer **halts**, so a captain who wants
+// none of the items gets nothing downstream of it either; leaving a Shop **completes**,
+// because a shop cannot be failed — Shop is the one primitive with no halt. Exhaustive
+// rather than "halt unless Shop": a new option-list primitive must state its own answer
+// here, not inherit one by falling through.
 sim_stage_decline_outcome :: proc(stage: voyage.Stage) -> voyage.Stage_Outcome {
 	switch _ in stage {
 	case voyage.Stage_Offer:
@@ -425,9 +365,7 @@ sim_stage_shop_options :: proc(sim: ^Sim, shop: voyage.Stage_Shop) {
 // sim_deal_shop_visit lays out a shop's opening shelf (issue #123): the top
 // SHOP_SHELF_SIZE cards of its stock, one per slot, with next_draw left pointing at
 // the first still-undrawn card. A shop stocking fewer cards than the shelf shows
-// leaves the tail slots nil — reachable since #137 gave pools an authored depth,
-// though no pool authors one that shallow today. Called once per Shop stage, as the
-// cursor lands on it.
+// leaves the tail slots nil. Called once per Shop stage, as the cursor lands on it.
 sim_deal_shop_visit :: proc(visit: ^Shop_Visit, shop: voyage.Stage_Shop) {
 	for i in 0 ..< voyage.SHOP_SHELF_SIZE {
 		visit.slots[i] = shop_visit_draw_next(visit, shop.count)
