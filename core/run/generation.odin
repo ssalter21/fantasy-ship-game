@@ -2,7 +2,7 @@ package run
 
 import "core:math/rand"
 
-// Procedural map generation: builds the run's connected node graph (ADR-0009)
+// Procedural map generation: builds the voyage's connected node graph (ADR-0009)
 // from a seed, and tears it down again. This is the content-producing half of
 // the module — it materializes the Nodes, scatters ports, deals each zone's
 // encounters from a shuffled recipe bag, and wires edges — sitting behind the
@@ -15,7 +15,7 @@ import "core:math/rand"
 // no config file, no settings UI) -------------------------------------------
 
 // nodes_per_zone is each zone's total *node* budget (50 total across the
-// three zones, plus Start and Goal). A port consumes a slot rather than
+// three zones, plus Start and Haven). A port consumes a slot rather than
 // adding on top, so real encounter counts are these minus PORTS_PER_ZONE
 // (15 / 15 / 14 = 44 encounters).
 nodes_per_zone := [Zone]int{.Coastal = 17, .Open_Sea = 17, .Deep = 16}
@@ -28,12 +28,12 @@ PORTS_PER_ZONE :: 2
 // zone_stage_count is ADR-0014's hard mapping from zone to encounter length:
 // Coastal 1 -> Open_Sea 2 -> Deep 3. It is the *only* filter on which recipes a
 // zone may draw — the zone's bucket is every catalog recipe of that stage count —
-// so encounters lengthen as the run sails out. Pacing holds because layers are
+// so encounters lengthen as the voyage sails out. Pacing holds because layers are
 // LAYER_WIDTH_MIN..MAX wide and a route therefore crosses only ~3-4 of a zone's
 // nodes, and the player can still route shallow deliberately.
 //
 // The bespoke placements are exempt: a Port is [Shop] even in The Deep
-// (run_port_bucket), and Start/Goal carry no encounter at all.
+// (voyage_port_bucket), and Start/Haven carry no encounter at all.
 zone_stage_count := [Zone]int{.Coastal = 1, .Open_Sea = 2, .Deep = 3}
 
 // LAYER_WIDTH_MIN/MAX bound how many nodes sit in one layer of the forward
@@ -42,7 +42,7 @@ LAYER_WIDTH_MIN :: 4
 LAYER_WIDTH_MAX :: 6
 
 // OUT_DEGREE_MAX bounds a regular node's forward out-edges (#60 locked 1..4);
-// every non-Goal node gets at least one forward edge by construction, so the
+// every non-Haven node gets at least one forward edge by construction, so the
 // effective range is 1..OUT_DEGREE_MAX. The Start node is exempt: it is the
 // sole source for the whole first layer, so it fans out to all of it.
 OUT_DEGREE_MAX :: 4
@@ -52,16 +52,16 @@ OUT_DEGREE_MAX :: 4
 // for reachability.
 LATERAL_EDGE_CHANCE :: 0.15
 
-// run_map_create builds the run's procedurally-generated node graph from
+// voyage_map_create builds the voyage's procedurally-generated node graph from
 // seed: a layered forward graph grown zone-by-zone (Coastal -> Open_Sea ->
-// Deep, into Goal), with reachability and zero dead ends guaranteed by
+// Deep, into Haven), with reachability and zero dead ends guaranteed by
 // construction and extra edges for real branching. Same seed => identical
-// map. Caller owns the returned Map and must free it with run_map_destroy.
-run_map_create :: proc(seed: u64) -> Map {
+// map. Caller owns the returned Map and must free it with voyage_map_destroy.
+voyage_map_create :: proc(seed: u64) -> Map {
 	state := rand.create_u64(seed)
 	gen := rand.default_random_generator(&state)
 
-	// --- 1. Lay out the layers: Start (1) -> each zone's layers -> Goal (1).
+	// --- 1. Lay out the layers: Start (1) -> each zone's layers -> Haven (1).
 	layer_zone: [dynamic]Maybe(Zone)
 	layer_width: [dynamic]int
 	defer delete(layer_zone)
@@ -74,7 +74,7 @@ run_map_create :: proc(seed: u64) -> Map {
 	zone_layer_count: [Zone]int
 	for zone in Zone {
 		zone_first_layer[zone] = len(layer_width)
-		widths := run_partition_layers(nodes_per_zone[zone], gen)
+		widths := voyage_partition_layers(nodes_per_zone[zone], gen)
 		zone_layer_count[zone] = len(widths)
 		for w in widths {
 			append(&layer_zone, Maybe(Zone)(zone))
@@ -101,13 +101,13 @@ run_map_create :: proc(seed: u64) -> Map {
 			if l == 0 {
 				kind = .Start
 			} else if l == n_layers - 1 {
-				kind = .Goal
+				kind = .Haven
 			}
 
 			depth := 0
 			if zone, ok := zone_m.?; ok {
 				raw_depth := l - zone_first_layer[zone]
-				depth = run_normalize_depth(raw_depth, zone_layer_count[zone])
+				depth = voyage_normalize_depth(raw_depth, zone_layer_count[zone])
 			}
 
 			append(&nodes, Node{id = Node_ID(len(nodes)), zone = zone_m, kind = kind, layer = l, lane = lane, depth = depth})
@@ -123,7 +123,7 @@ run_map_create :: proc(seed: u64) -> Map {
 	// This is a bucket like any other — a pool plus a placement rule (ADR-0014) —
 	// and the rule is the only thing bespoke about it. A Port is the [Shop] recipe,
 	// exempt from the zone's stage-count mapping, and visible on the map because
-	// Shop reveals (run_encounter_reveals) rather than because its node kind
+	// Shop reveals (voyage_encounter_reveals) rather than because its node kind
 	// excuses it from the hiding contract. Its stock is baked here with its recipe,
 	// like every other node's content.
 	//
@@ -160,10 +160,10 @@ run_map_create :: proc(seed: u64) -> Map {
 
 		// Deal this zone's two ports their recipes and bake them, the same way
 		// step 4 deals the zone's encounters: one path puts content on a node
-		// (run_encounter_from_recipe), whichever bucket the node was placed from.
-		bag := run_make_recipe_bag(PORTS_PER_ZONE, run_port_bucket(), gen)
+		// (voyage_encounter_from_recipe), whichever bucket the node was placed from.
+		bag := voyage_make_recipe_bag(PORTS_PER_ZONE, voyage_port_bucket(), gen)
 		for id, i in placed {
-			nodes[id].encounter = run_encounter_from_recipe(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
+			nodes[id].encounter = voyage_encounter_from_recipe(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
 		}
 		delete(bag)
 	}
@@ -183,7 +183,7 @@ run_map_create :: proc(seed: u64) -> Map {
 		// asking whether the node's kind is .Port (issue #137 retired that value).
 		// Asking whether a node already holds content is the better question anyway:
 		// a node is dealt a recipe because it has none, not because of how it was
-		// placed. Start and Goal are excluded by having no zone.
+		// placed. Start and Haven are excluded by having no zone.
 		enc_ids: [dynamic]int
 		for p in nodes {
 			pz, in_zone := p.zone.?
@@ -192,10 +192,10 @@ run_map_create :: proc(seed: u64) -> Map {
 				append(&enc_ids, int(p.id))
 			}
 		}
-		pool := run_zone_recipe_pool(zone, run_recipe_catalog())
-		bag := run_make_recipe_bag(len(enc_ids), pool, gen)
+		pool := voyage_zone_recipe_pool(zone, voyage_recipe_catalog())
+		bag := voyage_make_recipe_bag(len(enc_ids), pool, gen)
 		for id, i in enc_ids {
-			nodes[id].encounter = run_encounter_from_recipe(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
+			nodes[id].encounter = voyage_encounter_from_recipe(bag[i], Scaling_Site{zone = zone, depth = nodes[id].depth}, gen)
 		}
 		delete(bag)
 		delete(pool)
@@ -215,11 +215,11 @@ run_map_create :: proc(seed: u64) -> Map {
 		b1 := b0 + layer_width[l + 1]
 
 		// Out guarantee: every node in layer l gets at least one forward edge
-		// into layer l+1 — no dead ends, and every non-Goal node can always
-		// step forward toward Goal.
+		// into layer l+1 — no dead ends, and every non-Haven node can always
+		// step forward toward Haven.
 		for u in a0 ..< a1 {
 			v := b0 + rand.int_max(b1 - b0, gen)
-			run_add_edge(adj, u, v)
+			voyage_add_edge(adj, u, v)
 			forward_out[u] += 1
 		}
 
@@ -227,11 +227,11 @@ run_map_create :: proc(seed: u64) -> Map {
 		// edge gets one from a layer-l source with spare out-degree — so no
 		// node is unreachable from Start.
 		for v in b0 ..< b1 {
-			if run_has_incoming(adj[:], v, a0, a1) {
+			if voyage_has_incoming(adj[:], v, a0, a1) {
 				continue
 			}
-			u := run_pick_source_with_capacity(a0, a1, forward_out, gen)
-			run_add_edge(adj, u, v)
+			u := voyage_pick_source_with_capacity(a0, a1, forward_out, gen)
+			voyage_add_edge(adj, u, v)
 			forward_out[u] += 1
 		}
 
@@ -244,22 +244,22 @@ run_map_create :: proc(seed: u64) -> Map {
 					break
 				}
 				v := b0 + rand.int_max(b1 - b0, gen)
-				if !run_contains(adj[u][:], v) {
-					run_add_edge(adj, u, v)
+				if !voyage_contains(adj[u][:], v) {
+					voyage_add_edge(adj, u, v)
 					forward_out[u] += 1
 				}
 			}
 		}
 	}
 
-	// Lateral edges within a layer (skip the single-node Start/Goal layers).
+	// Lateral edges within a layer (skip the single-node Start/Haven layers).
 	for l in 1 ..< n_layers - 1 {
 		a0 := layer_start_id[l]
 		w := layer_width[l]
 		for i in 0 ..< w {
 			for j in i + 1 ..< w {
 				if rand.float64(gen) < LATERAL_EDGE_CHANCE {
-					run_add_edge(adj, a0 + i, a0 + j)
+					voyage_add_edge(adj, a0 + i, a0 + j)
 				}
 			}
 		}
@@ -270,7 +270,7 @@ run_map_create :: proc(seed: u64) -> Map {
 	// — so this is the single boundary where a node id becomes a distinct Node_ID
 	// for the returned Map (ADR-0011, issue #112). Fresh Node_ID slices are copied
 	// out and the [dynamic]int backings freed here, since a [dynamic]int backing
-	// can't be handed to a [][]Node_ID directly; run_map_destroy frees the Node_ID
+	// can't be handed to a [][]Node_ID directly; voyage_map_destroy frees the Node_ID
 	// slices in turn.
 	edges := make([][]Node_ID, n)
 	for i in 0 ..< n {
@@ -285,12 +285,12 @@ run_map_create :: proc(seed: u64) -> Map {
 	return Map{nodes = nodes[:], edges = edges}
 }
 
-// run_partition_layers splits a zone's node budget into a list of layer widths,
+// voyage_partition_layers splits a zone's node budget into a list of layer widths,
 // each within [LAYER_WIDTH_MIN, LAYER_WIDTH_MAX], summing exactly to total.
 // The layer count is chosen randomly among those that admit a valid split,
 // then the surplus over the minimum is scattered across layers. Caller owns
 // the returned slice.
-run_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
+voyage_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 	min_layers := (total + LAYER_WIDTH_MAX - 1) / LAYER_WIDTH_MAX
 	max_layers := total / LAYER_WIDTH_MIN
 	k := min_layers if max_layers <= min_layers else rand.int_range(min_layers, max_layers + 1, gen)
@@ -310,7 +310,7 @@ run_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 	return widths
 }
 
-// run_make_recipe_bag deals count recipes from `pool`, split as evenly across
+// voyage_make_recipe_bag deals count recipes from `pool`, split as evenly across
 // the pool as the division allows (e.g. 15 from a 3-recipe pool -> 5/5/5, 14 ->
 // 5/5/4), then shuffles them. This is ADR-0009's per-zone shuffled kind bag with
 // its three-way hard-coding removed: the even split is now over whatever pool it
@@ -319,10 +319,10 @@ run_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 // along any individual route. Caller owns the returned slice.
 //
 // The pool it is handed is a bucket: a zone's stage-count bucket
-// (run_zone_recipe_pool) for the zone deals, or the Port bucket for the bespoke
+// (voyage_zone_recipe_pool) for the zone deals, or the Port bucket for the bespoke
 // port placements. It has no opinion on which — a bag is dealt from a pool of
 // recipes, and which pool is the caller's question.
-run_make_recipe_bag :: proc(count: int, pool: []Recipe, gen: rand.Generator) -> []Recipe {
+voyage_make_recipe_bag :: proc(count: int, pool: []Recipe, gen: rand.Generator) -> []Recipe {
 	assert(len(pool) > 0, "cannot deal a recipe bag from an empty pool")
 
 	bag := make([]Recipe, count)
@@ -341,14 +341,14 @@ run_make_recipe_bag :: proc(count: int, pool: []Recipe, gen: rand.Generator) -> 
 	return bag
 }
 
-// run_recipe_bucket returns every recipe in pool whose stage list is exactly
+// voyage_recipe_bucket returns every recipe in pool whose stage list is exactly
 // stage_count long — the bucket, *derived*. Membership is read off
 // len(r.stages) and nothing else: a Recipe has no bucket field (stage.odin), so
 // authoring a 3-stage recipe in catalog.odin files it into The Deep's bucket
 // with no wiring here and no way to file it wrong. This is the effort's headline
 // property, and it is structural rather than conventional because there is no
 // second place a bucket could be recorded. Caller owns the returned slice.
-run_recipe_bucket :: proc(pool: []Recipe, stage_count: int) -> []Recipe {
+voyage_recipe_bucket :: proc(pool: []Recipe, stage_count: int) -> []Recipe {
 	n := 0
 	for r in pool {
 		if len(r.stages) == stage_count {
@@ -367,7 +367,7 @@ run_recipe_bucket :: proc(pool: []Recipe, stage_count: int) -> []Recipe {
 	return bucket
 }
 
-// run_zone_recipe_pool returns the bucket a zone deals its encounters from: the
+// voyage_zone_recipe_pool returns the bucket a zone deals its encounters from: the
 // catalog recipes whose stage count matches zone_stage_count[zone]. Caller owns
 // the returned slice.
 //
@@ -379,34 +379,34 @@ run_recipe_bucket :: proc(pool: []Recipe, stage_count: int) -> []Recipe {
 // catalog.odin, and dealing Coastal's encounters in The Deep would hide that
 // behind a playable-looking map — every_zone_has_a_bucket_to_deal_from names the
 // same fact as a test, so the mistake is caught before the assert ever fires.
-run_zone_recipe_pool :: proc(zone: Zone, catalog: []Recipe) -> []Recipe {
-	bucket := run_recipe_bucket(catalog, zone_stage_count[zone])
+voyage_zone_recipe_pool :: proc(zone: Zone, catalog: []Recipe) -> []Recipe {
+	bucket := voyage_recipe_bucket(catalog, zone_stage_count[zone])
 	assert(len(bucket) > 0, "a zone's stage-count bucket is empty: the catalog has no recipe of that length")
 	return bucket
 }
 
-// run_bake_stage builds one authored stage's content at the node's Scaling_Site —
-// the per-primitive half of run_encounter_from_recipe, which walks a recipe and
+// voyage_bake_stage builds one authored stage's content at the node's Scaling_Site —
+// the per-primitive half of voyage_encounter_from_recipe, which walks a recipe and
 // calls this for each of its Stage_Specs. Takes `gen` so the primitives that sample
 // a pool (an Offer's items, a Shop's stock) draw reproducibly from the same
 // map-generation RNG stream. Nothing rolls on arrival.
 //
 // This is where each primitive's content roster hangs: a Trade draws its swap from
-// the axis roster (run_make_trade, #136), a Fight draws its opponent from the hostile
-// roster (run_pve_opponent, #135) — the two that closed ADR-0014's "two of the three
+// the axis roster (voyage_make_trade, #136), a Fight draws its opponent from the hostile
+// roster (voyage_pve_opponent, #135) — the two that closed ADR-0014's "two of the three
 // kinds have no variance" gap — and a Shop draws its stock from the pool its recipe
-// named (run_bake_shop, #137), the one roster that is chosen rather than sampled.
+// named (voyage_bake_shop, #137), the one roster that is chosen rather than sampled.
 //
 // **Only the Shop arm reads `site`-free content, and only the Shop arm reads the
 // spec.** Both are the same fact about the primitive: a shop is a fixed market whose
-// character is authored and whose stakes are the captain's purse, not the node's.
+// character is authored and whose stakes are the captain's cargo, not the node's.
 //
 // The arms below are the gradient's readership written out, and each takes exactly
 // what it reads: Fight, Offer and Reward take the whole `site`, a Trade takes its
 // **zone** alone (#146 — a swing is an exchange rate, and a rate has no room for a
 // depth axis), and a Shop takes none of it. Handing every arm the full site would
 // read tidier and say less.
-run_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Generator) -> Stage {
+voyage_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Generator) -> Stage {
 	pool, authored_pool := spec.stock.?
 	assert(
 		authored_pool == (spec.kind == .Shop),
@@ -415,36 +415,36 @@ run_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Generator
 
 	switch spec.kind {
 	case .Fight:
-		return Stage_Fight{opponent = run_pve_opponent(site, gen)}
+		return Stage_Fight{opponent = voyage_pve_opponent(site, gen)}
 	case .Offer:
-		return Stage_Offer{options = run_item_offer_options(site, gen)}
+		return Stage_Offer{options = voyage_item_offer_options(site, gen)}
 	case .Trade:
-		return run_make_trade(site.zone, gen)
+		return voyage_make_trade(site.zone, gen)
 	case .Shop:
-		return run_bake_shop(pool, gen)
+		return voyage_bake_shop(pool, gen)
 	case .Reward:
 		// A Reward's payout is fixed here, at generation, from this node's own site
 		// (#132/#133) — the amount is content like an Offer's items, not a number
 		// rolled on arrival. It draws no RNG, so a recipe carrying one leaves the
 		// generator's stream untouched.
-		return Stage_Reward{treasure = run_reward_treasure(site)}
+		return Stage_Reward{cargo = voyage_reward_cargo(site)}
 	}
 	unreachable()
 }
 
-// run_add_edge records a symmetric edge between u and v (each appears in the
+// voyage_add_edge records a symmetric edge between u and v (each appears in the
 // other's adjacency), skipping duplicates.
-run_add_edge :: proc(adj: [][dynamic]int, u, v: int) {
-	if run_contains(adj[u][:], v) {
+voyage_add_edge :: proc(adj: [][dynamic]int, u, v: int) {
+	if voyage_contains(adj[u][:], v) {
 		return
 	}
 	append(&adj[u], v)
 	append(&adj[v], u)
 }
 
-// run_contains reports whether xs holds x — a linear scan, fine for the tiny
+// voyage_contains reports whether xs holds x — a linear scan, fine for the tiny
 // per-node adjacency lists.
-run_contains :: proc(xs: []int, x: int) -> bool {
+voyage_contains :: proc(xs: []int, x: int) -> bool {
 	for e in xs {
 		if e == x {
 			return true
@@ -453,9 +453,9 @@ run_contains :: proc(xs: []int, x: int) -> bool {
 	return false
 }
 
-// run_has_incoming reports whether v already has an edge from any node in the
+// voyage_has_incoming reports whether v already has an edge from any node in the
 // layer spanning [a0, a1).
-run_has_incoming :: proc(adj: [][dynamic]int, v, a0, a1: int) -> bool {
+voyage_has_incoming :: proc(adj: [][dynamic]int, v, a0, a1: int) -> bool {
 	for u in adj[v] {
 		if u >= a0 && u < a1 {
 			return true
@@ -464,10 +464,10 @@ run_has_incoming :: proc(adj: [][dynamic]int, v, a0, a1: int) -> bool {
 	return false
 }
 
-// run_pick_source_with_capacity chooses a node in [a0, a1) whose forward
+// voyage_pick_source_with_capacity chooses a node in [a0, a1) whose forward
 // out-degree is still below OUT_DEGREE_MAX; falls back to any node in range if
 // somehow all are saturated (layer widths make that unreachable in practice).
-run_pick_source_with_capacity :: proc(a0, a1: int, forward_out: []int, gen: rand.Generator) -> int {
+voyage_pick_source_with_capacity :: proc(a0, a1: int, forward_out: []int, gen: rand.Generator) -> int {
 	candidates: [dynamic]int
 	defer delete(candidates)
 	for u in a0 ..< a1 {
@@ -481,16 +481,16 @@ run_pick_source_with_capacity :: proc(a0, a1: int, forward_out: []int, gen: rand
 	return candidates[rand.int_max(len(candidates), gen)]
 }
 
-// run_map_destroy frees a Map's owned memory: each node's adjacency slice and
+// voyage_map_destroy frees a Map's owned memory: each node's adjacency slice and
 // the edges array, m.nodes itself, plus each Fight stage's opponent.layout slice
-// (issue #23; run_pve_opponent allocates a fresh layout per stage). Callers of
-// run_map_create must use this instead of a bare delete(m.nodes).
+// (issue #23; voyage_pve_opponent allocates a fresh layout per stage). Callers of
+// voyage_map_create must use this instead of a bare delete(m.nodes).
 //
 // An Encounter stores its stages inline (ADR-0014's fixed-size storage), so this
 // walks the stage list rather than freeing an owned one: the opponent layout is
 // the only heap a stage holds, and every other primitive's content is a
 // fixed-size array that goes with m.nodes.
-run_map_destroy :: proc(m: ^Map) {
+voyage_map_destroy :: proc(m: ^Map) {
 	for node in m.nodes {
 		encounter, has_encounter := node.encounter.?
 		if !has_encounter {

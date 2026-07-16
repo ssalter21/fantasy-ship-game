@@ -12,7 +12,7 @@ Visibility :: enum {
 }
 
 // Category is a fitting's round phase (ADR-0006): every round resolves
-// Buff -> Defensive -> Offensive, and a fitting's Category is which of the
+// Muster -> Brace -> Fire, and a fitting's Category is which of the
 // three it triggers in. Effect's comment below says combat vocabulary
 // belongs to core/combat, not this data model — Category is the deliberate
 // exception: core/combat needs to group fittings by phase to resolve a
@@ -20,14 +20,14 @@ Visibility :: enum {
 // grouping, so the enum lives here rather than as a lookup keyed some other
 // way from core/combat.
 Category :: enum {
-	Buff,
-	Defensive,
-	Offensive,
+	Muster,
+	Brace,
+	Fire,
 }
 
 // Tag is a fitting's family membership (#88 build-variance effort), the axis
 // synergy effects will later count fittings along. It is independent of a
-// fitting's combat phase (Category): a Beast may buff, defend, or attack, and
+// fitting's combat phase (Category): a Beast may muster, defend, or attack, and
 // two fittings in different phases can still share a family. Multi-tag is
 // allowed but used sparingly — most fittings sit in exactly one family. No
 // behavior counts on tags yet; this ticket (#90) only establishes the axis.
@@ -56,7 +56,7 @@ Magnitude :: distinct int
 // the magnitude feeds the owning fitting's combat phase (its Category, decided
 // by the combat resolver — ADR-0006, core/combat). The Modify_* kinds instead
 // adjust one of the owning ship's effective stats (ship_effective_durability /
-// _speed / _max_hp), so a fitting can raise Durability / Speed / Max HP
+// _speed / _max_hull), so a fitting can raise Durability / Speed / Max Hull
 // without contributing to a phase (issue #88: "fittings may modify ship
 // stats"). Kept as an enum rather than a tagged union — the house idiom for a
 // closed variant set — because for this ticket's closed set every kind carries
@@ -73,7 +73,7 @@ Effect_Kind :: enum {
 	Phase_Contribution,
 	Modify_Durability,
 	Modify_Speed,
-	Modify_Max_HP,
+	Modify_Max_Hull,
 }
 
 // Selector picks the fittings a synergy effect counts (issue #93, ADR-0012):
@@ -102,7 +102,7 @@ Selector :: union {
 // payload, a trigger") — so the trigger *is* its parameters and its type is the
 // discriminant. Plain data, so it round-trips through a Ghost_Snapshot
 // (ADR-0008) like the rest of an Effect. The four axes required by #94:
-//   - HP threshold        -> Condition_HP_Below      (a ship-state trigger)
+//   - Hull threshold        -> Condition_Hull_Below      (a ship-state trigger)
 //   - round number        -> Condition_Round_At_Least (a battle-state trigger)
 //   - own concealment     -> Condition_Self_Visibility (a ship-state trigger)
 //   - opponent faster/slower -> Condition_Opponent_Faster / _Slower (battle-state)
@@ -110,20 +110,20 @@ Selector :: union {
 // combat, so they are simply unmet when an effect resolves off the battlefield
 // (e.g. an effective-stat read between encounters).
 Condition :: union {
-	Condition_HP_Below,
+	Condition_Hull_Below,
 	Condition_Round_At_Least,
 	Condition_Self_Visibility,
 	Condition_Opponent_Faster,
 	Condition_Opponent_Slower,
 }
 
-// Condition_HP_Below holds while the owner's current HP is strictly below
-// `percent` percent of its max HP — "below half HP" is `percent = 50`. Compared
-// against the raw Ship.max_hp field, not ship_effective_max_hp: an effective
-// read would recurse (a Modify_Max_HP effect that is itself HP-conditional would
-// re-enter this check), and the run-persistent HP ceiling a threshold means is
+// Condition_Hull_Below holds while the owner's current Hull is strictly below
+// `percent` percent of its max Hull — "below half Hull" is `percent = 50`. Compared
+// against the raw Ship.max_hull field, not ship_effective_max_hull: an effective
+// read would recurse (a Modify_Max_Hull effect that is itself Hull-conditional would
+// re-enter this check), and the voyage-persistent Hull ceiling a threshold means is
 // the base field anyway (ADR-0008).
-Condition_HP_Below :: struct {
+Condition_Hull_Below :: struct {
 	percent: int,
 }
 
@@ -162,7 +162,7 @@ Condition_Opponent_Slower :: struct {}
 //     each Weapon, +Offense").
 //   - conditional (issue #94) gates the whole magnitude on a battle-/ship-state
 //     trigger, yielding it the rounds the Condition holds and 0 otherwise
-//     ("below half HP, +Offense").
+//     ("below half Hull, +Offense").
 // The two compose (a gated synergy resolves to 0 while its Condition is unmet,
 // its build-scaled count otherwise). The concrete fitting roster and its balance
 // values belong to the content tickets (issue #23), not this data model.
@@ -251,8 +251,8 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 // ctx.self_slot and is unmet without one.
 condition_met :: proc(condition: Condition, ctx: Effect_Context) -> bool {
 	switch c in condition {
-	case Condition_HP_Below:
-		return ctx.owner.hp * 100 < ctx.owner.max_hp * c.percent
+	case Condition_Hull_Below:
+		return ctx.owner.hull * 100 < ctx.owner.max_hull * c.percent
 	case Condition_Round_At_Least:
 		battle, in_battle := ctx.battle.?
 		return in_battle && battle.round >= c.round
@@ -312,7 +312,7 @@ Fitting :: struct {
 	// weight is what this fitting adds to its ship's weight (ADR-0020, #194): an
 	// authored per-item balance choice — the knob that makes a strong item pay for
 	// its strength — in #156's size band (Large ~30-45, Medium ~15-25, Small ~5-12).
-	// **Only read for non-cargo fittings**: a cargo fitting weighs its treasure
+	// **Only read for non-cargo fittings**: a cargo fitting weighs its cargo
 	// (stack_count, #156), so ship_fitting_weight ignores this field when is_cargo.
 	// See content.odin, where every roster item and starting fitting authors one.
 	weight:              int,
@@ -327,12 +327,12 @@ Fitting :: struct {
 	active:              Maybe(Effect),
 	// is_cargo marks the one special-cased fitting kind (ADR-0004): stackable
 	// and effect-less, and the fitting a ship's money lives in (ADR-0020) — a
-	// cargo fitting *is* its treasure. ship_fit enforces both halves of that
+	// cargo fitting *is* its cargo. ship_fit enforces both halves of that
 	// special-casing: no passive/active effects, and a stack_count of at least 1.
 	is_cargo:            bool,
-	// stack_count is the treasure this cargo fitting holds (ADR-0020, #156: one
-	// stacked unit is one unit of treasure, and one unit of weight). Summed
-	// across a ship's cargo fittings it is the ship's purse (ship_treasure).
+	// stack_count is the cargo this cargo fitting holds (ADR-0020, #156: one
+	// stacked unit is one unit of cargo, and one unit of weight). Summed
+	// across a ship's cargo fittings it is the ship's cargo (ship_cargo).
 	// Only meaningful when is_cargo is true; ignored for every other fitting kind.
 	stack_count:         int,
 }
@@ -348,28 +348,28 @@ Layout_Slot :: struct {
 // slot_index in core/combat).
 Slot_Index :: distinct int
 
-// Ship holds the run-persistent top-level stats (HP, Durability, Speed) plus
+// Ship holds the voyage-persistent top-level stats (Hull, Durability, Speed) plus
 // the fixed layout of slots that carries its combat power. A ship's money is
-// **not** a field: its purse is the treasure stowed in its cargo fittings
-// (ship_treasure), so there is no number on a ship representing money (ADR-0020,
+// **not** a field: the cargo it carries is stowed in its cargo fittings
+// (ship_cargo), so there is no number on a ship representing money (ADR-0020,
 // #156). See CONTEXT.md's Ship & crew model glossary and ADR-0004.
 Ship :: struct {
-	hp:                  int,
-	// max_hp is the ship's undamaged HP ceiling (ADR-0008): hp is the
-	// run-persistent value combat depletes, max_hp never changes during a
-	// run and is what a Ghost_Snapshot resets hp to on capture.
-	max_hp:              int,
+	hull:                  int,
+	// max_hull is the ship's undamaged Hull ceiling (ADR-0008): hull is the
+	// voyage-persistent value combat depletes, max_hull never changes during a
+	// voyage and is what a Ghost_Snapshot resets hull to on capture.
+	max_hull:              int,
 	durability:          int,
 	// speed is the `base` term of the derived Speed reading (ADR-0020, #158/#180):
 	// effective Speed is `speed + Σ Modify_Speed − weight/10` (ship_effective_speed),
 	// so this field no longer *is* a ship's Speed — it is a calibration initialised
 	// to BASE_SPEED uniformly across ships (a ship's character is its items and its
-	// purse, not a per-hull base). It survives as a field (not collapsed to a
+	// cargo, not a per-hull base). It survives as a field (not collapsed to a
 	// literal) because Modify_Speed fittings and, later, captains act through the
 	// additive modifier term on top of it.
 	speed:               int,
 	layout:              []Layout_Slot,
-	// captain is the run-start ship<->captain relationship (issue #18): a
+	// captain is the voyage-start ship<->captain relationship (issue #18): a
 	// captain can influence a ship's slot limits/structure and grants
 	// additional manual per-round captain actions. The vertical slice's one
 	// concrete captain (issue #23) is ship_starting_captain in content.odin.
@@ -457,7 +457,7 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx:
 }
 
 // ship_effective_stat is the shared shape behind ship_effective_durability /
-// _speed / _max_hp (issue #92): the raw base stat plus every installed
+// _speed / _max_hull (issue #92): the raw base stat plus every installed
 // fitting's matching Stat_Modifier contribution. `base` is the ship's own
 // field and `kind` the Modify_* kind that targets it. self_slot is set per
 // iteration (issue #94) so a conditional stat modifier gated on its own
@@ -476,18 +476,18 @@ ship_effective_stat :: proc(s: ^Ship, base: int, kind: Effect_Kind) -> int {
 	return total
 }
 
-// ship_effective_durability / _speed / _max_hp return a ship's stat after its
+// ship_effective_durability / _speed / _max_hull return a ship's stat after its
 // installed fittings' Stat_Modifier effects apply on top of the raw Ship field
 // (issue #92). Combat reads these rather than the raw fields (see core/combat's
 // combat_effective_speed and its damage calc; ADR-0008's ghost capture resets
-// hp to effective max HP), so a fitting can raise Durability / Speed / Max HP.
+// hull to effective max Hull), so a fitting can raise Durability / Speed / Max Hull.
 ship_effective_durability :: proc(s: ^Ship) -> int {
 	return ship_effective_stat(s, s.durability, .Modify_Durability)
 }
 
 // ship_effective_speed derives a ship's Speed from its weight (ADR-0020, #158):
 // `base + Σ Modify_Speed − weight/10`. The base and the additive Modify_Speed
-// modifiers come through ship_effective_stat exactly as Durability and Max HP do;
+// modifiers come through ship_effective_stat exactly as Durability and Max Hull do;
 // the new term is `− ship_weight/10`, so **no ship's Speed can be read without
 // asking what it is carrying** (the destination test). The `/10` divisor is the
 // money↔Speed exchange rate — #156's ×10-and-doubling capacity table read as a
@@ -502,7 +502,7 @@ ship_effective_speed :: proc(s: ^Ship) -> int {
 }
 
 // ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): a
-// cargo fitting weighs its treasure (its stack_count, #156 — so an empty hold
+// cargo fitting weighs its cargo (its stack_count, #156 — so an empty hold
 // weighs nothing and a full one weighs its contents 1:1), while a non-cargo
 // fitting weighs its **authored** weight (Fitting.weight, #194). That weight is a
 // per-item balance choice in #156's size band (Large ~30-45, Medium ~15-25, Small
@@ -518,7 +518,7 @@ ship_fitting_weight :: proc(f: Fitting) -> int {
 
 // ship_weight is a ship's total weight: every installed fitting's contribution
 // (ship_fitting_weight). This is the subtrahend in ship_effective_speed, so a
-// ship's Speed falls as it loads treasure or heavy fittings and rises as it sheds
+// ship's Speed falls as it loads cargo or heavy fittings and rises as it sheds
 // them — getting rich is what makes you catchable (ADR-0020).
 ship_weight :: proc(s: Ship) -> int {
 	total := 0
@@ -530,17 +530,17 @@ ship_weight :: proc(s: Ship) -> int {
 	return total
 }
 
-ship_effective_max_hp :: proc(s: ^Ship) -> int {
-	return ship_effective_stat(s, s.max_hp, .Modify_Max_HP)
+ship_effective_max_hull :: proc(s: ^Ship) -> int {
+	return ship_effective_stat(s, s.max_hull, .Modify_Max_Hull)
 }
 
-// ship_cargo_capacity is the treasure a ship can carry: the size contribution
+// ship_cargo_capacity is the cargo a ship can carry: the size contribution
 // of every slot **not** carrying a non-cargo fitting — empty slots and
 // cargo-filled slots both count, a slot spent on a gun does not (ADR-0020,
 // #157). So a broke ship still reads its full structural ceiling (the 8-slot
 // starting hull with its three exposed guns reads 90), and a slot spent on a
 // fitting is money the ship can no longer carry — the refit tension. Overflow
-// above this is lost (ship_stow_treasure), never stored: treasure lives only in
+// above this is lost (ship_stow_cargo), never stored: cargo lives only in
 // cargo fittings, which live only in finite slots.
 ship_cargo_capacity :: proc(s: Ship) -> int {
 	capacity := 0
@@ -553,7 +553,7 @@ ship_cargo_capacity :: proc(s: Ship) -> int {
 	return capacity
 }
 
-// ship_cargo_slot_contribution is how much treasure a slot of `size` can hold —
+// ship_cargo_slot_contribution is how much cargo a slot of `size` can hold —
 // and, since money is weight (ADR-0020), how much a full one weighs. The ×10-
 // and-doubling scale (#156) is what makes weight, capacity, and money one
 // commensurable system, and it is also the Speed table ×10 (a full Large is
@@ -570,34 +570,34 @@ ship_cargo_slot_contribution :: proc(size: Slot_Size) -> int {
 	return 0
 }
 
-// ship_treasure is a ship's purse: the treasure stowed across its cargo fittings
-// (ADR-0020, #156 — a cargo fitting's stack_count *is* its treasure, one unit
-// each). This is what "the purse" means now that no scalar money field rides on
+// ship_cargo is what a ship carries: the cargo stowed across its cargo fittings
+// (ADR-0020, #156 — a cargo fitting's stack_count *is* its cargo, one unit
+// each). This is the cargo total now that no scalar money field rides on
 // a ship; a ship with no cargo fittings carries nothing.
-ship_treasure :: proc(s: Ship) -> int {
-	treasure := 0
+ship_cargo :: proc(s: Ship) -> int {
+	cargo := 0
 	for layout_slot in s.layout {
 		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
-			treasure += fitting.stack_count
+			cargo += fitting.stack_count
 		}
 	}
-	return treasure
+	return cargo
 }
 
-// ship_stow_treasure re-stows `amount` treasure across `layout`, smallest slots
+// ship_stow_cargo re-stows `amount` cargo across `layout`, smallest slots
 // first (ADR-0020, #172). It first clears every existing cargo fitting —
 // reallocation is free outside battle (#157), so a re-stow rebuilds the hold
 // from scratch — then fills the empty, non-gun slots smallest-first, each up to
 // its capacity, until `amount` is exhausted. **Overflow above capacity is lost**
-// (#157): treasure with no slot to land in simply drops. Used for the player's
-// bootstrap stow and for every out-of-battle purse change (a Reward gain, a Shop
+// (#157): cargo with no slot to land in simply drops. Used for the player's
+// bootstrap stow and for every out-of-battle cargo change (a Reward gain, a Shop
 // or Trade spend): the caller passes the desired total, not a delta.
 //
 // Smallest-first is the rule, not authored numbers: the starting 50 falls out as
 // three Smalls at 10 + a Medium at 20, the Large left empty as headroom, and it
 // keeps #157's granularity property — fine change lives in the Smalls, so the
 // richer you get the coarser the only thing you can heave.
-ship_stow_treasure :: proc(layout: []Layout_Slot, amount: int) {
+ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) {
 	for &layout_slot in layout {
 		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
 			layout_slot.fitting = nil
@@ -662,17 +662,17 @@ ship_move :: proc(from, to: ^Layout_Slot) -> (Fitting, bool) {
 }
 
 // Captain is structurally separate from the slot system: not a fitting,
-// consumes no slot. A run-start choice that can influence a ship's starting
+// consumes no slot. A voyage-start choice that can influence a ship's starting
 // state and grants additional manual per-round captain actions.
 // starting_cargo_bonus is the vertical slice's one captain's concrete lever
-// (issue #23, #172): treasure the captain adds to the ship's bootstrap stow on
+// (issue #23, #172): cargo the captain adds to the ship's bootstrap stow on
 // top of STARTING_CARGO, so the starting 50 is 40 (ship) + 10 (Odessa). Unlike
 // the deleted cargo_capacity_bonus — which promised room no slot provides and
-// so was unfillable (#157) — this is **fillable**: it adds treasure into the
+// so was unfillable (#157) — this is **fillable**: it adds cargo into the
 // headroom the 8-slot hull already has (#172), which is what revives the captain
 // from vestigial. This captain grants no additional per-round action beyond the
 // standard Command set: ADR-0006 already notes this slice's one captain uses the
-// full Boost/Man-the-Sails/Jettison-Cargo/Leave-Combat menu as its action set,
+// full Press/Man-the-Sails/Jettison-Cargo/Break-Off menu as its action set,
 // so there is nothing further to define here.
 Captain :: struct {
 	name:                 string,

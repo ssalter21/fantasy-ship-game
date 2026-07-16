@@ -6,7 +6,7 @@ import "../ship"
 // during playtesting, not final balance.
 BASELINE_ROUND_COUNT :: 5
 HARD_ROUND_CAP :: 20
-BOOST_MULTIPLIER :: 2
+PRESS_MULTIPLIER :: 2
 MAN_THE_SAILS_SPEED_BONUS :: 2
 
 // Side identifies one of the two ships in a Battle.
@@ -19,34 +19,34 @@ Side :: enum {
 // open union so future captains can expose different action sets by adding
 // variants rather than restructuring the round loop.
 Command :: union {
-	Command_Boost,
+	Command_Press,
 	Command_Man_The_Sails,
 	Command_Jettison_Cargo,
 	Command_Reallocate,
-	Command_Leave_Combat,
+	Command_Break_Off,
 	Command_Hold,
 }
 
-// Command_Boost multiplies the named phase's total output for the
+// Command_Press multiplies the named phase's total output for the
 // submitter's own ship, this round only.
-Command_Boost :: struct {
+Command_Press :: struct {
 	phase: ship.Category,
 }
 
-// Command_Man_The_Sails grants a temporary Speed boost lasting this round only.
+// Command_Man_The_Sails grants a temporary Speed increase lasting this round only.
 Command_Man_The_Sails :: struct {}
 
 // Command_Jettison_Cargo empties the cargo fitting at slot_index, shedding its
 // weight — which makes the ship faster because it is lighter (ADR-0020), not by
-// any granted bonus. The heaved treasure is destroyed, never settled: nothing is
+// any granted bonus. The heaved cargo is destroyed, never settled: nothing is
 // tracked past the emptying.
 Command_Jettison_Cargo :: struct {
 	slot_index: ship.Slot_Index,
 }
 
-// Command_Reallocate moves treasure between two of the submitter's own cargo
+// Command_Reallocate moves cargo between two of the submitter's own cargo
 // slots, pouring the cargo fitting at `from` into `to` up to `to`'s remaining
-// capacity. It shifts **no weight** — the treasure stays aboard — so it changes
+// capacity. It shifts **no weight** — the cargo stays aboard — so it changes
 // no Speed the round it is issued (ADR-0020, #157); what it buys is *jettison
 // granularity*, letting a later Jettison shed a finer amount than the current
 // hold allows (split a full Large into a Small and the next heave sheds exactly
@@ -58,29 +58,29 @@ Command_Reallocate :: struct {
 	to:   ship.Slot_Index,
 }
 
-// Command_Leave_Combat ends the battle immediately for both ships. Only
-// valid once the submitting side is escape-eligible (combat_may_leave).
-Command_Leave_Combat :: struct {}
+// Command_Break_Off ends the battle immediately for both ships. Only
+// valid once the submitting side is escape-eligible (combat_may_break_off).
+Command_Break_Off :: struct {}
 
 // Command_Hold is a formal no-op (ADR-0008): a scripted (non-player-
 // controlled) ship's decision every round it isn't automatically taking
-// Leave Combat. Contributes no Boost/Man the Sails/Jettison side effect.
+// Break Off. Contributes no Press/Man the Sails/Jettison side effect.
 Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
-// fought (their run-persistent HP/Durability/Speed live on *ship.Ship and
+// fought (their voyage-persistent Hull/Durability/Speed live on *ship.Ship and
 // are mutated in place) plus this-battle-only bookkeeping.
 Battle :: struct {
 	ships:      [Side]^ship.Ship,
 	round:      int,
 	temp_speed: [Side]int,
-	// escaped is which side(s) have taken Command_Leave_Combat this battle
+	// escaped is which side(s) have taken Command_Break_Off this battle
 	// (issue #54: a genuine set-of-enum over Side, so bit_set replaces the
 	// [Side]bool membership array).
 	escaped:    bit_set[Side],
 	ended:      bool,
 	// reason/winner mirror the Event_Battle_Ended emitted the moment the battle
-	// ends, so a caller holding only the Battle — run_finish_ship_battle, which must
+	// ends, so a caller holding only the Battle — voyage_finish_ship_battle, which must
 	// pay the wreck's hold to a captain who sank it (#159) — can read *how* it ended
 	// without replaying the event stream. Meaningful only once `ended`: on an unended
 	// battle `reason` reads as its zero value (.Destroyed) and must not be consulted.
@@ -91,16 +91,16 @@ Battle :: struct {
 // End_Reason is why a Battle ended.
 End_Reason :: enum {
 	Destroyed,
-	Left_Combat,
+	Broke_Off,
 	Round_Cap,
 }
 
 // Round_State is the per-side working state threaded through one call to
-// combat_resolve_round: the round's Boost choice, each phase's resolved
+// combat_resolve_round: the round's Press choice, each phase's resolved
 // output, and whether the side was sunk this round.
 Round_State :: struct {
-	boost_phase:   Maybe(ship.Category),
-	buff_output:   int,
+	press_phase:   Maybe(ship.Category),
+	muster_output:   int,
 	defense_bonus: int,
 	raw_damage:    int,
 	sunk:          bool,
@@ -134,7 +134,7 @@ Event_Cargo_Jettisoned :: struct {
 	fitting: ship.Fitting,
 }
 
-// Event_Cargo_Reallocated reports a Command_Reallocate: `amount` treasure moved
+// Event_Cargo_Reallocated reports a Command_Reallocate: `amount` cargo moved
 // from slot `from` to slot `to` on `side`'s ship. It shifts no weight, so a caller
 // rendering it must not imply a Speed change — the round was spent, the number did
 // not move (that is the tell that it bought precision, not Speed).
@@ -176,7 +176,7 @@ combat_effective_speed :: proc(battle: ^Battle, side: Side) -> int {
 // combat_apply_jettison empties the cargo fitting at slot_index on side's ship,
 // shedding its weight (ADR-0020, #159): null the slot and emit the event, nothing
 // more. The freed weight makes the ship faster through ship_effective_speed on its
-// own, and the heaved treasure is destroyed rather than settled. The assert that
+// own, and the heaved cargo is destroyed rather than settled. The assert that
 // the slot holds a cargo fitting is what keeps an empty hold from being heaved for
 // free Speed — an empty hold weighs nothing, so there is no Speed in it to buy
 // (no new rule).
@@ -190,15 +190,15 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = fitting}))
 }
 
-// combat_apply_reallocate moves treasure between two of side's own cargo slots,
+// combat_apply_reallocate moves cargo between two of side's own cargo slots,
 // shifting **no weight** (ADR-0020, #157): it pours as much of the cargo fitting at
-// `from` into `to` as `to` can still hold, so the total treasure aboard — and thus
+// `from` into `to` as `to` can still hold, so the total cargo aboard — and thus
 // the ship's weight and its Speed — is unchanged this round. What it buys is
 // *jettison granularity*: the destination slot's size is the denomination the move
 // rounds to (#156), so splitting a full Large into an empty Small lets the next
 // Jettison shed exactly that Small (10 -> 1 Speed) rather than being forced to heave
 // the whole 40. The asserts are what the battle menu's legal-picks-only offering
-// guarantees, mirroring combat_apply_jettison: `from` holds cargo with treasure, `to`
+// guarantees, mirroring combat_apply_jettison: `from` holds cargo with cargo, `to`
 // is a distinct cargo-capable slot with room, and the move is non-empty.
 combat_apply_reallocate :: proc(battle: ^Battle, side: Side, from, to: ship.Slot_Index, events: ^[dynamic]Event) {
 	s := battle.ships[side]
@@ -218,7 +218,7 @@ combat_apply_reallocate :: proc(battle: ^Battle, side: Side, from, to: ship.Slot
 	}
 	room := ship.ship_cargo_slot_contribution(to_slot.slot.size) - dest_fill
 	moved := min(src.stack_count, room)
-	assert(moved > 0, "Command_Reallocate moves no treasure (source empty or destination full)")
+	assert(moved > 0, "Command_Reallocate moves no cargo (source empty or destination full)")
 
 	// Drain the source, nulling it if emptied — a zero-count cargo fitting is not a
 	// thing (#157, ship_fitting_fits), an empty hold is an empty slot.
@@ -274,10 +274,10 @@ combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category) -
 	return total
 }
 
-// combat_may_leave reports whether side is escape-eligible for the round
-// about to be resolved (ADR-0006): no leaving before the baseline round
+// combat_may_break_off reports whether side is escape-eligible for the round
+// about to be resolved (ADR-0006): no breaking off before the baseline round
 // count, and only the strictly-faster side after that.
-combat_may_leave :: proc(battle: ^Battle, side: Side) -> bool {
+combat_may_break_off :: proc(battle: ^Battle, side: Side) -> bool {
 	if battle.round < BASELINE_ROUND_COUNT {
 		return false
 	}
@@ -285,16 +285,16 @@ combat_may_leave :: proc(battle: ^Battle, side: Side) -> bool {
 }
 
 // combat_scripted_command decides a non-player-controlled side's Command for
-// the round about to be resolved (ADR-0008): Leave Combat once escape-
-// eligible (combat_may_leave), Hold every other round. A scripted ship never
-// chooses Boost, Man the Sails, or Jettison Cargo in this slice — nor Reallocate,
+// the round about to be resolved (ADR-0008): Break Off once escape-
+// eligible (combat_may_break_off), Hold every other round. A scripted ship never
+// chooses Press, Man the Sails, or Jettison Cargo in this slice — nor Reallocate,
 // which is deliberately player-only (#200): it buys precision for a *subsequent*
 // jettison, and a scripted ship never jettisons, so a reallocation policy would be
 // AI for a capability it has no use for. It returns here when a hostile that
 // jettisons exists.
 combat_scripted_command :: proc(battle: ^Battle, side: Side) -> Command {
-	if combat_may_leave(battle, side) {
-		return Command_Leave_Combat{}
+	if combat_may_break_off(battle, side) {
+		return Command_Break_Off{}
 	}
 	return Command_Hold{}
 }
@@ -317,73 +317,73 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 			continue
 		}
 		switch c in cmd {
-		case Command_Boost:
-			round_state[side].boost_phase = c.phase
+		case Command_Press:
+			round_state[side].press_phase = c.phase
 		case Command_Man_The_Sails:
 			battle.temp_speed[side] = MAN_THE_SAILS_SPEED_BONUS
 		case Command_Jettison_Cargo:
 			combat_apply_jettison(battle, side, c.slot_index, events)
 		case Command_Reallocate:
 			combat_apply_reallocate(battle, side, c.from, c.to, events)
-		case Command_Leave_Combat:
-			assert(combat_may_leave(battle, side), "Command_Leave_Combat submitted while not escape-eligible")
+		case Command_Break_Off:
+			assert(combat_may_break_off(battle, side), "Command_Break_Off submitted while not escape-eligible")
 			battle.escaped += {side}
 		case Command_Hold:
-		// no-op (ADR-0008): contributes no Boost/Man the Sails/Jettison side effect.
+		// no-op (ADR-0008): contributes no Press/Man the Sails/Jettison side effect.
 		}
 	}
 
-	// Leave Combat ends the encounter immediately for both ships (ADR-0006):
-	// no phase resolves the round a ship leaves.
+	// Break Off ends the encounter immediately for both ships (ADR-0006):
+	// no phase resolves the round a ship breaks off.
 	if battle.escaped != {} {
 		battle.ended = true
-		battle.reason = .Left_Combat
+		battle.reason = .Broke_Off
 		battle.winner = nil
 		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
 		return
 	}
 
-	boosted :: proc(total: int, phase: ship.Category, boost_phase: Maybe(ship.Category)) -> int {
-		if p, ok := boost_phase.?; ok && p == phase {
-			return total * BOOST_MULTIPLIER
+	pressed :: proc(total: int, phase: ship.Category, press_phase: Maybe(ship.Category)) -> int {
+		if p, ok := press_phase.?; ok && p == phase {
+			return total * PRESS_MULTIPLIER
 		}
 		return total
 	}
 
-	// Buff resolves first so its output is available to this same round's
-	// Offensive total below (ADR-0006, as amended by issue #151).
+	// Muster resolves first so its output is available to this same round's
+	// Fire total below (ADR-0006, as amended by issue #151).
 	for side in Side {
-		round_state[side].buff_output = boosted(combat_phase_output(battle, side, .Buff), .Buff, round_state[side].boost_phase)
+		round_state[side].muster_output = pressed(combat_phase_output(battle, side, .Muster), .Muster, round_state[side].press_phase)
 	}
 
-	// Defensive and Offensive resolve together: each is its own fittings'
-	// output, boosted, and Offensive alone takes this round's buff.
+	// Brace and Fire resolve together: each is its own fittings'
+	// output, pressed, and Fire alone takes this round's muster.
 	//
-	// **Buff feeds Offensive only** (#151). It used to feed `defense_bonus` too,
+	// **Muster feeds Fire only** (#151). It used to feed `defense_bonus` too,
 	// which made it the one category worth twice its own number: a magnitude spent
-	// on Buff raised your damage *and* lowered your opponent's, so a single item
+	// on Muster raised your damage *and* lowered your opponent's, so a single item
 	// pushed both walls of the band at once and there was no direction left to tune
-	// it in. It also fabricated soak out of nothing — a ship with no Defensive
-	// fitting still soaked its own buff — which is what pinned soak at ~90% of raw
+	// it in. It also fabricated bulwark out of nothing — a ship with no Brace
+	// fitting still absorbed its own muster — which is what pinned bulwark at ~90% of raw
 	// and made a starting ship unable to sink its own mirror (20 rounds, 1 damage a
-	// round). Decisively: soak is *subtracted* from raw, so soak's vocabulary has to
-	// stay small, and Buff's does not — Admiral's Guard is +3 per Crew aboard, so a
+	// round). Decisively: bulwark is *subtracted* from raw, so bulwark's vocabulary has to
+	// stay small, and Muster's does not — Admiral's Guard is +3 per Crew aboard, so a
 	// Crew build folded +12 into its own defence and became unbeatable by any
-	// starting ship. Raw can absorb a 12; soak cannot. See the band note on
+	// starting ship. Raw can absorb a 12; bulwark cannot. See the band note on
 	// core/run's hostile_roster.
 	//
-	// **A Boost multiplies its own phase's fittings, and nothing else** — the
-	// buff_output above is already boosted by Boost Buff, so it is added *after*
-	// Boost Offensive rather than inside it. Nesting them (the pre-#151 shape,
-	// `boosted(offensive + buff, .Offensive)`) made Boost Offensive strictly
-	// dominate Boost Buff at 2(O+B) against O+2B, which is a captain's Command that
-	// is never the right answer. Boosting a phase's own fittings is also what
+	// **A Press multiplies its own phase's fittings, and nothing else** — the
+	// muster_output above is already pressed by Press Muster, so it is added *after*
+	// Press Fire rather than inside it. Nesting them (the pre-#151 shape,
+	// `pressed(fire + muster, .Fire)`) made Press Fire strictly
+	// dominate Press Muster at 2(F+M) against F+2M, which is a captain's Command that
+	// is never the right answer. Pressing a phase's own fittings is also what
 	// ADR-0006 actually says ("multiplies that phase's fitting output"), so the two
-	// Boosts now answer a real question: press the guns, or press the crew.
+	// Presses now answer a real question: press the guns, or press the crew.
 	for side in Side {
-		boost_phase := round_state[side].boost_phase
-		round_state[side].defense_bonus = boosted(combat_phase_output(battle, side, .Defensive), .Defensive, boost_phase)
-		round_state[side].raw_damage = boosted(combat_phase_output(battle, side, .Offensive), .Offensive, boost_phase) + round_state[side].buff_output
+		press_phase := round_state[side].press_phase
+		round_state[side].defense_bonus = pressed(combat_phase_output(battle, side, .Brace), .Brace, press_phase)
+		round_state[side].raw_damage = pressed(combat_phase_output(battle, side, .Fire), .Fire, press_phase) + round_state[side].muster_output
 	}
 
 	for side in Side {
@@ -393,13 +393,13 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		// fittings, so a +Durability fitting measurably reduces damage taken.
 		final := max(0, round_state[side].raw_damage-(ship.ship_effective_durability(target_ship) + round_state[target].defense_bonus))
 		if final > 0 {
-			target_ship.hp = max(0, target_ship.hp-final)
+			target_ship.hull = max(0, target_ship.hull-final)
 			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, raw_damage = round_state[side].raw_damage, final_damage = final}))
 		}
 	}
 
 	for side in Side {
-		if battle.ships[side].hp <= 0 {
+		if battle.ships[side].hull <= 0 {
 			round_state[side].sunk = true
 			append(events, Event(Event_Ship_Sunk{round = battle.round, side = side}))
 		}
@@ -423,7 +423,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	if battle.round >= HARD_ROUND_CAP {
 		battle.ended = true
 		battle.reason = .Round_Cap
-		battle.winner = combat_hp_tiebreak(battle)
+		battle.winner = combat_hull_tiebreak(battle)
 		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
 	}
 }
@@ -443,15 +443,15 @@ combat_speed_tiebreak :: proc(battle: ^Battle) -> Maybe(Side) {
 	}
 }
 
-// combat_hp_tiebreak resolves a hard-round-cap stalemate by higher HP,
-// falling back to combat_speed_tiebreak on an exact HP tie (ADR-0006).
-combat_hp_tiebreak :: proc(battle: ^Battle) -> Maybe(Side) {
-	hp_a := battle.ships[.A].hp
-	hp_b := battle.ships[.B].hp
+// combat_hull_tiebreak resolves a hard-round-cap stalemate by higher Hull,
+// falling back to combat_speed_tiebreak on an exact Hull tie (ADR-0006).
+combat_hull_tiebreak :: proc(battle: ^Battle) -> Maybe(Side) {
+	hull_a := battle.ships[.A].hull
+	hull_b := battle.ships[.B].hull
 	switch {
-	case hp_a > hp_b:
+	case hull_a > hull_b:
 		return Side.A
-	case hp_b > hp_a:
+	case hull_b > hull_a:
 		return Side.B
 	case:
 		return combat_speed_tiebreak(battle)

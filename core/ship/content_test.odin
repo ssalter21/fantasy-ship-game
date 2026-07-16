@@ -85,13 +85,13 @@ ship_starting_ship_fills_every_concealed_slot_with_cargo_by_default :: proc(t: ^
 	testing.expect_value(t, concealed_count, 4)
 }
 
-// The starting purse is stowed smallest-first (ADR-0020, #172), not spread across
+// The starting cargo is stowed smallest-first (ADR-0020, #172), not spread across
 // every free slot: the three small holds and the concealed medium fill to exactly
 // 50, while the exposed Large forecastle is left **empty** as visible headroom —
 // the player starts at the fine end of the jettison-granularity property (#157),
 // with room a Reward can fall into before it costs a payout.
 @(test)
-ship_starting_ship_stows_the_starting_purse_smallest_first_leaving_the_large_empty :: proc(t: ^testing.T) {
+ship_starting_ship_stows_the_starting_cargo_smallest_first_leaving_the_large_empty :: proc(t: ^testing.T) {
 	s := ship_starting_ship()
 	defer delete(s.layout)
 
@@ -110,11 +110,11 @@ ship_starting_ship_stows_the_starting_purse_smallest_first_leaving_the_large_emp
 	testing.expect(t, saw_size[.Medium])
 	testing.expect(t, !saw_size[.Large]) // the forecastle is headroom, not stowed
 
-	// The exposed Large forecastle is empty, and the whole purse is exactly 50.
+	// The exposed Large forecastle is empty, and the whole cargo is exactly 50.
 	forecastle := find_slot(s, "forecastle")
 	_, forecastle_filled := forecastle.fitting.?
 	testing.expect(t, !forecastle_filled)
-	testing.expect_value(t, ship_treasure(s), STARTING_CARGO + CAPTAIN_STARTING_CARGO)
+	testing.expect_value(t, ship_cargo(s), STARTING_CARGO + CAPTAIN_STARTING_CARGO)
 }
 
 @(test)
@@ -236,21 +236,21 @@ the_item_roster_spans_all_three_tiers :: proc(t: ^testing.T) {
 @(test)
 shop_item_cost_rises_strictly_with_tier :: proc(t: ^testing.T) {
 	// #98: tier prices a shop item, weakest-to-strongest, and the whole ladder
-	// sits under the starting purse so the fixed budget bites — a Deep item costs
-	// most, and even it is affordable from a full purse. "A full purse" is now
+	// sits under the starting cargo so the fixed budget bites — a Deep item costs
+	// most, and even it is affordable from a full cargo. "A full cargo" is now
 	// *derived* from the stow amounts (ADR-0020): STARTING_CARGO + the captain's
-	// bonus, not a STARTING_TREASURE constant, so `45 <= 50` stays true rather than
+	// bonus, not a single standalone constant, so `45 <= 50` stays true rather than
 	// silently inverting against the 40 hull constant (`45 <= 40` would fail).
-	full_purse :: STARTING_CARGO + CAPTAIN_STARTING_CARGO
+	full_cargo :: STARTING_CARGO + CAPTAIN_STARTING_CARGO
 	splash := ship_item_cost(.Splash)
 	shallow := ship_item_cost(.Shallow)
 	deep := ship_item_cost(.Deep)
 	testing.expect(t, splash < shallow)
 	testing.expect(t, shallow < deep)
-	testing.expect(t, deep <= full_purse) // a full purse can buy one Deep item
+	testing.expect(t, deep <= full_cargo) // a full cargo can buy one Deep item
 	// But not two: the budget is deliberately tight enough that a second buy can
 	// be unaffordable, so "an unaffordable item cannot be bought" is reachable.
-	testing.expect(t, deep + splash > full_purse)
+	testing.expect(t, deep + splash > full_cargo)
 }
 
 @(test)
@@ -320,7 +320,7 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 // install-these-fittings test helper.
 
 @(test)
-splash_powder_monkeys_buff_scales_with_weapons_aboard :: proc(t: ^testing.T) {
+splash_powder_monkeys_muster_scales_with_weapons_aboard :: proc(t: ^testing.T) {
 	item := roster_item_named("Powder Monkeys")
 	testing.expect_value(t, item.tier, Tier.Splash)
 	active, _ := item.fitting.active.?
@@ -354,21 +354,21 @@ shallow_reinforced_hull_raises_effective_durability :: proc(t: ^testing.T) {
 }
 
 @(test)
-deep_cornered_beast_only_bites_below_half_hp :: proc(t: ^testing.T) {
+deep_cornered_beast_only_bites_below_half_hull :: proc(t: ^testing.T) {
 	item := roster_item_named("Cornered Beast")
 	testing.expect_value(t, item.tier, Tier.Deep)
 	active, _ := item.fitting.active.?
 
 	s := synergy_ship(item.fitting)
 	defer delete(s.layout)
-	s.max_hp = 20
+	s.max_hull = 20
 	ctx := ship_effect_context(&s)
 
-	// At full HP the conditional contributes nothing; below half it resolves to
+	// At full Hull the conditional contributes nothing; below half it resolves to
 	// its full magnitude.
-	s.hp = s.max_hp
+	s.hull = s.max_hull
 	testing.expect_value(t, effect_magnitude(active, ctx), Magnitude(0))
-	s.hp = s.max_hp / 2 - 1
+	s.hull = s.max_hull / 2 - 1
 	testing.expect_value(t, effect_magnitude(active, ctx), active.magnitude)
 }
 
@@ -420,7 +420,7 @@ ship_fit_first_empty_slot_falls_back_from_exposed_slots_to_the_concealed_hold ::
 	defer delete(layout)
 
 	medium :: proc(name: string) -> Fitting {
-		return Fitting{name = name, size = .Medium, category = .Offensive, active = Effect{magnitude = 1}}
+		return Fitting{name = name, size = .Medium, category = .Fire, active = Effect{magnitude = 1}}
 	}
 	testing.expect(t, ship_fit_first_empty_slot(layout, medium("first")))
 	testing.expect(t, ship_fit_first_empty_slot(layout, medium("second")))
@@ -457,21 +457,21 @@ occupant_name :: proc(layout: []Layout_Slot, slot_name: string) -> string {
 
 // **A Modify_* effect is not output, and must survive a scaling untouched.** This is
 // the property core/run's Fight stakes leans on rather than a nicety: it scales whole
-// Categories, and `.Buff` holds every Modify_Speed item in the roster (Spare Rigging,
-// Copper Sheathing, Outriggers, Enchanted Keel) alongside the buff phase's actual
+// Categories, and `.Muster` holds every Modify_Speed item in the roster (Spare Rigging,
+// Copper Sheathing, Outriggers, Enchanted Keel) alongside the muster phase's actual
 // fittings. A hostile's Speed is its archetype's axis, explicitly not a stakes
 // reading — so if this proc ever started scaling by category rather than by effect,
 // a Deep node would hand a hostile more Speed than a Coastal one and quietly decide
-// who is allowed to leave the fight (combat_may_leave is *strictly faster*).
+// who is allowed to break off (combat_may_break_off is *strictly faster*).
 @(test)
 ship_fitting_output_scaled_moves_phase_contributions_and_leaves_stat_modifiers_alone :: proc(t: ^testing.T) {
-	rigging := Fitting{name = "Spare Rigging", size = .Small, category = .Buff, passive = Effect{kind = .Modify_Speed, magnitude = 2}}
+	rigging := Fitting{name = "Spare Rigging", size = .Small, category = .Muster, passive = Effect{kind = .Modify_Speed, magnitude = 2}}
 	halved := ship_fitting_output_scaled(rigging, 50)
 	passive, has_passive := halved.passive.?
 	testing.expect(t, has_passive)
 	testing.expect_value(t, passive.magnitude, Magnitude(2)) // a stat modifier is not output
 
-	gun := Fitting{name = "Long Nines", size = .Large, category = .Offensive, active = Effect{magnitude = 8}}
+	gun := Fitting{name = "Long Nines", size = .Large, category = .Fire, active = Effect{magnitude = 8}}
 	active, has_active := ship_fitting_output_scaled(gun, 50).active.?
 	testing.expect(t, has_active)
 	testing.expect_value(t, active.magnitude, Magnitude(4))
@@ -486,15 +486,15 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 	guard := Fitting {
 		name     = "Admiral's Guard",
 		size     = .Medium,
-		category = .Buff,
-		active   = Effect{magnitude = 4, synergy = Selector(Tag.Crew), conditional = Condition_HP_Below{percent = 50}},
+		category = .Muster,
+		active   = Effect{magnitude = 4, synergy = Selector(Tag.Crew), conditional = Condition_Hull_Below{percent = 50}},
 	}
 
 	scaled, _ := ship_fitting_output_scaled(guard, 50).active.?
 	testing.expect_value(t, scaled.magnitude, Magnitude(2))
 	testing.expect_value(t, scaled.kind, Effect_Kind.Phase_Contribution)
 	testing.expect_value(t, scaled.synergy.?, Selector(Tag.Crew))
-	testing.expect_value(t, scaled.conditional.?, Condition(Condition_HP_Below{percent = 50}))
+	testing.expect_value(t, scaled.conditional.?, Condition(Condition_Hull_Below{percent = 50}))
 }
 
 // **Rounds half-up, so a scale-down cannot silently disarm the roster's smallest
@@ -504,11 +504,11 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 // the zone they are authored for (ADR-0019).
 @(test)
 ship_fitting_output_scaled_rounds_half_up_and_is_the_identity_at_a_hundred :: proc(t: ^testing.T) {
-	monkeys := Fitting{name = "Powder Monkeys", size = .Small, category = .Buff, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}
+	monkeys := Fitting{name = "Powder Monkeys", size = .Small, category = .Muster, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}
 	halved, _ := ship_fitting_output_scaled(monkeys, 50).active.?
 	testing.expect_value(t, halved.magnitude, Magnitude(1)) // 0.5 rounds up, not away
 
-	swivel := Fitting{name = "Swivel Guns", size = .Small, category = .Offensive, active = Effect{magnitude = 3}}
+	swivel := Fitting{name = "Swivel Guns", size = .Small, category = .Fire, active = Effect{magnitude = 3}}
 	up, _ := ship_fitting_output_scaled(swivel, 50).active.?
 	testing.expect_value(t, up.magnitude, Magnitude(2)) // 1.5 rounds up
 

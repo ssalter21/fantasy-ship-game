@@ -23,19 +23,19 @@ get_captain_choice_returns_a_default_travel_choice_without_a_live_window :: proc
 
 @(test)
 dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^testing.T) {
-	run_map := run.run_map_create(0)
-	defer run.run_map_destroy(&run_map)
+	voyage_map := run.voyage_map_create(0)
+	defer run.voyage_map_destroy(&voyage_map)
 
 	state := Game_State{}
 	defer delete(state.visited)
 	defer delete(state.positions)
-	defer delete(state.run_map.nodes) // dispatch clones the map's nodes into UI-owned storage
+	defer delete(state.voyage_map.nodes) // dispatch clones the map's nodes into UI-owned storage
 
-	dispatch(&state, sim.Event(sim.Event_Run_Started{run_map = run_map, ship = state.player}))
+	dispatch(&state, sim.Event(sim.Event_Voyage_Started{voyage_map = voyage_map, ship = state.player}))
 	dispatch(&state, sim.Event(sim.Event_Travel_Options{options = []sim.Node_ID{1, 2}}))
-	dispatch(&state, sim.Event(sim.Event_Arrived_At_Node{node = run_map.nodes[0]}))
+	dispatch(&state, sim.Event(sim.Event_Arrived_At_Node{node = voyage_map.nodes[0]}))
 	dispatch(&state, sim.Event(sim.Event_Ship_Battle_Sighted{opponent = state.player}))
-	dispatch(&state, sim.Event(sim.Event_Battle_Menu{may_leave = true}))
+	dispatch(&state, sim.Event(sim.Event_Battle_Menu{may_break_off = true}))
 	dispatch(&state, sim.Event(sim.Event_Battle_Event{inner = combat.Event(combat.Event_Battle_Ended{reason = .Destroyed})}))
 	dispatch(&state, sim.Event(sim.Event_Ship_Updated{ship = state.player}))
 	dispatch(&state, sim.Event(sim.Event_Stage_Entered{kind = .Fight, index = 0, count = 1}))
@@ -44,7 +44,7 @@ dispatch_does_not_crash_on_any_event_variant_without_a_live_window :: proc(t: ^t
 	dispatch(&state, sim.Event(sim.Event_Refit_Started{incoming = ship.ship_fitting_gun_deck()}))
 	dispatch(&state, sim.Event(sim.Event_Fitting_Installed{slot = 0, fitting = ship.ship_fitting_gun_deck()}))
 	dispatch(&state, sim.Event(sim.Event_Refit_Finished{}))
-	dispatch(&state, sim.Event(sim.Event_Run_Ended{status = .Won}))
+	dispatch(&state, sim.Event(sim.Event_Voyage_Ended{status = .Won}))
 }
 
 @(test)
@@ -181,7 +181,7 @@ encounter_of :: proc(stages: ..run.Stage) -> run.Encounter {
 }
 
 // node_of is an Encounter node holding that stage list, as presentation is handed one on
-// Event_Arrived_At_Node (or, for a revealing encounter, at run start).
+// Event_Arrived_At_Node (or, for a revealing encounter, at voyage start).
 node_of :: proc(stages: ..run.Stage) -> run.Node {
 	return run.Node{kind = .Encounter, zone = run.Zone.Coastal, encounter = encounter_of(..stages)}
 }
@@ -208,7 +208,7 @@ node_appearance_renders_the_mask_it_was_given_and_never_re_derives_it :: proc(t:
 
 	// A merchant carries a Shop but does not *open* on one, so it is a windfall met at
 	// sea, not a market to route to (ADR-0016). The Sim masks it, so this node shape
-	// should never reach the view unvisited — but the view asks run_encounter_reveals,
+	// should never reach the view unvisited — but the view asks voyage_encounter_reveals,
 	// the same predicate the mask does, so handed the stages anyway it agrees rather than
 	// inventing a second rule that could drift.
 	_, label = node_appearance(node_of(run.Stage_Fight{}, run.Stage_Shop{}), false)
@@ -218,12 +218,12 @@ node_appearance_renders_the_mask_it_was_given_and_never_re_derives_it :: proc(t:
 @(test)
 a_node_is_labelled_by_the_stage_it_opens_with_not_by_its_cursor :: proc(t: ^testing.T) {
 	// The contingency #161 left commented at both ends: reveal is defined on stage 0
-	// while the label used to come from run_encounter_current, i.e. the **cursor**.
+	// while the label used to come from voyage_encounter_current, i.e. the **cursor**.
 	//
 	// #161 read that as latent-but-harmless because a walked-out node's cursor sits past
 	// the end and would fall through to a blank marker. It never did — presentation's copy
 	// of a node is taken at arrival, before the walk, and the walk advances the *Sim's*
-	// private map, so this cursor is frozen at 0 for the rest of the run and the two rules
+	// private map, so this cursor is frozen at 0 for the rest of the voyage and the two rules
 	// could not drift because one was reading a constant. This pins the rule that was
 	// always meant, against a cursor deliberately walked off the end: a fought-out
 	// [Fight, Reward] is a Battle on the map, not a blank, and not "Loot".
@@ -252,7 +252,7 @@ a_halt_beat_names_the_stages_it_forfeits :: proc(t: ^testing.T) {
 	// The model says so by never reaching the stage, which is silent; this is the line
 	// that makes the silence legible.
 	nodes := [1]run.Node{node_of(run.Stage_Fight{}, run.Stage_Reward{})}
-	state := Game_State{run_map = run.Map{nodes = nodes[:]}}
+	state := Game_State{voyage_map = run.Map{nodes = nodes[:]}}
 
 	text := halt_beat_text(&state, sim.Event_Encounter_Halted{at = .Fight, index = 0, count = 2})
 	testing.expect_value(t, text, "You break off and slip away. You leave behind: Loot.")
@@ -260,13 +260,13 @@ a_halt_beat_names_the_stages_it_forfeits :: proc(t: ^testing.T) {
 	// A halt on the *last* stage forfeits nothing downstream, so it says so instead of
 	// naming an empty list — skipping a one-stage Offer must not read as a loss.
 	skipped := [1]run.Node{node_of(run.Stage_Offer{})}
-	state = Game_State{run_map = run.Map{nodes = skipped[:]}}
+	state = Game_State{voyage_map = run.Map{nodes = skipped[:]}}
 	text = halt_beat_text(&state, sim.Event_Encounter_Halted{at = .Offer, index = 0, count = 1})
 	testing.expect_value(t, text, "You take nothing. The encounter ends here.")
 
 	// Everything behind the cursor is named, not just the next one.
 	deep := [1]run.Node{node_of(run.Stage_Trade{}, run.Stage_Shop{}, run.Stage_Reward{})}
-	state = Game_State{run_map = run.Map{nodes = deep[:]}}
+	state = Game_State{voyage_map = run.Map{nodes = deep[:]}}
 	text = halt_beat_text(&state, sim.Event_Encounter_Halted{at = .Trade, index = 0, count = 3})
 	testing.expect_value(t, text, "You turn the bargain down. You leave behind: Market, Loot.")
 }
@@ -296,11 +296,11 @@ only_a_stage_with_no_screen_of_its_own_gets_an_entry_beat :: proc(t: ^testing.T)
 	// The pacing rule #139 settled: a stage that parks for a decision is seen as its own
 	// screen, so the strip is all it needs. Reward parks nowhere (#133) — it pays out and
 	// the walk carries straight on — so without a beat a [Fight, Reward]'s whole loot is a
-	// purse that silently grew. Under `odin test` play_beat is a no-op, so this pins the
+	// cargo that silently grew. Under `odin test` play_beat is a no-op, so this pins the
 	// selection rule rather than the render: every kind is handled, and only Reward looks
 	// its content up.
-	nodes := [1]run.Node{node_of(run.Stage_Reward{treasure = 30})}
-	state := Game_State{run_map = run.Map{nodes = nodes[:]}}
+	nodes := [1]run.Node{node_of(run.Stage_Reward{cargo = 30})}
+	state := Game_State{voyage_map = run.Map{nodes = nodes[:]}}
 
 	for kind in run.Stage_Kind {
 		play_stage_entry_beat(&state, sim.Event_Stage_Entered{kind = kind, index = 0, count = 1})
@@ -313,17 +313,17 @@ only_a_stage_with_no_screen_of_its_own_gets_an_entry_beat :: proc(t: ^testing.T)
 
 @(test)
 fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
-	flat := ship.Fitting{category = .Offensive, active = ship.Effect{magnitude = 5}}
+	flat := ship.Fitting{category = .Fire, active = ship.Effect{magnitude = 5}}
 	testing.expect_value(t, fitting_effect_intent(flat), "+5 Offense")
 
-	dur := ship.Fitting{category = .Defensive, passive = ship.Effect{kind = .Modify_Durability, magnitude = 2}}
+	dur := ship.Fitting{category = .Brace, passive = ship.Effect{kind = .Modify_Durability, magnitude = 2}}
 	testing.expect_value(t, fitting_effect_intent(dur), "+2 Durability")
 
-	synergy := ship.Fitting{category = .Buff, active = ship.Effect{magnitude = 2, synergy = ship.Selector(ship.Tag.Weapon)}}
-	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Buff per Weapon")
+	synergy := ship.Fitting{category = .Muster, active = ship.Effect{magnitude = 2, synergy = ship.Selector(ship.Tag.Weapon)}}
+	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Muster per Weapon")
 
-	conditional := ship.Fitting{category = .Offensive, active = ship.Effect{magnitude = 8, conditional = ship.Condition_HP_Below{percent = 50}}}
-	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense below 50% HP")
+	conditional := ship.Fitting{category = .Fire, active = ship.Effect{magnitude = 8, conditional = ship.Condition_Hull_Below{percent = 50}}}
+	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense below 50% Hull")
 
 	cargo := ship.ship_fitting_cargo("Cargo", .Small, 10)
 	testing.expect_value(t, fitting_effect_intent(cargo), "no effect")

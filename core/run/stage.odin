@@ -20,7 +20,7 @@ import "core:math/rand"
 // ENCOUNTER_MAX_STAGES is the hard cap on how many stages one encounter holds,
 // set by the deepest rung of ADR-0014's zone -> stage-count mapping (Coastal 1,
 // Open Sea 2, The Deep 3). The cap is what lets an Encounter store its stages
-// inline as a fixed-size array: no owned heap, so run_map_destroy needs no
+// inline as a fixed-size array: no owned heap, so voyage_map_destroy needs no
 // per-encounter cleanup beyond the opponent layout a Fight already allocates.
 ENCOUNTER_MAX_STAGES :: 3
 
@@ -78,9 +78,9 @@ SHOP_SHELF_SIZE :: 5
 //
 // This is what is left of ADR-0013's **deck**, and the shrink is the point (issue
 // #137). The deck was the *entire* ITEM_ROSTER_SIZE roster, sized that way because
-// a Port's draw-down persisted across every visit in the run and so had a whole run
+// a Port's draw-down persisted across every visit in the voyage and so had a whole run
 // to chew through it. Walked-once encounters (#131) killed that: one visit reaches
-// SHOP_SHELF_SIZE cards plus one per purchase, and the purse caps purchases in the
+// SHOP_SHELF_SIZE cards plus one per purchase, and the cargo caps purchases in the
 // low teens, so ~37 of those 50 cards were baked into every shop on every map and
 // could never be looked at. A shop's stock is now what a shop actually has.
 //
@@ -88,11 +88,11 @@ SHOP_SHELF_SIZE :: 5
 SHOP_STOCK_MAX :: 12
 
 // Shop_Item is one purchasable card in a Shop stage: the roster `fitting` on
-// offer and its `cost` in treasure. Cost is stored as a plain int, priced once at
+// offer and its `cost` in cargo. Cost is stored as a plain int, priced once at
 // generation from the item's Tier (ship.ship_item_cost) — tier itself doesn't
 // ride along because nothing past pricing reads it, and a bare Fitting is what
 // the Refit ultimately places. Buying deducts cost from the ship's hold
-// (ship_treasure / ship_stow_treasure, ADR-0020) and opens a Refit to place the
+// (ship_cargo / ship_stow_cargo, ADR-0020) and opens a Refit to place the
 // fitting.
 Shop_Item :: struct {
 	fitting: ship.Fitting,
@@ -102,12 +102,12 @@ Shop_Item :: struct {
 // Stage_Fight is a full battle against a baked opponent, resolved via
 // core/combat's phased-round Battle (ADR-0006) — this package hands off to
 // combat.combat_battle_create rather than reimplementing combat. Victory
-// completes the stage, Leave Combat halts it, and sinking ends the run outright
+// completes the stage, Break Off halts it, and sinking ends the voyage outright
 // (permadeath), which is the whole of why [Fight, Reward] needs no authored gate.
 // The opponent is baked at generation from two independent axes (#135): one
 // archetype drawn from the hostile roster (content.odin's Hostile_Archetype) for
 // its loadout — from whose weight its Speed derives (ADR-0020) — scaled at this
-// node's stakes for its hp, durability and offensive output.
+// node's stakes for its hull, durability and fire output.
 Stage_Fight :: struct {
 	opponent: ship.Ship,
 }
@@ -115,7 +115,7 @@ Stage_Fight :: struct {
 // Stage_Offer presents a few distinct roster items to place by hand (ADR-0012) —
 // the repurposed Upgrade Offer. `options` are the concrete items on offer, drawn
 // from the roster pool and stakes-scaled at generation time
-// (run_item_offer_options), so an Offer carries its items as baked content the
+// (voyage_item_offer_options), so an Offer carries its items as baked content the
 // way a Fight carries its opponent rather than a bare quality number resolved
 // later. Picking one completes the stage and opens a Refit to place or swap it;
 // skipping halts. A fixed-size array — no owned heap.
@@ -135,14 +135,14 @@ Stage_Offer :: struct {
 // cannot pay it out of a field or bank it into one — a Speed axis has no home. It
 // returns later as fittings that modify Speed, traded as fittings, not raw stats.
 // **Cargo capacity is likewise absent**: ship_cargo_capacity is structural, so
-// both halves of a cargo-capacity trade would be no-ops. Treasure carries
+// both halves of a cargo-capacity trade would be no-ops. Cargo carries
 // "stat-for-cargo" — the resource a Shop spends and a Reward grants (#132), which
-// #143 made *be* the cargo in the holds (ship_treasure).
+// #143 made *be* the cargo in the holds (ship_cargo).
 Trade_Stat :: enum {
-	HP,
-	Max_HP,
+	Hull,
+	Max_Hull,
 	Durability,
-	Treasure,
+	Cargo,
 }
 
 // Trade_Term is one side of a trade: which stat moves, and by how much. `amount`
@@ -161,7 +161,7 @@ Trade_Term :: struct {
 // The +Durability/-Speed axis this used to weld into its two field *names* is now
 // just one roster entry among several (Braced Bulkheads); what stays fixed is the
 // shape — every trade gains exactly one stat and costs exactly one stat. Both
-// magnitudes are stakes-scaled off the same zone (run_trade_swing), so a Deep
+// magnitudes are stakes-scaled off the same zone (voyage_trade_swing), so a Deep
 // trade is a bigger swing on both sides. `name` is the authored entry's name,
 // carried so presentation can say which bargain this is without reverse-looking-up
 // the roster from a stat pair (two entries could share one).
@@ -172,12 +172,12 @@ Stage_Trade :: struct {
 }
 
 // Stage_Shop sells from a seed-baked stock, each card priced by tier
-// (run_bake_shop), against the ship's starting treasure. Leaving completes the
+// (voyage_bake_shop), against the ship's starting cargo. Leaving completes the
 // stage — a shop cannot be failed, so Shop is the one primitive with no halt. It is
 // its own primitive rather than Offer-with-a-price precisely so the Item Offer can
 // be redesigned later without dragging Shop along.
 //
-// Shop is the one **revealing** primitive (run_stage_kind_reveals): an encounter
+// Shop is the one **revealing** primitive (voyage_stage_kind_reveals): an encounter
 // that *opens* with one is visible on the map before arrival (ADR-0016). That is
 // what makes a Port just the [Shop] recipe, and a merchant vessel at sea — which
 // puts a stage in front of its Shop — a hidden encounter that happens to carry one:
@@ -194,29 +194,30 @@ Stage_Shop :: struct {
 	count: int,
 }
 
-// Stage_Reward grants treasure outright and always completes — the "then loot it"
+// Stage_Reward grants cargo outright and always completes — the "then loot it"
 // half of [Fight, Reward], and the reason a halt has to keep what earlier stages
 // already granted.
 //
-// **Treasure, and only treasure** (issue #132). Not items: that is Offer's job, and
+// **Cargo, and only cargo** (issue #132). Not items: that is Offer's job, and
 // a Reward that could grant one would leave [Fight, Reward] and [Fight, Offer]
 // differing only in whether the captain got to choose — a distinction Offer already
-// expresses. Not cargo-as-a-separate-thing either: money takes space, so treasure
-// and cargo are one thing rather than two candidates; #143 is where the purse
-// becomes literal slots, and Reward ships against the plain int until then.
+// expresses. Not cargo-as-a-separate-thing either: money takes space, so a
+// Reward's value and the cargo in the holds are one thing rather than two
+// candidates; #143 is where that value becomes literal slots, and Reward ships
+// against the plain int until then.
 //
-// `treasure` is baked at generation from the node's own Scaling_Site
-// (run_reward_treasure) — a plain int, so it needs no runtime RNG, holds no
+// `cargo` is baked at generation from the node's own Scaling_Site
+// (voyage_reward_cargo) — a plain int, so it needs no runtime RNG, holds no
 // function pointer, and copies into a Ghost_Snapshot like every other stage's
 // content (ADR-0012).
 //
 // Reward is a **boon**: it has nothing to decline, so it is the one primitive that
 // resolves without stopping for the captain (sim_enter_stage returns .Completed for
-// it outright). That is why a bare [Reward] — drifting salvage, free treasure — is
+// it outright). That is why a bare [Reward] — drifting salvage, free cargo — is
 // a coherent recipe rather than an encounter with no interaction: the interaction
 // is arriving.
 Stage_Reward :: struct {
-	treasure: int,
+	cargo: int,
 }
 
 // Stage is one step of an encounter: a primitive plus the content it was baked
@@ -234,12 +235,12 @@ Stage :: union {
 	Stage_Reward,
 }
 
-// run_stage_kind reports which primitive a baked Stage is — the inverse of
-// run_bake_stage, mapping content back to the authoring alphabet. Consumers that
+// voyage_stage_kind reports which primitive a baked Stage is — the inverse of
+// voyage_bake_stage, mapping content back to the authoring alphabet. Consumers that
 // need the content itself should switch on the Stage directly; this is for the
 // ones that only need to ask what kind of step this is (visibility, presentation
 // labels, a recipe round-trip).
-run_stage_kind :: proc(s: Stage) -> Stage_Kind {
+voyage_stage_kind :: proc(s: Stage) -> Stage_Kind {
 	switch _ in s {
 	case Stage_Fight:
 		return .Fight
@@ -262,7 +263,7 @@ run_stage_kind :: proc(s: Stage) -> Stage_Kind {
 //
 // There are no authored gates — a Recipe never says "advance only if the player
 // won". The primitive that just resolved decides which outcome it hands in: Fight
-// completes on victory and halts on Leave Combat; Offer completes on a pick and
+// completes on victory and halts on Break Off; Offer completes on a pick and
 // halts on a skip; Trade completes on accept and halts on reject; Shop completes
 // on leaving; Reward always completes. That is what makes [Fight, Reward] mean
 // the obvious thing with no authoring — flee the blockade and the loot stage is
@@ -279,9 +280,9 @@ Stage_Outcome :: enum {
 //
 // Storage is inline and fixed-size, bounded by ENCOUNTER_MAX_STAGES: an
 // Encounter owns no heap, so a Map full of them frees with its nodes and
-// run_map_destroy only has to reach the opponent layout inside a Fight. `count`
+// voyage_map_destroy only has to reach the opponent layout inside a Fight. `count`
 // is the authored length — slots from there to the cap are nil — and `cursor` is
-// the walk position, run_encounter_is_finished once it reaches count. A halt
+// the walk position, voyage_encounter_is_finished once it reaches count. A halt
 // finishes the walk by jumping the cursor to count rather than by a separate
 // flag, so "is there another stage" has exactly one answer to read.
 Encounter :: struct {
@@ -305,7 +306,7 @@ Encounter :: struct {
 // `stock` is a **Maybe**, and the Maybe is doing real work: it is set on a Shop spec
 // and nil on every other, so a pool is explicitly absent rather than accidentally
 // the zero pool. `{kind = .Fight}` cannot be read as "a Fight that sells a chandlery's
-// wares"; it carries no pool at all. run_bake_stage asserts both directions, and
+// wares"; it carries no pool at all. voyage_bake_stage asserts both directions, and
 // every_stage_spec_authors_a_pool_iff_it_is_a_shop checks the catalog against it.
 //
 // It stays deliberately narrow. This is *not* the orthogonal trait-modifier layer
@@ -333,51 +334,51 @@ Recipe :: struct {
 	stages: []Stage_Spec,
 }
 
-// run_encounter_from_recipe bakes one authored recipe into a node's Encounter:
+// voyage_encounter_from_recipe bakes one authored recipe into a node's Encounter:
 // each of the recipe's primitives rolls its own content at this node's
 // Scaling_Site, in order. Takes `gen` so the stages that sample the roster (an
 // Offer's items, a Shop's deck) draw reproducibly from the map generator's RNG —
 // an encounter's stages and content are baked here at generation time and nothing
 // rolls on arrival (ADR-0013's no-runtime-RNG property, now covering every stage).
-run_encounter_from_recipe :: proc(r: Recipe, site: Scaling_Site, gen: rand.Generator) -> Encounter {
+voyage_encounter_from_recipe :: proc(r: Recipe, site: Scaling_Site, gen: rand.Generator) -> Encounter {
 	assert(len(r.stages) > 0, "a recipe must author at least one stage")
 	assert(len(r.stages) <= ENCOUNTER_MAX_STAGES, "a recipe authored more stages than an Encounter can hold")
 
 	e := Encounter{count = len(r.stages)}
 	for spec, i in r.stages {
-		e.stages[i] = run_bake_stage(spec, site, gen)
+		e.stages[i] = voyage_bake_stage(spec, site, gen)
 	}
 	return e
 }
 
-// run_encounter_current returns the stage the cursor is on, or ok=false once the
+// voyage_encounter_current returns the stage the cursor is on, or ok=false once the
 // walk has finished (the last stage completed, or any stage halted). This is the
-// read half of the generic stage walk; run_encounter_resolve_stage is the write
+// read half of the generic stage walk; voyage_encounter_resolve_stage is the write
 // half.
-run_encounter_current :: proc(e: Encounter) -> (stage: Stage, ok: bool) {
-	if run_encounter_is_finished(e) {
+voyage_encounter_current :: proc(e: Encounter) -> (stage: Stage, ok: bool) {
+	if voyage_encounter_is_finished(e) {
 		return nil, false
 	}
 	return e.stages[e.cursor], true
 }
 
-// run_encounter_is_finished reports whether the walk is over — the cursor has
+// voyage_encounter_is_finished reports whether the walk is over — the cursor has
 // passed the last stage, either by completing it or because a halt jumped it
 // there.
-run_encounter_is_finished :: proc(e: Encounter) -> bool {
+voyage_encounter_is_finished :: proc(e: Encounter) -> bool {
 	return e.cursor >= e.count
 }
 
-// run_encounter_resolve_stage records the outcome of the stage under the cursor
+// voyage_encounter_resolve_stage records the outcome of the stage under the cursor
 // and moves the encounter on (ADR-0014's complete-or-halt): Completed advances to
 // the next stage, Halted ends the encounter where it stands. Returns whether a
 // further stage is now pending, so the caller's walk is `for stage in ...` rather
 // than a per-primitive phase graph.
 //
 // Resolving a stage on an already-finished encounter is a driver bug, not a
-// runtime rejection — the caller asks run_encounter_current first and gets ok=false.
-run_encounter_resolve_stage :: proc(e: ^Encounter, outcome: Stage_Outcome) -> (more: bool) {
-	assert(!run_encounter_is_finished(e^), "resolved a stage on an encounter whose walk already finished")
+// runtime rejection — the caller asks voyage_encounter_current first and gets ok=false.
+voyage_encounter_resolve_stage :: proc(e: ^Encounter, outcome: Stage_Outcome) -> (more: bool) {
+	assert(!voyage_encounter_is_finished(e^), "resolved a stage on an encounter whose walk already finished")
 
 	switch outcome {
 	case .Completed:
@@ -385,39 +386,39 @@ run_encounter_resolve_stage :: proc(e: ^Encounter, outcome: Stage_Outcome) -> (m
 	case .Halted:
 		e.cursor = e.count
 	}
-	return !run_encounter_is_finished(e^)
+	return !voyage_encounter_is_finished(e^)
 }
 
-// run_stage_kind_reveals reports whether a primitive shows its whole encounter on
+// voyage_stage_kind_reveals reports whether a primitive shows its whole encounter on
 // the map before the ship arrives (ADR-0014). Today only Shop reveals: a shop you
 // cannot see is a shop you cannot route to, which is the entire point of a Port's
 // map presence. Every other primitive stays a surprise until arrival (ADR-0009's
 // hiding contract).
-run_stage_kind_reveals :: proc(kind: Stage_Kind) -> bool {
+voyage_stage_kind_reveals :: proc(kind: Stage_Kind) -> bool {
 	return kind == .Shop
 }
 
-// run_encounter_opening returns the stage an encounter **opens** with — stage 0,
+// voyage_encounter_opening returns the stage an encounter **opens** with — stage 0,
 // regardless of where the cursor has walked to — or ok=false for an encounter with
-// no stages at all (which generation never bakes; run_encounter_from_recipe asserts
+// no stages at all (which generation never bakes; voyage_encounter_from_recipe asserts
 // a recipe authors at least one).
 //
 // The opening stage is what an encounter *is* from the outside, and it is asked for
 // from two directions that must never diverge: whether the encounter reveals itself
-// on the map (run_encounter_reveals, below) and what a revealed or walked node is
+// on the map (voyage_encounter_reveals, below) and what a revealed or walked node is
 // **labelled** as (cmd/game's node_appearance). Both are properties of the whole
 // encounter as seen from the map, not of the step the captain happens to be on, so
-// both ask this rather than run_encounter_current — which answers a different
+// both ask this rather than voyage_encounter_current — which answers a different
 // question (where is the walk now) and only coincided with this one while the cursor
 // sat at 0.
-run_encounter_opening :: proc(e: Encounter) -> (stage: Stage, ok: bool) {
+voyage_encounter_opening :: proc(e: Encounter) -> (stage: Stage, ok: bool) {
 	if e.count == 0 {
 		return nil, false
 	}
 	return e.stages[0], true
 }
 
-// run_encounter_reveals reports whether an encounter shows itself on the map
+// voyage_encounter_reveals reports whether an encounter shows itself on the map
 // before arrival: true iff its **first** stage reveals (ADR-0016). This is what
 // replaces asking a node whether it is a Port — visibility is a question asked of
 // the stage list, never a node fact, so a Port is just the [Shop] recipe and a
@@ -428,10 +429,10 @@ run_encounter_opening :: proc(e: Encounter) -> (stage: Stage, ok: bool) {
 // a fight is a windfall you meet, not a market you plan for (#154). Scanning the
 // whole list instead revealed every merchant carrying a Shop anywhere, which made
 // a *visible* Battle marker a tell that a market waited behind the fight.
-run_encounter_reveals :: proc(e: Encounter) -> bool {
-	opening, ok := run_encounter_opening(e)
+voyage_encounter_reveals :: proc(e: Encounter) -> bool {
+	opening, ok := voyage_encounter_opening(e)
 	if !ok {
 		return false
 	}
-	return run_stage_kind_reveals(run_stage_kind(opening))
+	return voyage_stage_kind_reveals(voyage_stage_kind(opening))
 }

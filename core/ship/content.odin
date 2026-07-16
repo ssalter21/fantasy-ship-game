@@ -8,36 +8,36 @@ package ship
 // other balance constant in this codebase — expected to move during
 // playtesting, not final balance.
 
-TOP_CREW_BUFF_MAGNITUDE :: 3
+TOP_CREW_MUSTER_MAGNITUDE :: 3
 CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE :: 2
 GUN_DECK_OFFENSE_MAGNITUDE :: 5
 
 // HOSTILE_FILL_PERCENT is how full a hostile's spare slots are stowed with cargo
 // (ship_fill_empty_slots_with_cargo, ADR-0020, #176): a flat 50% of each empty
-// slot's capacity — Small 5, Medium 10, Large 20 — so a hostile's purse (and thus
+// slot's capacity — Small 5, Medium 10, Large 20 — so a hostile's cargo (and thus
 // its weight, and thus its Speed) falls out of its loadout uniformly, no per-slot
 // authoring. This is a **placeholder standing exactly where hostile ship templates
 // will land** (#176, out of scope): templates derive richness from what kind of
 // ship a hostile is, and half-full is the neutral default until then. The *player's*
-// stow is amount-driven instead (ship_stow_treasure, smallest-first, #172) — the two
+// stow is amount-driven instead (ship_stow_cargo, smallest-first, #172) — the two
 // rules are deliberately different (a proportional hostile fill vs a designed player
 // default). Pushing this toward 100% breaches the weight-floor budget (#175); the
 // floor test is the tripwire.
 HOSTILE_FILL_PERCENT :: 50
 
-// STARTING_HP is a **scale**, and #151 (ADR-0017) found the old 20 could not
-// express a survivable fight. HP persists all run with no healing and a run meets
+// STARTING_HULL is a **scale**, and #151 (ADR-0017) found the old 20 could not
+// express a survivable fight. Hull persists all voyage with no healing and a voyage meets
 // ~5 fights, so a fight must cost ~20% of the pool; over the ~6 rounds a fight
 // should last (the escape gate is at BASELINE_ROUND_COUNT = 5), that is 0.67 damage
 // a round — below 1, the smallest number the model has. At 20 the only expressible
 // outcomes were a 2-round burst and the 20-round cap, which is exactly what the
 // game did.
 //
-// Everything denominated in HP scales with it: the roster's four Modify_Max_HP
-// items, and Trade's two HP-denominated swing rows (run.odin). **Durability does
+// Everything denominated in Hull scales with it: the roster's four Modify_Max_Hull
+// items, and Trade's two Hull-denominated swing rows (run.odin). **Durability does
 // not** — it is denominated in *raw damage*, which did not move — which is why
 // STARTING_DURABILITY is still 2 and #146's Durability residue is still there.
-STARTING_HP :: 100
+STARTING_HULL :: 100
 STARTING_DURABILITY :: 2
 
 // STARTING_SPEED is the Speed the starting ship **reads**, not a field it carries
@@ -45,30 +45,30 @@ STARTING_DURABILITY :: 2
 // STARTING_SPEED stopped being the Speed a ship *has* and became the Speed it
 // *reads*. It is the calibration target BASE_SPEED is solved against, and the
 // reference the (out-of-scope) forward-ported straddle test pins the player's
-// purse to (#177). Nothing initialises a ship's raw speed field to it any more.
+// cargo to (#177). Nothing initialises a ship's raw speed field to it any more.
 STARTING_SPEED :: 4
 
 // BASE_SPEED is the uniform `base` term every ship's Speed is read from (ADR-0020,
 // #158/#180): `effective = BASE_SPEED + Σ Modify_Speed − weight/10`. It is a
 // **calibration, not a free parameter** — BASE_SPEED = STARTING_SPEED + the
 // starting ship's weight / 10 — chosen so the starting ship (its loadout plus the
-// 50-treasure purse) reads exactly STARTING_SPEED, empty holds read 9, and a full
+// 50-cargo hold) reads exactly STARTING_SPEED, empty holds read 9, and a full
 // hold reads 0 ("sails in"). With #194's authored per-item weights the starting
 // loadout weighs 72 (Captain's Quarters 18 + Top Crew 16 + Gun Deck 38) and the
-// purse 50, so weight 122, 122/10 = 12, and 4 + 12 = **16 holds** — the value the
+// cargo 50, so weight 122, 122/10 = 12, and 4 + 12 = **16 holds** — the value the
 // prototype's placeholder band already predicted. Uniform across ships (#158): the
 // same base is set on the player and on every hostile, whose Speed then falls out
 // of its weight like the player's. the_starting_ship_reads_the_starting_speed pins
 // the calibration; if a starting fitting's weight moves, that test re-solves this.
 BASE_SPEED :: 16
 
-// STARTING_CARGO is the treasure a fresh ship is stowed with, and
+// STARTING_CARGO is the cargo a fresh ship is stowed with, and
 // CAPTAIN_STARTING_CARGO the extra the one captain (Odessa) names on top
-// (ADR-0020, #172): 40 + 10 = the starting 50, no longer a Ship.starting_treasure
-// field but treasure actually stowed into the holds (ship_stow_treasure). The
+// (ADR-0020, #172): 40 + 10 = the starting 50, no longer a Ship.starting_cargo
+// field but cargo actually stowed into the holds (ship_stow_cargo). The
 // 40/10 split is what makes the captain lever live rather than ornamental — the
-// captain names part of the amount, and it lands as real treasure in the hull's
-// headroom (ship_cargo_capacity reads 90). "A full purse" is now derived from
+// captain names part of the amount, and it lands as real cargo in the hull's
+// headroom (ship_cargo_capacity reads 90). "A full cargo" is now derived from
 // this sum, not a constant (see content_test's Deep-item affordability check).
 STARTING_CARGO :: 40
 CAPTAIN_STARTING_CARGO :: 10
@@ -77,22 +77,22 @@ CAPTAIN_STARTING_CARGO :: 10
 // ship_fitting_gun_deck are the three starting fittings (issue #23) that
 // fill the ship template's three exposed slots. Their category assignment
 // gives the starting loadout one active effect per round phase (ADR-0006):
-// Top Crew buffs, Captain's Quarters defends, Gun Deck attacks.
+// Top Crew musters, Captain's Quarters braces, Gun Deck fires.
 // The tags below are each fitting's family membership (#90): Top Crew and
 // Captain's Quarters are Crew, Gun Deck is a Weapon, cargo is Cargo. Each
 // starting fitting sits in exactly one family — multi-tag is reserved for the
 // roster to come (#88). The upgraded variants inherit these through
 // ship_fitting_upgraded, which copies the base fitting whole.
 ship_fitting_top_crew :: proc() -> Fitting {
-	return Fitting{name = "Top Crew", size = .Medium, weight = 16, category = .Buff, tags = {.Crew}, active = Effect{magnitude = TOP_CREW_BUFF_MAGNITUDE}}
+	return Fitting{name = "Top Crew", size = .Medium, weight = 16, category = .Muster, tags = {.Crew}, active = Effect{magnitude = TOP_CREW_MUSTER_MAGNITUDE}}
 }
 
 ship_fitting_captains_quarters :: proc() -> Fitting {
-	return Fitting{name = "Captain's Quarters", size = .Medium, weight = 18, category = .Defensive, tags = {.Crew}, active = Effect{magnitude = CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE}}
+	return Fitting{name = "Captain's Quarters", size = .Medium, weight = 18, category = .Brace, tags = {.Crew}, active = Effect{magnitude = CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE}}
 }
 
 ship_fitting_gun_deck :: proc() -> Fitting {
-	return Fitting{name = "Gun Deck", size = .Large, weight = 38, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = GUN_DECK_OFFENSE_MAGNITUDE}}
+	return Fitting{name = "Gun Deck", size = .Large, weight = 38, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = GUN_DECK_OFFENSE_MAGNITUDE}}
 }
 
 // ship_fitting_upgraded is the shared shape behind ship_fitting_upgraded_top_crew,
@@ -129,7 +129,7 @@ ship_fitting_upgraded_gun_deck :: proc(bonus: int) -> Fitting {
 
 // Tier is the catalog-authoring power/cost grade a roster item is written at
 // (ADR-0012, #97): Splash (lightest / cheapest) -> Shallow (mid) -> Deep
-// (strongest), echoing the Coastal -> Open Sea -> The Deep run progression. It
+// (strongest), echoing the Coastal -> Open Sea -> The Deep voyage progression. It
 // is deliberately *not* a field on Fitting: tier scales an item's authored
 // magnitudes and (once #98 lands) its shop cost, but combat resolution and a
 // Ghost_Snapshot never read it, so it rides alongside the fitting on Roster_Item
@@ -155,8 +155,8 @@ Roster_Item :: struct {
 // ITEM_COST_SPLASH / _SHALLOW / _DEEP are the Port-shop prices of a roster item
 // by its authored Tier (#98, ADR-0012: "tier scales an item's power and its shop
 // cost"). Graded weakest-to-strongest like the tiers themselves, and scaled
-// against the starting purse (STARTING_CARGO + CAPTAIN_STARTING_CARGO = 50) so
-// the fixed budget actually bites — the starting purse buys one Deep item (and
+// against the starting cargo (STARTING_CARGO + CAPTAIN_STARTING_CARGO = 50) so
+// the fixed budget actually bites — the starting cargo buys one Deep item (and
 // little else), a couple of Shallow ones, or a
 // handful of Splash ones, so an unaffordable item is a real, reachable state
 // rather than a theoretical one. Placeholder economy tuning like every other
@@ -166,7 +166,7 @@ ITEM_COST_SHALLOW :: 25
 ITEM_COST_DEEP :: 45
 
 // ship_item_cost prices a roster item for a Port shop from its Tier (#98): the
-// one place tier becomes treasure, so the shop's stock carries a plain int cost
+// one place tier becomes cargo, so the shop's stock carries a plain int cost
 // and nothing downstream re-derives it. A Fitting has no tier of its own (it
 // rides on Roster_Item), so a shop prices an item while it still has the
 // Roster_Item in hand, before it decays to a bare Fitting in the stock.
@@ -183,7 +183,7 @@ ship_item_cost :: proc(tier: Tier) -> int {
 }
 
 // ITEM_ROSTER_SIZE is how many distinct items ship_item_roster hands back — the
-// pool an Item Offer samples its options from (run.run_item_offer_options). Must
+// pool an Item Offer samples its options from (run.voyage_item_offer_options). Must
 // stay at least run.ITEM_OFFER_OPTION_COUNT so an offer can present that many
 // distinct items. The target is ADR-0012's "~50" (#97).
 ITEM_ROSTER_SIZE :: 50
@@ -209,90 +209,90 @@ ITEM_ROSTER_SIZE :: 50
 ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 	return [ITEM_ROSTER_SIZE]Roster_Item {
 		// ---- Splash (Coastal-grade): light, cheap, forgiving ----
-		{tier = .Splash, fitting = Fitting{name = "Deckhands", size = .Small, weight = 6, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Swivel Guns", size = .Small, weight = 8, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = 3}}},
-		{tier = .Splash, fitting = Fitting{name = "Deck Cannon", size = .Medium, weight = 18, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = 4}}},
+		{tier = .Splash, fitting = Fitting{name = "Deckhands", size = .Small, weight = 6, category = .Muster, tags = {.Crew}, active = Effect{magnitude = 1}}},
+		{tier = .Splash, fitting = Fitting{name = "Swivel Guns", size = .Small, weight = 8, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Deck Cannon", size = .Medium, weight = 18, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 4}}},
 		// Multi-tag: counts for both a Weapon and a Crew synergy.
-		{tier = .Splash, fitting = Fitting{name = "Boarding Pikes", size = .Small, weight = 6, category = .Offensive, tags = {.Weapon, .Crew}, active = Effect{magnitude = 2}}},
-		{tier = .Splash, fitting = Fitting{name = "Snapping Eels", size = .Small, weight = 7, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Boarding Pikes", size = .Small, weight = 6, category = .Fire, tags = {.Weapon, .Crew}, active = Effect{magnitude = 2}}},
+		{tier = .Splash, fitting = Fitting{name = "Snapping Eels", size = .Small, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3}}},
 		// Stat-modifier: raises effective Durability rather than feeding a phase.
-		{tier = .Splash, fitting = Fitting{name = "Iron Plating", size = .Medium, weight = 24, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 1}}},
+		{tier = .Splash, fitting = Fitting{name = "Iron Plating", size = .Medium, weight = 24, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 1}}},
 		// Cargo family carries a stat-modifier without being a cargo filler.
-		{tier = .Splash, fitting = Fitting{name = "Ballast Stones", size = .Small, weight = 12, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Durability, magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, weight = 5, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, weight = 7, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_HP, magnitude = 8}}},
-		{tier = .Splash, fitting = Fitting{name = "Boarding Nets", size = .Small, weight = 5, category = .Defensive, tags = {.Crew}, active = Effect{magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Barricades", size = .Medium, weight = 20, category = .Defensive, tags = {.Artifact}, active = Effect{magnitude = 2}}},
-		// Synergy over a Tag family: buff per Weapon aboard.
-		{tier = .Splash, fitting = Fitting{name = "Powder Monkeys", size = .Small, weight = 6, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}},
-		// Synergy over Visibility: buff per Concealed fitting.
-		{tier = .Splash, fitting = Fitting{name = "Smuggler's Crates", size = .Small, weight = 7, category = .Buff, tags = {.Cargo}, active = Effect{magnitude = 1, synergy = Selector(Visibility.Concealed)}}},
-		// Conditional on own HP threshold.
-		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, weight = 7, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 3, conditional = Condition_HP_Below{percent = 50}}}},
+		{tier = .Splash, fitting = Fitting{name = "Ballast Stones", size = .Small, weight = 12, category = .Brace, tags = {.Cargo}, passive = Effect{kind = .Modify_Durability, magnitude = 1}}},
+		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, weight = 5, category = .Muster, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1}}},
+		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, weight = 7, category = .Brace, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 8}}},
+		{tier = .Splash, fitting = Fitting{name = "Boarding Nets", size = .Small, weight = 5, category = .Brace, tags = {.Crew}, active = Effect{magnitude = 1}}},
+		{tier = .Splash, fitting = Fitting{name = "Barricades", size = .Medium, weight = 20, category = .Brace, tags = {.Artifact}, active = Effect{magnitude = 2}}},
+		// Synergy over a Tag family: muster per Weapon aboard.
+		{tier = .Splash, fitting = Fitting{name = "Powder Monkeys", size = .Small, weight = 6, category = .Muster, tags = {.Crew}, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}},
+		// Synergy over Visibility: muster per Concealed fitting.
+		{tier = .Splash, fitting = Fitting{name = "Smuggler's Crates", size = .Small, weight = 7, category = .Muster, tags = {.Cargo}, active = Effect{magnitude = 1, synergy = Selector(Visibility.Concealed)}}},
+		// Conditional on own Hull threshold.
+		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3, conditional = Condition_Hull_Below{percent = 50}}}},
 		// Conditional on opponent being faster.
-		{tier = .Splash, fitting = Fitting{name = "Lookout Nest", size = .Small, weight = 5, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 2, conditional = Condition_Opponent_Faster{}}}},
+		{tier = .Splash, fitting = Fitting{name = "Lookout Nest", size = .Small, weight = 5, category = .Muster, tags = {.Crew}, active = Effect{magnitude = 2, conditional = Condition_Opponent_Faster{}}}},
 		// Conditional on the round number.
-		{tier = .Splash, fitting = Fitting{name = "Bilge Rats", size = .Small, weight = 5, category = .Buff, tags = {.Beast}, active = Effect{magnitude = 2, conditional = Condition_Round_At_Least{round = 3}}}},
+		{tier = .Splash, fitting = Fitting{name = "Bilge Rats", size = .Small, weight = 5, category = .Muster, tags = {.Beast}, active = Effect{magnitude = 2, conditional = Condition_Round_At_Least{round = 3}}}},
 		// Multi-tag flat: a crude beast-hunting weapon (Weapon + Beast).
-		{tier = .Splash, fitting = Fitting{name = "Harpoon Line", size = .Small, weight = 6, category = .Offensive, tags = {.Weapon, .Beast}, active = Effect{magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Harpoon Line", size = .Small, weight = 6, category = .Fire, tags = {.Weapon, .Beast}, active = Effect{magnitude = 3}}},
 
 		// ---- Shallow (Open-Sea-grade): mid power, real trade-offs ----
-		{tier = .Shallow, fitting = Fitting{name = "Long Nines", size = .Large, weight = 42, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = 8}}},
-		{tier = .Shallow, fitting = Fitting{name = "Carronade", size = .Medium, weight = 22, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = 6}}},
+		{tier = .Shallow, fitting = Fitting{name = "Long Nines", size = .Large, weight = 42, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 8}}},
+		{tier = .Shallow, fitting = Fitting{name = "Carronade", size = .Medium, weight = 22, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 6}}},
 		// Multi-tag flat offense (Crew + Weapon).
-		{tier = .Shallow, fitting = Fitting{name = "Naval Gun Crew", size = .Medium, weight = 20, category = .Offensive, tags = {.Crew, .Weapon}, active = Effect{magnitude = 6}}},
-		{tier = .Shallow, fitting = Fitting{name = "Sea Drake", size = .Large, weight = 34, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 7}}},
-		{tier = .Shallow, fitting = Fitting{name = "Ramming Prow", size = .Large, weight = 40, category = .Offensive, tags = {.Artifact}, active = Effect{magnitude = 7}}},
-		{tier = .Shallow, fitting = Fitting{name = "War Drums", size = .Small, weight = 6, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 3}}},
+		{tier = .Shallow, fitting = Fitting{name = "Naval Gun Crew", size = .Medium, weight = 20, category = .Fire, tags = {.Crew, .Weapon}, active = Effect{magnitude = 6}}},
+		{tier = .Shallow, fitting = Fitting{name = "Sea Drake", size = .Large, weight = 34, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 7}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ramming Prow", size = .Large, weight = 40, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 7}}},
+		{tier = .Shallow, fitting = Fitting{name = "War Drums", size = .Small, weight = 6, category = .Muster, tags = {.Crew}, active = Effect{magnitude = 3}}},
 		// Stat-modifiers across all three stats.
-		{tier = .Shallow, fitting = Fitting{name = "Reinforced Hull", size = .Medium, weight = 25, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 2}}},
-		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, weight = 16, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 2}}},
-		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, weight = 16, category = .Defensive, tags = {.Crew}, passive = Effect{kind = .Modify_Max_HP, magnitude = 16}}},
+		{tier = .Shallow, fitting = Fitting{name = "Reinforced Hull", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 2}}},
+		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, weight = 16, category = .Muster, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 2}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, weight = 16, category = .Brace, tags = {.Crew}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 16}}},
 		// Synergy composed onto a stat-modifier: +Speed per Small fitting aboard.
-		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, weight = 5, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1, synergy = Selector(Slot_Size.Small)}}},
-		// Synergy over a Tag family: buff per Weapon.
-		{tier = .Shallow, fitting = Fitting{name = "Gun Captain", size = .Medium, weight = 16, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Tag.Weapon)}}},
-		// Synergy over Category: offense per Offensive fitting aboard.
-		{tier = .Shallow, fitting = Fitting{name = "Master Gunner", size = .Medium, weight = 16, category = .Offensive, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Category.Offensive)}}},
-		// Synergy over a Tag family: buff per Cargo aboard.
-		{tier = .Shallow, fitting = Fitting{name = "Contraband Hold", size = .Medium, weight = 18, category = .Buff, tags = {.Cargo}, active = Effect{magnitude = 2, synergy = Selector(Tag.Cargo)}}},
-		// Conditional on own HP threshold.
-		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, weight = 20, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 8, conditional = Condition_HP_Below{percent = 50}}}},
+		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, weight = 5, category = .Muster, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1, synergy = Selector(Slot_Size.Small)}}},
+		// Synergy over a Tag family: muster per Weapon.
+		{tier = .Shallow, fitting = Fitting{name = "Gun Captain", size = .Medium, weight = 16, category = .Muster, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Tag.Weapon)}}},
+		// Synergy over Category: offense per Fire fitting aboard.
+		{tier = .Shallow, fitting = Fitting{name = "Master Gunner", size = .Medium, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Category.Fire)}}},
+		// Synergy over a Tag family: muster per Cargo aboard.
+		{tier = .Shallow, fitting = Fitting{name = "Contraband Hold", size = .Medium, weight = 18, category = .Muster, tags = {.Cargo}, active = Effect{magnitude = 2, synergy = Selector(Tag.Cargo)}}},
+		// Conditional on own Hull threshold.
+		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, weight = 20, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 8, conditional = Condition_Hull_Below{percent = 50}}}},
 		// Conditional on own concealment.
-		{tier = .Shallow, fitting = Fitting{name = "Ghost Lantern", size = .Small, weight = 5, category = .Buff, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ghost Lantern", size = .Small, weight = 5, category = .Muster, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
 		// Conditional on opponent being slower (press the advantage).
-		{tier = .Shallow, fitting = Fitting{name = "Storm Sails", size = .Medium, weight = 15, category = .Buff, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Opponent_Slower{}}}},
+		{tier = .Shallow, fitting = Fitting{name = "Storm Sails", size = .Medium, weight = 15, category = .Muster, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Opponent_Slower{}}}},
 		// Conditional on opponent being faster (chain shot fouls a runner's rigging).
-		{tier = .Shallow, fitting = Fitting{name = "Chain & Bar Shot", size = .Medium, weight = 21, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = 7, conditional = Condition_Opponent_Faster{}}}},
+		{tier = .Shallow, fitting = Fitting{name = "Chain & Bar Shot", size = .Medium, weight = 21, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 7, conditional = Condition_Opponent_Faster{}}}},
 
 		// ---- Deep (The-Deep-grade): strongest, greediest ----
-		{tier = .Deep, fitting = Fitting{name = "Great Bombard", size = .Large, weight = 45, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = 12}}},
-		{tier = .Deep, fitting = Fitting{name = "Leviathan", size = .Large, weight = 38, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 11}}},
+		{tier = .Deep, fitting = Fitting{name = "Great Bombard", size = .Large, weight = 45, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 12}}},
+		{tier = .Deep, fitting = Fitting{name = "Leviathan", size = .Large, weight = 38, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 11}}},
 		// Stat-modifiers across all three stats, Deep-scaled.
-		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, weight = 40, category = .Defensive, tags = {.Beast}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
-		{tier = .Deep, fitting = Fitting{name = "Adamant Bulwark", size = .Medium, weight = 25, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
-		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, weight = 15, category = .Buff, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 3}}},
-		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, weight = 36, category = .Defensive, tags = {.Artifact}, passive = Effect{kind = .Modify_Max_HP, magnitude = 32}}},
+		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, weight = 40, category = .Brace, tags = {.Beast}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
+		{tier = .Deep, fitting = Fitting{name = "Adamant Bulwark", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
+		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, weight = 15, category = .Muster, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 3}}},
+		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, weight = 36, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 32}}},
 		// Cargo family, Deep stat-modifier.
-		{tier = .Deep, fitting = Fitting{name = "Treasure Vault", size = .Medium, weight = 22, category = .Defensive, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_HP, magnitude = 24}}},
-		// Synergy over a Tag family: buff per Crew aboard.
-		{tier = .Deep, fitting = Fitting{name = "Admiral's Guard", size = .Medium, weight = 17, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 3, synergy = Selector(Tag.Crew)}}},
+		{tier = .Deep, fitting = Fitting{name = "Treasure Vault", size = .Medium, weight = 22, category = .Brace, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 24}}},
+		// Synergy over a Tag family: muster per Crew aboard.
+		{tier = .Deep, fitting = Fitting{name = "Admiral's Guard", size = .Medium, weight = 17, category = .Muster, tags = {.Crew}, active = Effect{magnitude = 3, synergy = Selector(Tag.Crew)}}},
 		// Multi-tag synergy: offense per Weapon, itself a Crew + Weapon.
-		{tier = .Deep, fitting = Fitting{name = "Broadside Master", size = .Large, weight = 36, category = .Offensive, tags = {.Crew, .Weapon}, active = Effect{magnitude = 3, synergy = Selector(Tag.Weapon)}}},
+		{tier = .Deep, fitting = Fitting{name = "Broadside Master", size = .Large, weight = 36, category = .Fire, tags = {.Crew, .Weapon}, active = Effect{magnitude = 3, synergy = Selector(Tag.Weapon)}}},
 		// Synergy over a Tag family: offense per Beast aboard.
-		{tier = .Deep, fitting = Fitting{name = "Hunter's Pack", size = .Medium, weight = 18, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 3, synergy = Selector(Tag.Beast)}}},
-		// Synergy over Slot_Size: buff per Large fitting aboard.
-		{tier = .Deep, fitting = Fitting{name = "Flagship Colors", size = .Medium, weight = 15, category = .Buff, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Slot_Size.Large)}}},
-		// Synergy over Visibility: buff per Concealed fitting aboard.
-		{tier = .Deep, fitting = Fitting{name = "Storm Caller", size = .Small, weight = 6, category = .Buff, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Visibility.Concealed)}}},
+		{tier = .Deep, fitting = Fitting{name = "Hunter's Pack", size = .Medium, weight = 18, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3, synergy = Selector(Tag.Beast)}}},
+		// Synergy over Slot_Size: muster per Large fitting aboard.
+		{tier = .Deep, fitting = Fitting{name = "Flagship Colors", size = .Medium, weight = 15, category = .Muster, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Slot_Size.Large)}}},
+		// Synergy over Visibility: muster per Concealed fitting aboard.
+		{tier = .Deep, fitting = Fitting{name = "Storm Caller", size = .Small, weight = 6, category = .Muster, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Visibility.Concealed)}}},
 		// Multi-tag conditional: hits hardest while concealed (Artifact + Weapon).
-		{tier = .Deep, fitting = Fitting{name = "Wraith Cannon", size = .Medium, weight = 22, category = .Offensive, tags = {.Artifact, .Weapon}, active = Effect{magnitude = 10, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
-		// Conditional on own HP threshold.
-		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, weight = 38, category = .Offensive, tags = {.Beast}, active = Effect{magnitude = 12, conditional = Condition_HP_Below{percent = 50}}}},
+		{tier = .Deep, fitting = Fitting{name = "Wraith Cannon", size = .Medium, weight = 22, category = .Fire, tags = {.Artifact, .Weapon}, active = Effect{magnitude = 10, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
+		// Conditional on own Hull threshold.
+		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, weight = 38, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 12, conditional = Condition_Hull_Below{percent = 50}}}},
 		// Conditional on the round number (siege guns warm up late).
-		{tier = .Deep, fitting = Fitting{name = "Siege Battery", size = .Large, weight = 44, category = .Offensive, tags = {.Weapon}, active = Effect{magnitude = 11, conditional = Condition_Round_At_Least{round = 5}}}},
+		{tier = .Deep, fitting = Fitting{name = "Siege Battery", size = .Large, weight = 44, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 11, conditional = Condition_Round_At_Least{round = 5}}}},
 		// Conditional on opponent being faster.
-		{tier = .Deep, fitting = Fitting{name = "Sea Witch", size = .Medium, weight = 16, category = .Buff, tags = {.Crew}, active = Effect{magnitude = 6, conditional = Condition_Opponent_Faster{}}}},
+		{tier = .Deep, fitting = Fitting{name = "Sea Witch", size = .Medium, weight = 16, category = .Muster, tags = {.Crew}, active = Effect{magnitude = 6, conditional = Condition_Opponent_Faster{}}}},
 	}
 }
 
@@ -370,10 +370,10 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // **Only an active Phase_Contribution effect moves, and that is the definition of
 // output rather than a courtesy.** combat_phase_output sums exactly these; the
 // Modify_* kinds act through the effective-stat readers instead
-// (ship_effective_speed and friends), so a fitting's Speed / Durability / Max HP
+// (ship_effective_speed and friends), so a fitting's Speed / Durability / Max Hull
 // contribution is not output and is left exactly as authored. That distinction is
-// load-bearing for the hostile roster: Category is a combat *phase*, so `.Buff`
-// holds both the buff phase's fittings (Powder Monkeys) and every Modify_Speed item
+// load-bearing for the hostile roster: Category is a combat *phase*, so `.Muster`
+// holds both the muster phase's fittings (Powder Monkeys) and every Modify_Speed item
 // in the roster (Spare Rigging, Copper Sheathing, Outriggers, Enchanted Keel) — and
 // a hostile's Speed is its archetype's axis, explicitly not a stakes reading
 // (core/run's Hostile_Archetype.speed). A caller that scales a whole category
@@ -389,7 +389,7 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // what the fitting deals rather than to the build around it: a Selector's
 // per-match magnitude scales and its match count does not, so `(m x pct) x count`
 // is `pct x (m x count)`. An additive bonus has no such property — it is
-// multiplied by the count (see run_fit_hostile_loadout).
+// multiplied by the count (see voyage_fit_hostile_loadout).
 ship_fitting_output_scaled :: proc(base: Fitting, percent: int) -> Fitting {
 	f := base
 	if effect, ok := f.active.?; ok && effect.kind == .Phase_Contribution {
@@ -399,19 +399,19 @@ ship_fitting_output_scaled :: proc(base: Fitting, percent: int) -> Fitting {
 	return f
 }
 
-// ship_fitting_cargo builds a cargo fitting holding `treasure` (ADR-0020: a
-// cargo fitting *is* its treasure, so stack_count carries the amount — #156).
+// ship_fitting_cargo builds a cargo fitting holding `cargo` (ADR-0020: a
+// cargo fitting *is* its cargo, so stack_count carries the amount — #156).
 // name lets a caller flavor multiple cargo instances (e.g. a PvE opponent's
 // "Spoils") without a separate fitting type (ADR-0004). size is caller-supplied
 // so cargo can fill a slot of any size under the exact-size-match fit rule (issue
-// #91: every empty slot, not just the small holds, can hold treasure — a larger
+// #91: every empty slot, not just the small holds, can hold cargo — a larger
 // slot's cargo is worth more, see ship_cargo_slot_contribution). Callers that
-// stow a purse (ship_stow_treasure) pass the treasure that fits the slot;
-// treasure must be at least 1 (an empty hold is an *empty slot*, #157, not a
+// stow cargo (ship_stow_cargo) pass the cargo that fits the slot;
+// cargo must be at least 1 (an empty hold is an *empty slot*, #157, not a
 // zero-count cargo fitting — ship_fitting_fits rejects stack_count < 1). Cargo
 // carries the Cargo tag family (#90).
-ship_fitting_cargo :: proc(name: string, size: Slot_Size, treasure: int) -> Fitting {
-	return Fitting{name = name, size = size, tags = {.Cargo}, is_cargo = true, stack_count = treasure}
+ship_fitting_cargo :: proc(name: string, size: Slot_Size, cargo: int) -> Fitting {
+	return Fitting{name = name, size = size, tags = {.Cargo}, is_cargo = true, stack_count = cargo}
 }
 
 // ship_template_layout is the vertical slice's one ship template (issue #91,
@@ -440,10 +440,10 @@ ship_starting_captain :: proc() -> Captain {
 	return Captain{name = "Captain Odessa Vane", starting_cargo_bonus = CAPTAIN_STARTING_CARGO}
 }
 
-// ship_starting_ship assembles the run's starting Ship (issue #23): the one
+// ship_starting_ship assembles the voyage's starting Ship (issue #23): the one
 // template, filled with its fixed starting loadout — Captain's Quarters and
 // Top Crew in the two medium exposed slots, Gun Deck in the large exposed
-// slot, the starting purse stowed into the rest (ADR-0020, #172) — plus the
+// slot, the starting cargo stowed into the rest (ADR-0020, #172) — plus the
 // one captain. Hand-placement of Captain's Quarters into "top deck" and Top
 // Crew into "top crew" is a flavor-only pairing (ADR-0004: slot names impose
 // no restriction on what fills them). Caller owns the returned Ship's
@@ -452,13 +452,13 @@ ship_starting_captain :: proc() -> Captain {
 // exposed slots (issue #54: an or_return chain — a false return means the
 // template and its starting fittings have drifted out of sync, a content bug
 // caught immediately by this package's own tests, not a real runtime condition)
-// and stows `treasure` across the remaining slots smallest-first
-// (ship_stow_treasure), which leaves the Large forecastle empty as headroom.
-ship_fit_starting_loadout :: proc(layout: []Layout_Slot, treasure: int) -> bool {
+// and stows `cargo` across the remaining slots smallest-first
+// (ship_stow_cargo), which leaves the Large forecastle empty as headroom.
+ship_fit_starting_loadout :: proc(layout: []Layout_Slot, cargo: int) -> bool {
 	ship_fit(&layout[0], ship_fitting_captains_quarters()) or_return
 	ship_fit(&layout[1], ship_fitting_top_crew()) or_return
 	ship_fit(&layout[2], ship_fitting_gun_deck()) or_return
-	ship_stow_treasure(layout, treasure)
+	ship_stow_cargo(layout, cargo)
 	return true
 }
 
@@ -469,8 +469,8 @@ ship_fit_starting_loadout :: proc(layout: []Layout_Slot, treasure: int) -> bool 
 // idle, half-full). Each filler takes its slot's own size so it satisfies the
 // exact-size-match fit rule (ADR-0004), so ship_fit only fails here on a genuine
 // content bug, never a size mismatch. This is the **hostile's** stow (the PvE
-// opponent's spare slots, run_fit_hostile_loadout); the player's is amount-driven
-// (ship_stow_treasure), so the two no longer share a rule — a template resize needs
+// opponent's spare slots, voyage_fit_hostile_loadout); the player's is amount-driven
+// (ship_stow_cargo), so the two no longer share a rule — a template resize needs
 // no per-slot edits here, and the flat 50% is #176's placeholder for hostile ship
 // templates. A slot filled at 50% weighs half its capacity, so this is what a
 // hostile's Speed reads its weight from (ship_effective_speed).
@@ -488,7 +488,7 @@ ship_fill_empty_slots_with_cargo :: proc(layout: []Layout_Slot, name: string) ->
 ship_starting_ship :: proc() -> Ship {
 	captain := ship_starting_captain()
 	layout := ship_template_layout()
-	// The captain names part of the starting purse (#172), so the stow amount is
+	// The captain names part of the starting cargo (#172), so the stow amount is
 	// STARTING_CARGO + the captain's bonus — 40 + 10 = 50, stowed into the holds.
 	assert(
 		ship_fit_starting_loadout(layout, STARTING_CARGO + captain.starting_cargo_bonus),
@@ -496,8 +496,8 @@ ship_starting_ship :: proc() -> Ship {
 	)
 
 	return Ship{
-		hp         = STARTING_HP,
-		max_hp     = STARTING_HP,
+		hull         = STARTING_HULL,
+		max_hull     = STARTING_HULL,
 		durability = STARTING_DURABILITY,
 		speed      = BASE_SPEED,
 		layout     = layout,

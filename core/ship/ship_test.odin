@@ -163,7 +163,7 @@ fitting_override_forces_a_concealed_slot_to_read_as_exposed :: proc(t: ^testing.
 
 @(test)
 cargo_capacity_excludes_a_slot_holding_a_non_cargo_fitting :: proc(t: ^testing.T) {
-	// A slot spent on a gun holds no treasure (ADR-0020, #157): its size does not
+	// A slot spent on a gun holds no cargo (ADR-0020, #157): its size does not
 	// count toward capacity, but empty and cargo-filled slots both do.
 	s := Ship{
 		layout = []Layout_Slot{
@@ -192,15 +192,15 @@ cargo_capacity_sums_each_cargo_capable_slots_size_contribution :: proc(t: ^testi
 }
 
 @(test)
-the_starting_hull_reads_ninety_capacity_against_a_fifty_purse :: proc(t: ^testing.T) {
+the_starting_hull_reads_ninety_capacity_against_a_fifty_cargo :: proc(t: ^testing.T) {
 	// The destination's headroom by construction (ADR-0020, #156): the 8-slot hull
 	// with its three exposed guns has five cargo-capable slots — Large 40 + Medium
-	// 20 + three Small 30 = 90 — and is stowed with a 50 purse, leaving 40 spare.
+	// 20 + three Small 30 = 90 — and is stowed with a 50 cargo, leaving 40 spare.
 	s := ship_starting_ship()
 	defer delete(s.layout)
 
 	testing.expect_value(t, ship_cargo_capacity(s), 90)
-	testing.expect_value(t, ship_treasure(s), 50)
+	testing.expect_value(t, ship_cargo(s), 50)
 }
 
 @(test)
@@ -386,7 +386,7 @@ synergy_ship :: proc(fittings: ..Fitting) -> Ship {
 selector_matches_over_each_of_tag_size_visibility_and_category :: proc(t: ^testing.T) {
 	slot := Layout_Slot{
 		slot    = Slot{size = .Large, base_visibility = .Concealed},
-		fitting = Fitting{name = "War Kraken", size = .Large, category = .Offensive, tags = {.Beast, .Weapon}},
+		fitting = Fitting{name = "War Kraken", size = .Large, category = .Fire, tags = {.Beast, .Weapon}},
 	}
 
 	// Tag: a multi-tag fitting matches on each of its own tags, and misses a tag it lacks.
@@ -396,8 +396,8 @@ selector_matches_over_each_of_tag_size_visibility_and_category :: proc(t: ^testi
 	// Size / Category: the fitting's own field.
 	testing.expect(t, selector_matches(slot, Selector(Slot_Size.Large)))
 	testing.expect(t, !selector_matches(slot, Selector(Slot_Size.Small)))
-	testing.expect(t, selector_matches(slot, Selector(Category.Offensive)))
-	testing.expect(t, !selector_matches(slot, Selector(Category.Buff)))
+	testing.expect(t, selector_matches(slot, Selector(Category.Fire)))
+	testing.expect(t, !selector_matches(slot, Selector(Category.Muster)))
 	// Visibility: the fitting's effective visibility (through the slot), not a raw field.
 	testing.expect(t, selector_matches(slot, Selector(Visibility.Concealed)))
 	testing.expect(t, !selector_matches(slot, Selector(Visibility.Exposed)))
@@ -450,20 +450,20 @@ effect_magnitude_scales_a_synergy_effect_by_the_matching_count :: proc(t: ^testi
 @(test)
 count_matching_on_a_category_selector_counts_by_the_fittings_category_field :: proc(t: ^testing.T) {
 	// A Category selector reads Fitting.category directly. That field's zero
-	// value is .Buff, and cargo / effect-less fittings never set it, so a
-	// Selector(Category.Buff) counts every such fitting as a Buff. This test
+	// value is .Muster, and cargo / effect-less fittings never set it, so a
+	// Selector(Category.Muster) counts every such fitting as a Muster. This test
 	// pins that behavior down (ship_count_matching's doc caveat): a content
-	// author selecting on .Buff must expect zero-value fittings in the count.
+	// author selecting on .Muster must expect zero-value fittings in the count.
 	s := synergy_ship(
-		Fitting{name = "Top Crew", size = .Medium, category = .Buff},
-		Fitting{name = "Gun Deck", size = .Large, category = .Offensive},
+		Fitting{name = "Top Crew", size = .Medium, category = .Muster},
+		Fitting{name = "Gun Deck", size = .Large, category = .Fire},
 		Fitting{name = "Cargo", size = .Small, tags = {.Cargo}, is_cargo = true, stack_count = 1},
 	)
 	defer delete(s.layout)
 
-	// Top Crew (explicit .Buff) and Cargo (zero-value .Buff) both count.
-	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Buff)), 2)
-	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Offensive)), 1)
+	// Top Crew (explicit .Muster) and Cargo (zero-value .Muster) both count.
+	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Muster)), 2)
+	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Fire)), 1)
 }
 
 @(test)
@@ -478,19 +478,19 @@ effect_magnitude_of_a_synergy_with_no_matches_is_zero :: proc(t: ^testing.T) {
 
 @(test)
 effective_stats_equal_the_raw_fields_when_no_stat_modifier_is_installed :: proc(t: ^testing.T) {
-	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Offensive, active = Effect{magnitude = 10}}
+	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Fire, active = Effect{magnitude = 10}}
 	s := Ship{
-		durability = 2, speed = 4, max_hp = 20,
+		durability = 2, speed = 4, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},
 	}
 
-	// A plain fitting adds no stat modifier, so Durability and Max HP read their
+	// A plain fitting adds no stat modifier, so Durability and Max Hull read their
 	// raw fields. Speed is different now (ADR-0020): every non-cargo fitting has an
 	// authored weight, so effective Speed is base − weight/10, not the raw field. The
 	// Large Cannon weighs 38, so 4 − 3 = 1.
 	testing.expect_value(t, ship_effective_durability(&s), 2)
 	testing.expect_value(t, ship_effective_speed(&s), 4 - ship_weight(s) / 10)
-	testing.expect_value(t, ship_effective_max_hp(&s), 20)
+	testing.expect_value(t, ship_effective_max_hull(&s), 20)
 }
 
 @(test)
@@ -500,23 +500,23 @@ a_stat_modifier_fitting_raises_the_matching_effective_stat_only :: proc(t: ^test
 		passive = Effect{kind = .Modify_Durability, magnitude = 3},
 	}
 	s := Ship{
-		durability = 2, speed = 4, max_hp = 20,
+		durability = 2, speed = 4, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = reinforced}},
 	}
 
 	testing.expect_value(t, ship_effective_durability(&s), 2 + 3)
 	testing.expect_value(t, ship_effective_speed(&s), 4) // unaffected
-	testing.expect_value(t, ship_effective_max_hp(&s), 20) // unaffected
+	testing.expect_value(t, ship_effective_max_hull(&s), 20) // unaffected
 }
 
 @(test)
-stat_modifiers_stack_across_slots_and_span_max_hp_and_speed :: proc(t: ^testing.T) {
+stat_modifiers_stack_across_slots_and_span_max_hull_and_speed :: proc(t: ^testing.T) {
 	hull := Fitting{name = "Reinforced Hull", size = .Small, weight = 8, passive = Effect{kind = .Modify_Durability, magnitude = 3}}
 	plating := Fitting{name = "Iron Plating", size = .Small, weight = 8, passive = Effect{kind = .Modify_Durability, magnitude = 2}}
 	sails := Fitting{name = "Fast Sails", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 4}}
-	ballast := Fitting{name = "Ballast Tanks", size = .Small, weight = 8, passive = Effect{kind = .Modify_Max_HP, magnitude = 10}}
+	ballast := Fitting{name = "Ballast Tanks", size = .Small, weight = 8, passive = Effect{kind = .Modify_Max_Hull, magnitude = 10}}
 	s := Ship{
-		durability = 1, speed = 5, max_hp = 20,
+		durability = 1, speed = 5, max_hull = 20,
 		layout = []Layout_Slot{
 			{slot = Slot{size = .Small}, fitting = hull},
 			{slot = Slot{size = .Small}, fitting = plating},
@@ -528,11 +528,11 @@ stat_modifiers_stack_across_slots_and_span_max_hp_and_speed :: proc(t: ^testing.
 	testing.expect_value(t, ship_effective_durability(&s), 1 + 3 + 2)
 	// base 5 + Modify_Speed 4, minus the four Small fittings' weight/10 (ADR-0020).
 	testing.expect_value(t, ship_effective_speed(&s), 5 + 4 - ship_weight(s) / 10)
-	testing.expect_value(t, ship_effective_max_hp(&s), 20 + 10)
+	testing.expect_value(t, ship_effective_max_hull(&s), 20 + 10)
 }
 
 // The calibration BASE_SPEED is solved against (ADR-0020, #158): the starting ship
-// — its loadout plus the 50-treasure purse — reads exactly STARTING_SPEED. If
+// — its loadout plus the 50-cargo hold — reads exactly STARTING_SPEED. If
 // ship_fitting_weight's band or BASE_SPEED drifts, this is what catches it.
 @(test)
 the_starting_ship_reads_the_starting_speed :: proc(t: ^testing.T) {
@@ -543,7 +543,7 @@ the_starting_ship_reads_the_starting_speed :: proc(t: ^testing.T) {
 
 // The weight-floor invariant (ADR-0020, #175): `base − weight/10 >= 0` for the ship
 // at its realistic maximum fill — every cargo slot of the starting loadout full.
-// The starting ship lands on 0 *exactly* (capacity 90 − starting purse 50 = the
+// The starting ship lands on 0 *exactly* (capacity 90 − starting cargo 50 = the
 // 40-point budget), which is the destination's "getting rich makes you catchable"
 // as arithmetic — never a live clamp, so an empty hold reads well above 0.
 @(test)
@@ -551,27 +551,27 @@ a_full_hold_floors_the_starting_ship_speed_at_zero_never_below :: proc(t: ^testi
 	s := ship_starting_ship()
 	defer delete(s.layout)
 
-	ship_stow_treasure(s.layout, ship_cargo_capacity(s)) // fill every cargo slot
+	ship_stow_cargo(s.layout, ship_cargo_capacity(s)) // fill every cargo slot
 	full := ship_effective_speed(&s)
 	testing.expect(t, full >= 0)
 	testing.expect_value(t, full, 0)
 
-	ship_stow_treasure(s.layout, 0) // empty every hold
+	ship_stow_cargo(s.layout, 0) // empty every hold
 	testing.expect(t, ship_effective_speed(&s) > full) // emptiness is what varies
 }
 
 @(test)
-hp_below_conditional_resolves_to_zero_above_the_threshold_and_full_below :: proc(t: ^testing.T) {
-	effect := Effect{magnitude = 6, conditional = Condition_HP_Below{percent = 50}}
-	s := Ship{max_hp = 20}
+hull_below_conditional_resolves_to_zero_above_the_threshold_and_full_below :: proc(t: ^testing.T) {
+	effect := Effect{magnitude = 6, conditional = Condition_Hull_Below{percent = 50}}
+	s := Ship{max_hull = 20}
 
-	s.hp = 20 // full: above the half-HP threshold
+	s.hull = 20 // full: above the half-Hull threshold
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
 
-	s.hp = 10 // exactly half: strictly-below means still unmet
+	s.hull = 10 // exactly half: strictly-below means still unmet
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
 
-	s.hp = 9 // below half: full magnitude
+	s.hull = 9 // below half: full magnitude
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(6))
 }
 
@@ -628,20 +628,20 @@ opponent_speed_conditionals_compare_the_live_battle_speeds :: proc(t: ^testing.T
 
 @(test)
 a_conditional_stat_modifier_applies_only_while_its_condition_holds :: proc(t: ^testing.T) {
-	// A "below half HP, +Durability" plating: the effective-stat readers gate it
+	// A "below half Hull, +Durability" plating: the effective-stat readers gate it
 	// through the same conditional seam, self_slot filled per slot.
 	plating := Fitting{
 		name = "Panic Plating", size = .Small,
-		passive = Effect{kind = .Modify_Durability, magnitude = 5, conditional = Condition_HP_Below{percent = 50}},
+		passive = Effect{kind = .Modify_Durability, magnitude = 5, conditional = Condition_Hull_Below{percent = 50}},
 	}
 	s := Ship{
-		durability = 2, max_hp = 20,
+		durability = 2, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = plating}},
 	}
 
-	s.hp = 20 // above the threshold: raw durability only
+	s.hull = 20 // above the threshold: raw durability only
 	testing.expect_value(t, ship_effective_durability(&s), 2)
 
-	s.hp = 8 // below the threshold: the +Durability kicks in
+	s.hull = 8 // below the threshold: the +Durability kicks in
 	testing.expect_value(t, ship_effective_durability(&s), 2 + 5)
 }

@@ -24,12 +24,12 @@ main :: proc() {
 // other way for the two callbacks to cooperate, since each only receives its
 // own rawptr. It no longer maintains a shadow visited set to recompute travel
 // legality — the Sim now emits the legal moves on Event_Travel_Options (issue
-// #83), which dispatch records into travel_options. run_map/current are kept
+// #83), which dispatch records into travel_options. voyage_map/current are kept
 // only to prefer a *forward* (deeper-layer) move among those emitted options,
 // not to derive legality.
 Headless_State :: struct {
 	events:         [dynamic]sim.Event,
-	run_map:        run.Map, // borrowed from Event_Run_Started (the masked public map)
+	voyage_map:        run.Map, // borrowed from Event_Voyage_Started (the masked public map)
 	current:        sim.Node_ID,
 	travel_options: []sim.Node_ID, // borrowed from the latest Event_Travel_Options
 }
@@ -37,7 +37,7 @@ Headless_State :: struct {
 // get_captain_choice is the headless Input_Source: no real player, so it
 // always resolves the current decision deterministically — Hold every battle
 // round, skip every Item Offer, and for travel pick a legal move that makes
-// forward progress toward Goal (any forward neighbour; the first emitted option
+// forward progress toward Haven (any forward neighbour; the first emitted option
 // otherwise). The travel options come from the Sim (issue #83), and kinds are
 // hidden, so the plan never depends on what an unvisited node holds — only on
 // the graph shape.
@@ -50,13 +50,13 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	case .Awaiting_Option_Choice:
 		// Decline every option list (issue #131) — skip an Offer's items, leave a
 		// Shop's shelf. A nil selection takes nothing and opens no refit, so the
-		// scripted auto-player never has to spend treasure or drive a loadout edit; it
+		// scripted auto-player never has to spend cargo or drive a loadout edit; it
 		// just walks through.
 		return sim.Command(sim.Command_Choose_Option{selection = nil})
 	case .Awaiting_Trade_Choice:
 		// Reject every Trade (issue #136): the scripted auto-player's job is to walk
-		// a route to Goal deterministically, and accepting would swap a stat the
-		// route's bargains happened to draw. Rejecting changes nothing, so the run
+		// a route to Haven deterministically, and accepting would swap a stat the
+		// route's bargains happened to draw. Rejecting changes nothing, so the voyage
 		// stays a pure function of the graph.
 		return sim.Command(sim.Command_Trade_Choice{accept = false})
 	case .Awaiting_Travel_Choice:
@@ -75,13 +75,13 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 // headless_next_node picks the auto-player's next travel destination from the
 // Sim's emitted legal options (issue #83): a forward neighbour (deeper layer)
 // if one is offered, else the first emitted option — always making progress
-// toward Goal without depending on any hidden encounter content.
+// toward Haven without depending on any hidden encounter content.
 headless_next_node :: proc(state: ^Headless_State) -> sim.Node_ID {
 	options := state.travel_options
 	assert(len(options) > 0, "no legal travel option from the current node")
 
 	for dest in options {
-		if state.run_map.nodes[dest].layer > state.run_map.nodes[state.current].layer {
+		if state.voyage_map.nodes[dest].layer > state.voyage_map.nodes[state.current].layer {
 			return dest
 		}
 	}
@@ -99,8 +99,8 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	fmt.printfln("%v", event)
 
 	switch e in event {
-	case sim.Event_Run_Started:
-		state.run_map = e.run_map
+	case sim.Event_Voyage_Started:
+		state.voyage_map = e.voyage_map
 	case sim.Event_Travel_Options:
 		state.travel_options = e.options
 	case sim.Event_Arrived_At_Node:
@@ -122,6 +122,6 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Refit_Rejected:
 	case sim.Event_Refit_Finished:
 	case sim.Event_Encounter_Resolved:
-	case sim.Event_Run_Ended:
+	case sim.Event_Voyage_Ended:
 	}
 }

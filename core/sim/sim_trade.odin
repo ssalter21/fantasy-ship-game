@@ -5,7 +5,7 @@ import "../run"
 // sim_process_trade_choice applies a submitted Command_Trade_Choice (issue #136,
 // ADR-0014), resolving the Trade stage under the cursor.
 //
-// Accepting applies the swap permanently (run_apply_trade), emits the updated
+// Accepting applies the swap permanently (voyage_apply_trade), emits the updated
 // ship, and **completes** the stage. Rejecting changes nothing and so reports
 // nothing — there is no post-trade ship to report, because nothing was traded —
 // and **halts** the encounter.
@@ -36,10 +36,10 @@ sim_process_trade_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	}
 
 	assert(
-		run.run_trade_can_accept(&sim.player, sim.active_trade),
+		run.voyage_trade_can_accept(&sim.player, sim.active_trade),
 		"Command_Trade_Choice accepted a trade the ship cannot pay for",
 	)
-	run.run_apply_trade(&sim.player, sim.active_trade)
+	run.voyage_apply_trade(&sim.player, sim.active_trade)
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 
 	sim_advance_stage(sim, .Completed, events)
