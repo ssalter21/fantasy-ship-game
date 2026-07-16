@@ -307,7 +307,7 @@ battle_reallocate_can_give :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 	return false
 }
 
-// battle_menu_loop blocks until the player picks a battle action (Boost one of the
+// battle_menu_loop blocks until the player picks a battle action (Press one of the
 // three phases, Man the Sails, Jettison a cargo slot, Reallocate treasure between two
 // holds, or Leave Combat if may_leave — ADR-0006's one-decision-per-round menu), then
 // returns a Command_Battle_Choice.
@@ -351,8 +351,8 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			// Command mode: the one-decision-per-round action list.
 			prompt = "Choose your captain's command."
 			for category in ship.Category {
-				append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.tprintf("Boost %v", category)})
-				append(&actions, Battle_Menu_Action{kind = .Submit, command = combat.Command(combat.Command_Boost{phase = category})})
+				append(&buttons, Button{rect = rl.Rectangle{x = SHIP_PANEL_X, y = y, width = 220, height = 30}, label = fmt.tprintf("Press %v", category)})
+				append(&actions, Battle_Menu_Action{kind = .Submit, command = combat.Command(combat.Command_Press{phase = category})})
 				y += 34
 			}
 

@@ -169,7 +169,7 @@ buff_output_still_raises_the_same_sides_offensive_total :: proc(t: ^testing.T) {
 }
 
 @(test)
-boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^testing.T) {
+press_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hp = 20, durability = 0, speed = 5,
@@ -184,19 +184,19 @@ boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^test
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Offensive})
+	cmds[.A] = Command(Command_Press{phase = .Offensive})
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hp, 20-10*BOOST_MULTIPLIER)
+	testing.expect_value(t, b.hp, 20-10*PRESS_MULTIPLIER)
 	testing.expect_value(t, a.hp, 20-10)
 }
 
-// Inverted by #151: a Boost multiplies its own phase's fittings, which is what
-// ADR-0006 says ("multiplies that phase's fitting output"). Boosting the combined
-// total instead made Boost Offensive strictly dominate Boost Buff — 2(O+B) always
+// Inverted by #151: a Press multiplies its own phase's fittings, which is what
+// ADR-0006 says ("multiplies that phase's fitting output"). Pressing the combined
+// total instead made Press Offensive strictly dominate Press Buff — 2(O+B) always
 // beats O+2B — so one of the captain's five Commands was never the right answer.
 @(test)
-boost_offensive_multiplies_the_offensive_fittings_but_not_the_folded_buff :: proc(t: ^testing.T) {
+press_offensive_multiplies_the_offensive_fittings_but_not_the_folded_buff :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
@@ -212,18 +212,18 @@ boost_offensive_multiplies_the_offensive_fittings_but_not_the_folded_buff :: pro
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Offensive})
+	cmds[.A] = Command(Command_Press{phase = .Offensive})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// cannon(5)*BOOST_MULTIPLIER + buff(2) = 12. (Pre-#151: (5+2)*2 = 14.)
-	testing.expect_value(t, b.hp, 20-(5*BOOST_MULTIPLIER+2))
+	// cannon(5)*PRESS_MULTIPLIER + buff(2) = 12. (Pre-#151: (5+2)*2 = 14.)
+	testing.expect_value(t, b.hp, 20-(5*PRESS_MULTIPLIER+2))
 }
 
-// The other half of the same rule, and the reason it is worth having: Boost Buff
-// presses the crew rather than the guns, so the two Boosts answer a real question
+// The other half of the same rule, and the reason it is worth having: Press Buff
+// presses the crew rather than the guns, so the two Presses answer a real question
 // instead of one dominating the other.
 @(test)
-boost_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^testing.T) {
+press_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
@@ -239,18 +239,18 @@ boost_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Buff})
+	cmds[.A] = Command(Command_Press{phase = .Buff})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// cannon(5) + buff(2)*BOOST_MULTIPLIER = 9. Worth less than Boost Offensive's
+	// cannon(5) + buff(2)*PRESS_MULTIPLIER = 9. Worth less than Press Offensive's
 	// 12 for *this* build, and worth more for a build whose crew outweighs its guns.
-	testing.expect_value(t, b.hp, 20-(5+2*BOOST_MULTIPLIER))
+	testing.expect_value(t, b.hp, 20-(5+2*PRESS_MULTIPLIER))
 }
 
-// Also inverted by #151: Boost Defensive doubles the Defensive fittings alone,
+// Also inverted by #151: Press Defensive doubles the Defensive fittings alone,
 // since buff no longer reaches soak at all.
 @(test)
-boost_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
+press_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
@@ -270,10 +270,10 @@ boost_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Defensive})
+	cmds[.A] = Command(Command_Press{phase = .Defensive})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's boosted soak = shield(4) * BOOST_MULTIPLIER = 8, the War Cry's 3 excluded;
+	// A's pressed soak = shield(4) * PRESS_MULTIPLIER = 8, the War Cry's 3 excluded;
 	// B's raw damage = 20, so final = 20 - 8 = 12. (Pre-#151: (4+3)*2 = 14, so 6.)
 	testing.expect_value(t, a.hp, 20-12)
 }
@@ -363,7 +363,7 @@ hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 	cmds[.A] = Command(Command_Hold{})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// Same outcome as the no-command baseline round (cannon(10) unboosted,
+	// Same outcome as the no-command baseline round (cannon(10) not pressed,
 	// no Man the Sails/Jettison/Leave side effects): Hold contributes nothing.
 	testing.expect_value(t, b.hp, 20-10)
 	testing.expect_value(t, a.hp, 20)
@@ -372,7 +372,7 @@ hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 }
 
 @(test)
-man_the_sails_grants_a_speed_boost_for_this_round_only :: proc(t: ^testing.T) {
+man_the_sails_grants_a_speed_increase_for_this_round_only :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 20, speed = 5}
 	b := ship.Ship{hp = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
@@ -806,7 +806,7 @@ an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc
 }
 
 @(test)
-man_the_sails_speed_boost_can_swing_escape_eligibility_for_the_round_it_was_used :: proc(t: ^testing.T) {
+man_the_sails_speed_increase_can_swing_escape_eligibility_for_the_round_it_was_used :: proc(t: ^testing.T) {
 	a := ship.Ship{hp = 20, speed = 5}
 	b := ship.Ship{hp = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)

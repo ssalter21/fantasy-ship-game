@@ -297,7 +297,7 @@ drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Comman
 	return res
 }
 
-BOOST_OFFENSIVE :: combat.Command_Boost{phase = .Offensive}
+PRESS_OFFENSIVE :: combat.Command_Press{phase = .Offensive}
 HOLD :: combat.Command_Hold{}
 
 @(test)
@@ -313,14 +313,14 @@ a_battle_free_route_reaches_the_goal_and_wins :: proc(t: ^testing.T) {
 	// catalog makes that 1-in-4 in Coastal but 1-in-2 in Open Sea and 3-in-5 in The
 	// Deep, so only 4 seeds in 40 still let a ship reach Goal untouched. Seed 9 is
 	// one; that it is now scarce is the hard mapping meaning something, not a bug.
-	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
+	res := drive_policy(9, .Avoid_Battles, combat.Command(PRESS_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect_value(t, res.hp, ship.STARTING_HP) // untouched: no battle fought
 }
 
 @(test)
 fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
-	// Fight the first (shallow, Coastal) battle the pilot reaches and boost
+	// Fight the first (shallow, Coastal) battle the pilot reaches and press
 	// Offensive, then dodge the rest: the fresh ship wins it and sails on to
 	// Goal, taking some damage along the way.
 	//
@@ -332,7 +332,7 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	// a_battle_free_route_reaches_the_goal_and_wins sails: one map that both permits
 	// a route around every fight and rewards taking the first one is a better pair of
 	// scenarios than two unrelated seeds.
-	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(BOOST_OFFENSIVE))
+	res := drive_policy(9, .First_Battle_Then_Avoid, combat.Command(PRESS_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
 	testing.expect(t, res.hp < ship.STARTING_HP) // a real fight cost some HP
@@ -359,7 +359,7 @@ skipping_item_offers_on_the_route_leaves_the_loadout_unchanged :: proc(t: ^testi
 	// premise was checked rather than assumed on the way: seed 9's dodging route
 	// arrives at four Offer-opening nodes and is presented six option lists, so there
 	// is something here to skip.
-	res := drive_policy(9, .Avoid_Battles, combat.Command(BOOST_OFFENSIVE))
+	res := drive_policy(9, .Avoid_Battles, combat.Command(PRESS_OFFENSIVE))
 	testing.expect_value(t, res.status, run.Run_Status.Won)
 }
 
@@ -1495,7 +1495,7 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_OFFENSIVE}))
 	refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
@@ -1523,7 +1523,7 @@ winning_a_fight_pays_the_sunk_opponents_hold_into_the_purse :: proc(t: ^testing.
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_OFFENSIVE}))
 	refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
@@ -1554,7 +1554,7 @@ winning_a_fight_surfaces_the_wreck_treasure_that_overflows_the_hold :: proc(t: ^
 	install_encounter(&sim, 1, fight)
 	arrive_at(&sim, 1, &events)
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_OFFENSIVE}))
 	refit_tick(&sim, &events)
 
 	testing.expect(t, sim.battle.ended)
@@ -1759,7 +1759,7 @@ one_encounter_emits_one_snapshot_however_many_stages_resolve :: proc(t: ^testing
 	install_encounter(&sim, 1, fight, reward_stage())
 	arrive_at(&sim, 1, &events)
 
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_OFFENSIVE}))
 	ev := refit_tick(&sim, &events)
 
 	snaps := resolved_snapshots(ev)

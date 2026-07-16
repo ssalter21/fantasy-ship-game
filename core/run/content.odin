@@ -284,7 +284,7 @@ run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 // was that a bonus on Buff or Defensive would inflate `defense_bonus` and make a
 // deep hostile harder to *hurt* rather than harder to fight. **Half of that reason
 // died with #151** (ADR-0017) and the rule outlived it: Buff no longer feeds
-// `defense_bonus` at all — `raw_damage = boosted(Offensive) + boosted(Buff)` — so a
+// `defense_bonus` at all — `raw_damage = pressed(Offensive) + pressed(Buff)` — so a
 // scaled Buff fitting now makes a hostile hit harder, which is exactly what stakes
 // is for. Only the Defensive half of the reason survives, and it survives intact:
 // soak is subtracted from raw, so a site that scaled it would eventually make a

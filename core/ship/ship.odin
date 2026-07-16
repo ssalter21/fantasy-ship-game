@@ -672,7 +672,7 @@ ship_move :: proc(from, to: ^Layout_Slot) -> (Fitting, bool) {
 // headroom the 8-slot hull already has (#172), which is what revives the captain
 // from vestigial. This captain grants no additional per-round action beyond the
 // standard Command set: ADR-0006 already notes this slice's one captain uses the
-// full Boost/Man-the-Sails/Jettison-Cargo/Leave-Combat menu as its action set,
+// full Press/Man-the-Sails/Jettison-Cargo/Leave-Combat menu as its action set,
 // so there is nothing further to define here.
 Captain :: struct {
 	name:                 string,
