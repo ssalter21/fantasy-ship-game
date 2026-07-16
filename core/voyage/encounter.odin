@@ -39,8 +39,10 @@ voyage_start_battle :: proc(s: ^ship.Ship, fight: ^Stage_Fight) -> combat.Battle
 // stowed into the player's hold exactly like a Reward. A fled opponent and a stalemate
 // pay nothing — so the outcome reads off the Battle's reason/winner, not `escaped`
 // alone, which cannot tell a clean kill from a draw. `payout` is the gross hold looted;
-// the player may keep less, since a payout above remaining cargo capacity is lost (#157).
-voyage_finish_ship_battle :: proc(battle: ^combat.Battle) -> (outcome: Stage_Outcome, payout: int) {
+// the player may keep less, and `spilled` is that difference — the part of the payout
+// above remaining cargo capacity that was lost (#157), straight from the stow rather
+// than a caller's before/after subtraction. Both are 0 for a payout-less ending.
+voyage_finish_ship_battle :: proc(battle: ^combat.Battle) -> (outcome: Stage_Outcome, payout: int, spilled: int) {
 	assert(battle.ended, "voyage_finish_ship_battle called before the battle ended")
 
 	if battle.reason == .Destroyed {
@@ -53,7 +55,7 @@ voyage_finish_ship_battle :: proc(battle: ^combat.Battle) -> (outcome: Stage_Out
 		wreck := battle.ships[.B]
 		payout = ship.ship_cargo(wreck^)
 		player := battle.ships[.A]
-		ship.ship_stow_cargo(player.layout, ship.ship_cargo(player^) + payout)
+		spilled = ship.ship_stow_cargo(player.layout, ship.ship_cargo(player^) + payout)
 	}
 
 	outcome = .Halted if .A in battle.escaped else .Completed

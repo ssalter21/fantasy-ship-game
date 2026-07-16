@@ -49,12 +49,12 @@ play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
 	if !is_reward {
 		return
 	}
-	// Computed from state.player pre-payout: a Reward changes no slots, so current capacity
-	// is the real one and the overflow (#157) is exactly the cargo the reward can't fit.
-	spilled := max(
-		0,
-		ship.ship_cargo(state.player) + reward.cargo - ship.ship_cargo_capacity(state.player),
-	)
+	// The overflow (#157) the reward can't fit, named at the ship seam rather than by
+	// capacity math in the render layer. It reads state.player pre-payout — a Reward
+	// changes no slots, so current capacity is the real one — and predicts the loss,
+	// because the beat runs before the stow (Event_Stage_Entered precedes it) and so
+	// cannot read ship_stow_cargo's return.
+	spilled := ship.ship_stow_spill(state.player, ship.ship_cargo(state.player) + reward.cargo)
 	play_beat(state, fmt.tprintf("Salvage! You haul aboard %d cargo.%s", reward.cargo, spill_note(spilled)))
 }
 

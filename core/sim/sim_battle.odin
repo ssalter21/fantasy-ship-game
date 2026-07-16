@@ -2,7 +2,6 @@ package sim
 
 import "../combat"
 import "../voyage"
-import "../ship"
 
 // sim_process_battle_round pairs Side.A's submitted command with the scripted
 // opponent's (ADR-0008) and resolves one round via core/combat. On battle end it asks
@@ -41,14 +40,12 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	// Only a wreck pays: the sunk opponent's hold is stowed into the player's. voyage_finish
-	// stows into battle.ships[.A], which aliases sim.player (voyage_start_battle), so cargo
-	// measured before and after gives the real gained delta and spilled is the remainder
-	// lost above capacity. Event_Ship_Updated (ADR-0001) fires only when a payout landed.
-	cargo_before := ship.ship_cargo(sim.player)
-	outcome, payout := voyage.voyage_finish_ship_battle(&sim.battle)
+	// Only a wreck pays: the sunk opponent's hold is stowed into the player's, and the
+	// stow reports the overflow lost above capacity (#157, #159) rather than this proc
+	// recovering it from a before/after subtraction. Event_Ship_Updated (ADR-0001) fires
+	// only when a payout landed.
+	outcome, payout, spilled := voyage.voyage_finish_ship_battle(&sim.battle)
 	if payout > 0 {
-		spilled := payout - (ship.ship_cargo(sim.player) - cargo_before)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
 		append(events, Event(Event_Wreck_Looted{gross = payout, spilled = spilled}))
 	}

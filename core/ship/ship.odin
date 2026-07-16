@@ -497,13 +497,17 @@ ship_cargo :: proc(s: Ship) -> int {
 // (ADR-0020). It first clears every existing cargo fitting — reallocation is free
 // outside battle, so a re-stow rebuilds the hold from scratch — then fills the
 // empty, non-gun slots smallest-first, each up to its capacity, until `amount` is
-// exhausted. Overflow above capacity is lost. The caller passes the desired total,
-// not a delta, so this serves both the bootstrap stow and every out-of-battle
-// cargo change (a Reward gain, a Shop or Trade spend).
+// exhausted. The caller passes the desired total, not a delta, so this serves both
+// the bootstrap stow and every out-of-battle cargo change (a Reward gain, a Shop or
+// Trade spend).
+//
+// Overflow above capacity is lost and returned as `spilled` (0 when everything fit),
+// so the one place the loss actually happens is the one place that reports it — no
+// caller re-derives it from a before/after subtraction or a capacity re-computation.
 //
 // Smallest-first keeps the granularity property: fine change lives in the small
 // slots, so the richer you get the coarser the only cargo you can heave.
-ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) {
+ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) -> (spilled: int) {
 	for &layout_slot in layout {
 		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
 			layout_slot.fitting = nil
@@ -513,7 +517,7 @@ ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) {
 	for size in ([3]Slot_Size{.Small, .Medium, .Large}) {
 		for &layout_slot in layout {
 			if remaining <= 0 {
-				return
+				return 0
 			}
 			if _, occupied := layout_slot.fitting.?; occupied {
 				continue
@@ -526,6 +530,17 @@ ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) {
 			remaining -= stow
 		}
 	}
+	return remaining // the cargo that found no slot — lost above capacity, never stored
+}
+
+// ship_stow_spill reports how much of a prospective new total `amount` would fall
+// overboard (ADR-0020, #157) — the overflow a stow would drop — without touching the
+// hold. It reads the same capacity ship_stow_cargo fills, so it equals the `spilled`
+// that stow would return. It exists for the caller that must name the loss *before*
+// the stow happens (the Reward beat), where ship_stow_cargo's after-the-fact return
+// is out of reach.
+ship_stow_spill :: proc(s: Ship, amount: int) -> int {
+	return max(0, amount - ship_cargo_capacity(s))
 }
 
 // ship_remove takes the fitting out of layout_slot, leaving the slot empty, and
