@@ -4,11 +4,10 @@ import "../combat"
 import "../voyage"
 import "../ship"
 
-// sim_process_battle_round applies a submitted Command_Battle_Choice as the
-// player's (Side.A's) command for the current round, computes the scripted
-// opponent's (Side.B's) command (ADR-0008), and resolves the round via
-// core/combat. If the battle ends, it asks voyage.voyage_finish_ship_battle what that
-// ending means to the Fight stage and hands the outcome back to the walk.
+// sim_process_battle_round takes Side.A's submitted command, pairs it with the
+// scripted opponent's (ADR-0008), and resolves one round via core/combat. When the
+// battle ends it asks voyage_finish_ship_battle what that means to the Fight stage
+// and hands the outcome back to the walk.
 sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	pending, has_pending := sim.pending_command.?
 	assert(has_pending, "sim_process_battle_round called without a pending command")
@@ -19,11 +18,8 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	opponent_command := combat.combat_scripted_command(&sim.battle, .B)
 	cmds := [combat.Side]Maybe(combat.Command){.A = cmd.combat_command, .B = opponent_command}
 
-	// combat_events is per-tick scratch (issue #53): context.temp_allocator, freed
-	// by run_session via free_all(context.temp_allocator) once per driver
-	// iteration. A round no longer allocates anything run-lifetime — jettison now
-	// destroys the heaved cargo rather than recording it (ADR-0020, #159), so the
-	// run-scoped arena block that used to wrap this call (issue #52) is gone.
+	// combat_events is per-tick scratch: temp_allocator, freed by run_session's
+	// free_all once per driver iteration.
 	combat_events := make([dynamic]combat.Event, 0, 0, context.temp_allocator)
 	combat.combat_resolve_round(&sim.battle, cmds, &combat_events)
 
@@ -37,35 +33,28 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	// Sinking is **neither** outcome (ADR-0014): the voyage is over by permadeath
-	// (ADR-0006), so the walk stops dead rather than completing the Fight and applying
-	// whatever came after it to a sunk ship — a [Fight, Reward] must not pay out to a
-	// captain who went down with it. The node is never resolved, so it emits no
-	// Ghost_Snapshot either (issue #162) — the one encounter in a voyage that leaves no
-	// ghost, and Event_Voyage_Ended is what marks it. sim_tick's status check ends the voyage
-	// on the way out of this tick, and it is deliberately not consulted here: the walk
-	// stopping and the voyage ending are separate facts, and only one of them is this
-	// proc's.
+	// Sinking is neither outcome (ADR-0014): permadeath ends the voyage (ADR-0006), so
+	// the walk stops dead rather than completing the Fight — a [Fight, Reward] must not
+	// pay out to a captain who went down with it. Ending the voyage is sim_tick's job on
+	// the way out of this tick, deliberately not this proc's: the walk stopping and the
+	// voyage ending are separate facts.
 	//
-	// Checked **before** voyage_finish_ship_battle so the wreck payout only ever runs for
-	// a captain who survived: a Destroyed ending reaching voyage_finish is then always the
-	// player's kill (#159), never a mutual kill or the player's own sinking.
+	// Checked before voyage_finish_ship_battle so the payout runs only for a survivor:
+	// a Destroyed ending reaching voyage_finish is then always the player's kill, never
+	// a mutual kill or the player's own sinking.
 	if !voyage.voyage_can_travel(&sim.player) {
 		return
 	}
 
-	// Only a wreck pays (#159): a sunk opponent's hold is stowed into the player's
-	// hold here. Event_Ship_Updated is how presentation learns the cargo moved
-	// (ADR-0001), the same event a Reward payout owes — emitted only when a payout
-	// actually landed, since a fled opponent or a stalemate pays nothing.
+	// Only a wreck pays: a sunk opponent's hold is stowed into the player's here.
+	// Event_Ship_Updated (ADR-0001) is emitted only when a payout actually landed — a
+	// fled opponent or a stalemate pays nothing.
 	//
-	// `payout` is the wreck's *gross* hold; the player keeps only what fit, the rest
-	// lost above capacity (#157) — the mainline case (#176/#196). We measure the spill
-	// off the player's own cargo across the payout — voyage_finish stows into
-	// battle.ships[.A], which aliases sim.player (voyage_start_battle) — so `gained` is the
-	// real delta and `spilled` the remainder, and Event_Wreck_Looted carries both so
-	// presentation can name the haul and any overboard loss rather than let it vanish
-	// silently (issue #201).
+	// payout is the wreck's gross hold; the player keeps only what fits, the rest lost
+	// above capacity. voyage_finish stows into battle.ships[.A], which aliases sim.player
+	// (voyage_start_battle), so measuring cargo before and after yields the real gained
+	// delta and spilled is the remainder — Event_Wreck_Looted carries both so an
+	// overboard loss isn't dropped silently.
 	cargo_before := ship.ship_cargo(sim.player)
 	outcome, payout := voyage.voyage_finish_ship_battle(&sim.battle)
 	if payout > 0 {
