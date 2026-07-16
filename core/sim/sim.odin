@@ -323,6 +323,7 @@ Event :: union {
 	Event_Battle_Menu,
 	Event_Battle_Event,
 	Event_Ship_Updated,
+	Event_Wreck_Looted,
 	Event_Stage_Entered,
 	Event_Encounter_Halted,
 	Event_Options_Presented,
@@ -405,6 +406,21 @@ Event_Battle_Event :: struct {
 // HP readout.
 Event_Ship_Updated :: struct {
 	ship: ship.Ship,
+}
+
+// Event_Wreck_Looted is dispatched when a won Fight pays out the sunk opponent's
+// hold (#159, #196): `gross` is the wreck's whole treasure, `spilled` how much of
+// it fell overboard because the player's hold was already near capacity (#157).
+// The `ship` change itself still rides Event_Ship_Updated (the panel re-renders off
+// that alone); this is the extra fact presentation needs to *say what happened* —
+// naming the haul, and any spill, on the beat a Reward payout gets from its own
+// stage-entry beat. It carries the amounts rather than the ship because the spilled
+// treasure is by definition not on the post-payout ship: it is the difference
+// between what the wreck held and what actually fit, so it cannot be re-derived
+// from Event_Ship_Updated's copy. `spilled` is 0 for the common in-capacity payout.
+Event_Wreck_Looted :: struct {
+	gross:   int,
+	spilled: int,
 }
 
 // Event_Stage_Entered says where the encounter's walk is: the cursor has landed on

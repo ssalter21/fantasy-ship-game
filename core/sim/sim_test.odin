@@ -1534,6 +1534,47 @@ winning_a_fight_pays_the_sunk_opponents_hold_into_the_purse :: proc(t: ^testing.
 }
 
 @(test)
+winning_a_fight_surfaces_the_wreck_treasure_that_overflows_the_hold :: proc(t: ^testing.T) {
+	// #201's payout-overflow surfacing: a wreck richer than the player's remaining
+	// headroom pays only what fits (#157), and Event_Wreck_Looted carries both the gross
+	// haul and the part that fell overboard so presentation can say so rather than let it
+	// vanish silently. The player starts at 50 of 90 (40 of headroom), so a wreck filled
+	// to the ceiling overflows — the mainline case once a hold is near full (#196).
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	before := ship.ship_treasure(sim.player)
+	capacity := ship.ship_cargo_capacity(sim.player)
+	fight := fight_stage(&sim, 1) // 1 HP: sinks in a round, before it could jettison
+	ship.ship_stow_treasure(fight.opponent.layout, capacity) // a hold larger than the player's headroom
+	gross := ship.ship_treasure(fight.opponent) // what the wreck actually holds after the stow
+	install_encounter(&sim, 1, fight)
+	arrive_at(&sim, 1, &events)
+
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
+	refit_tick(&sim, &events)
+
+	testing.expect(t, sim.battle.ended)
+	testing.expect_value(t, ship.ship_treasure(sim.player), capacity) // filled to the ceiling, no further
+	kept := capacity - before // what the headroom could take
+
+	found := false
+	for event in events {
+		looted, ok := event.(Event_Wreck_Looted)
+		if !ok {
+			continue
+		}
+		found = true
+		testing.expect_value(t, looted.gross, gross) // the whole wreck hold is named
+		testing.expect_value(t, looted.spilled, gross - kept) // the rest went overboard
+	}
+	testing.expect(t, found) // the overflow is surfaced, not silent
+}
+
+@(test)
 reallocating_cargo_in_battle_moves_treasure_through_the_sim_and_keeps_the_battle_going :: proc(t: ^testing.T) {
 	// The reallocation order end to end through the sim (#200): the player submits a
 	// Command_Reallocate, the round resolves, and the wrapped Event_Cargo_Reallocated

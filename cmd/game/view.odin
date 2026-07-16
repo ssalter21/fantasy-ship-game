@@ -281,8 +281,7 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 	rl.DrawText(fmt.ctprintf("%s", title), x, y, 20, rl.DARKGRAY)
 	// SPD is the *effective* Speed now (ADR-0020): s.speed is only the base term,
 	// and a ship's real Speed reads its weight (ship_effective_speed). Showing the
-	// raw base here would print 16 for a ship that actually sails at 4. A richer
-	// readout of weight and the hold is the map's UI fog, not this line.
+	// raw base here would print 16 for a ship that actually sails at 4.
 	rl.DrawText(
 		fmt.ctprintf("HP %d/%d   DUR %d   SPD %d", s.hp, s.max_hp, s.durability, ship.ship_effective_speed(s)),
 		x,
@@ -290,9 +289,35 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 		16,
 		rl.BLACK,
 	)
+	// The weight economy, in the glossary's words (issue #201, ADR-0020). Weight is
+	// the subtrahend the SPD above reads (ship_effective_speed subtracts weight/10), so
+	// the captain can finally see the number that governs their Speed. "Hold X/Y" is the
+	// purse rendered as the treasure in the cargo holds against the hull's capacity
+	// (ship_treasure / ship_cargo_capacity) — no bare money number rides on a ship, and
+	// "your hold is full" now means treasure has met capacity. It doubles as the ceiling
+	// readout #157/#196 make load-bearing: a payout above capacity spills overboard, so
+	// this is how a captain reads their headroom *before* walking into a Reward.
+	//
+	// Own ship only. A scouted opponent's wealth stays behind the concealment gate
+	// (ADR-0005) — the same reason its concealed fittings read "???" below — so the
+	// weight/hold line is drawn only when the panel is ungated.
+	if !gate_visibility {
+		rl.DrawText(
+			fmt.ctprintf(
+				"Hold %d/%d   Weight %d",
+				ship.ship_treasure(s^),
+				ship.ship_cargo_capacity(s^),
+				ship.ship_weight(s^),
+			),
+			x,
+			y + 46,
+			14,
+			rl.DARKGRAY,
+		)
+	}
 
 	for layout_slot, i in s.layout {
-		row_y := y + 56 + i32(i) * 24
+		row_y := y + 62 + i32(i) * 24
 		fitting, has_fitting := layout_slot.fitting.?
 
 		label: string

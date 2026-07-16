@@ -169,6 +169,12 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Ship_Updated:
 		state.player = e.ship
 
+	case sim.Event_Wreck_Looted:
+		// A won Fight's payout has no screen of its own (unlike a Reward, which gets
+		// play_stage_entry_beat), so it is said out loud here — the haul, and any of it
+		// spilled overboard because the hold was full (issue #201, #196).
+		play_beat(state, wreck_loot_beat_text(e.gross, e.spilled))
+
 	case sim.Event_Stage_Entered:
 		// The cursor moved: remember it so draw_encounter_strip can show the sequence and
 		// where in it the captain is (issue #139).

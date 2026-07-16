@@ -109,6 +109,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Battle_Menu:
 	case sim.Event_Battle_Event:
 	case sim.Event_Ship_Updated:
+	case sim.Event_Wreck_Looted:
 	case sim.Event_Stage_Entered:
 	case sim.Event_Encounter_Halted:
 	case sim.Event_Options_Presented:
