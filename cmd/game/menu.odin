@@ -60,8 +60,37 @@ play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
 		return
 	}
 	// Fires before run_apply_reward's Event_Ship_Updated lands, so the beat reads while
-	// the panel still shows the old purse and the number moves as it clears.
-	play_beat(state, fmt.tprintf("Salvage! You haul aboard %d treasure.", reward.treasure))
+	// the panel still shows the old purse and the number moves as it clears. That timing
+	// is also why the spill is computed here from state.player: a Reward changes no slots,
+	// so the pre-payout capacity is the real one, and the overflow (#157) is exactly the
+	// treasure the incoming reward can't fit — surfaced rather than lost silently (#201).
+	spilled := max(
+		0,
+		ship.ship_treasure(state.player) + reward.treasure - ship.ship_cargo_capacity(state.player),
+	)
+	play_beat(state, fmt.tprintf("Salvage! You haul aboard %d treasure.%s", reward.treasure, spill_note(spilled)))
+}
+
+// spill_note is the clause a payout beat appends when treasure fell overboard: a
+// hold at capacity keeps nothing more, so a payout above it is lost (#157), and
+// #196 makes that the mainline result of winning a Fight. Said out loud in the
+// glossary's terms — a full hold — so a purse that grew by less than the payout
+// reads as the ceiling doing its job, not as a bug. Empty when nothing spilled.
+spill_note :: proc(spilled: int) -> string {
+	if spilled <= 0 {
+		return ""
+	}
+	return fmt.tprintf(" %d spills overboard — your hold is full.", spilled)
+}
+
+// wreck_loot_beat_text names a won Fight's payout the way play_stage_entry_beat names
+// a Reward's (issue #201): a wreck's hold is loot with no screen of its own, so without
+// a beat the whole of it is a purse that silently grew while the map came back up — the
+// same gap #139 closed for the Reward stage. `gross` is the wreck's whole hold and
+// `spilled` (from Event_Wreck_Looted) the part that overflowed the player's capacity,
+// the mainline case here (#176/#196), surfaced with the shared spill_note.
+wreck_loot_beat_text :: proc(gross: int, spilled: int) -> string {
+	return fmt.tprintf("You loot the wreck: %d treasure.%s", gross, spill_note(spilled))
 }
 
 // halt_beat_text renders a halt as a consequence rather than a silence (issue #139,
