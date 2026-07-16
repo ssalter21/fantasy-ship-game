@@ -64,6 +64,13 @@ Battle :: struct {
 	// [Side]bool membership array).
 	escaped:    bit_set[Side],
 	ended:      bool,
+	// reason/winner mirror the Event_Battle_Ended emitted the moment the battle
+	// ends, so a caller holding only the Battle — run_finish_ship_battle, which must
+	// pay the wreck's hold to a captain who sank it (#159) — can read *how* it ended
+	// without replaying the event stream. Meaningful only once `ended`: on an unended
+	// battle `reason` reads as its zero value (.Destroyed) and must not be consulted.
+	reason:     End_Reason,
+	winner:     Maybe(Side),
 }
 
 // End_Reason is why a Battle ended.
@@ -245,7 +252,9 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// no phase resolves the round a ship leaves.
 	if battle.escaped != {} {
 		battle.ended = true
-		append(events, Event(Event_Battle_Ended{round = battle.round, reason = .Left_Combat, winner = nil}))
+		battle.reason = .Left_Combat
+		battle.winner = nil
+		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
 		return
 	}
 
@@ -313,22 +322,24 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 
 	if round_state[.A].sunk || round_state[.B].sunk {
 		battle.ended = true
-		winner: Maybe(Side)
+		battle.reason = .Destroyed
 		switch {
 		case round_state[.A].sunk && round_state[.B].sunk:
-			winner = combat_speed_tiebreak(battle)
+			battle.winner = combat_speed_tiebreak(battle)
 		case round_state[.A].sunk:
-			winner = Side.B
+			battle.winner = Side.B
 		case round_state[.B].sunk:
-			winner = Side.A
+			battle.winner = Side.A
 		}
-		append(events, Event(Event_Battle_Ended{round = battle.round, reason = .Destroyed, winner = winner}))
+		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
 		return
 	}
 
 	if battle.round >= HARD_ROUND_CAP {
 		battle.ended = true
-		append(events, Event(Event_Battle_Ended{round = battle.round, reason = .Round_Cap, winner = combat_hp_tiebreak(battle)}))
+		battle.reason = .Round_Cap
+		battle.winner = combat_hp_tiebreak(battle)
+		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
 	}
 }
 

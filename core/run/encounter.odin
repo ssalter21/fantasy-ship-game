@@ -41,17 +41,45 @@ run_start_battle :: proc(s: ^ship.Ship, fight: ^Stage_Fight) -> combat.Battle {
 // stalemate, and the opponent's *own* escape — Side.B fleeing is not the captain
 // declining the fight, so it reads as the fight being over rather than as a halt.
 //
-// **Sinking is neither**, and is not asked of this proc: the run is over by
-// permadeath (ADR-0006) and the walk stops dead rather than resolving the stage at
-// all, so the caller checks run_can_travel before it consults the outcome.
+// **The captain's own sinking is neither**, and is not asked of this proc: the
+// run is over by permadeath (ADR-0006) and the walk stops dead rather than
+// resolving the stage at all, so the caller checks run_can_travel before it
+// consults the outcome. That gate is also what lets the payout below assume a
+// Destroyed ending reaching here is the *player's* kill.
+//
+// **Only a wreck pays** (#159): a sunk opponent hands over its hold as it stands —
+// the real treasure still stowed in its cargo slots (ship_treasure), stowed into
+// the player's purse exactly like a Reward (run_apply_reward). A fled opponent and
+// a round-cap stalemate pay nothing, which is why the outcome had to become
+// readable off the Battle (combat's reason/winner) rather than off `escaped` alone:
+// `escaped` cannot tell a clean kill from a twenty-round draw, and both complete.
+// The `payout` return is the gross hold looted (0 when nothing was); the player may
+// keep less, because a payout above the ship's remaining cargo capacity is lost
+// (#157) — the mainline case here, since #176's flat 50% hostile fill pays 30–65
+// against ~40 of headroom, so winning a Fight routinely spills treasure overboard.
 //
 // It used to return a Ghost_Snapshot instead, which is why it took the player's
 // ship, the node's zone, and the step count it no longer needs — see the file
 // header (issue #162).
-run_finish_ship_battle :: proc(battle: ^combat.Battle) -> Stage_Outcome {
+run_finish_ship_battle :: proc(battle: ^combat.Battle) -> (outcome: Stage_Outcome, payout: int) {
 	assert(battle.ended, "run_finish_ship_battle called before the battle ended")
 
-	return .Halted if .A in battle.escaped else .Completed
+	if battle.reason == .Destroyed {
+		winner, has_winner := battle.winner.?
+		assert(has_winner && winner == .A, "a Destroyed battle paying out must have the player (.A) as the winner")
+		// The wreck is the loser (.B). This *reads* its hold and never mutates it: the
+		// Fight's opponent layout aliases the map node's backing array (sim_enter_stage
+		// shallow-copies Stage_Fight), so emptying it here would corrupt the stored node.
+		// Heaved cargo is already gone (jettison destroys it, #159); a sinking pays only
+		// what is still aboard.
+		wreck := battle.ships[.B]
+		payout = ship.ship_treasure(wreck^)
+		player := battle.ships[.A]
+		ship.ship_stow_treasure(player.layout, ship.ship_treasure(player^) + payout)
+	}
+
+	outcome = .Halted if .A in battle.escaped else .Completed
+	return
 }
 
 // An Offer stage has no run-side apply proc (issue #96): unlike a Trade it

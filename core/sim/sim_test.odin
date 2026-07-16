@@ -1478,6 +1478,10 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 	// the whole model exists to express: [Fight, Reward] means "win, then loot" with no
 	// authored gate saying so. Victory completes the Fight, so the walk carries on to
 	// the Reward, which pays out and resolves the node without a further decision.
+	//
+	// The Fight now *also* pays the wreck's hold (#159), so a real [Fight, Reward] pays
+	// twice — accepted, and left to #127's tuning fog. Here the wreck is emptied so this
+	// stays about the walk and the Reward; the wreck payout has its own test below.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
@@ -1485,7 +1489,9 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 
 	ready_for_battle(&sim)
 	before := ship.ship_treasure(sim.player)
-	install_encounter(&sim, 1, fight_stage(&sim, 1), reward_stage()) // 1 HP: sinks in a round
+	fight := fight_stage(&sim, 1) // 1 HP: sinks in a round
+	ship.ship_stow_treasure(fight.opponent.layout, 0) // broke wreck: isolate the Reward as the only payout
+	install_encounter(&sim, 1, fight, reward_stage())
 	arrive_at(&sim, 1, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
@@ -1496,6 +1502,35 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 	testing.expect_value(t, ship.ship_treasure(sim.player), before + REWARD_PAYOUT)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
+}
+
+@(test)
+winning_a_fight_pays_the_sunk_opponents_hold_into_the_purse :: proc(t: ^testing.T) {
+	// #159's paying case, end to end: sinking a ship gives you its hold. A bare [Fight]
+	// with no Reward behind it isolates the payout to the wreck itself — the Fight, not
+	// a loot stage, is what pays — and the purse rises by the treasure that was aboard.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	before := ship.ship_treasure(sim.player) // 50 of a 90 capacity: room for the hold below with no overflow
+	fight := fight_stage(&sim, 1) // 1 HP: sinks in a round
+	WRECK_HOLD :: 20
+	ship.ship_stow_treasure(fight.opponent.layout, WRECK_HOLD) // a controlled hold within the player's headroom
+	install_encounter(&sim, 1, fight)
+	arrive_at(&sim, 1, &events)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
+
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
+	refit_tick(&sim, &events)
+
+	testing.expect(t, sim.battle.ended)
+	testing.expect_value(t, ship.ship_treasure(sim.player), before + WRECK_HOLD) // looted the wreck, within capacity
+	testing.expect(t, has_event(events[:], Event_Ship_Updated)) // presentation learns the purse moved (ADR-0001)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, sim.resolved[1]) // a bare [Fight] resolves the node on victory
 }
 
 @(test)
@@ -1632,7 +1667,9 @@ one_encounter_emits_one_snapshot_however_many_stages_resolve :: proc(t: ^testing
 
 	ready_for_battle(&sim)
 	before := ship.ship_treasure(sim.player)
-	install_encounter(&sim, 1, fight_stage(&sim, 1), reward_stage()) // 1 HP: sinks in a round
+	fight := fight_stage(&sim, 1) // 1 HP: sinks in a round
+	ship.ship_stow_treasure(fight.opponent.layout, 0) // broke wreck: this test is about the ghost cadence, not the payout
+	install_encounter(&sim, 1, fight, reward_stage())
 	arrive_at(&sim, 1, &events)
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = BOOST_OFFENSIVE}))
