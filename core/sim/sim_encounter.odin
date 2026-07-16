@@ -252,11 +252,7 @@ sim_advance_stage :: proc(sim: ^Sim, outcome: voyage.Stage_Outcome, events: ^[dy
 // the *stage* is the primitive's business (ADR-0014), asked of it below rather than baked
 // into the phase.
 sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
-	pending, has_pending := sim.pending_command.?
-	assert(has_pending, "sim_process_option_choice called without a pending command")
-	cmd, is_choice := pending.(Command_Choose_Option)
-	assert(is_choice, "sim_process_option_choice called without a pending Command_Choose_Option")
-	sim.pending_command = nil
+	cmd := sim_take_pending(sim, Command_Choose_Option)
 
 	encounter, has_encounter := sim_current_encounter(sim)
 	assert(has_encounter, "an option choice was answered at a node that holds no encounter")

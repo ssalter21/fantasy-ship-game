@@ -665,7 +665,7 @@ the_voyage_start_broadcast_withholds_hidden_stages_and_reveals_on_arrival :: pro
 }
 
 @(test)
-submit_captain_choice_asserts_when_command_does_not_match_the_awaited_phase :: proc(t: ^testing.T) {
+a_command_that_does_not_match_the_awaited_phase_traps_on_the_next_tick :: proc(t: ^testing.T) {
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
@@ -676,8 +676,11 @@ submit_captain_choice_asserts_when_command_does_not_match_the_awaited_phase :: p
 	defer delete(events)
 	sim_tick(&sim, &events) // first tick: awaiting a travel choice
 
-	testing.expect_assert(t, "expected a Command_Travel_To while awaiting a travel choice")
+	// A mismatched Command is accepted at submit and trapped when the Phase's processor
+	// unwraps it on the next tick (sim_take_pending) — not by a separate check at submit.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	testing.expect_assert(t, "the pending command does not match the phase awaiting it")
+	sim_tick(&sim, &events)
 }
 
 @(test)
