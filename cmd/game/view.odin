@@ -363,7 +363,7 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 // fitting_effect_intent renders a one-line, human-readable summary of what a
 // fitting's effect does (issue #96's "effect intent"): the magnitude and what it
 // feeds — a combat phase (its Category), or a ship stat for a stat-modifier —
-// with the synergy/conditional context spelled out ("+2 Buff per Weapon",
+// with the synergy/conditional context spelled out ("+2 Muster per Weapon",
 // "+8 Offense below 50% Hull"). Reads whichever of active/passive carries the one
 // effect a roster item has; returns "no effect" for a cargo filler.
 fitting_effect_intent :: proc(f: ship.Fitting) -> string {
@@ -380,11 +380,11 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 	switch effect.kind {
 	case .Phase_Contribution:
 		switch f.category {
-		case .Buff:
-			target = "Buff"
-		case .Defensive:
+		case .Muster:
+			target = "Muster"
+		case .Brace:
 			target = "Defense"
-		case .Offensive:
+		case .Fire:
 			target = "Offense"
 		}
 	case .Modify_Durability:

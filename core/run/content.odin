@@ -123,9 +123,9 @@ REEF_SKIMMER_ITEMS := [?]string{"Deck Cannon", "Carronade", "Copper Sheathing", 
 // before it has anywhere to scale down *to*.
 //
 // **The payoff is that the ceiling moved, so builds that were too heavy now fit.**
-// #135 could not author a `Selector` buff onto a hostile at all (Admiral's Guard read
+// #135 could not author a `Selector` muster onto a hostile at all (Admiral's Guard read
 // +12 *defence* and made the fight arithmetically unwinnable); #151 fixed the
-// category — buff feeds Offensive only, so a Selector is a hard hitter rather than an
+// category — muster feeds Fire only, so a Selector is a hard hitter rather than an
 // invulnerable one — but left the magnitude too heavy for a Coastal starting ship,
 // which is why Boarding Party was still carrying flat War Drums. With a way down,
 // +9 of Guard is +4 at Coastal and +15 in The Deep. **Boarding Party finally carries
@@ -148,7 +148,7 @@ hostile_roster := [?]Hostile_Archetype {
 	// argument and was simply unaffordable while an entry had to survive contact with
 	// a starting ship undiminished.
 	{name = "Coastal Privateer", items = COASTAL_PRIVATEER_ITEMS[:]},
-	// Every gun aboard makes the crew's guns hit harder: Powder Monkeys buff per
+	// Every gun aboard makes the crew's guns hit harder: Powder Monkeys muster per
 	// Weapon, and every other item is a Weapon (Boarding Pikes and Naval Gun Crew are
 	// multi-tag Crew+Weapon, so they pay into it while reading as boarders).
 	//
@@ -191,9 +191,9 @@ hostile_roster := [?]Hostile_Archetype {
 	// at round 2 and nothing ever reached the gate to bolt at.
 	//
 	// **It takes its Ghost Lantern with #165**, which the entry has been asking for
-	// across two tickets: #135 could not have it because buff was soak and the Lantern
+	// across two tickets: #135 could not have it because muster was soak and the Lantern
 	// would have made the hostile undentable; #151 killed that reason and said so here
-	// ("the entry is worth revisiting"), but a +4 buff on top of a Wraith Cannon was
+	// ("the entry is worth revisiting"), but a +4 muster on top of a Wraith Cannon was
 	// still too much ship to meet at Coastal undiminished. Every Small slot on the
 	// template is concealed, so the Lantern's Condition_Self_Visibility fires for the
 	// same reason the Cannon's does — the entry now states its theme twice with one
@@ -218,7 +218,7 @@ hostile_roster := [?]Hostile_Archetype {
 	{name = "Ironclad Hulk", items = IRONCLAD_HULK_ITEMS[:]},
 	// Crew — **and the entry that finally carries Admiral's Guard** (+3 per Crew
 	// aboard, three Crew here, so +9). It is the roster's longest-running argument,
-	// settled: #135 authored flat War Drums instead because buff folded into defence
+	// settled: #135 authored flat War Drums instead because muster folded into defence
 	// and +9 of Guard was an unwinnable fight rather than a hard one; #151 removed
 	// that fold and made the bar a *magnitude* rather than a category, but a starting
 	// ship still met the full +9 at Coastal; #165's way down makes it +4 there and +15
@@ -242,7 +242,7 @@ hostile_roster := [?]Hostile_Archetype {
 	//
 	// The two Modify_Speed items are also this entry's second job: they are why
 	// the_site_never_moves_a_hostiles_speed exists. Both are filed under Category
-	// `.Buff` — a category the site now scales — so this is the build that would break
+	// `.Muster` — a category the site now scales — so this is the build that would break
 	// loudest if ship_fitting_output_scaled ever started touching passives.
 	{name = "Reef Skimmer", items = REEF_SKIMMER_ITEMS[:]},
 }
@@ -280,32 +280,32 @@ run_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 // fitting of this Category — the whole of the rule, which is: **stakes scales what a
 // hostile deals, never what it soaks.**
 //
-// #135 wrote that rule as "only Offensive fittings take it", and its stated reason
-// was that a bonus on Buff or Defensive would inflate `defense_bonus` and make a
+// #135 wrote that rule as "only Fire fittings take it", and its stated reason
+// was that a bonus on Muster or Brace would inflate `defense_bonus` and make a
 // deep hostile harder to *hurt* rather than harder to fight. **Half of that reason
-// died with #151** (ADR-0017) and the rule outlived it: Buff no longer feeds
-// `defense_bonus` at all — `raw_damage = boosted(Offensive) + boosted(Buff)` — so a
-// scaled Buff fitting now makes a hostile hit harder, which is exactly what stakes
-// is for. Only the Defensive half of the reason survives, and it survives intact:
+// died with #151** (ADR-0017) and the rule outlived it: Muster no longer feeds
+// `defense_bonus` at all — `raw_damage = boosted(Fire) + boosted(Muster)` — so a
+// scaled Muster fitting now makes a hostile hit harder, which is exactly what stakes
+// is for. Only the Brace half of the reason survives, and it survives intact:
 // soak is subtracted from raw, so a site that scaled it would eventually make a
 // hostile impossible to hurt at any magnitude.
 //
-// Under the old additive bonus this was a rounding error — a flat +2..+9 that Buff
+// Under the old additive bonus this was a rounding error — a flat +2..+9 that Muster
 // happened not to collect. Under a multiplier it is the defect itself: a hostile's
-// unscaled Buff would be a **floor the site cannot lower**, so Boarding Party's War
+// unscaled Muster would be a **floor the site cannot lower**, so Boarding Party's War
 // Drums (3) and Broadside Company's Powder Monkeys would stand at full strength in
 // the Coastal shallows while the guns beside them halved — the same "the floor is
 // whatever was authored" complaint this ticket exists to answer, just smaller.
 //
 // Note this is the *category* half of the rule only. Category is a combat phase, and
-// `.Buff` also holds every Modify_Speed item in the roster; it is
+// `.Muster` also holds every Modify_Speed item in the roster; it is
 // ship_fitting_output_scaled that declines to touch those, and the reason it must is
 // on that proc.
 run_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	switch category {
-	case .Offensive, .Buff:
-		return true // raw_damage = Offensive + Buff (core/combat, ADR-0017)
-	case .Defensive:
+	case .Fire, .Muster:
+		return true // raw_damage = Fire + Muster (core/combat, ADR-0017)
+	case .Brace:
 		return false // soak, and soak's vocabulary has to stay small
 	}
 	return false
@@ -362,7 +362,7 @@ run_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_A
 // run_pve_opponent builds a full Ship Battle opponent by drawing one archetype from
 // the hostile roster (#135) and baking it at this node's stakes: the archetype
 // supplies the loadout (and, through its weight, its Speed), the site supplies hull,
-// durability, and the offensive bonus. Draws off the map generator's RNG (`gen`) — so *which* hostile a
+// durability, and the fire bonus. Draws off the map generator's RNG (`gen`) — so *which* hostile a
 // node holds is reproducible per seed yet varies node to node, exactly like an
 // Offer's items, a Shop's deck and a Trade's axis — and is called from
 // run_bake_stage at generation time. Nothing rolls on arrival (ADR-0013).
@@ -484,7 +484,7 @@ Trade_Axis :: struct {
 // Durability-gaining row returns whenever the roster is re-widened.
 // Names are checked against core/ship's fitting roster and deliberately don't
 // collide with it: a Trade is not a thing you install, and "Reinforced Hull"
-// already names a Medium Defensive fitting the player can be holding while a
+// already names a Medium Brace fitting the player can be holding while a
 // trade is on screen.
 @(rodata)
 trade_roster := [?]Trade_Axis {
@@ -570,8 +570,8 @@ Stock_Pool :: enum {
 // **Subset, via `families`** — the shop's character. The Tag families are the
 // roster's own authored family axis (ADR-0012), and they are what reads as a kind
 // of business: a hold of Weapons is an ordnance hoy, a hold of Beasts is a
-// menagerie. Filtering on Tag rather than Category (Buff/Defensive/Offensive) is
-// deliberate: Category is a *combat phase*, so a "Defensive shop" describes when its
+// menagerie. Filtering on Tag rather than Category (Muster/Brace/Fire) is
+// deliberate: Category is a *combat phase*, so a "Brace shop" describes when its
 // wares fire, not what they are, and no chandler ever sorted a warehouse that way.
 //
 // **Size, via `depth`** — how many cards deep the hold is, and the only reason a

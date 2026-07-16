@@ -26,7 +26,7 @@ test_hostile :: proc(archetype: Hostile_Archetype, site: Scaling_Site) -> ship.S
 }
 
 // hostile_output is what an archetype actually *deals* in a round —
-// `raw_damage = Offensive + Buff` (core/combat, ADR-0017) — resolved through a real
+// `raw_damage = Fire + Muster` (core/combat, ADR-0017) — resolved through a real
 // Battle rather than read off the authored magnitudes.
 //
 // The distinction is the whole reason this helper exists (#165). phase_magnitude
@@ -46,7 +46,7 @@ hostile_output :: proc(hostile: ^ship.Ship, round: int = 1) -> int {
 
 	battle := combat.combat_battle_create(&player, hostile)
 	battle.round = round
-	return combat.combat_phase_output(&battle, .B, .Offensive) + combat.combat_phase_output(&battle, .B, .Buff)
+	return combat.combat_phase_output(&battle, .B, .Fire) + combat.combat_phase_output(&battle, .B, .Muster)
 }
 
 // hostile_at_power builds an archetype at an explicit power percent, off a site that
@@ -160,14 +160,14 @@ every_hostile_archetype_is_built_from_real_roster_items :: proc(t: ^testing.T) {
 // happens to be. Drawing both from the same seed makes them the same archetype, so
 // the only difference is the site.
 @(test)
-a_deeper_node_gives_the_opponent_harder_hitting_offensive_fittings :: proc(t: ^testing.T) {
+a_deeper_node_gives_the_opponent_harder_hitting_fire_fittings :: proc(t: ^testing.T) {
 	coastal := test_opponent(Scaling_Site{zone = .Coastal, depth = 0}, 4)
 	defer delete(coastal.layout)
 	deep := test_opponent(Scaling_Site{zone = .Deep, depth = 3}, 4)
 	defer delete(deep.layout)
 
 	testing.expect_value(t, loadout_signature(coastal), loadout_signature(deep)) // same build
-	testing.expect(t, phase_magnitude(deep, .Offensive) > phase_magnitude(coastal, .Offensive))
+	testing.expect(t, phase_magnitude(deep, .Fire) > phase_magnitude(coastal, .Fire))
 	testing.expect(t, deep.hull > coastal.hull)
 	testing.expect(t, deep.durability > coastal.durability)
 }
@@ -177,14 +177,14 @@ a_deeper_node_gives_the_opponent_harder_hitting_offensive_fittings :: proc(t: ^t
 // alive: soak is subtracted from raw damage, so a site that scaled it would make a
 // deep hostile impossible to *hurt* rather than harder to fight.
 //
-// The other half of #135's rule — "Buff is not scaled either" — is deliberately
-// **gone** (#165), because #151 took Buff out of `defense_bonus`, so a scaled Buff
+// The other half of #135's rule — "Muster is not scaled either" — is deliberately
+// **gone** (#165), because #151 took Muster out of `defense_bonus`, so a scaled Muster
 // fitting now hits harder rather than soaking harder. That the two halves had one
 // stated reason and only one of them still holds is why this test names the
 // property rather than the category list.
 //
-// Both of a Defensive fitting's routes into soak are checked, since the roster uses
-// both: `Barricades` is an active that feeds the Defensive phase, and `Reinforced
+// Both of a Brace fitting's routes into soak are checked, since the roster uses
+// both: `Barricades` is an active that feeds the Brace phase, and `Reinforced
 // Hull` is a passive Modify_Durability that never enters a phase at all. The site's
 // own durability reading is subtracted off so this asks about the *archetype's*
 // contribution rather than run_make_opponent_ship's baseline, which is a stakes
@@ -202,8 +202,8 @@ the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing
 
 		testing.expectf(
 			t,
-			phase_magnitude(deep, .Defensive) == phase_magnitude(shallow, .Defensive),
-			"%v's defensive output moved with the site — soak is subtracted from raw, so scaling it walls the player",
+			phase_magnitude(deep, .Brace) == phase_magnitude(shallow, .Brace),
+			"%v's brace output moved with the site — soak is subtracted from raw, so scaling it walls the player",
 			archetype.name,
 		)
 		testing.expectf(
@@ -220,8 +220,8 @@ the_site_scales_what_a_hostile_deals_and_never_what_it_soaks :: proc(t: ^testing
 // reason FIGHT_OPPONENT_SPEED was retired onto Hostile_Archetype by #135).
 //
 // This is a new tripwire, and it is live rather than theoretical: the roster's four
-// Modify_Speed items are filed under Category `.Buff` (Spare Rigging, Copper
-// Sheathing, Outriggers, Enchanted Keel), and `.Buff` is a category the site now
+// Modify_Speed items are filed under Category `.Muster` (Spare Rigging, Copper
+// Sheathing, Outriggers, Enchanted Keel), and `.Muster` is a category the site now
 // scales. Only ship_fitting_output_scaled's refusal to touch anything but an active
 // Phase_Contribution keeps a Deep node from handing Reef Skimmer more Speed than a
 // Coastal one — which would quietly decide who is allowed to leave the fight, since
@@ -560,14 +560,14 @@ a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^
 // roster — every `Selector`-based item, which is most of what the roster is *for* —
 // could not sit on a hostile at any magnitude.
 //
-// It can now, and the reason is structural rather than tuned: a Selector buff is
+// It can now, and the reason is structural rather than tuned: a Selector muster is
 // output, and output is the side of the ledger that can absorb a 12. The build is a
 // hard hitter instead of an invincible one, which is a *magnitude* problem (tunable
 // by the entry, the site, or the item) rather than a *category* one. So this test
 // asserts the property that changed — the player's damage gets through a stacked
-// Selector buff — and not a number.
+// Selector muster — and not a number.
 @(test)
-a_selector_buff_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^testing.T) {
+a_selector_muster_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^testing.T) {
 	// Four Crew aboard: Admiral's Guard itself, Naval Gun Crew, Boarding Pikes and
 	// Deckhands are all Crew-tagged, so the Guard reads its own maximum.
 	guard := [?]string{"Naval Gun Crew", "Admiral's Guard", "Boarding Pikes", "Deckhands"}
@@ -589,7 +589,7 @@ a_selector_buff_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^test
 	testing.expectf(
 		t,
 		hostile.hull < hostile.max_hull,
-		"a starting player cannot scratch a four-Crew Admiral's Guard build — the buff is soaking again, and every Selector item is barred from half the game",
+		"a starting player cannot scratch a four-Crew Admiral's Guard build — the muster is soaking again, and every Selector item is barred from half the game",
 	)
 }
 

@@ -386,7 +386,7 @@ synergy_ship :: proc(fittings: ..Fitting) -> Ship {
 selector_matches_over_each_of_tag_size_visibility_and_category :: proc(t: ^testing.T) {
 	slot := Layout_Slot{
 		slot    = Slot{size = .Large, base_visibility = .Concealed},
-		fitting = Fitting{name = "War Kraken", size = .Large, category = .Offensive, tags = {.Beast, .Weapon}},
+		fitting = Fitting{name = "War Kraken", size = .Large, category = .Fire, tags = {.Beast, .Weapon}},
 	}
 
 	// Tag: a multi-tag fitting matches on each of its own tags, and misses a tag it lacks.
@@ -396,8 +396,8 @@ selector_matches_over_each_of_tag_size_visibility_and_category :: proc(t: ^testi
 	// Size / Category: the fitting's own field.
 	testing.expect(t, selector_matches(slot, Selector(Slot_Size.Large)))
 	testing.expect(t, !selector_matches(slot, Selector(Slot_Size.Small)))
-	testing.expect(t, selector_matches(slot, Selector(Category.Offensive)))
-	testing.expect(t, !selector_matches(slot, Selector(Category.Buff)))
+	testing.expect(t, selector_matches(slot, Selector(Category.Fire)))
+	testing.expect(t, !selector_matches(slot, Selector(Category.Muster)))
 	// Visibility: the fitting's effective visibility (through the slot), not a raw field.
 	testing.expect(t, selector_matches(slot, Selector(Visibility.Concealed)))
 	testing.expect(t, !selector_matches(slot, Selector(Visibility.Exposed)))
@@ -450,20 +450,20 @@ effect_magnitude_scales_a_synergy_effect_by_the_matching_count :: proc(t: ^testi
 @(test)
 count_matching_on_a_category_selector_counts_by_the_fittings_category_field :: proc(t: ^testing.T) {
 	// A Category selector reads Fitting.category directly. That field's zero
-	// value is .Buff, and cargo / effect-less fittings never set it, so a
-	// Selector(Category.Buff) counts every such fitting as a Buff. This test
+	// value is .Muster, and cargo / effect-less fittings never set it, so a
+	// Selector(Category.Muster) counts every such fitting as a Muster. This test
 	// pins that behavior down (ship_count_matching's doc caveat): a content
-	// author selecting on .Buff must expect zero-value fittings in the count.
+	// author selecting on .Muster must expect zero-value fittings in the count.
 	s := synergy_ship(
-		Fitting{name = "Top Crew", size = .Medium, category = .Buff},
-		Fitting{name = "Gun Deck", size = .Large, category = .Offensive},
+		Fitting{name = "Top Crew", size = .Medium, category = .Muster},
+		Fitting{name = "Gun Deck", size = .Large, category = .Fire},
 		Fitting{name = "Cargo", size = .Small, tags = {.Cargo}, is_cargo = true, stack_count = 1},
 	)
 	defer delete(s.layout)
 
-	// Top Crew (explicit .Buff) and Cargo (zero-value .Buff) both count.
-	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Buff)), 2)
-	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Offensive)), 1)
+	// Top Crew (explicit .Muster) and Cargo (zero-value .Muster) both count.
+	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Muster)), 2)
+	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Fire)), 1)
 }
 
 @(test)
@@ -478,7 +478,7 @@ effect_magnitude_of_a_synergy_with_no_matches_is_zero :: proc(t: ^testing.T) {
 
 @(test)
 effective_stats_equal_the_raw_fields_when_no_stat_modifier_is_installed :: proc(t: ^testing.T) {
-	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Offensive, active = Effect{magnitude = 10}}
+	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Fire, active = Effect{magnitude = 10}}
 	s := Ship{
 		durability = 2, speed = 4, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},

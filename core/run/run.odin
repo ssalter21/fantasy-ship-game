@@ -201,7 +201,7 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // the Trade vocabulary with ADR-0020/#180, so there is no swing to quote for it.)
 //
 // **#151 did not reopen the depth axis**, contrary to what the note above hoped:
-// the band widened through the buff fold and the Hull scale rather than through
+// the band widened through the muster fold and the Hull scale rather than through
 // Durability, whose base is still 2. So there is still nothing finer than a zone to
 // express a depth step in, and the axis stays deleted.
 TRADE_SWING_HULL_PER_TIER :: 16

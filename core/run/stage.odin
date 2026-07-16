@@ -107,7 +107,7 @@ Shop_Item :: struct {
 // The opponent is baked at generation from two independent axes (#135): one
 // archetype drawn from the hostile roster (content.odin's Hostile_Archetype) for
 // its loadout — from whose weight its Speed derives (ADR-0020) — scaled at this
-// node's stakes for its hull, durability and offensive output.
+// node's stakes for its hull, durability and fire output.
 Stage_Fight :: struct {
 	opponent: ship.Ship,
 }

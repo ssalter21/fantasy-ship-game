@@ -23,8 +23,8 @@ round_with_no_fittings_and_no_commands_deals_no_damage :: proc(t: ^testing.T) {
 }
 
 @(test)
-offensive_fitting_deals_damage_reduced_by_target_durability :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
+fire_fitting_deals_damage_reduced_by_target_durability :: proc(t: ^testing.T) {
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, durability = 3, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -49,7 +49,7 @@ offensive_fitting_deals_damage_reduced_by_target_durability :: proc(t: ^testing.
 
 @(test)
 damage_is_floored_at_zero_when_durability_exceeds_raw_damage :: proc(t: ^testing.T) {
-	dagger := ship.Fitting{name = "Dagger", category = .Offensive, active = ship.Effect{magnitude = 2}}
+	dagger := ship.Fitting{name = "Dagger", category = .Fire, active = ship.Effect{magnitude = 2}}
 	a := ship.Ship{
 		hull = 20, durability = 10, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = dagger}},
@@ -67,9 +67,9 @@ damage_is_floored_at_zero_when_durability_exceeds_raw_damage :: proc(t: ^testing
 }
 
 @(test)
-defensive_fitting_adds_a_temporary_damage_reduction_stacking_with_durability :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
-	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
+brace_fitting_adds_a_temporary_damage_reduction_stacking_with_durability :: proc(t: ^testing.T) {
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
+	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -90,9 +90,9 @@ defensive_fitting_adds_a_temporary_damage_reduction_stacking_with_durability :: 
 }
 
 @(test)
-buff_output_adds_into_the_same_rounds_defensive_and_offensive_totals :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
+muster_output_adds_into_the_same_rounds_brace_and_fire_totals :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -108,19 +108,19 @@ buff_output_adds_into_the_same_rounds_defensive_and_offensive_totals :: proc(t: 
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// Offensive output = cannon(10) + buff(3) = 13 raw damage.
+	// Fire output = cannon(10) + muster(3) = 13 raw damage.
 	testing.expect_value(t, b.hull, 20-13)
 }
 
-// The inverse of the pre-#151 test of the same shape, which pinned buff folding
-// into its own side's Defensive total. It no longer does: soak is subtracted from
-// raw, so soak's vocabulary has to stay small, and Buff's does not (Admiral's
+// The inverse of the pre-#151 test of the same shape, which pinned muster folding
+// into its own side's Brace total. It no longer does: soak is subtracted from
+// raw, so soak's vocabulary has to stay small, and Muster's does not (Admiral's
 // Guard is +3 per Crew aboard). See combat_resolve_round's band note.
 @(test)
-buff_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
-	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
+muster_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
+	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
 	a := ship.Ship{
 		hull = 20, durability = 1, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -139,17 +139,17 @@ buff_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's soak = durability(1) + defensive(4) = 5 — the War Cry's 3 is *not* in it.
+	// A's soak = durability(1) + brace(4) = 5 — the War Cry's 3 is *not* in it.
 	// B's raw damage = 20, so final = 20 - 5 = 15. (Pre-#151 this was 20 - 8 = 12.)
 	testing.expect_value(t, a.hull, 20-15)
 }
 
-// The same magnitude on a Buff fitting reaches Offensive and nothing else: the
-// half of "buff feeds Offensive only" that says it still feeds Offensive.
+// The same magnitude on a Muster fitting reaches Fire and nothing else: the
+// half of "muster feeds Fire only" that says it still feeds Fire.
 @(test)
-buff_output_still_raises_the_same_sides_offensive_total :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
+muster_output_still_raises_the_same_sides_fire_total :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -169,8 +169,8 @@ buff_output_still_raises_the_same_sides_offensive_total :: proc(t: ^testing.T) {
 }
 
 @(test)
-boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
+boost_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -184,7 +184,7 @@ boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^test
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Offensive})
+	cmds[.A] = Command(Command_Boost{phase = .Fire})
 	combat_resolve_round(&battle, cmds, &events)
 
 	testing.expect_value(t, b.hull, 20-10*BOOST_MULTIPLIER)
@@ -193,12 +193,12 @@ boost_offensive_multiplies_only_the_submitters_offensive_output :: proc(t: ^test
 
 // Inverted by #151: a Boost multiplies its own phase's fittings, which is what
 // ADR-0006 says ("multiplies that phase's fitting output"). Boosting the combined
-// total instead made Boost Offensive strictly dominate Boost Buff — 2(O+B) always
+// total instead made Boost Fire strictly dominate Boost Muster — 2(O+B) always
 // beats O+2B — so one of the captain's five Commands was never the right answer.
 @(test)
-boost_offensive_multiplies_the_offensive_fittings_but_not_the_folded_buff :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
+boost_fire_multiplies_the_fire_fittings_but_not_the_folded_muster :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 2}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -212,20 +212,20 @@ boost_offensive_multiplies_the_offensive_fittings_but_not_the_folded_buff :: pro
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Offensive})
+	cmds[.A] = Command(Command_Boost{phase = .Fire})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// cannon(5)*BOOST_MULTIPLIER + buff(2) = 12. (Pre-#151: (5+2)*2 = 14.)
+	// cannon(5)*BOOST_MULTIPLIER + muster(2) = 12. (Pre-#151: (5+2)*2 = 14.)
 	testing.expect_value(t, b.hull, 20-(5*BOOST_MULTIPLIER+2))
 }
 
-// The other half of the same rule, and the reason it is worth having: Boost Buff
+// The other half of the same rule, and the reason it is worth having: Boost Muster
 // presses the crew rather than the guns, so the two Boosts answer a real question
 // instead of one dominating the other.
 @(test)
-boost_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 2}}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 5}}
+boost_muster_multiplies_the_muster_fittings_before_they_reach_fire :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 2}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -239,21 +239,21 @@ boost_buff_multiplies_the_buff_fittings_before_they_reach_offensive :: proc(t: ^
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Buff})
+	cmds[.A] = Command(Command_Boost{phase = .Muster})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// cannon(5) + buff(2)*BOOST_MULTIPLIER = 9. Worth less than Boost Offensive's
+	// cannon(5) + muster(2)*BOOST_MULTIPLIER = 9. Worth less than Boost Fire's
 	// 12 for *this* build, and worth more for a build whose crew outweighs its guns.
 	testing.expect_value(t, b.hull, 20-(5+2*BOOST_MULTIPLIER))
 }
 
-// Also inverted by #151: Boost Defensive doubles the Defensive fittings alone,
-// since buff no longer reaches soak at all.
+// Also inverted by #151: Boost Brace doubles the Brace fittings alone,
+// since muster no longer reaches soak at all.
 @(test)
-boost_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Buff, active = ship.Effect{magnitude = 3}}
-	shield := ship.Fitting{name = "Shield Charm", category = .Defensive, active = ship.Effect{magnitude = 4}}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 20}}
+boost_brace_multiplies_only_the_brace_fittings :: proc(t: ^testing.T) {
+	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
+	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -270,7 +270,7 @@ boost_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Boost{phase = .Defensive})
+	cmds[.A] = Command(Command_Boost{phase = .Brace})
 	combat_resolve_round(&battle, cmds, &events)
 
 	// A's boosted soak = shield(4) * BOOST_MULTIPLIER = 8, the War Cry's 3 excluded;
@@ -280,7 +280,7 @@ boost_defensive_multiplies_only_the_defensive_fittings :: proc(t: ^testing.T) {
 
 @(test)
 a_durability_stat_modifier_fitting_measurably_reduces_damage_taken :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", size = .Large, category = .Offensive, active = ship.Effect{magnitude = 10}}
+	cannon := ship.Fitting{name = "Cannon", size = .Large, category = .Fire, active = ship.Effect{magnitude = 10}}
 	reinforced := ship.Fitting{
 		name = "Reinforced Hull", size = .Small,
 		passive = ship.Effect{kind = .Modify_Durability, magnitude = 4},
@@ -342,14 +342,14 @@ the_three_starting_fittings_phase_output_matches_their_magnitude_constants :: pr
 	opponent := ship.Ship{}
 	battle := combat_battle_create(&s, &opponent)
 
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Buff), ship.TOP_CREW_BUFF_MAGNITUDE)
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Defensive), ship.CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE)
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), ship.GUN_DECK_OFFENSE_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Muster), ship.TOP_CREW_MUSTER_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Brace), ship.CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Fire), ship.GUN_DECK_OFFENSE_MAGNITUDE)
 }
 
 @(test)
 hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -439,7 +439,7 @@ jettison_cargo_on_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
 		return
 	}
 
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire}
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -627,7 +627,7 @@ reallocate_from_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire}
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -651,7 +651,7 @@ reallocate_into_a_non_cargo_slot_asserts :: proc(t: ^testing.T) {
 		return
 	}
 	cargo := ship.Fitting{name = "Cargo", size = .Small, is_cargo = true, stack_count = 10}
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire}
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -748,7 +748,7 @@ scripted_command_leaves_once_escape_eligible :: proc(t: ^testing.T) {
 
 @(test)
 leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -764,7 +764,7 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 	combat_resolve_round(&battle, cmds, &events)
 
 	testing.expect(t, battle.ended)
-	testing.expect_value(t, b.hull, 20) // no offensive phase resolved this round
+	testing.expect_value(t, b.hull, 20) // no fire phase resolved this round
 	testing.expect_value(t, len(events), 1)
 	ended, ok := events[0].(Event_Battle_Ended)
 	testing.expect(t, ok)
@@ -782,7 +782,7 @@ leave_combat_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^te
 
 @(test)
 an_escape_eligible_side_declining_to_leave_lets_combat_continue_normally :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 10}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -834,7 +834,7 @@ man_the_sails_speed_boost_can_swing_escape_eligibility_for_the_round_it_was_used
 
 @(test)
 a_ship_reduced_to_zero_hull_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 25}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 25}}
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -876,7 +876,7 @@ a_ship_reduced_to_zero_hull_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T)
 
 @(test)
 a_mutual_kill_in_the_same_round_is_won_by_the_higher_speed_side :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 25}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 25}}
 	a := ship.Ship{
 		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -906,7 +906,7 @@ a_mutual_kill_in_the_same_round_is_won_by_the_higher_speed_side :: proc(t: ^test
 
 @(test)
 a_mutual_kill_with_equal_speed_has_no_winner :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 25}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 25}}
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -1039,7 +1039,7 @@ jettisoned_cargo_is_destroyed_with_nothing_to_settle :: proc(t: ^testing.T) {
 @(test)
 identical_ships_and_commands_produce_identical_results_every_time :: proc(t: ^testing.T) {
 	make_ships :: proc() -> (ship.Ship, ship.Ship) {
-		cannon := ship.Fitting{name = "Cannon", category = .Offensive, active = ship.Effect{magnitude = 7}}
+		cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 7}}
 		a := ship.Ship{
 			hull = 30, durability = 1, speed = 5,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -1074,7 +1074,7 @@ identical_ships_and_commands_produce_identical_results_every_time :: proc(t: ^te
 // Demo (issue #93): a synergy fitting's combat output scales with the count of
 // installed fittings matching its selector, resolved against the owning ship's
 // current layout at combat-resolve time (combat_phase_output routes magnitude
-// through ship.effect_magnitude). Here an Offensive "for each Weapon, +Offense"
+// through ship.effect_magnitude). Here an Fire "for each Weapon, +Offense"
 // fitting's phase output rises as Weapon fittings are added and falls as they
 // are removed. The synergy fitting is itself an Artifact, so it never counts
 // toward its own selector — the output tracks the other Weapons only.
@@ -1084,7 +1084,7 @@ synergy_offense_rises_and_falls_with_the_weapon_count_aboard :: proc(t: ^testing
 	synergy_gun := ship.Fitting{
 		name     = "Runic Battery",
 		size     = .Large,
-		category = .Offensive,
+		category = .Fire,
 		tags     = {.Artifact},
 		active   = ship.Effect{magnitude = OFFENSE_PER_WEAPON, synergy = ship.Selector(ship.Tag.Weapon)},
 	}
@@ -1104,28 +1104,28 @@ synergy_offense_rises_and_falls_with_the_weapon_count_aboard :: proc(t: ^testing
 	battle := combat_battle_create(&s, &opponent)
 
 	// No Weapons aboard yet: for-each-Weapon output is zero.
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), 0)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Fire), 0)
 
 	// Add one Weapon: output rises to one Weapon's worth.
 	s.layout[1].fitting = cannon
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), OFFENSE_PER_WEAPON)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Fire), OFFENSE_PER_WEAPON)
 
 	// Add a second Weapon: output rises again.
 	s.layout[2].fitting = ballista
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), 2 * OFFENSE_PER_WEAPON)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Fire), 2 * OFFENSE_PER_WEAPON)
 
 	// Remove a Weapon: output falls back.
 	s.layout[1].fitting = nil
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Offensive), OFFENSE_PER_WEAPON)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Fire), OFFENSE_PER_WEAPON)
 }
 
 @(test)
 a_below_half_hull_conditional_offense_fitting_contributes_only_below_the_threshold :: proc(t: ^testing.T) {
 	// Demo for issue #94: a "below half Hull, +Offense" fitting resolves its
-	// Offensive phase output through the conditional seam, so it adds nothing
+	// Fire phase output through the conditional seam, so it adds nothing
 	// while the ship is above half Hull and its full magnitude once below.
 	desperado := ship.Fitting{
-		name = "Desperado Cannon", size = .Large, category = .Offensive,
+		name = "Desperado Cannon", size = .Large, category = .Fire,
 		active = ship.Effect{magnitude = 10, conditional = ship.Condition_Hull_Below{percent = 50}},
 	}
 
@@ -1159,7 +1159,7 @@ a_while_concealed_conditional_offense_fitting_reads_its_own_slot_visibility :: p
 	// (combat_phase_output fills self_slot per fitting): the same fitting in a
 	// concealed slot contributes, in an exposed slot does not.
 	ambush := ship.Fitting{
-		name = "Ambush Cannon", size = .Large, category = .Offensive,
+		name = "Ambush Cannon", size = .Large, category = .Fire,
 		active = ship.Effect{magnitude = 8, conditional = ship.Condition_Self_Visibility{visibility = .Concealed}},
 	}
 
