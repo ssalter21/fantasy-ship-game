@@ -69,10 +69,20 @@ paying ~75s for animations capture cannot photograph anyway. If the screen you'r
 Table, kill the run as soon as your shot exists — that turns a 75s loop into a ~2s one:
 
 ```powershell
+Get-Process game -ErrorAction SilentlyContinue | Stop-Process -Force   # kill first — see below
 Remove-Item -Recurse -Force docs/ui/shots -ErrorAction SilentlyContinue
 Start-Process odin -ArgumentList 'run','cmd/game','--','--capture' -PassThru -WindowStyle Hidden | Out-Null
 while (-not (Test-Path 'docs/ui/shots/00-chart-table.png')) { Start-Sleep -Milliseconds 100 }
 Get-Process game -ErrorAction SilentlyContinue | Stop-Process -Force
+```
+
+**Kill any running capture before deleting the shots directory**, in that order. Delete it out from under a
+capture that is still walking and every subsequent `os.rename` fails, stranding raylib's screenshots in the
+repo root — where **`*.png` is not gitignored**, so a later `git add .` commits 35 battle screens. Authoring
+this skill did exactly that. If you find loose `NN-*.png` beside `game.exe`, that's what happened:
+
+```powershell
+Get-ChildItem -Filter '??-*.png' | Remove-Item        # repo root, not docs/ui/shots
 ```
 
 Use **PowerShell** for this, not the Bash tool: this repo's Git Bash has **no `pkill`**, and backgrounding the
