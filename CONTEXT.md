@@ -78,9 +78,20 @@ _Avoid_: Game mode, client mode
 - **Mast configuration** — the **cosmetic read-out** of a ship's Speed, never an input: the masts *show* what the ship's weight already decided, so it is compatible with ADR-0020's single-constant `base`. Speed **0** renders as **"sails in"** — a ship too laden to run — rather than as a number that looks broken; because 0 is reached by *getting rich*, this is a mainline reading, not an edge case. New vocabulary (ADR-0020, #175): the game has *Man the Sails* / *Storm Sails* / *Spare Rigging* but no prior mast concept.
   _Avoid_: mast as a Speed input or a stat — it is a display of derived Speed.
 
+### Above a voyage (see issue #278)
+
+- **Chart Table** — the one screen above a voyage, and the whole of the game outside one: where a captain stands over a chart and decides to sail. The exe **boots** into it, and every voyage is launched from it. It holds a title, **Begin a voyage**, and **Quit** — nothing else — over the chart itself (the menu background; see the effort's carve-out). There is exactly one screen up here: the "start menu" and the return screen are the **same** screen, because the Chart Table is **stateless** — it holds no voyage outcome and looks identical at boot and after a sinking. That is what lets a screenshot taken at frame 0 be an honest photograph of the real thing.
+
+  "Chart" deliberately means what it already means — the voyage's node graph (ADR-0009) — and the overlap is the point rather than a collision: at the Chart Table there is **no chart yet**, and beginning a voyage is what draws one. ADR-0021 rejected *Chart* as a name for `Recipe` because it "collides with the map"; a recipe is not a map, but the Chart Table **is** about the map, so the same overlap that disqualified it there qualifies it here. `Start`, `Port`, and `Haven` were unavailable — all three are map nodes *inside* a voyage — which is why the obvious harbour words are not used.
+
+  Meta-progression would attach **here** if the game ever wants it. It does not today: voyages accrete nothing, and the Chart Table shows no record of past ones. This is a **signpost, not a promise** — whether the game has meta-progression at all is an open design question this term does not settle (see Voyage).
+  _Avoid_: start menu, main menu, shell, title screen — the words the request arrived in, none of which are this game's. A stateful Chart Table, or a second screen above a voyage.
+
+- **The end-of-voyage beat belongs to the voyage, not the Chart Table.** Both endings — Haven reached and permadeath — are told by the voyage, which owns the state that makes them mean anything (hull, cargo, which node you sank at). It says its piece and hands back to an unchanged Chart Table. The Chart Table never greets you with an outcome; it has none to greet you with.
+
 ### Map & voyage structure (see ADR-0009, superseding ADR-0007's topology/ports/gradient; encounter terms amended by ADR-0014)
 
-- **Voyage** — one playable attempt from Start to Haven (or to permadeath). Not resumable/saved — save/resume and meta-progression between voyages are not yet specified.
+- **Voyage** — one playable attempt from Start to Haven (or to permadeath), launched from the **Chart Table** and returning to it at either ending. Not resumable/saved — save/resume and meta-progression between voyages are not yet specified; #278 named the Chart Table as where meta-progression would attach without ruling on whether it should exist.
 - **Node** — a single location in the voyage's map. The map is a procedurally-generated connected graph, regenerated fresh each voyage (seeded, reproducible); a node carries **edges** to other nodes and, if it's an encounter, a stage list whose content is hidden until arrival unless its **first** stage is a revealing one.
   _Avoid_: point, tile.
 - **Edge** — a directed connection between two nodes. Edges are only ever generated forward (layer *i* → *i+1*), but at runtime are walkable both ways: forward into new territory, or backward to an already-visited node.
