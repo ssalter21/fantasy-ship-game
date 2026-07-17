@@ -16,6 +16,11 @@ WINDOW_HEIGHT :: 700
 VERSION :: #config(GIT_SHA, "dev")
 
 main :: proc() {
+	if capture_requested() {
+		capture_main()
+		return
+	}
+
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game")
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
