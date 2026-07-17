@@ -36,8 +36,8 @@ fixed all six there.
 odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
-foreach ($pkg in 'cmd/game','core/combat','core/voyage','core/ship','core/sim') { odin test $pkg }
-# 25 + 45 + 124 + 75 + 61 = 25 cmd/game and 305 core
+foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','cmd/game','cmd/headless') { odin test $pkg }
+# 305 core (45+124+75+61), 25 cmd/game, 4 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
@@ -48,11 +48,14 @@ passing package resets it and masks an earlier failure.
 cleaned up on the way out. So **test first, then build**. A launch that fails with "no such file" right after a
 green test run is this, not your change.
 
-**CI does not run the `cmd/game` tests.** `.github/workflows/ci.yml` only *builds* `cmd/game` — which compiles
-its `_test.odin` files and so catches a broken test file, but never executes the 25 tests in it — and runs
-`odin test` for the four `core/*` packages only. Everything covering the UI (`chart_table_test.odin`,
-`capture_test.odin`, `main_test.odin`) is therefore **yours to run locally**; a green PR check is not evidence
-they pass.
+**CI runs all six packages** ([#292](https://github.com/ssalter21/fantasy-ship-game/issues/292)), the UI tests
+included — `.github/workflows/ci.yml` executes the same list in the same order, so a green PR check does mean
+`chart_table_test.odin`, `capture_test.odin` and `main_test.odin` passed. Run them locally anyway — the loop
+is a few seconds, and it's the difference between finding a break now and finding it after a push.
+
+Don't copy CI's commands, though. It dodges the `game.exe` collision by passing `-out:` to send each test
+binary to the runner's temp dir, which is why it can build before it tests. The bare `odin test cmd/game` you
+type has no such protection, so the rule above stands locally.
 
 ## Capture: the screens, without playing the game
 
