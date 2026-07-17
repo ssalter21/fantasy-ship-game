@@ -2,7 +2,6 @@ package sim
 
 import "../combat"
 import "../voyage"
-import "../ship"
 
 // The generic encounter stage walk (issue #131, ADR-0014) — the Sim's single path
 // through *any* encounter. An Encounter is an ordered stage list plus a cursor
@@ -27,9 +26,12 @@ Stock_Position :: distinct int
 // Shop_Visit is the working state of the Shop stage under the cursor: `slots` holds the
 // stock position shown in each shelf slot (nil once the stock behind it runs out),
 // `next_draw` is the next stock position to draw when a slot refills after a buy,
-// `purchases` counts the buys made here so far (driving the depth surcharge,
-// shop_visit_price), and `open` is false until the cursor lands on a Shop and
-// sim_deal_shop_visit deals its shelf.
+// `purchases` counts the buys made here so far, and `open` is false until the cursor lands
+// on a Shop and sim_deal_shop_visit deals its shelf.
+//
+// `purchases` is how deep into the shop this visit has dug; what that *costs* is
+// voyage_shop_price's business, not this file's — the Sim tracks the visit, voyage prices
+// it.
 //
 // A nil slot is a bought-out or short-decked shelf (issue #137): a shop's stock is its
 // pool's authored depth, and a narrow hold can be emptied inside one visit — content, not
@@ -43,20 +45,6 @@ Shop_Visit :: struct {
 	next_draw: Stock_Position,
 	purchases: int,
 	open:      bool,
-}
-
-// SHOP_DEPTH_SURCHARGE_STEP is the per-purchase shop price surcharge (issue #124): each
-// successive buy at a shop costs this much more than the last (additive and depth-linear,
-// see shop_visit_price), so digging one shop deep is expensive and the player is pushed to
-// compare shop against shop. A placeholder magnitude, not committed (ADR-0012).
-SHOP_DEPTH_SURCHARGE_STEP :: 5
-
-// shop_visit_price is the cargo a shelf card costs: its tier base plus the depth surcharge,
-// `base + SHOP_DEPTH_SURCHARGE_STEP × purchases` (issue #124). The one place the surcharge
-// is applied — the shelf's presented prices and the charge at buy both read it off the
-// staged option, so the two cannot disagree.
-shop_visit_price :: proc(base_cost: int, purchases: int) -> int {
-	return base_cost + SHOP_DEPTH_SURCHARGE_STEP * purchases
 }
 
 // shop_visit_draw_next hands out the next undrawn stock position and advances the cursor,
@@ -270,18 +258,16 @@ sim_process_option_choice :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	option, on_offer := sim.stage_options[selection].?
 	assert(on_offer, "Command_Choose_Option selected a position with no option on it")
 
-	// A priced option is paid for before it changes hands; a free one has no price to
-	// check, so it skips the whole question rather than comparing against a zero cost.
-	if cost, priced := option.cost.?; priced {
-		if cost > ship.ship_cargo(sim.player) {
-			// ADR-0012's "an unaffordable item cannot be bought": nothing is spent, no
-			// Refit opens, and the stage stays open for another choice.
-			append(events, Event(Event_Purchase_Rejected{option = option}))
-			return
-		}
-		// Spending comes out of the hold now (ADR-0020): re-stow the cargo at its
-		// reduced total. The affordability check above guarantees cargo >= cost.
-		ship.ship_stow_cargo(sim.player.layout, ship.ship_cargo(sim.player) - cost)
+	// An option is paid for before it changes hands. Both halves are voyage's — asked in
+	// the shape a Trade's cost is asked in (voyage_trade_can_accept, then pay) — so a free
+	// option needs no special case here: it is affordable, and charging it spends nothing.
+	if !voyage.voyage_option_can_afford(&sim.player, option) {
+		// ADR-0012's "an unaffordable item cannot be bought": nothing is spent, no Refit
+		// opens, and the stage stays open for another choice.
+		append(events, Event(Event_Purchase_Rejected{option = option}))
+		return
+	}
+	if voyage.voyage_option_charge(&sim.player, option) {
 		// Broadcast the spent cargo before the Refit opens, so the deduction is visible
 		// even if the buyer discards the item in the Refit without installing it (no
 		// refund — no inventory, ADR-0012). The Refit's own install emits another.
@@ -328,21 +314,20 @@ sim_stage_decline_outcome :: proc(stage: voyage.Stage) -> voyage.Stage_Outcome {
 }
 
 // sim_stage_offer_options stages an Offer's items as the presented option list: the
-// distinct roster items it was baked with (ADR-0012), each free — an Offer's cost is
-// the halt it takes to refuse, not cargo. Slots past the Offer's own count stay
-// nil, since the shared list is as wide as the widest stage.
+// distinct roster items it was baked with (ADR-0012), each free. Slots past the Offer's
+// own count stay nil, since the shared list is as wide as the widest stage.
 sim_stage_offer_options :: proc(sim: ^Sim, offer: voyage.Stage_Offer) {
 	sim.stage_options = {}
 	for fitting, i in offer.options {
-		sim.stage_options[i] = Stage_Option{fitting = fitting}
+		sim.stage_options[i] = voyage.voyage_offer_option(fitting)
 	}
 }
 
-// sim_stage_shop_options stages the visit's live shelf as the presented option list,
-// each card at its depth-surcharged price (issue #124) so the price shown is exactly
-// the price charged. Called on every entry to the stage — the cursor's arrival and
-// each return from a buy's Refit — so it always reflects what has already been drawn
-// and bought. A slot past the deck's tail has no card and stays nil.
+// sim_stage_shop_options stages the visit's live shelf as the presented option list, each
+// card priced for this visit's depth (voyage_shop_option). Called on every entry to the
+// stage — the cursor's arrival and each return from a buy's Refit — so it always reflects
+// what has already been drawn and bought. A slot past the deck's tail has no card and
+// stays nil.
 sim_stage_shop_options :: proc(sim: ^Sim, shop: voyage.Stage_Shop) {
 	sim.stage_options = {}
 	for slot, i in sim.shop_visit.slots {
@@ -350,11 +335,7 @@ sim_stage_shop_options :: proc(sim: ^Sim, shop: voyage.Stage_Shop) {
 		if !filled {
 			continue
 		}
-		card := shop.stock[pos]
-		sim.stage_options[i] = Stage_Option {
-			fitting = card.fitting,
-			cost    = shop_visit_price(card.cost, sim.shop_visit.purchases),
-		}
+		sim.stage_options[i] = voyage.voyage_shop_option(shop.stock[pos], sim.shop_visit.purchases)
 	}
 }
 

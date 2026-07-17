@@ -66,6 +66,69 @@ voyage_finish_ship_battle :: proc(battle: ^combat.Battle) -> (outcome: Stage_Out
 // it resolves. Picking an item opens a Refit (core/sim's sim_open_refit) that places it
 // through the manual-loadout commands; the Sim marks the node resolved on the choice.
 
+// SHOP_DEPTH_SURCHARGE_STEP is the per-purchase shop price surcharge (issue #124): each
+// successive buy within one visit costs this much more than the last, so digging one shop
+// deep is expensive and the player is pushed to compare shop against shop. A placeholder
+// magnitude, not committed (ADR-0012).
+SHOP_DEPTH_SURCHARGE_STEP :: 5
+
+// voyage_shop_price is the cargo a shelf card costs, whole: its tier's base price plus the
+// depth surcharge for the buys already made at this shop, `base + step × purchases`.
+//
+// The **entire** price rule, in one expression — a card is never quoted at a part of its
+// price. `purchases` is the Sim's per-visit count (core/sim's Shop_Visit): the visit is
+// state the Sim tracks, the price it implies is decided here, next to the other "can you
+// afford this?" rule (voyage_trade_can_accept).
+voyage_shop_price :: proc(item: ship.Roster_Item, purchases: int) -> int {
+	return ship.ship_item_cost(item.tier) + SHOP_DEPTH_SURCHARGE_STEP * purchases
+}
+
+// voyage_shop_option prices one stock card into the option a shop presents — the only way
+// a priced Stage_Option is made, so the shelf's shown price and the buy's charge read one
+// number.
+voyage_shop_option :: proc(item: ship.Roster_Item, purchases: int) -> Stage_Option {
+	return Stage_Option{fitting = item.fitting, cost = voyage_shop_price(item, purchases)}
+}
+
+// voyage_offer_option wraps one of an Offer's baked items as a **free** option: an Offer's
+// cost is the halt it takes to refuse, not cargo (ADR-0012).
+voyage_offer_option :: proc(fitting: ship.Fitting) -> Stage_Option {
+	return Stage_Option{fitting = fitting}
+}
+
+// voyage_option_can_afford reports whether the ship can pay for a presented option — the
+// Shop counterpart of voyage_trade_can_accept, and the gate on taking one.
+//
+// A free option is affordable outright: nil cost means there is no price to check, not a
+// price of 0. A priced one is measured against the hold (ADR-0020 — money *is* the cargo),
+// and an unaffordable card cannot be bought at all (ADR-0012): the price is never clamped
+// to what the ship happens to be carrying.
+voyage_option_can_afford :: proc(s: ^ship.Ship, option: Stage_Option) -> bool {
+	cost, priced := option.cost.?
+	if !priced {
+		return true
+	}
+	return ship.ship_cargo(s^) >= cost
+}
+
+// voyage_option_charge deducts a taken option's price from the hold, reporting whether
+// anything was spent — false for a free option, which has nothing to pay.
+//
+// Cargo has no base field (ADR-0020): it is the holds, so paying re-stows the cargo at its
+// reduced total, the affordability gate having guaranteed cargo >= cost. Like
+// voyage_apply_trade, affordability is the caller's gate and not a rejection here: arriving
+// unable to pay is a driver bug.
+voyage_option_charge :: proc(s: ^ship.Ship, option: Stage_Option) -> (spent: bool) {
+	cost, priced := option.cost.?
+	if !priced {
+		return false
+	}
+	assert(voyage_option_can_afford(s, option), "voyage_option_charge on an option the ship cannot afford")
+
+	ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^) - cost)
+	return true
+}
+
 // voyage_trade_stat_floor is the lowest a stat may be left by paying a trade's cost
 // (issue #136). Durability and Cargo floor at 0 — a ship with none of them is still a
 // valid ship. Hull and Max Hull floor at 1: sinking the ship on a menu would hand
