@@ -20,9 +20,9 @@ The map's `## Notes` frame — "craft, not art" — still holds. Take the palett
 that *is* a UI, and it fixes the style guide's chrome palette and hierarchy. But its **contents are wrong for
 this game** — see the `menu/` table below before taking anything but colour and proportion from it.
 
-### The palette these agree on
+### The palette these agree on — and the one thing they do not
 
-Across eight of the nine, the same four-part colour world recurs:
+Across the set the same four-part colour world recurs:
 
 - **Deep navy / indigo grounds** — the dominant field (`ship-night`, `ship-battle`, `treasure-map` water)
 - **Saturated cyan / turquoise** — the mid-tone and the eye's rest point (`wave`, `menu-port-tropical`, `island-tropical`)
@@ -32,6 +32,19 @@ Across eight of the nine, the same four-part colour world recurs:
 
 The blue-versus-amber opposition is the strongest signal in the set. It is a complementary pairing, and it is
 what should replace raylib's stock `LIGHTGRAY` / `BEIGE` / `MAROON`.
+
+**They do not agree on hue, and you cannot average them.**
+[#294](https://github.com/ssalter21/fantasy-ship-game/issues/294) measured the set and found **two families
+31.8° apart** — navy (`menu-ui-mock` H217, `ship-night` H230, `ship-battle` H234) and teal (`wave` H186,
+`colour-palette.webp` H193, `island-tropical` H195, `menu-port-tropical` H198, `treasure-map` H198,
+`floating-port` H202). "Just use the references" is therefore **not an instruction that can be followed** —
+the references have to be reconciled first, and the style guide is where that happened.
+
+They reconcile as **one depth ramp**: navy is deep water, teal is shallow. `island-tropical` carries both ends
+in one image, and the mock's chart is three measured stops of it. Do **not** re-derive a palette from these
+images without reading [the guide's Palette section](../style-guide.md#palette) first — in particular, a
+global hue-vs-value fit across the set reports a ramp (r = −0.52) that is really **time of day**, and it will
+walk you straight back into the split #294 removed.
 
 ### Tonal register
 
@@ -48,8 +61,8 @@ It stops being fine the moment an image is promoted to a shipped asset. See `men
 
 | Image | Chosen for | Notes |
 | --- | --- | --- |
-| `menu-ui-mock.png` | **The chrome palette and the hierarchy.** The only image here that is a UI. | **Look reference, not a spec** — see the warning below. Its solid fills are exact and were sampled directly into the style guide; its *translucency* is not internally consistent (it is a painting of a UI, not a rendered one), so its alpha cannot be reverse-engineered. |
-| `treasure-map.jpg` | **The Chart Table's background.** Not a reference — an intended asset. | Also useful for *framing*: the torn parchment edge and dark border are the only framing signal in the whole set. **Watermarked ("Magnific") — cannot ship as-is.** Sourcing a shippable equivalent is [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284). |
+| `menu-ui-mock.png` | **The palette ramp and the hierarchy.** The only image here that is a UI — and the only one showing a chart and a chrome coexisting. | **Look reference, not a spec** — see the warning below. Its solid fills are exact and were sampled directly into the style guide; its *translucency* is not internally consistent (it is a painting of a UI, not a rendered one), so its alpha cannot be reverse-engineered. **Dropping this image was offered and declined ([#294](https://github.com/ssalter21/fantasy-ship-game/issues/294)):** it is the set's only witness to how navy chrome and a chart coexist, and its water is the three measured ramp stops. Removing it would delete the evidence that unifies the rest. |
+| `treasure-map.jpg` | **Form and framing only.** No longer an intended asset. | The torn parchment edge and dark border are the only framing signal in the whole set. **Watermarked ("Magnific") — cannot ship as-is**, and [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294) drew the Chart Table's chart from the ramp instead of sourcing one, so nothing is waiting on it. Also **9.67% strongly-warm** against 0.2–2.7% for every other reference: as a full-screen ground it would end the amber rule's scarcity. A sourced image is still [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284), now an improvement in *depiction* rather than a dependency. |
 
 ### The mock is a look reference, not a spec
 
@@ -71,7 +84,7 @@ Three things in `menu-ui-mock.png` are **actively wrong for this game**. Do not 
 
 | Image | Chosen for | Notes |
 | --- | --- | --- |
-| `colour-palette.webp` | **The _world_ palette** — `zone_tint`'s Coastal / Open_Sea / Deep. Named for intent, not content. | Despite the name it is a scene (a mountain valley at dusk), not a swatch sheet. #280 split the palette in two: this image fixes the **world** (the sea being depicted), the mock fixes the **chrome** (what is drawn on top of it). It does **not** set the chrome colours — it is a dusk valley, not the navy/amber world the rest of the set agrees on. |
+| `colour-palette.webp` | **Nothing, now. Demoted by [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294).** | Despite the name it is a scene (a mountain valley at dusk), not a swatch sheet — **and not a sea**. #280 made it `zone_tint`'s source, which put the world 31.8° of hue from the chrome and is what made the art direction and the game read as two different games. It sits at H≈193 at *every* depth, so it cannot express the depth ramp the actual sea references do. Kept as a scene; **do not derive palette from it.** |
 | `wave.jpg` | Cyan/turquoise mid-tones; the sea's colour | Bright daylight end of the range. Watermarked (depositphotos). |
 | `menu-port-tropical.jpg` | Bright end of the palette; a port in daylight | The most "readable" image in the set — high value contrast, clear silhouettes. |
 | `island-tropical.jpg` | Saturated tropical greens against cyan | Watermarked (Adobe Stock). |

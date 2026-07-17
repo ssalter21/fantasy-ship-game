@@ -41,20 +41,36 @@ compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 
 // zone_tint is the ambient colour of a zone, used both for the background
 // gradient band and for an unvisited encounter's generic marker.
+//
+// These sit on the style guide's depth ramp: hue falls and value rises as the water
+// shallows (H222 -> H212 -> H200), which is the same ramp ui.odin's COLOUR_DEEP /
+// COLOUR_MID / COLOUR_SHALLOW name. Before #294 they came from colour-palette.webp —
+// a dusk mountain valley sitting at H~193 at every depth, i.e. not a sea — which is
+// what put the world 31.8° of hue away from the chrome and made the two read as
+// different games.
+//
+// They are the ramp's *hues*, not its values, and that is a limit rather than a
+// choice. draw_scene clears this canvas to RAYWHITE and the band draws at 18% alpha,
+// so a wash carries almost none of the underlying value: dropping the ramp's true
+// stops (V0.15/0.19/0.25) in here composites all three zones to within 5/255 of each
+// other — one indistinguishable grey. The values below are lifted until they survive
+// that wash, which holds adjacent zones 9/255 apart, exactly what shipped before.
+// The ramp's value axis lands only when the canvas stops being white, and that is the
+// restyle effort's (#275, out of scope), not this one's.
 zone_tint :: proc(zone: Maybe(voyage.Zone)) -> rl.Color {
 	z, ok := zone.?
 	if !ok {
-		return rl.Color{90, 100, 120, 255}
+		return rl.Color{102, 114, 128, 255}
 	}
 	switch z {
 	case .Coastal:
-		return rl.Color{95, 170, 160, 255}
+		return rl.Color{103, 167, 199, 255}
 	case .Open_Sea:
-		return rl.Color{70, 120, 190, 255}
+		return rl.Color{61, 104, 153, 255}
 	case .Deep:
-		return rl.Color{55, 60, 110, 255}
+		return rl.Color{48, 66, 107, 255}
 	}
-	return rl.Color{90, 100, 120, 255}
+	return rl.Color{102, 114, 128, 255}
 }
 
 // stage_kind_label is the one place a Stage_Kind becomes player-facing words,
