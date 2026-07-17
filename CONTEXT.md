@@ -78,7 +78,7 @@ _Avoid_: Game mode, client mode
 - **Mast configuration** — the **cosmetic read-out** of a ship's Speed, never an input: the masts *show* what the ship's weight already decided, so it is compatible with ADR-0020's single-constant `base`. Speed **0** renders as **"sails in"** — a ship too laden to run — rather than as a number that looks broken; because 0 is reached by *getting rich*, this is a mainline reading, not an edge case. New vocabulary (ADR-0020, #175): the game has *Man the Sails* / *Storm Sails* / *Spare Rigging* but no prior mast concept.
   _Avoid_: mast as a Speed input or a stat — it is a display of derived Speed.
 
-### Above a voyage (see issue #278)
+### Above a voyage (see issue #278; loop architecture in ADR-0022)
 
 - **Chart Table** — the one screen above a voyage, and the whole of the game outside one: where a captain stands over a chart and decides to sail. The exe **boots** into it, and every voyage is launched from it. It holds a title, **Begin a voyage**, and **Quit** — nothing else — over the chart itself (the menu background; see the effort's carve-out). There is exactly one screen up here: the "start menu" and the return screen are the **same** screen, because the Chart Table is **stateless** — it holds no voyage outcome and looks identical at boot and after a sinking. That is what lets a screenshot taken at frame 0 be an honest photograph of the real thing.
 
