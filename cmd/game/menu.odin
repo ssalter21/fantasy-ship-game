@@ -23,7 +23,8 @@ play_beat :: proc(state: ^Game_State, overlay: string) {
 	defer delete(stable_overlay)
 
 	elapsed: f32
-	for !rl.WindowShouldClose() {
+	for {
+		window_quit_if_closed()
 		elapsed += rl.GetFrameTime()
 		draw_scene(state, stable_overlay)
 		if elapsed > BEAT_MAX_SECONDS || rl.IsKeyPressed(.SPACE) || rl.IsMouseButtonPressed(.LEFT) {
@@ -203,7 +204,8 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		}
 		return sim.Command(sim.Command_Travel_To{node_id = state.current_node_id})
 	}
-	for !rl.WindowShouldClose() {
+	for {
+		window_quit_if_closed()
 		draw_scene(state, "Click a highlighted node to travel there.")
 
 		if rl.IsMouseButtonPressed(.LEFT) {
@@ -215,12 +217,6 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			}
 		}
 	}
-	// Window closing without a pick: return the first emitted option — a legal move that
-	// winds the voyage down cleanly on quit. travel_options is always non-empty at a
-	// travel decision (every non-Haven node has a forward edge); the assert makes that
-	// invariant load-bearing rather than risking an out-of-bounds index.
-	assert(len(state.travel_options) > 0, "travel_menu_loop reached a travel decision with no emitted options")
-	return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
 }
 
 // Battle_Menu_Action is what clicking a battle-menu button does: submit a finished
@@ -288,7 +284,8 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 
 	reallocate_from: Maybe(ship.Slot_Index)
 
-	for !rl.WindowShouldClose() {
+	for {
+		window_quit_if_closed()
 		buttons := make([dynamic]Button, context.temp_allocator)
 		actions := make([dynamic]Battle_Menu_Action, context.temp_allocator)
 		prompt: string
@@ -373,7 +370,6 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			}
 		}
 	}
-	return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
 }
 
 // ITEM_OFFER_BOX_* and the offer column origin size the Item Offer's option boxes: each
@@ -406,7 +402,8 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	boxes := option_screen_boxes()
 	decline_index := len(boxes) - 1
 
-	for !rl.WindowShouldClose() {
+	for {
+		window_quit_if_closed()
 		draw_option_screen(state)
 
 		if rl.IsMouseButtonPressed(.LEFT) {
@@ -427,8 +424,6 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			}
 		}
 	}
-	// Window closing without a choice: decline cleanly.
-	return sim.Command(sim.Command_Choose_Option{selection = nil})
 }
 
 // option_screen_boxes lays out one clickable box per option position, plus a trailing
@@ -573,7 +568,8 @@ trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	accept_index :: 0
 	reject_index :: 1
 
-	for !rl.WindowShouldClose() {
+	for {
+		window_quit_if_closed()
 		rl.BeginDrawing()
 		draw_scene_contents(state, fmt.tprintf("%s - a permanent trade. Accept, or sail on.", trade.name))
 		draw_trade_accept_box(boxes[accept_index], trade, state.trade_can_accept)
@@ -591,8 +587,6 @@ trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			}
 		}
 	}
-	// Window closing without an answer: reject cleanly.
-	return sim.Command(sim.Command_Trade_Choice{accept = false})
 }
 
 // draw_trade_accept_box renders the bargain's accept option — what it gives against what
@@ -658,7 +652,8 @@ refit_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	}
 	finish_index := slot_count
 
-	for !rl.WindowShouldClose() {
+	for {
+		window_quit_if_closed()
 		rl.BeginDrawing()
 		draw_scene_contents(state, refit_prompt(state))
 		draw_refit_incoming(state)
@@ -678,7 +673,6 @@ refit_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 			}
 		}
 	}
-	return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
 }
 
 // refit_click maps a click on slot box `i` (or the Finish box) to the loadout operation

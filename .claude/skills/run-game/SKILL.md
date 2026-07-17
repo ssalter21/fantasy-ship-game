@@ -162,10 +162,18 @@ Derive the coordinates from the layout procs (`chart_table_buttons()`), don't me
 eye. **`ClientToScreen` is not optional** — raylib's coordinates are client-relative and the window is not at
 the origin.
 
-**Known hazard while driving:** `rl.WindowShouldClose()` **consumes** the close flag rather than latching it —
-it reports `true` on exactly one call and `false` after. Closing the window mid-voyage therefore *hangs*: the
-first menu loop eats the flag and the next blocks forever. This predates the Chart Table and is not yours; see
-[#290](https://github.com/ssalter21/fantasy-ship-game/issues/290). Quitting *at* the Chart Table is fine.
+**Closing the window quits the game, from anywhere** — including mid-voyage (ADR-0023). One
+`window_quit_if_closed()` in `cmd/game/main.odin` is the only thing that answers a close; every blocking loop
+calls it once per frame and no loop has a close-fallback. If you add a render loop, call it — a loop that
+polls `rl.WindowShouldClose()` itself will silently swallow the close.
+
+Two things about that flag, both measured, because plausible wrong accounts of it have now shipped twice (see
+ADR-0023): it does **not** latch, and it is **not** consumed on read. It survives exactly one frame — three
+reads within a frame all return `true` — and raylib clears it in `EndDrawing`'s event poll. Don't reason about
+it; probe it.
+
+Driving a close is `PostMessage($h, 0x0010, ...)` (`WM_CLOSE`) against the window handle, alongside the
+synthetic mouse above. `WaitForExit` then tells you whether it stopped.
 
 ## Odds and ends
 
