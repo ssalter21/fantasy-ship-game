@@ -473,12 +473,19 @@ sim_create :: proc(seed: u64) -> Sim {
 sim_mask_encounters :: proc(nodes: []voyage.Node) -> []voyage.Node {
 	masked := make([]voyage.Node, len(nodes))
 	for p, i in nodes {
-		masked[i] = p
-		enc, has_encounter := p.encounter.?
-		if !has_encounter || voyage.voyage_encounter_reveals(enc) {
-			continue
-		}
-		masked[i].encounter = nil
+		masked[i] = sim_masked_node(p)
+	}
+	return masked
+}
+
+// sim_masked_node is the public view of one node: the node with a hidden encounter's stages
+// withheld, and everything else — graph shape, landmarks, a revealing encounter's content —
+// passed through. The whole of the hiding rule, so the voyage-start mask and any later re-mask
+// (sim_plant_encounter) cannot answer it differently.
+sim_masked_node :: proc(node: voyage.Node) -> voyage.Node {
+	masked := node
+	if enc, has_encounter := node.encounter.?; has_encounter && !voyage.voyage_encounter_reveals(enc) {
+		masked.encounter = nil
 	}
 	return masked
 }
@@ -519,6 +526,19 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		assert(false, "sim_tick called after the voyage already ended")
 	}
 
+	sim_settle(sim, events)
+}
+
+// sim_settle brings the Sim to rest after a unit of work has moved it: it re-reads the
+// voyage's status, ends the voyage if that status is terminal, broadcasts the legal
+// destinations if the work left the Sim at a travel choice, and marks the Sim awaiting
+// the decision its phase now names.
+//
+// This is the tail of every sim_tick, and the one place awaiting_decision is raised — so
+// "the phase a unit of work left behind is the decision the Sim now waits on" is stated
+// once. sim_seat_at_stage settles through here too, which is what makes a seated Sim
+// indistinguishable from one that arrived under its own tick.
+sim_settle :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	if sim.phase == .Ended {
 		return
 	}
@@ -530,10 +550,8 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		return
 	}
 
-	// If the Sim is now awaiting a travel choice, broadcast the legal destinations so consumers
-	// pick from what the Sim computed, not a re-derivation. Concentrating the emit here — rather
-	// than at each phase-transition site — is why every path back to a travel choice carries the
-	// options with no per-site repetition.
+	// Concentrating the emit here — rather than at each phase-transition site — is why every
+	// path back to a travel choice carries the options with no per-site repetition.
 	if sim.phase == .Awaiting_Travel_Choice {
 		sim_emit_travel_options(sim, events)
 	}
