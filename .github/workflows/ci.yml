@@ -51,11 +51,21 @@ jobs:
       - name: Run tests
         shell: pwsh
         run: |
+          # Test binaries go outside the checkout: `odin test cmd/game` names its
+          # binary game.exe and deletes it on exit, which would otherwise carry off
+          # the game.exe the build step just produced. Sending them here instead of
+          # ordering the steps around it means a later artifact-upload step can
+          # trust the build step's output. Each is named for its package to give
+          # every invocation its own path.
+          $outDir = Join-Path $env:RUNNER_TEMP 'odin-test'
+          New-Item -ItemType Directory -Force $outDir | Out-Null
+
           # Each odin test invocation must be checked individually: a later
           # passing package would otherwise reset $LASTEXITCODE and mask an
           # earlier failure.
-          foreach ($pkg in 'core/combat', 'core/voyage', 'core/ship', 'core/sim') {
+          foreach ($pkg in 'core/combat', 'core/voyage', 'core/ship', 'core/sim', 'cmd/game', 'cmd/headless') {
+            $out = Join-Path $outDir "$($pkg -replace '/', '-').exe"
             Write-Host "== odin test $pkg =="
-            odin test $pkg
+            odin test $pkg -out:$out
             if ($LASTEXITCODE -ne 0) { throw "odin test $pkg failed ($LASTEXITCODE)" }
           }
