@@ -850,18 +850,20 @@ every_port_stocks_its_chandlery_pool_priced_by_tier :: proc(t: ^testing.T) {
 				seed, p.id, shop.count, chandlery.depth,
 			)
 
-			// Every card is a real roster item at its own tier's price, and no card
+			// Every card is a real roster item at its own authored tier, and no card
 			// repeats — the stock is a sample of a permutation, so a shelf drawn off it
-			// never offers the same item twice in one visit.
+			// never offers the same item twice in one visit. The tier is what the shelf
+			// prices off (voyage_shop_price), so a stock that shuffled it loose from its
+			// fitting would sell the right item at the wrong item's price.
 			for i in 0 ..< shop.count {
 				card := shop.stock[i]
 				item, found := ship.ship_item_by_name(card.fitting.name)
 				testing.expectf(t, found, "seed %d: port %d stocks %q, which is not a roster item", seed, p.id, card.fitting.name)
 				testing.expectf(
 					t,
-					card.cost == ship.ship_item_cost(item.tier),
-					"seed %d: port %d card %s priced %d, want %d for tier %v",
-					seed, p.id, card.fitting.name, card.cost, ship.ship_item_cost(item.tier), item.tier,
+					card.tier == item.tier,
+					"seed %d: port %d stocks %s at tier %v, want the roster's %v",
+					seed, p.id, card.fitting.name, card.tier, item.tier,
 				)
 				for j in i + 1 ..< shop.count {
 					testing.expectf(
@@ -929,7 +931,7 @@ a_ports_stock_is_deterministic_per_seed :: proc(t: ^testing.T) {
 		for pos in 0 ..< sa.count {
 			testing.expectf(
 				t,
-				sa.stock[pos].fitting.name == sb.stock[pos].fitting.name && sa.stock[pos].cost == sb.stock[pos].cost,
+				sa.stock[pos].fitting.name == sb.stock[pos].fitting.name && sa.stock[pos].tier == sb.stock[pos].tier,
 				"port %d stock position %d differs between two builds of seed 42", pa.id, pos,
 			)
 		}
@@ -1647,6 +1649,128 @@ voyage_apply_trade_asserts_on_a_trade_the_ship_cannot_pay_for :: proc(t: ^testin
 	voyage_apply_trade(&s, trade_of(.Max_Hull, 8, .Durability, 5))
 
 	testing.expect_assert(t, "voyage_apply_trade on a trade the ship cannot pay for")
+}
+
+// --- Shop: pricing and affordability (issues #123, #124) --------------------
+
+// card_of is a stock card at a tier — the only two things a price is a function of,
+// with the fitting along for the ride.
+card_of :: proc(tier: ship.Tier) -> ship.Roster_Item {
+	return ship.Roster_Item{fitting = ship.Fitting{name = "Test Card", size = .Small}, tier = tier}
+}
+
+// The whole price in one place: a card's price is its tier's base plus one step per buy
+// already made at this shop, and nothing else. The Sim counts the buys; what they cost
+// is decided here.
+@(test)
+voyage_shop_price_is_the_tier_base_plus_a_step_per_purchase :: proc(t: ^testing.T) {
+	card := card_of(.Shallow)
+	base := ship.ship_item_cost(.Shallow)
+
+	testing.expect_value(t, voyage_shop_price(card, 0), base)
+	testing.expect_value(t, voyage_shop_price(card, 1), base + SHOP_DEPTH_SURCHARGE_STEP)
+	testing.expect_value(t, voyage_shop_price(card, 3), base + 3 * SHOP_DEPTH_SURCHARGE_STEP)
+}
+
+// The surcharge is flat, so the tier ladder survives digging: a deeper buy costs more
+// than a shallow one of the same card, but never re-orders the tiers against each other
+// at one depth.
+@(test)
+voyage_shop_price_keeps_the_tier_ladder_at_every_depth :: proc(t: ^testing.T) {
+	for purchases in 0 ..< 4 {
+		splash := voyage_shop_price(card_of(.Splash), purchases)
+		shallow := voyage_shop_price(card_of(.Shallow), purchases)
+		deep := voyage_shop_price(card_of(.Deep), purchases)
+		testing.expectf(t, splash < shallow, "at depth %d: Splash %d is not under Shallow %d", purchases, splash, shallow)
+		testing.expectf(t, shallow < deep, "at depth %d: Shallow %d is not under Deep %d", purchases, shallow, deep)
+	}
+}
+
+// voyage_shop_option is the only maker of a priced option, so what the shelf shows is
+// what the buy charges — the two cannot drift because there is one number.
+@(test)
+voyage_shop_option_carries_the_full_price_it_will_be_charged :: proc(t: ^testing.T) {
+	card := card_of(.Splash)
+	option := voyage_shop_option(card, 2)
+
+	cost, priced := option.cost.?
+	testing.expect(t, priced)
+	testing.expect_value(t, cost, voyage_shop_price(card, 2))
+	testing.expect_value(t, option.fitting.name, card.fitting.name)
+}
+
+// An Offer's item is free, and free is nil rather than 0: there is no price to check.
+@(test)
+voyage_offer_option_is_free_and_always_affordable :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 20, max_hull = 20} // no layout, so no cargo at all
+	option := voyage_offer_option(ship.Fitting{name = "Test Item", size = .Small})
+
+	_, priced := option.cost.?
+	testing.expect(t, !priced)
+	testing.expect(t, voyage_option_can_afford(&s, option))
+}
+
+// The Shop half of "can you afford this?", measured the way voyage_trade_can_accept
+// measures a trade's cost: against the hold, at the boundary, with no clamping.
+@(test)
+voyage_option_can_afford_measures_the_full_price_against_the_hold :: proc(t: ^testing.T) {
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	ship.ship_stow_cargo(s.layout, 30)
+
+	testing.expect(t, voyage_option_can_afford(&s, Stage_Option{cost = 30})) // exactly the hold buys
+	testing.expect(t, !voyage_option_can_afford(&s, Stage_Option{cost = 31})) // one over does not
+}
+
+// The surcharge is part of the price, so it is part of affordability: a card the hold
+// covers at the shelf's face value can be out of reach one buy deeper.
+@(test)
+voyage_option_can_afford_counts_the_depth_surcharge :: proc(t: ^testing.T) {
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	card := card_of(.Splash)
+	ship.ship_stow_cargo(s.layout, ship.ship_item_cost(.Splash))
+
+	testing.expect(t, voyage_option_can_afford(&s, voyage_shop_option(card, 0)))
+	testing.expect(t, !voyage_option_can_afford(&s, voyage_shop_option(card, 1)))
+}
+
+@(test)
+voyage_option_charge_spends_the_price_out_of_the_hold :: proc(t: ^testing.T) {
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	ship.ship_stow_cargo(s.layout, 50)
+
+	testing.expect(t, voyage_option_charge(&s, voyage_shop_option(card_of(.Splash), 1)))
+
+	testing.expect_value(t, ship.ship_cargo(s), 50 - (ship.ship_item_cost(.Splash) + SHOP_DEPTH_SURCHARGE_STEP))
+}
+
+// A free option is charged by the same call and simply costs nothing — the reason the
+// Sim needs no special case for an Offer's pick.
+@(test)
+voyage_option_charge_spends_nothing_on_a_free_option :: proc(t: ^testing.T) {
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	ship.ship_stow_cargo(s.layout, 50)
+
+	testing.expect(t, !voyage_option_charge(&s, voyage_offer_option(ship.Fitting{name = "Test Item", size = .Small})))
+
+	testing.expect_value(t, ship.ship_cargo(s), 50)
+}
+
+@(test)
+voyage_option_charge_asserts_on_an_option_the_ship_cannot_afford :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	ship.ship_stow_cargo(s.layout, 5)
+
+	voyage_option_charge(&s, Stage_Option{cost = 6})
+
+	testing.expect_assert(t, "voyage_option_charge on an option the ship cannot afford")
 }
 
 @(test)

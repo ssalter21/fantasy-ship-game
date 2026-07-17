@@ -53,14 +53,12 @@ Option_Index :: distinct int
 // rather than picked, so a roomier stage can never overflow the array the Sim stages it in.
 STAGE_OPTION_MAX :: max(voyage.ITEM_OFFER_OPTION_COUNT, voyage.SHOP_SHELF_SIZE)
 
-// Stage_Option is one line of an option-list stage's presented list: the `fitting` on
-// offer and what it `cost`s in cargo — nil when the option is free. A nil cost is not a
-// magic zero: it says there is no price to check, so sim_process_option_choice skips
-// affordability entirely rather than comparing against 0.
-Stage_Option :: struct {
-	fitting: ship.Fitting,
-	cost:    Maybe(int),
-}
+// Stage_Option is one line of an option-list stage's presented list — the fitting on offer
+// and what it costs in cargo, nil when free. An alias of voyage.Stage_Option: voyage owns
+// the option list's content and prices it (voyage_shop_option), so it owns the canonical
+// type (ADR-0011), and aliasing lets that one type cross the Sim's Event seam and reach
+// presentation with no repacking.
+Stage_Option :: voyage.Stage_Option
 
 Sim :: struct {
 	// rng is kept per ADR-0001 (Sim owns its own seeded RNG for deterministic replay).

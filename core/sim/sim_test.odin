@@ -1891,7 +1891,7 @@ the_snapshot_carries_every_purchase_made_at_a_shop :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 90) // afford the visit outright; the hull's full capacity (ADR-0020)
-	arrive_at_shop(&sim, 1, flat_stock(10), &events) // stock position i is roster[i]
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events) // stock position i is roster[i]
 
 	// Buy option 0 ("Deckhands"), install it, and return to the refilled shelf.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -1952,24 +1952,30 @@ a_resolved_node_emits_no_second_snapshot_when_the_ship_returns :: proc(t: ^testi
 	testing.expect_value(t, ship.ship_cargo(sim.player), before + REWARD_PAYOUT) // and paid once
 }
 
-// flat_stock bakes a shop stocked to `count` cards in roster order, every card priced
-// flat at `cost` (issue #123) — a stand-in for a generated shop's baked stock with
-// predictable affordability and a known order (the card at stock position i is
-// roster[i]), so the shop tests can assert exactly which card the shelf shows and
-// refills with. A real generated shop shuffles its pool's candidates and cuts them at
-// the pool's authored depth (voyage_bake_shop, #137); the tests don't need the shuffle,
-// only the stock contract.
+// flat_stock bakes a shop stocked to `count` cards in roster order, every card re-tiered
+// to `tier` (issue #123) — a stand-in for a generated shop's baked stock with predictable
+// affordability and a known order (the card at stock position i is roster[i]), so the
+// shop tests can assert exactly which card the shelf shows and refills with. A real
+// generated shop shuffles its pool's candidates and cuts them at the pool's authored
+// depth (voyage_bake_shop, #137); the tests don't need the shuffle, only the stock
+// contract.
 //
-// `count` is a parameter because a shop's depth is now authored per stock pool rather
-// than being the whole roster, so how deep a shop is *is* something the tests need to
-// vary — a Chandlery you cannot empty and a merchant's hold you can are the same code
-// path with a different count.
-flat_stock :: proc(cost: int, count := voyage.SHOP_STOCK_MAX) -> voyage.Stage_Shop {
+// A **tier**, not a price: a card's price is voyage_shop_price's to say, and one tier
+// across the stock is the closest a test gets to the flat shelf it wants. That the
+// cheapest shelf a test can lay out costs ship_item_cost(.Splash) is the real economy's
+// floor, not a limit of this helper — a scenario that needs a cheaper card is asking for
+// a price the game cannot quote.
+//
+// `count` is a parameter because a shop's depth is authored per stock pool rather than
+// being the whole roster, so how deep a shop is *is* something the tests need to vary —
+// a Chandlery you cannot empty and a merchant's hold you can are the same code path with
+// a different count.
+flat_stock :: proc(tier: ship.Tier, count := voyage.SHOP_STOCK_MAX) -> voyage.Stage_Shop {
 	assert(count <= voyage.SHOP_STOCK_MAX, "a shop cannot stock more than SHOP_STOCK_MAX cards")
 	roster := ship.ship_item_roster()
 	shop := voyage.Stage_Shop{count = count}
 	for i in 0 ..< count {
-		shop.stock[i] = voyage.Shop_Item{fitting = roster[i].fitting, cost = cost}
+		shop.stock[i] = ship.Roster_Item{fitting = roster[i].fitting, tier = tier}
 	}
 	return shop
 }
@@ -2058,7 +2064,7 @@ buying_an_affordable_item_deducts_cargo_and_opens_a_refit :: proc(t: ^testing.T)
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	arrive_at_shop(&sim, 1, flat_stock(10), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(1)}))
 	ev := refit_tick(&sim, &events)
 
@@ -2092,7 +2098,7 @@ buying_a_fitting_over_a_cargo_hold_conserves_the_displaced_cargo :: proc(t: ^tes
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50) // the starting cargo: holds full, forecastle empty
-	arrive_at_shop(&sim, 1, flat_stock(10), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 
 	// Buy option 0 (Deckhands, Small, cost 10): the spend re-stows the cargo to 40.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2116,31 +2122,32 @@ buying_a_fitting_that_overflows_the_hold_loses_only_the_true_overflow :: proc(t:
 	// capacity below the cargo, the surviving cargo re-stows to the new ceiling and
 	// only what will not fit is lost (ADR-0020, #157) — never the whole displaced hold,
 	// and never left in the impossible state of a cargo over capacity. A rich ship buys
-	// a Small fitting and lands it on a Small hold: capacity drops by the Small's 10 and
-	// the cargo is capped there, 5 falling overboard rather than the full displaced 10.
+	// a Medium fitting and lands it on a Medium hold: capacity drops by the Medium's 20
+	// and the cargo is capped there, 10 falling overboard rather than the full displaced 20.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 90) // brim-full: the whole 90-capacity hull laden
-	arrive_at_shop(&sim, 1, flat_stock(5), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 
-	// Buy option 0 (Deckhands, Small, cost 5): the spend re-stows the cargo to 85.
-	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
+	// Buy option 2 (Deck Cannon, Medium, a Splash card's 10): the spend re-stows the
+	// cargo to 80.
+	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(2)}))
 	refit_tick(&sim, &events)
-	testing.expect_value(t, ship.ship_cargo(sim.player), 85)
+	testing.expect_value(t, ship.ship_cargo(sim.player), 80)
 
-	// Land it on a Small hold (slot 5), turning that slot from cargo into a gun. The
-	// ceiling drops by 10 (to 80) and the cargo — 85 with the slot now gone — re-stows
-	// to exactly 80. Only the 5 that no longer fits is lost; naive burning of the
-	// displaced slot would have destroyed the full 10, leaving 75.
-	submit_refit(&sim, Refit_Replace{slot = 5})
+	// Land it on a Medium hold (slot 4), turning that slot from cargo into a gun. The
+	// ceiling drops by 20 (to 70) and the cargo — 80 with the slot now gone — re-stows
+	// to exactly 70. Only the 10 that no longer fits is lost; naive burning of the
+	// displaced slot would have destroyed the full 20, leaving 60.
+	submit_refit(&sim, Refit_Replace{slot = 4})
 	refit_tick(&sim, &events)
 
-	testing.expect_value(t, fitting_name_at(&sim, 5), "Deckhands")
-	testing.expect_value(t, ship.ship_cargo_capacity(sim.player), 80)
-	testing.expect_value(t, ship.ship_cargo(sim.player), 80) // capped at capacity: only 5 lost, not 10
+	testing.expect_value(t, fitting_name_at(&sim, 4), "Deck Cannon")
+	testing.expect_value(t, ship.ship_cargo_capacity(sim.player), 70)
+	testing.expect_value(t, ship.ship_cargo(sim.player), 70) // capped at capacity: only 10 lost, not 20
 	testing.expect(t, ship.ship_cargo(sim.player) <= ship.ship_cargo_capacity(sim.player)) // never over capacity
 }
 
@@ -2154,16 +2161,18 @@ an_unaffordable_item_is_refused_and_the_shop_stays_open :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	shop := flat_stock(10)
-	shop.stock[2].cost = 100 // slot 2 (stock pos 2) beyond any reachable cargo
-	ship.ship_stow_cargo(sim.player.layout, 50)
+	// A Splash shelf with one Deep card at slot 2: the cargo covers the cheap cards and
+	// not that one, so the refusal is the price talking and not an empty hold.
+	shop := flat_stock(.Splash)
+	shop.stock[2].tier = .Deep
+	ship.ship_stow_cargo(sim.player.layout, ship.ship_item_cost(.Deep) - 1)
 	arrive_at_shop(&sim, 1, shop, &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(2)}))
 	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, has_event(ev, Event_Purchase_Rejected))
 	testing.expect(t, !has_event(ev, Event_Refit_Started))
-	testing.expect_value(t, ship.ship_cargo(sim.player), 50) // nothing spent
+	testing.expect_value(t, ship.ship_cargo(sim.player), ship.ship_item_cost(.Deep) - 1) // nothing spent
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice) // shop still open
 	_, pending := sim.refit_pending.?
 	testing.expect(t, !pending)
@@ -2182,7 +2191,7 @@ leaving_a_shop_completes_it_and_returns_to_travel :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	arrive_at_shop(&sim, 1, flat_stock(10), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = nil}))
 	ev := refit_tick(&sim, &events)
 
@@ -2194,7 +2203,7 @@ leaving_a_shop_completes_it_and_returns_to_travel :: proc(t: ^testing.T) {
 	// Completed, not halted: the cursor stepped off the Shop onto the end of the
 	// list, rather than being jumped there by a halt. Indistinguishable on a
 	// one-stage recipe, which is why sim_stage_decline_outcome is asserted directly.
-	testing.expect_value(t, sim_stage_decline_outcome(voyage.Stage(flat_stock(10))), voyage.Stage_Outcome.Completed)
+	testing.expect_value(t, sim_stage_decline_outcome(voyage.Stage(flat_stock(.Splash))), voyage.Stage_Outcome.Completed)
 	testing.expect_value(t, sim_stage_decline_outcome(voyage.Stage(offer_stage())), voyage.Stage_Outcome.Halted)
 }
 
@@ -2208,16 +2217,16 @@ arriving_at_a_shop_presents_the_top_of_its_stock :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	arrive_at_shop(&sim, 1, flat_stock(15), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Shallow), &events)
 
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
 	options := presented_options(events[:])
 	roster := ship.ship_item_roster()
 	// The shelf is the top SHOP_SHELF_SIZE stock cards (stock position i is roster[i]),
-	// each priced at the stock's flat 15.
+	// each at its tier's price — no buy made yet, so the surcharge adds nothing.
 	for i in 0 ..< voyage.SHOP_SHELF_SIZE {
 		testing.expect_value(t, option_name(options, i), roster[i].fitting.name)
-		testing.expect_value(t, option_cost(options, i), 15)
+		testing.expect_value(t, option_cost(options, i), ship.ship_item_cost(.Shallow))
 	}
 }
 
@@ -2252,7 +2261,7 @@ buying_a_shelf_card_refills_the_slot_from_the_deck_on_the_refits_finish :: proc(
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	arrive_at_shop(&sim, 1, flat_stock(10), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
 	refit_tick(&sim, &events) // buy: deduct, open the refit (cursor stays on the Shop)
@@ -2283,7 +2292,7 @@ multiple_items_can_be_bought_in_one_visit_before_leaving :: proc(t: ^testing.T) 
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	arrive_at_shop(&sim, 1, flat_stock(10), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 
 	for _ in 0 ..< 3 {
 		testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
@@ -2292,8 +2301,9 @@ multiple_items_can_be_bought_in_one_visit_before_leaving :: proc(t: ^testing.T) 
 		submit_refit(&sim, Refit_Finish{})
 		refit_tick(&sim, &events) // finish -> back to the shop
 	}
-	// Three escalating buys (issue #124): base 10, then 10+step, then 10+2*step.
-	spent := 3 * 10 + SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)
+	// Three escalating buys (issue #124): base, then base+step, then base+2*step.
+	base := ship.ship_item_cost(.Splash)
+	spent := 3 * base + voyage.SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)
 	testing.expect_value(t, ship.ship_cargo(sim.player), 50 - spent)
 
 	// Only Leave exits to travel.
@@ -2341,6 +2351,19 @@ buy_first_available :: proc(sim: ^Sim, events: ^[dynamic]Event) -> (ok: bool) {
 	return false
 }
 
+// buy_with_a_full_hold refills the hold to the hull's capacity and then buys, so a test
+// measuring the *stock* running out is never stopped by the money instead. No reachable
+// cargo buys a shop out at real prices — the cheapest six-card run costs
+// 10+15+20+25+30+35 against a 90-capacity hull — so a bought-out shelf is only observable
+// with the hold topped up between buys.
+//
+// The refits it finishes install nothing, so capacity never moves and every top-up is to
+// the same ceiling.
+buy_with_a_full_hold :: proc(sim: ^Sim, events: ^[dynamic]Event) -> bool {
+	ship.ship_stow_cargo(sim.player.layout, ship.ship_cargo_capacity(sim.player))
+	return buy_first_available(sim, events)
+}
+
 @(test)
 a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied :: proc(t: ^testing.T) {
 	// The behaviour a stock pool's authored depth buys (#137), and the reason "how deep
@@ -2358,24 +2381,23 @@ a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied :: proc(t: ^testing.T) 
 	events: [dynamic]Event
 	defer delete(events)
 
-	// Deep enough that the *stock* runs out first and not the money — the point is that
-	// the hold empties, so affordability must not be what stops it.
-	ship.ship_stow_cargo(sim.player.layout, 90) // the hull's full capacity (ADR-0020)
-	arrive_at_shop(&sim, 1, flat_stock(1, 6), &events)
+	// Every buy is made with the hold topped up (buy_with_a_full_hold), so what runs out
+	// is the *stock* and never the money — the point is that the shelf empties.
+	arrive_at_shop(&sim, 1, flat_stock(.Splash, 6), &events)
 	testing.expect_value(t, filled_option_count(sim.stage_options), voyage.SHOP_SHELF_SIZE)
 
 	// One buy: the lone reserve card refills the slot, so the shelf is still full.
-	testing.expect(t, buy_first_available(&sim, &events))
+	testing.expect(t, buy_with_a_full_hold(&sim, &events))
 	testing.expect_value(t, filled_option_count(sim.stage_options), voyage.SHOP_SHELF_SIZE)
 
 	// The second buy has nothing behind it, so the shelf starts shrinking — the whole
 	// difference between a hold and a warehouse, visible on the second purchase rather
 	// than at exhaustion.
-	testing.expect(t, buy_first_available(&sim, &events))
+	testing.expect(t, buy_with_a_full_hold(&sim, &events))
 	testing.expect_value(t, filled_option_count(sim.stage_options), voyage.SHOP_SHELF_SIZE - 1)
 
 	bought := 2
-	for buy_first_available(&sim, &events) {
+	for buy_with_a_full_hold(&sim, &events) {
 		bought += 1
 		testing.expectf(t, bought <= 6, "bought %d cards from a 6-card hold: it is refilling from nothing", bought)
 	}
@@ -2412,7 +2434,7 @@ a_chandlerys_reserve_outlasts_the_cargo_a_captain_brings :: proc(t: ^testing.T) 
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, ship.STARTING_CARGO + ship.CAPTAIN_STARTING_CARGO)
-	arrive_at_shop(&sim, 1, flat_stock(ship.ITEM_COST_SPLASH, voyage.voyage_stock_pool(.Chandlery).depth), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash, voyage.voyage_stock_pool(.Chandlery).depth), &events)
 
 	bought := 0
 	for buy_first_available(&sim, &events) {
@@ -2444,7 +2466,7 @@ a_shop_is_walked_once_and_resolves_like_any_other_encounter :: proc(t: ^testing.
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	arrive_at_shop(&sim, 1, flat_stock(10), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 
 	// Buy the top card, finish its refit, then leave.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2486,7 +2508,7 @@ each_shop_deals_its_own_fresh_shelf :: proc(t: ^testing.T) {
 	ship.ship_stow_cargo(sim.player.layout, 50)
 	roster := ship.ship_item_roster()
 
-	arrive_at_shop(&sim, 1, flat_stock(10), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
 	refit_tick(&sim, &events)
 	submit_refit(&sim, Refit_Finish{})
@@ -2496,7 +2518,7 @@ each_shop_deals_its_own_fresh_shelf :: proc(t: ^testing.T) {
 
 	// Shop 2 is untouched: its shelf opens on its stock's top card at the plain tier
 	// price, with the previous shop's purchase count discarded rather than carried in.
-	arrive_at_shop(&sim, 2, flat_stock(10), &events)
+	arrive_at_shop(&sim, 2, flat_stock(.Splash), &events)
 	options := presented_options(events[:])
 	testing.expect_value(t, option_name(options, 0), roster[0].fitting.name)
 	testing.expect_value(t, option_cost(options, 0), 10)
@@ -2516,7 +2538,7 @@ two_shops_in_one_recipe_each_deal_fresh :: proc(t: ^testing.T) {
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
 	roster := ship.ship_item_roster()
-	install_encounter(&sim, 1, flat_stock(10), flat_stock(10))
+	install_encounter(&sim, 1, flat_stock(.Splash), flat_stock(.Splash))
 	arrive_at(&sim, 1, &events)
 
 	// Shop 1: buy the top card, then leave to complete it.
@@ -2541,20 +2563,20 @@ two_shops_in_one_recipe_each_deal_fresh :: proc(t: ^testing.T) {
 successive_buys_at_a_port_escalate_in_price :: proc(t: ^testing.T) {
 	// #124, ADR-0013: each successive buy at a Port costs step more than the last,
 	// so digging one shop deep is expensive. The first buy is the plain tier price
-	// (purchases == 0); each later buy climbs by SHOP_DEPTH_SURCHARGE_STEP, and the
+	// (purchases == 0); each later buy climbs by voyage.SHOP_DEPTH_SURCHARGE_STEP, and the
 	// price shown on the re-presented shelf is exactly the price charged.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
 	defer delete(events)
 
-	base :: 10
+	base := ship.ship_item_cost(.Splash) // the cheapest card the roster prices
 	ship.ship_stow_cargo(sim.player.layout, 90) // the hull's full capacity — the ceiling a cargo can reach (ADR-0020)
-	arrive_at_shop(&sim, 1, flat_stock(base), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 
 	cargo := 90
 	for n in 0 ..< 3 {
-		want_price := base + SHOP_DEPTH_SURCHARGE_STEP * n
+		want_price := base + voyage.SHOP_DEPTH_SURCHARGE_STEP * n
 
 		// The re-presented shelf displays the surcharged price for this depth, so the
 		// buyer sees the escalation before committing.
@@ -2570,7 +2592,7 @@ successive_buys_at_a_port_escalate_in_price :: proc(t: ^testing.T) {
 		refit_tick(&sim, &events) // finish -> back to the shop, re-presented one depth deeper
 	}
 	// base + (base+step) + (base+2*step) spent across the three escalating buys.
-	testing.expect_value(t, ship.ship_cargo(sim.player), 90 - (3 * base + SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)))
+	testing.expect_value(t, ship.ship_cargo(sim.player), 90 - (3 * base + voyage.SHOP_DEPTH_SURCHARGE_STEP * (0 + 1 + 2)))
 }
 
 @(test)
@@ -2589,9 +2611,9 @@ the_depth_surcharge_is_scoped_to_one_visit :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	base :: 10
+	base := ship.ship_item_cost(.Splash) // the cheapest card the roster prices
 	ship.ship_stow_cargo(sim.player.layout, 90) // the hull's full capacity (ADR-0020)
-	arrive_at_shop(&sim, 1, flat_stock(base), &events)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 
 	// One buy at the plain tier price, then leave.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2599,7 +2621,7 @@ the_depth_surcharge_is_scoped_to_one_visit :: proc(t: ^testing.T) {
 	submit_refit(&sim, Refit_Finish{})
 	refit_tick(&sim, &events)
 	// Still in the same visit, so the next buy is already one step deeper.
-	testing.expect_value(t, option_cost(presented_options(events[:]), 0), base + SHOP_DEPTH_SURCHARGE_STEP)
+	testing.expect_value(t, option_cost(presented_options(events[:]), 0), base + voyage.SHOP_DEPTH_SURCHARGE_STEP)
 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = nil}))
 	refit_tick(&sim, &events)
@@ -2608,7 +2630,7 @@ the_depth_surcharge_is_scoped_to_one_visit :: proc(t: ^testing.T) {
 
 	// A different shop starts at the plain tier price: the depth was this visit's, not
 	// the voyage's.
-	arrive_at_shop(&sim, 2, flat_stock(base), &events)
+	arrive_at_shop(&sim, 2, flat_stock(.Splash), &events)
 	testing.expect_value(t, option_cost(presented_options(events[:]), 0), base)
 }
 
@@ -2623,10 +2645,10 @@ a_surcharge_can_make_a_buy_unaffordable_and_the_shop_stays_open :: proc(t: ^test
 	events: [dynamic]Event
 	defer delete(events)
 
-	base :: 10
+	base := ship.ship_item_cost(.Splash) // the cheapest card the roster prices
 	// Covers one buy at base with a little to spare, but not base + step for the next.
-	ship.ship_stow_cargo(sim.player.layout, base + (base + SHOP_DEPTH_SURCHARGE_STEP) - 1)
-	arrive_at_shop(&sim, 1, flat_stock(base), &events)
+	ship.ship_stow_cargo(sim.player.layout, base + (base + voyage.SHOP_DEPTH_SURCHARGE_STEP) - 1)
+	arrive_at_shop(&sim, 1, flat_stock(.Splash), &events)
 
 	// First buy at the plain tier price succeeds.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2634,7 +2656,7 @@ a_surcharge_can_make_a_buy_unaffordable_and_the_shop_stays_open :: proc(t: ^test
 	submit_refit(&sim, Refit_Finish{})
 	refit_tick(&sim, &events)
 	remaining := ship.ship_cargo(sim.player)
-	testing.expect_value(t, remaining, base + SHOP_DEPTH_SURCHARGE_STEP - 1)
+	testing.expect_value(t, remaining, base + voyage.SHOP_DEPTH_SURCHARGE_STEP - 1)
 
 	// Second buy: base + step now exceeds the remaining cargo, so the surcharge alone
 	// refuses it and the shop stays open.

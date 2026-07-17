@@ -62,14 +62,22 @@ SHOP_SHELF_SIZE :: 5
 // can fill a shelf.
 SHOP_STOCK_MAX :: 12
 
-// Shop_Item is one purchasable card in a Shop stage: the roster `fitting` on
-// offer and its `cost` in cargo, priced once at generation from the item's Tier
-// (ship.ship_item_cost). Tier itself doesn't ride along — nothing past pricing
-// reads it, and a bare Fitting is what the Refit ultimately places. Buying
-// deducts cost from the ship's hold (ADR-0020) and opens a Refit to place it.
-Shop_Item :: struct {
+// Stage_Option is one line of an option-list stage's presented list: the `fitting` on
+// offer and what it `cost`s in cargo, nil when the option is free. A nil cost is not a
+// magic zero — it says there is no price to check, so voyage_option_can_afford answers
+// yes outright rather than comparing against 0.
+//
+// The one priced shape: voyage_shop_option and voyage_offer_option are the only two
+// makers, and it crosses the Sim's Event seam and into presentation unchanged, so the
+// price a shelf card shows is the price its buy charges by construction. A `cost` here
+// is always the **full** price (voyage_shop_price), never a base awaiting a surcharge.
+//
+// Not a Stage variant, despite the family name — it is what an option-list stage
+// presents, like Stage_Kind is which primitive a stage is and Stage_Outcome is how one
+// resolved.
+Stage_Option :: struct {
 	fitting: ship.Fitting,
-	cost:    int,
+	cost:    Maybe(int),
 }
 
 // Stage_Fight is a full battle against a baked opponent, resolved via
@@ -135,11 +143,10 @@ Stage_Trade :: struct {
 	cost: Trade_Term,
 }
 
-// Stage_Shop sells from a seed-baked stock, each card priced by tier
-// (voyage_bake_shop), against the ship's cargo. Leaving completes the stage — a
-// shop cannot be failed, so Shop is the one primitive with no halt. Its own
-// primitive rather than Offer-with-a-price, so the Item Offer can be redesigned
-// later without dragging Shop along.
+// Stage_Shop sells from a seed-baked stock (voyage_bake_shop) against the ship's cargo.
+// Leaving completes the stage — a shop cannot be failed, so Shop is the one primitive
+// with no halt. Its own primitive rather than Offer-with-a-price, so the Item Offer can
+// be redesigned later without dragging Shop along.
 //
 // Shop is the one **revealing** primitive (voyage_stage_kind_reveals): an
 // encounter that *opens* with one is visible on the map before arrival
@@ -153,8 +160,13 @@ Stage_Trade :: struct {
 // the same reason: no owned heap. A shop whose count is small enough can be
 // **bought out** in a single visit, the mechanical difference between a
 // merchant's hold and a Port's warehouse.
+//
+// A card is a bare ship.Roster_Item — the item and the Tier it was authored at, carrying
+// no price. A card's price depends on how deep into *this visit* the buyer already is
+// (voyage_shop_price), which generation cannot know, so the stock keeps the tier and the
+// price is assembled once, at presentation, where the whole of it is knowable.
 Stage_Shop :: struct {
-	stock: [SHOP_STOCK_MAX]Shop_Item,
+	stock: [SHOP_STOCK_MAX]ship.Roster_Item,
 	count: int,
 }
 

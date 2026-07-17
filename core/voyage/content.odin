@@ -340,8 +340,12 @@ voyage_stock_candidates :: proc(stock: Stock) -> (indices: [ship.ITEM_ROSTER_SIZ
 
 // voyage_bake_shop bakes a Shop stage's stock from its authored pool (issue #137): the pool's
 // candidates shuffled per-seed off the map generator's RNG, cut off at the pool's authored
-// depth, each card priced by its Tier (ship.ship_item_cost). Every card is distinct, being a
-// sample of a permutation, so a shelf never repeats an item within one visit.
+// depth. Every card is distinct, being a sample of a permutation, so a shelf never repeats an
+// item within one visit.
+//
+// A card is stocked as the roster item it is, tier and all, and priced only when the shelf
+// presents it (voyage_shop_price) — its price turns on the visit's purchase depth, which no
+// amount of generation-time work can know.
 //
 // It takes no Scaling_Site — Shop is the one primitive that ignores its node's stakes. Cost
 // already rises with tier (ADR-0013), and Reward's payout is site-scaled (issue #133), so a
@@ -356,8 +360,7 @@ voyage_bake_shop :: proc(pool: Stock_Pool, gen: rand.Generator) -> Stage_Shop {
 
 	shop := Stage_Shop{count = min(stock.depth, n)}
 	for i in 0 ..< shop.count {
-		item := roster[candidates[i]]
-		shop.stock[i] = Shop_Item{fitting = item.fitting, cost = ship.ship_item_cost(item.tier)}
+		shop.stock[i] = roster[candidates[i]]
 	}
 	return shop
 }
