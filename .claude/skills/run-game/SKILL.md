@@ -37,7 +37,7 @@ odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
 foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','cmd/game','cmd/headless') { odin test $pkg }
-# 45 + 124 + 75 + 61 + 25 + 4 = 305 core, 25 cmd/game, 4 cmd/headless
+# 305 core (45+124+75+61), 25 cmd/game, 4 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
@@ -55,7 +55,7 @@ is a few seconds, and it's the difference between finding a break now and findin
 
 Don't copy CI's commands, though. It dodges the `game.exe` collision by passing `-out:` to send each test
 binary to the runner's temp dir, which is why it can build before it tests. The bare `odin test cmd/game` you
-type still deletes `game.exe`, so locally the rule above stands: test first, then build.
+type has no such protection, so the rule above stands locally.
 
 ## Capture: the screens, without playing the game
 
