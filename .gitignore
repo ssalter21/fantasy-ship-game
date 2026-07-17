@@ -18,5 +18,8 @@ Thumbs.db
 node_modules/
 dist/
 build/
+
+# Capture output — regenerable with `odin run cmd/game -- --capture`
+docs/ui/shots/
 *.log
 *.exe

@@ -403,40 +403,11 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		return sim.Command(sim.Command_Choose_Option{selection = nil})
 	}
 	options := state.stage_options
-	priced := option_list_is_priced(options)
-
-	// One clickable box per option position, plus a trailing decline box. The boxes
-	// are laid out once; rendering (rich multi-line text) and hit-testing both read
-	// them.
-	boxes: [sim.STAGE_OPTION_MAX + 1]rl.Rectangle
-	for i in 0 ..< len(boxes) {
-		boxes[i] = rl.Rectangle {
-			x      = SHIP_PANEL_X,
-			y      = f32(ITEM_OFFER_Y0 + i * (ITEM_OFFER_BOX_H + 6)),
-			width  = ITEM_OFFER_BOX_W,
-			height = ITEM_OFFER_BOX_H,
-		}
-	}
+	boxes := option_screen_boxes()
 	decline_index := len(boxes) - 1
 
-	header := "Choose an item to take, or skip."
-	decline_label := "Skip (take nothing)"
-	if priced {
-		header = fmt.tprintf("Shop - cargo: %d. Buy an item, or leave.", ship.ship_cargo(state.player))
-		decline_label = "Leave (buy nothing)"
-	}
-
 	for !rl.WindowShouldClose() {
-		rl.BeginDrawing()
-		draw_scene_contents(state, header)
-		for slot, i in options {
-			if option, filled := slot.?; filled {
-				draw_option_box(boxes[i], option, ship.ship_cargo(state.player))
-			}
-		}
-		draw_labeled_box(boxes[decline_index], decline_label, "", "")
-		rl.EndDrawing()
-		free_all(context.temp_allocator)
+		draw_option_screen(state)
 
 		if rl.IsMouseButtonPressed(.LEFT) {
 			mouse := rl.GetMousePosition()
@@ -458,6 +429,55 @@ option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	}
 	// Window closing without a choice: decline cleanly.
 	return sim.Command(sim.Command_Choose_Option{selection = nil})
+}
+
+// option_screen_boxes lays out one clickable box per option position, plus a trailing
+// decline box. Layout is a pure function of the constants, so rendering and hit-testing
+// can each ask for it rather than sharing a local — which is what lets the screen be
+// drawn by a caller (capture) that never hit-tests.
+option_screen_boxes :: proc() -> [sim.STAGE_OPTION_MAX + 1]rl.Rectangle {
+	boxes: [sim.STAGE_OPTION_MAX + 1]rl.Rectangle
+	for i in 0 ..< len(boxes) {
+		boxes[i] = rl.Rectangle {
+			x      = SHIP_PANEL_X,
+			y      = f32(ITEM_OFFER_Y0 + i * (ITEM_OFFER_BOX_H + 6)),
+			width  = ITEM_OFFER_BOX_W,
+			height = ITEM_OFFER_BOX_H,
+		}
+	}
+	return boxes
+}
+
+// option_screen_labels is the screen's wording, which turns on whether the list is
+// priced — a shop's shelf or an Offer's items (see option_list_is_priced).
+option_screen_labels :: proc(state: ^Game_State) -> (header: string, decline_label: string) {
+	if option_list_is_priced(state.stage_options) {
+		return fmt.tprintf("Shop - cargo: %d. Buy an item, or leave.", ship.ship_cargo(state.player)),
+			"Leave (buy nothing)"
+	}
+	return "Choose an item to take, or skip.", "Skip (take nothing)"
+}
+
+// draw_option_screen draws one whole frame of the option screen: the scene plus the
+// option chrome that only this screen has. It is split out of option_menu_loop so that
+// composing the screen and waiting for a click are separate acts — the loop draws then
+// polls, while capture draws and never polls. Without this split the chrome exists only
+// inside a blocking loop, and a screenshot catches the scene with its buttons missing.
+draw_option_screen :: proc(state: ^Game_State) {
+	header, decline_label := option_screen_labels(state)
+	boxes := option_screen_boxes()
+
+	rl.BeginDrawing()
+	defer rl.EndDrawing()
+	defer free_all(context.temp_allocator)
+
+	draw_scene_contents(state, header)
+	for slot, i in state.stage_options {
+		if option, filled := slot.?; filled {
+			draw_option_box(boxes[i], option, ship.ship_cargo(state.player))
+		}
+	}
+	draw_labeled_box(boxes[len(boxes) - 1], decline_label, "", "")
 }
 
 // option_list_is_priced reports whether any option carries a price — how the menu tells
