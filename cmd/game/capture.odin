@@ -40,6 +40,9 @@ capture_main :: proc() {
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
+	ui_fonts_load()
+	defer ui_fonts_unload()
+
 	if !os.exists(CAPTURE_DIR) {
 		if err := os.make_directory(CAPTURE_DIR); err != nil {
 			// Not fatal: raylib reports its own failure per shot, and a capture run that
@@ -48,13 +51,15 @@ capture_main :: proc() {
 		}
 	}
 
-	s := sim.sim_create(0)
-	defer sim.sim_destroy(&s)
-
 	state := Capture_State{}
 	defer delete(state.game.visited)
 	defer delete(state.game.positions)
 	defer delete(state.game.voyage_map.nodes)
+
+	capture_shot_chart_table(&state)
+
+	s := sim.sim_create(VOYAGE_SEED)
+	defer sim.sim_destroy(&s)
 
 	// The two halves take separate rawptrs: the sink gets the plain Game_State the
 	// real dispatch expects, the input gets the Capture_State that also holds the
@@ -79,13 +84,7 @@ capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Com
 	return capture_scripted_command(state, awaiting)
 }
 
-// capture_shot renders one frame of the current scene and writes it to CAPTURE_DIR,
-// numbered in walk order so a session reading them back can see the route.
-//
-// The frame is drawn twice on purpose: rl.TakeScreenshot reads back the framebuffer
-// that EndDrawing just presented, so a single draw would screenshot whatever was on
-// screen *before* this decision. Drawing the same scene into both buffers makes the
-// read-back land on this decision's frame regardless of which buffer is read.
+// capture_shot renders one frame of the current decision screen and writes it out.
 capture_shot :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	if !rl.IsWindowReady() {
 		return
@@ -93,7 +92,33 @@ capture_shot :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) 
 
 	capture_draw_screen(state, awaiting, label)
 	capture_draw_screen(state, awaiting, label)
+	capture_write(state, label)
+}
 
+// capture_shot_chart_table photographs the Chart Table at frame 0 — no voyage, no
+// script, and none of the un-photographable beats a scripted walk pays for its screens.
+// It is the one screen capture can shoot without a Sim at all, because #278 made the
+// Chart Table stateless and made it precede any voyage.
+capture_shot_chart_table :: proc(state: ^Capture_State) {
+	if !rl.IsWindowReady() {
+		return
+	}
+
+	// -1: no button is hovered. Capture has no mouse, and the screen must photograph in
+	// its resting state rather than in whatever state the pointer happens to leave it.
+	draw_chart_table(-1)
+	draw_chart_table(-1)
+	capture_write(state, "chart-table")
+}
+
+// capture_write writes the presented frame to CAPTURE_DIR, numbered in walk order so a
+// session reading the shots back can see the route.
+//
+// Callers draw their frame twice before calling: rl.TakeScreenshot reads back the
+// framebuffer that EndDrawing just presented, so a single draw would screenshot
+// whatever was on screen *before* this one. Drawing the same scene into both buffers
+// makes the read-back land on this frame regardless of which buffer is read.
+capture_write :: proc(state: ^Capture_State, label: string) {
 	// rl.TakeScreenshot runs the filename through GetFileName() and writes into the
 	// process's working directory, so a path prefix here is silently dropped — the shot
 	// always lands beside the exe's cwd. Each one is moved into CAPTURE_DIR immediately
