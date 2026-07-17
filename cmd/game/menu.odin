@@ -279,7 +279,15 @@ battle_reallocate_can_give :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 // free_all, so the per-frame free draw_ship_panel relies on can't corrupt them.
 battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
-		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command(combat.Command_Hold{})})
+		// The Hold is built through a local rather than inlined into the literal:
+		// dev-2026-06 folds a fully-constant *nested* union literal to a nil inner
+		// tag, so the inlined form returns a Command_Battle_Choice whose
+		// combat_command is nil. Same lb_const_value fault as the ci.yml pin
+		// comment describes, but silent here where dev-2026-07 panics. A local
+		// makes the value non-constant and the tag survives. Inline it again once
+		// the pin moves to a nightly that folds this correctly.
+		hold := combat.Command(combat.Command_Hold{})
+		return sim.Command(sim.Command_Battle_Choice{combat_command = hold})
 	}
 
 	reallocate_from: Maybe(ship.Slot_Index)
