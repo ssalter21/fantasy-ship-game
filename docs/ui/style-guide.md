@@ -93,6 +93,17 @@ Concretely: the selected/hovered/actionable control is amber-filled with `#08122
 interactive is steel-bordered with a steel label on a translucent ground. One amber per screen is the target;
 two is a smell; three is a bug.
 
+**Amber marks the default action, not the pointer.** "The hovered control is amber" and "one amber per screen"
+are the same rule only in the mock, where one caret moves and nothing else can be selected. This game is
+mouse-driven, so *any* control can be hovered — and the moment you hover a non-default one, amber-on-hover puts
+two ambers on screen and the rule eats itself. The resolution, found while building the Chart Table
+([#281](https://github.com/ssalter21/fantasy-ship-game/issues/281)):
+
+- **Amber is assigned, not tracked.** The screen's default action is amber-filled and stays amber whatever the
+  mouse does. A screen with no default action has no amber.
+- **Hover is carried by the caret and the scrim** — the `▶` moves to the hovered control, and its translucent
+  ground lifts (`0.55` → `0.75`). Both read clearly and neither spends amber.
+
 ### World — sampled from `colour-palette.webp`
 
 `zone_tint` (`view.odin:44`) colours the world, not the chrome, so it is drawn from the valley rather than the
@@ -182,6 +193,22 @@ grid, and it does not render cleanly off it:
 cost of adopting any pixel font — Silkscreen bottoms out at 16px the same way — and it is why hierarchy here
 is carried by **colour**, which is free, rather than by size, which is not.
 
+### A size is a font, not a parameter
+
+The scale above is **two `rl.Font`s, not one font drawn at two sizes.** One `rl.Font` is one glyph atlas
+rasterized at one size: ask `DrawTextEx` for 20px from an atlas baked at 40 and it resamples, giving up exactly
+the pixel-exactness the table above was measured to buy. Bake each size once and keep both
+(`cmd/game/ui.odin`'s `ui_font_title` / `ui_font_body`).
+
+Two things that go with it, both mandatory and neither obvious:
+
+- **Set the texture filter to `POINT`.** raylib defaults a font atlas to bilinear, which softens it on upload
+  and silently undoes the whole antialiasing measurement — the font is then *exactly* as mushy as the guide
+  says it must not be. `rl.SetTextureFilter(font.texture, .POINT)` immediately after loading.
+- **The default codepoint set is ASCII 32–126.** `LoadFontFromMemory` with a nil codepoint list bakes that and
+  no more, so `·` (U+00B7) and `—` (U+2014) are **not** in the atlas by default despite the face carrying them.
+  Retiring `view.odin`'s em-dash workaround (below) needs an explicit codepoint list, not just the font.
+
 ### No bold, ever
 
 `PixelifySans[wght].ttf` is a variable font (`wght` 400–700), Google publishes **no static instances**, and
@@ -243,6 +270,12 @@ The mock's order of attention, and the mechanism that produces it:
 Note what is *not* doing the work: there is no bold, no second font, and only two sizes. **Colour carries the
 hierarchy.** If a screen needs a new level, reach for a tone from the chrome table, not a new size.
 
+**The version stamp is shared chrome, and this guide forks it.** Levels 1–4 above describe a screen; level 5
+describes `view.odin:514`'s `draw_version_stamp`, which the five out-of-scope voyage screens *also* draw — at
+12px, in the stock font, in stock `GRAY`. Restyling it in place would restyle those five screens, so a styled
+screen draws its own stamp (`draw_chart_table_version_stamp`) and the two converge when the restyle lands.
+Expect the same fork for anything else shared between a styled screen and an unstyled one.
+
 ### Framing
 
 The torn parchment edge and dark border are the only framing signal in the entire reference set, and the mock
@@ -275,13 +308,21 @@ The button stack is centred horizontally but its **labels are left-aligned insid
 in the left margin. That asymmetry is deliberate in the mock and worth keeping: a centred label in a centred
 box has no anchor for the eye to run down.
 
+**The table has no vertical origin for the stack, on purpose.** It gives pitch, not a starting `y`, and the
+mock's own origin does not transfer — it stacks four items where the Chart Table has two, so copying its `y`
+leaves a two-item stack sitting wrong in the field. Centre the stack in the space the title leaves and record
+the number you chose (the Chart Table's is `CHART_TABLE_BUTTON_Y0`).
+
 ## Rules for raylib
 
 - **`rl.DrawTextEx`, not `rl.DrawText`.** `DrawText` uses the built-in font. Every text call must pass the
   loaded font. This is the single change that retires most of the programmer-art read.
 - `DrawTextEx` takes a **`spacing`** parameter. The mock's title and subtitle are visibly letterspaced; that
-  is where it comes from. Pixelify at 40px renders `fantasy-ship-game` at ~385px, narrower than the mock's
-  ~614px-equivalent title — close that gap with `spacing`, not with a bigger size.
+  is where it comes from. Pixelify at 40px renders a repo-length title at ~385px unspaced, narrower than the
+  mock's title — close that gap with `spacing`, not with a bigger size. The mock's title is **~614px in the
+  mock's own 1421px-wide space, i.e. ~43% of the window's width**, which is the figure that transfers: ~441px
+  at 1024, reached at `spacing` ≈ 8. (Read as *mock* pixels the number implies `spacing` ≈ 19 and a title that
+  falls apart; scale it before using it.)
 - **Split composition from polling.** Any new screen needs a `draw_X_screen(state)` that the loop calls *and*
   capture calls. Compose buttons inside a poll loop and `--capture` photographs the screen with its buttons
   missing — see [#277](https://github.com/ssalter21/fantasy-ship-game/issues/277) and the comment at
@@ -291,10 +332,14 @@ box has no anchor for the eye to run down.
 
 ## What this guide does not cover
 
-- **A layout system.** Deliberately not designed. A layout vocabulary invented before any styled screen
-  exists is fiction; whether one should be extracted is a question for after
-  [#281](https://github.com/ssalter21/fantasy-ship-game/issues/281) exists. The proportions above are a
-  starting point, not a grid.
+- **A layout system.** Deliberately not designed, and **the first styled screen agrees**: building the Chart
+  Table ([#281](https://github.com/ssalter21/fantasy-ship-game/issues/281)) reached for no stacking, alignment
+  or constraint anything. A centred button stack is a pure function of five constants, hit-tested and drawn
+  from one call (`chart_table_buttons`) — the idiom `option_screen_boxes` already established, and the one to
+  copy. The **only** thing wanted and missing was a measure-then-place text helper, `MeasureTextEx` → subtract
+  → halve being written out at each centred string. A two-button screen is too small to justify more; the
+  restyle's five dense panels are where the real evidence will come from. The proportions above are a starting
+  point, not a grid.
 - **Restyling the five existing screens** (battle, travel, refit, trade, shop). Out of scope for the
   `effort:ui-capability` map. This guide states the target; it does not create a migration. Their 12/14/16/20
   call sites do not move until someone takes that effort — at which point every size below 20px must grow.
