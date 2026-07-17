@@ -1,5 +1,7 @@
 # One shared `run_session` driver loop; UI nests its own render loop inside it
 
+**Amended by ADR-0022** on its *wording*, not its decision: `run_session` is no longer the **outermost** loop, and `main` no longer calls it exactly once — it calls it once **per voyage**, beneath an outer loop owning the Chart Table (the screen above a voyage, issue #278). Everything below carries forward unchanged — the single driver loop, the `Input_Source`/`Event_Sink` tables, and the nested blocking-modal render loops — because the Chart Table runs while no `Sim` exists and so duplicates none of the tick/await/submit sequencing this ADR exists to keep singular. Where the last paragraph says the Sim's driver loop is *outermost*, read: outermost **within a voyage**. See ADR-0022.
+
 We needed headless and UI modes to drive the Sim through the same sequence (Tick → dispatch events → await/submit a decision → Tick again) without duplicating that loop, since drift between two hand-written copies would quietly break the "identical run in either mode" guarantee that ghost-battle replay depends on.
 
 We considered giving the UI its own top-level 60fps render loop that non-blockingly "pumps" the Sim forward once per frame, with headless keeping a separate tight loop. We rejected this because it reintroduces two loop implementations — just one level up from where the split was — and the UI's `Sim`-pumping logic would need to reimplement the same tick/await/submit sequencing `run_session` already handles.
