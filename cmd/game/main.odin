@@ -15,6 +15,16 @@ WINDOW_HEIGHT :: 700
 // feedback can be tied to an exact commit. Set with `-define:GIT_SHA=…`.
 VERSION :: #config(GIT_SHA, "dev")
 
+// VOYAGE_SEED is what every voyage is dealt from. Fixed, so every launch deals the
+// identical map; the outer loop makes that more visible (two voyages back-to-back,
+// identical) without making it new. Choosing a seeding policy is ADR-0022's explicit
+// non-decision — note that --capture and cmd/headless both depend on a fixed seed for
+// their scripted walks.
+VOYAGE_SEED :: 0
+
+// main owns the loop above run_session: a session is N voyages through one window
+// (ADR-0022). run_session stays the voyage's single driver loop, called once per
+// voyage; the Chart Table sits above it, over no Sim at all.
 main :: proc() {
 	if capture_requested() {
 		capture_main()
@@ -25,7 +35,21 @@ main :: proc() {
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
-	s := sim.sim_create(0)
+	ui_fonts_load()
+	defer ui_fonts_unload()
+
+	for chart_table_loop() == .Begin {
+		run_voyage()
+	}
+}
+
+// run_voyage is one voyage, boot to ending: its own Sim, its own Game_State, one
+// run_session. Both die with the proc, so the next voyage starts from nothing — which
+// is safe precisely because #278 made the Chart Table stateless, so nothing is meant to
+// survive a voyage. It is a proc rather than a loop body so these defers are per-voyage
+// rather than per-process.
+run_voyage :: proc() {
+	s := sim.sim_create(VOYAGE_SEED)
 	defer sim.sim_destroy(&s)
 
 	state := Game_State{}
