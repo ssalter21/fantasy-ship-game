@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:os"
 import "core:slice"
 import combat "../../core/combat"
 import voyage "../../core/voyage"
@@ -21,6 +22,26 @@ VERSION :: #config(GIT_SHA, "dev")
 // non-decision — note that --capture and cmd/headless both depend on a fixed seed for
 // their scripted walks.
 VOYAGE_SEED :: 0
+
+// window_quit_if_closed ends the process if the player has closed the window. Every
+// blocking render loop calls it once per frame; it is the only thing that answers a
+// close, and it is why no loop needs a close-fallback of its own (ADR-0023).
+//
+// It exits rather than reporting, because presentation has no way to end a voyage: the
+// Command/Event boundary (ADR-0001) gives it five Commands and none of them stops a
+// voyage, which ends only at Haven or a sinking. A loop that answered a close by
+// returning a *legal move* would hand the Sim the next decision instead of winding
+// down — travel's move sails to the next node, the Sim asks where to sail again, and
+// the game spins there forever. Exiting is the only thing that actually stops.
+//
+// The IsWindowReady guard is load-bearing, not defensive: rl.WindowShouldClose() returns
+// true when there is no window, so without it `odin test` would exit(0) mid-run and
+// report success.
+window_quit_if_closed :: proc() {
+	if rl.IsWindowReady() && rl.WindowShouldClose() {
+		os.exit(0)
+	}
+}
 
 // main owns the loop above run_session: a session is N voyages through one window
 // (ADR-0022). run_session stays the voyage's single driver loop, called once per

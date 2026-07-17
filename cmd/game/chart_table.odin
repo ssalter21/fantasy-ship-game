@@ -8,12 +8,10 @@ import rl "vendor:raylib"
 // its own ending, then hands back to a Chart Table unchanged from boot, so nothing
 // here reads or holds voyage state.
 
-// Chart_Table_Choice is what the Chart Table answers main with.
-//
-// Quit is the zero value on purpose: ADR-0022 makes the window-close fallback Quit and
-// calls that rule load-bearing, since a Begin fallback would answer a close by starting
-// a voyage rather than ending the process. Ordering the enum this way makes the safe
-// answer the one you get by default.
+// Chart_Table_Choice is what the Chart Table answers main with: the button the player
+// clicked. A close is not one of these — window_quit_if_closed ends the process rather
+// than returning a choice — so both values here mean a deliberate click. Quit is the zero
+// value so that the answer you get by default is the one that stops.
 Chart_Table_Choice :: enum {
 	Quit,
 	Begin,
@@ -73,7 +71,8 @@ chart_table_loop :: proc() -> Chart_Table_Choice {
 	}
 	buttons := chart_table_buttons()
 
-	for !rl.WindowShouldClose() {
+	for {
+		window_quit_if_closed()
 		hovered := chart_table_hovered(buttons[:])
 		draw_chart_table(hovered)
 
@@ -81,13 +80,6 @@ chart_table_loop :: proc() -> Chart_Table_Choice {
 			return buttons[hovered].choice
 		}
 	}
-	// The window is closing. rl.WindowShouldClose() *consumes* the close flag rather than
-	// latching it — measured against raylib 5.5, it reports true exactly once and false
-	// on every call after — so this loop's read is the only one that gets it, and
-	// answering Quit here is what ends the process. Reaching the Chart Table with the
-	// flag already spent (a voyage that wound itself down on a close) shows the Chart
-	// Table again instead of exiting; see the close-semantics ticket on #275.
-	return .Quit
 }
 
 // chart_table_hovered returns the index of the button under the mouse, or -1.

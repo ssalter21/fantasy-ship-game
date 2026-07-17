@@ -1,5 +1,7 @@
 # ADR-0022: `main` owns the loop above `run_session` — a session is N voyages
 
+**Amended by ADR-0023** on its *Closing the window quits the process; the Chart Table's fallback is `Quit`* section — both its mechanism and its decision. That section's account of `rl.WindowShouldClose()` is false (the flag neither latches nor is consumed on read: it survives one frame, and `EndDrawing` clears it), and so is the claim it rests on — that a menu loop's fallback is "a legal move that winds the voyage down cleanly on quit." Presentation has no Command that ends a voyage, so a close mid-voyage livelocked rather than quitting, and always had. A close is now answered by ending the process at one choke point, and no loop has a close-fallback. Everything else below stands unchanged. See ADR-0023.
+
 ## Status
 
 Accepted. **Amends ADR-0002's wording, not its decision.** ADR-0002's guarantee — exactly one driver loop for tick → dispatch → await → submit, shared by headless and UI so the two can never drift — carries forward untouched, as do its blocking-modal-loop pattern and its `Input_Source`/`Event_Sink` proc-pointer tables. What retires is ADR-0002's claim that `run_session` is the **outermost** loop and that `main` calls it exactly once: `main` now calls it once **per voyage**. Per this repo's amend-by-addition convention (recorded in ADR-0021), ADR-0002 is not rewritten — it carries a pointer here. Touches **ADR-0009 (playtest distribution)**'s WASM reasoning in degree but not in kind (see Consequences). `cmd/headless` is unaffected, so ADR-0003 stands.
