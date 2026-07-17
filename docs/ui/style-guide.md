@@ -27,7 +27,9 @@ colour world and a 16-bit register; they say nothing about layout or type. Read
 `docs/ui/references/README.md` before them.
 
 `docs/ui/references/menu/menu-ui-mock.png` is different: it is the one reference that **is** a UI. It fixes
-this guide's chrome palette and its hierarchy. But it is a **look reference, not a specification**, and three
+this guide's palette ramp and its hierarchy, and it is the only image in the set that shows a chart and a
+chrome coexisting — which is why [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294) kept it
+when the option to drop it was on the table. But it is a **look reference, not a specification**, and three
 things in it are actively wrong for this game:
 
 - **Its menu items are not the Chart Table's.**
@@ -47,33 +49,73 @@ produces). Take its solids as law and its transparency as a target to match by e
 
 ## Palette
 
-Three palettes, with a boundary that matters. Getting this wrong is the most likely way to misread this guide,
-so the boundary is stated first:
+**There is one palette, and it is a depth ramp.** Hue falls and value rises as the water shallows. Everything
+else — the ground the chrome sits on, the zones, the accents — is a stop on that ramp or a deliberate
+exception to it.
 
-| Palette | Governs | Source |
+This replaces the three-palette split (chrome / world / semantic, from two different sources) that this guide
+carried until [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294). That split was not a reading
+of the references; it was **an artifact of sampling two of them that disagree**, and it is what made the art
+direction and the game read as two different games.
+
+### Why one ramp, and how it was found
+
+Measured across all ten references, the set holds **two hue families 31.8° apart**:
+
+| Family | Mean blue hue | Images |
 | --- | --- | --- |
-| **Chrome** | Everything drawn *on top of* the world: panels, buttons, borders, text, states | the mock |
-| **World** | The world being depicted: `zone_tint`'s ambient bands | `style/colour-palette.webp` |
-| **Semantic** | `stage_tint` — meaning that must read on **both** | constrained by both, owned by neither |
+| **Navy** | H217–234 | `menu-ui-mock` 217, `ship-night` 230, `ship-battle` 234 |
+| **Teal** | H186–202 | `wave` 186, `colour-palette.webp` 193, `island-tropical` 195, `menu-port-tropical` 198, `treasure-map` 198, `floating-port` 202 |
 
-### Chrome — sampled from the mock
+So **"just use the references" is not executable as stated** — they do not agree with each other. Two traps
+are worth recording, because both are easy to walk into:
 
-Exact values, sampled from `menu-ui-mock.png`. These are law.
+- **A global hue-vs-value fit says "ramp" and is lying.** Across the whole set, hue falls as value rises
+  (r = −0.52), which looks exactly like depth. It is **time of day**. `ship-night` holds H230 across values
+  0.08→0.77; `wave` holds H186 across 0.37→0.99. Where the two overlap in brightness they are still ~44°
+  apart. Night scenes are dark and daylight scenes are bright, and that alone manufactures the correlation.
+- **The real ramp lives inside single images.** The mock's water is three measured stops —
+  **H222 V0.15 → H212 V0.19 → H200 V0.25** — which is exactly this game's three zones.
+  `island-tropical` independently carries both ends (navy `#091746` deep, cyan `#2091AE` shallow).
+
+The two families were never rivals: **they are the deep and shallow ends of one sea.** The mock's deep water
+is `#081127`, which *is* this guide's ground — the same hex. The outlier is `colour-palette.webp`, which #280
+made the world's source: a dusk mountain **valley**, sitting at H≈193 at every depth. It is not a sea, and it
+is the reason the world sat 32° of hue away from the chrome.
+
+### The ramp
+
+These are law. The first three are **both** the chrome's grounds **and** `zone_tint`'s three zones — one set of
+colours, not two that must be kept in sync.
+
+| Stop | Hex | RGB | H | V | Is |
+| --- | --- | --- | --- | --- | --- |
+| **Deep** | `#081127` | 8, 17, 39 | 222 | 0.15 | The dominant field, the canvas, **and** zone `Deep`. Replaces `RAYWHITE`. |
+| **Mid** | `#0A1C30` | 10, 28, 48 | 212 | 0.19 | Open water; large calm areas. **And** zone `Open_Sea`. |
+| **Shallow** | `#0E2E3F` | 14, 46, 63 | 200 | 0.25 | Where water meets land. **And** zone `Coastal`. |
+| **Vignette** | `#050B18` | 5, 11, 24 | 221 | 0.09 | Below the ramp. Frames the screen; see [Framing](#framing). |
+### The tones on the ramp
+
+Everything the chrome draws with. Cyan is the ramp's bright end (H186 — where `wave` sits); steel and
+recessive blue are ramp hues at lower saturation; amber and cream are the two deliberate exceptions.
 
 | Role | Hex | RGB | Notes |
 | --- | --- | --- | --- |
-| **Ground** | `#081127` | 8, 17, 39 | The dominant field. Replaces `RAYWHITE` as the canvas. |
-| **Ground (water/mid)** | `#0A1C30` | 10, 28, 48 | One step up from ground; large calm areas. |
-| **Vignette / edge** | `#050B18` | 5, 11, 24 | Darkest tone. Frames the screen; see [Framing](#framing). |
-| **Amber — action** | `#F7A72B` | 247, 167, 43 | **Reserved.** See [The amber rule](#the-amber-rule). |
+| **Amber — action** | `#F7A72B` | 247, 167, 43 | **Reserved.** H36 — the ramp's complement, see below. See [The amber rule](#the-amber-rule). |
 | **Ink on amber** | `#08122B` | 8, 18, 43 | The only text colour that goes on amber. Never cream. |
-| **Steel — interactive** | `#8AA9D6` | 138, 169, 214 | Unselected controls: their border *and* their label. |
+| **Steel — interactive** | `#8AA9D6` | 138, 169, 214 | Unselected controls: their border *and* their label. H215 — on the ramp. |
 | **Cream — display** | `#E7D2A3` | 231, 210, 163 | Titles and headings only. Parchment, not white. |
-| **Cyan — emphasis** | `#6FE0EC` | 111, 224, 236 | Subtitles, taglines, the eye's rest point. Sparingly. |
+| **Cyan — emphasis** | `#6FE0EC` | 111, 224, 236 | The ramp's bright end (H186). Subtitles, taglines, the eye's rest point. Sparingly. |
 | **Cyan — dim** | `#57B5C3` | 87, 181, 195 | Hints and secondary help text. |
 | **Blue — recessive** | `#3A5A82` | 58, 90, 130 | Text that must be present but never read first (version stamp). |
 
-Two rules that fall out of this table:
+**Amber is complementary to the ramp, and that is why the ramp is navy at depth.** `#F7A72B` is H36.5; its
+exact complement is H216.5, which is the Deep/Mid stop. Against the teal family (H195) the same amber is 159°
+away rather than 174° — still contrasting, measurably less opposed. The README calls blue-versus-amber the
+strongest signal in the set; it is strongest *at the navy end*, which is also where the two images that
+actually carry an amber accent (`ship-night`, `ship-battle`) sit. Choosing the teal end would have cost that.
+
+Two rules that fall out of these tables:
 
 - **Never `RAYWHITE`, `LIGHTGRAY`, `BEIGE`, `MAROON`, `SKYBLUE`, `GRAY`, or `WHITE` again.** Every stock
   raylib named colour has a replacement above. The stock palette is the single largest programmer-art signal
@@ -104,32 +146,63 @@ two ambers on screen and the rule eats itself. The resolution, found while build
 - **Hover is carried by the caret and the scrim** — the `▶` moves to the hovered control, and its translucent
   ground lifts (`0.55` → `0.75`). Both read clearly and neither spends amber.
 
-### World — sampled from `colour-palette.webp`
+### `zone_tint`, and the one place the ramp cannot land yet
 
-`zone_tint` (`view.odin:44`) colours the world, not the chrome, so it is drawn from the valley rather than the
-mock. Values below are the quantized dominants of the named regions.
+`zone_tint` (`view.odin:44`) is the ramp's three stops, so there is nothing to reconcile: zone `Deep` **is**
+the ground the chrome sits on. That is the whole point of one ramp.
 
-| Zone | Hex | RGB | Drawn from |
+It carries the ramp's **hues** and not its **values**, and that is a limit rather than a choice:
+
+| Zone | Ramp hue | Shipped | RGB | Why not the ramp's own value |
+| --- | --- | --- | --- | --- |
+| `Coastal` | H200 | `#67A7C7` | 103, 167, 199 | lifted to V0.78 |
+| `Open_Sea` | H212 | `#3D6899` | 61, 104, 153 | lifted to V0.60 |
+| `Deep` | H222 | `#30426B` | 48, 66, 107 | lifted to V0.42 |
+| fallback (no zone) | H212, low sat | `#667280` | 102, 114, 128 | absence of hue reads as absence of zone |
+
+**Why.** `draw_scene` (`view.odin:486`) clears the voyage canvas to `RAYWHITE`, and the band draws at
+`Fade(..., 0.18)` (`view.odin:178`). An 18% wash over white carries almost none of the underlying value:
+composite the ramp's true stops (V0.15/0.19/0.25) through it and all three zones land **within 5/255 of each
+other** — `#D3D4D8`, `#D3D6DA`, `#D4D9DC`, one indistinguishable grey. The values above are lifted until they
+survive the wash, holding adjacent zones **9/255** apart, which is exactly what shipped before this change.
+
+**The ramp's value axis lands when the canvas stops being white** — i.e. when the five voyage screens are
+restyled, which is out of the `effort:ui-capability` map's scope. Until then `zone_tint` is on the ramp in
+hue and off it in value, and that is recorded rather than hidden. If you are the restyle: change
+`ClearBackground` to `COLOUR_DEEP` and these four constants collapse onto the ramp table above.
+
+Usage is unchanged: a background band and an unrevealed encounter's generic marker (`view.odin:132`). They are
+**ambient**. If a zone tint is ever the brightest thing on screen, it is being misused.
+
+### The chart's own tones
+
+For a chart background (the Chart Table draws one; see [The chart](#the-chart)). Sampled from the mock's
+chart, not invented:
+
+| Role | Hex | RGB | Notes |
 | --- | --- | --- | --- |
-| `Coastal` | `#5AC3C7` | 90, 195, 199 | the valley's shallow water — bright turquoise |
-| `Open_Sea` | `#1A78B1` | 26, 120, 177 | the valley's mid sky — saturated mid blue |
-| `Deep` | `#0D4652` | 13, 70, 82 | the valley's deep water — dark teal |
-| fallback (no zone) | `#22404A` | 34, 64, 74 | the valley's neutral shadow — slate |
+| **Land** | `#535049` | 83, 80, 73 | The island body. Khaki, **not parchment** — see below. |
+| **Land shade** | `#494337` | 73, 67, 55 | Its shadowed edge. |
+| **Land green** | `#23412C` | 35, 65, 44 | The inland patch. |
+| **Grid** | `#4D5863` | 77, 88, 99 | The graticule. H210 — already on the ramp. |
+| **Chart ink** | `#6E82A0` | 110, 130, 160 | The rose, the route. H215, opaque — see [The chart](#the-chart). |
+| **Mark** | `#B2482B` | 178, 72, 43 | The X. The mock's, and the only warm thing on the chart besides amber. |
 
-Keep the existing usage: these are drawn as a background band at `Fade(..., 0.18)` (`view.odin:178`), and as
-an unrevealed encounter's generic marker (`view.odin:132`). They are **ambient**. If a zone tint is ever the
-brightest thing on screen, it is being misused.
+**Land is khaki, not parchment, and that is measured.** `menu/treasure-map.jpg` is **9.67% strongly-warm**
+against 0.2–2.7% for every other reference. The amber rule works *only* because warm is scarce, so a parchment
+ground would end it — and a cream title and an amber button cannot sit on cream anyway. The mock is the
+proof that a treasure map does not have to be parchment: it *is* one — islands, grid, compass rose, a red X —
+rendered at 2.68% warm on navy water.
 
-Land green, where a screen needs it: `#5C8648` (92, 134, 72) mid, `#32583B` (50, 88, 59) shadow, `#B3CC5A`
-(179, 204, 90) highlight. The mock's islands agree closely enough that these are safe on chart backgrounds.
+### `stage_tint` — the deliberate exception
 
-### Semantic — `stage_tint`
+`stage_tint` (`view.odin:81`) is the one thing that is **not** on the ramp, and that is on purpose: it carries
+*category*, and a ramp has only one hue axis to spend, which depth already owns.
 
-`stage_tint` (`view.odin:81`) is the awkward one, and it is worth understanding why before changing it.
-
-It is used in **two places on purpose**: the node markers on the map (world) and the chips in the encounter
-strip (chrome). That is the property to protect — *a Battle node and a Battle chip must read as the same
-thing*. So `stage_tint` cannot be assigned to either palette. It is a third category, legible against both.
+It is used in **two places on purpose**: the node markers on the map and the chips in the encounter strip.
+That is the property to protect — *a Battle node and a Battle chip must read as the same thing*. Under the old
+three-palette split this made `stage_tint` "a third category, legible against both"; with one ramp the
+statement is simpler — **it is off-ramp hue on an on-ramp ground**, which is exactly why it reads.
 
 It is also, today, a **five-hue rainbow** — `Fight`→`MAROON`, `Offer`→`LIME`, `Trade`→`ORANGE`,
 `Shop`→`SKYBLUE`, `Reward`→`GOLD` — which directly contradicts [the amber rule](#the-amber-rule). Two of those
@@ -268,13 +341,38 @@ The mock's order of attention, and the mechanism that produces it:
 5. **The version stamp** — recessive blue `#3A5A82`. Findable, never read first.
 
 Note what is *not* doing the work: there is no bold, no second font, and only two sizes. **Colour carries the
-hierarchy.** If a screen needs a new level, reach for a tone from the chrome table, not a new size.
+hierarchy.** If a screen needs a new level, reach for a tone from
+[the tones on the ramp](#the-tones-on-the-ramp), not a new size.
 
 **The version stamp is shared chrome, and this guide forks it.** Levels 1–4 above describe a screen; level 5
 describes `view.odin:514`'s `draw_version_stamp`, which the five out-of-scope voyage screens *also* draw — at
 12px, in the stock font, in stock `GRAY`. Restyling it in place would restyle those five screens, so a styled
 screen draws its own stamp (`draw_chart_table_version_stamp`) and the two converge when the restyle lands.
 Expect the same fork for anything else shared between a styled screen and an unstyled one.
+
+### The chart
+
+The Chart Table draws a chart because [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278)
+settled that the screen *is* a chart with buttons over it. It is **drawn from the ramp with raylib
+primitives, not sourced as an image** ([#294](https://github.com/ssalter21/fantasy-ship-game/issues/294)):
+that costs no bytes against ADR-0009's self-contained exe, raises no licence question, and — the point —
+**cannot clash with the chrome, because the chrome's ground and the chart's deep water are one ramp stop.**
+
+Two rules came out of drawing it, and both are the kind that produce a screen that looks broken rather than
+one that looks wrong:
+
+- **The world must never outshine the chrome.** Same rule as the zone tints, and it needs enforcing on a chart
+  too. Measure it: peak luminance of any chart element must sit below the title's. The first rose peaked at
+  **209 against the title's 185** — the background was the brightest thing on the screen.
+- **Alpha composites per draw, not per figure — so a translucent figure cannot have a brightness.** Eight
+  `Fade(CREAM, 0.7)` spokes crossing at a hub stack to near-opaque cream. If a shape is built from overlapping
+  primitives, give it an **opaque dim tone** (`#6E82A0`); it is the only way its peak is predictable from the
+  constant.
+
+And one trap the caret already knew about, which the rose walked into anyway: **`DrawTriangle` culls
+clockwise winding, drawing nothing at all.** A rose wound the wrong way renders its hub and none of its eight
+spokes — a silent, total no-op. Wind counter-clockwise. This is now noted here rather than only in a comment
+on one function.
 
 ### Framing
 
@@ -344,8 +442,10 @@ the number you chose (the Chart Table's is `CHART_TABLE_BUTTON_Y0`).
   `effort:ui-capability` map. This guide states the target; it does not create a migration. Their 12/14/16/20
   call sites do not move until someone takes that effort — at which point every size below 20px must grow.
 - **Art assets.** Illustration, ship art, node icons. Out of scope, with one carve-out: the Chart Table's
-  background. Getting a *shippable* one is
-  [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284) — the mock is **not** it, and its
-  provenance is unrecorded.
+  background — which [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294) resolved by **drawing**
+  rather than sourcing (see [The chart](#the-chart)), so the carve-out is currently unspent. A *sourced*
+  image remains [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284); it would now be an
+  improvement in **depiction**, not in palette, and it is no longer gating anything. The mock is **not** it,
+  and its provenance is unrecorded.
 - **The Chart Table's contents.** Settled by
   [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278), not here.
