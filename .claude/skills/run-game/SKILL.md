@@ -117,17 +117,14 @@ guide's stated value.
 
 ## Context budget: look once, scout the rest
 
-This loop is the one place a UI session spends context faster than it produces code. A screen that lands in a
-~750-line diff can burn a 250K+ session — and none of it goes to the diff. It goes to *process*: images that
-never leave the window, and source files full-read to find a seam. Wayfinder's 100K target is for **charting**
-sessions that scout instead of reading; it was never a ceiling an **implementation** session could hold, because
-this session is the thing editing the code and judging the pixels. So implementation gets its own budget, and
-it's this: **aim for 150K, and defend it here.**
+This loop spends context faster than it produces code: a screen that lands in a ~750-line diff can burn a 250K+
+session, and almost none of it reaches the diff. It goes to *process* — images that never leave the window, and
+source files full-read to find a seam. An implementation session's target is **150K**, and it's defended here,
+where the spending happens.
 
 - **Screenshots are the dominant sink** — heavy, uncompressible, and capture writes **43 of them per run**.
   Read only the 1–3 shots you are actually iterating on, never the gallery. Kill capture the moment your target
-  shot exists (the `00-chart-table.png` wait above turns a 75s walk into ~2s) so the other 40 are never written,
-  let alone read.
+  shot exists (the `00-chart-table.png` wait above) so the other 40 are never written, let alone read.
 - **Look once, scan thereafter.** The first look at a shot judges layout — that needs your eyes. Every check
   *after* that (a colour moved, an edge aligned, a value changed) comes off the PIL pixel-scan above, which is
   dozens of tokens against a whole image. Re-reading the same PNG each iteration is the single most expensive
