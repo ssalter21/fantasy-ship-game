@@ -89,47 +89,54 @@ brace_fitting_adds_a_temporary_damage_reduction_stacking_with_durability :: proc
 	testing.expect_value(t, b.hull, 15)
 }
 
+// A Crew-tagged Fire fitting and a gun of equal magnitude contribute to raw
+// *identically*: swapping which one carries which magnitude leaves the damage unchanged.
+// The two are one interchangeable pile — the property Muster's removal into Fire rests on
+// (ADR-0025), and the one the category's presence would have broken.
 @(test)
-muster_output_adds_into_the_same_rounds_brace_and_fire_totals :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
-	a := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = warcry},
-			{slot = ship.Slot{size = .Large}, fitting = cannon},
-		},
+a_former_crew_fitting_and_a_gun_of_equal_magnitude_contribute_to_raw_identically :: proc(t: ^testing.T) {
+	// Same two magnitudes, swapped between the Crew fitting and the gun. Both are `.Fire`.
+	fire_both :: proc(crew_mag, gun_mag: ship.Magnitude) -> int {
+		crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = crew_mag}}
+		gun := ship.Fitting{name = "Cannon", category = .Fire, tags = {.Weapon}, active = ship.Effect{magnitude = gun_mag}}
+		a := ship.Ship{
+			hull = 40, durability = 0, speed = 5,
+			layout = []ship.Layout_Slot{
+				{slot = ship.Slot{size = .Small}, fitting = crew},
+				{slot = ship.Slot{size = .Large}, fitting = gun},
+			},
+		}
+		b := ship.Ship{hull = 40, durability = 0, speed = 5}
+		battle := combat_battle_create(&a, &b)
+		events: [dynamic]Event
+		defer delete(events)
+		cmds: [Side]Maybe(Command)
+		combat_resolve_round(&battle, cmds, &events)
+		return b.hull
 	}
-	b := ship.Ship{hull = 20, durability = 0, speed = 5}
-	battle := combat_battle_create(&a, &b)
 
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	combat_resolve_round(&battle, cmds, &events)
-
-	// Fire output = cannon(10) + muster(3) = 13 raw damage.
-	testing.expect_value(t, b.hull, 20-13)
+	// crew(3) + gun(10) and crew(10) + gun(3) both deal 13: the two channels are one.
+	testing.expect_value(t, fire_both(3, 10), 40-13)
+	testing.expect_value(t, fire_both(10, 3), 40-13)
 }
 
-// The inverse of the pre-#151 test of the same shape, which pinned muster folding
-// into its own side's Brace total. It no longer does: bulwark is subtracted from
-// raw, so bulwark's vocabulary has to stay small, and Muster's does not (Admiral's
-// Guard is +3 per Crew aboard). See combat_resolve_round's band note.
+// A Fire fitting never reduces incoming damage: raw and bulwark are disjoint, so a
+// Crew-tagged Fire fitting adds to what its ship deals and nothing to what it soaks.
+// Bulwark is only Durability plus own Brace output.
 @(test)
-muster_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
+a_fire_fitting_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
+	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
 	a := ship.Ship{
-		hull = 20, durability = 1, speed = 5,
+		hull = 40, durability = 1, speed = 5,
 		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = warcry},
+			{slot = ship.Slot{size = .Small}, fitting = crew},
 			{slot = ship.Slot{size = .Small}, fitting = shield},
 		},
 	}
 	b := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
+		hull = 40, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -139,33 +146,9 @@ muster_output_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's bulwark = durability(1) + brace(4) = 5 — the War Cry's 3 is *not* in it.
-	// B's raw damage = 20, so final = 20 - 5 = 15. (Pre-#151 this was 20 - 8 = 12.)
-	testing.expect_value(t, a.hull, 20-15)
-}
-
-// The same magnitude on a Muster fitting reaches Fire and nothing else: the
-// half of "muster feeds Fire only" that says it still feeds Fire.
-@(test)
-muster_output_still_raises_the_same_sides_fire_total :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
-	a := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = warcry},
-			{slot = ship.Slot{size = .Large}, fitting = cannon},
-		},
-	}
-	b := ship.Ship{hull = 20, durability = 0, speed = 5}
-	battle := combat_battle_create(&a, &b)
-
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	combat_resolve_round(&battle, cmds, &events)
-
-	testing.expect_value(t, b.hull, 20-(5+3))
+	// A's bulwark = durability(1) + brace(4) = 5 — the Top Crew's 3 is *not* in it.
+	// B's raw damage = 20, so final = 20 - 5 = 15.
+	testing.expect_value(t, a.hull, 40-15)
 }
 
 @(test)
@@ -191,22 +174,20 @@ press_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
 	testing.expect_value(t, a.hull, 20-10)
 }
 
-// Inverted by #151: a Press multiplies its own phase's fittings, which is what
-// ADR-0006 says ("multiplies that phase's fitting output"). Pressing the combined
-// total instead made Press Fire strictly dominate Press Muster — 2(O+B) always
-// beats O+2B — so one of the captain's five Commands was never the right answer.
+// Press Fire doubles the *whole* Fire pile — the guns and the crew-tagged fittings
+// alike — since they share the one Fire phase (ADR-0025). No seam splits the pile.
 @(test)
-press_fire_multiplies_the_fire_fittings_but_not_the_folded_muster :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 2}}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
+press_fire_multiplies_the_whole_fire_pile_including_former_crew :: proc(t: ^testing.T) {
+	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = 2}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, tags = {.Weapon}, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
+		hull = 40, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = warcry},
+			{slot = ship.Slot{size = .Small}, fitting = crew},
 			{slot = ship.Slot{size = .Large}, fitting = cannon},
 		},
 	}
-	b := ship.Ship{hull = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 40, durability = 0, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -215,49 +196,21 @@ press_fire_multiplies_the_fire_fittings_but_not_the_folded_muster :: proc(t: ^te
 	cmds[.A] = Command(Command_Press{phase = .Fire})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// cannon(5)*PRESS_MULTIPLIER + muster(2) = 12. (Pre-#151: (5+2)*2 = 14.)
-	testing.expect_value(t, b.hull, 20-(5*PRESS_MULTIPLIER+2))
+	// (crew(2) + cannon(5)) * PRESS_MULTIPLIER = 14 — both piles doubled, no seam.
+	testing.expect_value(t, b.hull, 40-(2+5)*PRESS_MULTIPLIER)
 }
 
-// The other half of the same rule, and the reason it is worth having: Press Muster
-// presses the crew rather than the guns, so the two Presses answer a real question
-// instead of one dominating the other.
-@(test)
-press_muster_multiplies_the_muster_fittings_before_they_reach_fire :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 2}}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
-	a := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = warcry},
-			{slot = ship.Slot{size = .Large}, fitting = cannon},
-		},
-	}
-	b := ship.Ship{hull = 20, durability = 0, speed = 5}
-	battle := combat_battle_create(&a, &b)
-
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Press{phase = .Muster})
-	combat_resolve_round(&battle, cmds, &events)
-
-	// cannon(5) + muster(2)*PRESS_MULTIPLIER = 9. Worth less than Press Fire's
-	// 12 for *this* build, and worth more for a build whose crew outweighs its guns.
-	testing.expect_value(t, b.hull, 20-(5+2*PRESS_MULTIPLIER))
-}
-
-// Also inverted by #151: Press Brace doubles the Brace fittings alone,
-// since muster no longer reaches bulwark at all.
+// Press Brace doubles the Brace fittings alone. Fire fittings never reach bulwark, so
+// the crew-tagged Fire fitting on the pressing ship changes nothing about the soak.
 @(test)
 press_brace_multiplies_only_the_brace_fittings :: proc(t: ^testing.T) {
-	warcry := ship.Fitting{name = "War Cry", category = .Muster, active = ship.Effect{magnitude = 3}}
+	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
 	a := ship.Ship{
 		hull = 20, durability = 0, speed = 5,
 		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = warcry},
+			{slot = ship.Slot{size = .Small}, fitting = crew},
 			{slot = ship.Slot{size = .Small}, fitting = shield},
 		},
 	}
@@ -273,8 +226,8 @@ press_brace_multiplies_only_the_brace_fittings :: proc(t: ^testing.T) {
 	cmds[.A] = Command(Command_Press{phase = .Brace})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's pressed bulwark = shield(4) * PRESS_MULTIPLIER = 8, the War Cry's 3 excluded;
-	// B's raw damage = 20, so final = 20 - 8 = 12. (Pre-#151: (4+3)*2 = 14, so 6.)
+	// A's pressed bulwark = shield(4) * PRESS_MULTIPLIER = 8, the Top Crew's 3 excluded;
+	// B's raw damage = 20, so final = 20 - 8 = 12.
 	testing.expect_value(t, a.hull, 20-12)
 }
 
@@ -335,16 +288,16 @@ a_speed_stat_modifier_fitting_raises_effective_speed_for_escape_eligibility :: p
 @(test)
 the_three_starting_fittings_phase_output_matches_their_magnitude_constants :: proc(t: ^testing.T) {
 	// Regression anchor for the Effect port (issue #92): the ported flat/constant
-	// starting fittings must produce byte-identical phase output to before —
-	// exactly their magnitude constants, one per phase.
+	// starting fittings must produce phase output equal to their magnitude constants.
+	// Top Crew and Gun Deck share the Fire phase (ADR-0025), so Fire output is the *sum*
+	// of their two constants; Captain's Quarters is the lone Brace fitting.
 	s := ship.ship_starting_ship()
 	defer delete(s.layout)
 	opponent := ship.Ship{}
 	battle := combat_battle_create(&s, &opponent)
 
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Muster), ship.TOP_CREW_MUSTER_MAGNITUDE)
 	testing.expect_value(t, combat_phase_output(&battle, .A, .Brace), ship.CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE)
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Fire), ship.GUN_DECK_OFFENSE_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Fire), ship.TOP_CREW_OFFENSE_MAGNITUDE + ship.GUN_DECK_OFFENSE_MAGNITUDE)
 }
 
 @(test)

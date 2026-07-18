@@ -455,7 +455,7 @@ selector_matches_over_each_of_tag_size_visibility_and_category :: proc(t: ^testi
 	testing.expect(t, selector_matches(slot, Selector(Slot_Size.Large)))
 	testing.expect(t, !selector_matches(slot, Selector(Slot_Size.Small)))
 	testing.expect(t, selector_matches(slot, Selector(Category.Fire)))
-	testing.expect(t, !selector_matches(slot, Selector(Category.Muster)))
+	testing.expect(t, !selector_matches(slot, Selector(Category.Brace)))
 	// Visibility: the fitting's effective visibility (through the slot), not a raw field.
 	testing.expect(t, selector_matches(slot, Selector(Visibility.Concealed)))
 	testing.expect(t, !selector_matches(slot, Selector(Visibility.Exposed)))
@@ -507,20 +507,20 @@ effect_magnitude_scales_a_synergy_effect_by_the_matching_count :: proc(t: ^testi
 
 @(test)
 count_matching_on_a_category_selector_counts_by_the_fittings_category_field :: proc(t: ^testing.T) {
-	// A Category selector reads Fitting.category directly. That field's zero
-	// value is .Muster, and cargo / effect-less fittings never set it, so a
-	// Selector(Category.Muster) counts every such fitting as a Muster. This test
-	// pins that behavior down (ship_count_matching's doc caveat): a content
-	// author selecting on .Muster must expect zero-value fittings in the count.
+	// A Category selector reads Fitting.category directly. That field's zero value is
+	// .Brace, and cargo / effect-less fittings never set it, so a Selector(Category.Brace)
+	// counts every such fitting as a Brace. This test pins that behavior down
+	// (ship_count_matching's doc caveat): a content author selecting on .Brace must expect
+	// zero-value fittings in the count.
 	s := synergy_ship(
-		Fitting{name = "Top Crew", size = .Medium, category = .Muster},
+		Fitting{name = "Iron Plating", size = .Medium, category = .Brace},
 		Fitting{name = "Gun Deck", size = .Large, category = .Fire},
 		Fitting{name = "Cargo", size = .Small, tags = {.Cargo}, is_cargo = true, stack_count = 1},
 	)
 	defer delete(s.layout)
 
-	// Top Crew (explicit .Muster) and Cargo (zero-value .Muster) both count.
-	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Muster)), 2)
+	// Iron Plating (explicit .Brace) and Cargo (zero-value .Brace) both count.
+	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Brace)), 2)
 	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Fire)), 1)
 }
 

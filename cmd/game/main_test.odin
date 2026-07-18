@@ -301,8 +301,8 @@ fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
 	dur := ship.Fitting{category = .Brace, passive = ship.Effect{kind = .Modify_Durability, magnitude = 2}}
 	testing.expect_value(t, fitting_effect_intent(dur), "+2 Durability")
 
-	synergy := ship.Fitting{category = .Muster, active = ship.Effect{magnitude = 2, synergy = ship.Selector(ship.Tag.Weapon)}}
-	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Muster per Weapon")
+	synergy := ship.Fitting{category = .Fire, active = ship.Effect{magnitude = 2, synergy = ship.Selector(ship.Tag.Weapon)}}
+	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Offense per Weapon")
 
 	conditional := ship.Fitting{category = .Fire, active = ship.Effect{magnitude = 8, conditional = ship.Condition_Hull_Below{percent = 50}}}
 	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense below 50% Hull")

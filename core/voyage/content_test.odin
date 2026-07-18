@@ -25,9 +25,9 @@ test_hostile :: proc(archetype: Hostile_Archetype, site: Scaling_Site) -> ship.S
 	return s
 }
 
-// hostile_output is what an archetype actually *deals* in a round —
-// `raw_damage = Fire + Muster` (core/combat, ADR-0017) — resolved through a real
-// Battle rather than read off the authored magnitudes.
+// hostile_output is what an archetype actually *deals* in a round — its `raw_damage`,
+// a side's Fire output (core/combat) — resolved through a real Battle rather than read
+// off the authored magnitudes.
 //
 // The distinction is the whole reason this helper exists (#165). phase_magnitude
 // below sums `active.magnitude` directly, which is blind to both seams that stand
@@ -46,7 +46,7 @@ hostile_output :: proc(hostile: ^ship.Ship, round: int = 1) -> int {
 
 	battle := combat.combat_battle_create(&player, hostile)
 	battle.round = round
-	return combat.combat_phase_output(&battle, .B, .Fire) + combat.combat_phase_output(&battle, .B, .Muster)
+	return combat.combat_phase_output(&battle, .B, .Fire)
 }
 
 // hostile_at_power builds an archetype at an explicit power percent, off a site that
@@ -177,11 +177,10 @@ a_deeper_node_gives_the_opponent_harder_hitting_fire_fittings :: proc(t: ^testin
 // alive: bulwark is subtracted from raw damage, so a site that scaled it would make a
 // deep hostile impossible to *hurt* rather than harder to fight.
 //
-// The other half of #135's rule — "Muster is not scaled either" — is deliberately
-// **gone** (#165), because #151 took Muster out of `defense_bonus`, so a scaled Muster
-// fitting now hits harder rather than raising its bulwark. That the two halves had one
-// stated reason and only one of them still holds is why this test names the
-// property rather than the category list.
+// Only Brace is exempt. Every other category — Fire, and the Modify_Speed passives
+// filed under it — the site scales, because everything but bulwark is what a hostile
+// deals. That is why this test names the *property* (bulwark is never scaled) rather
+// than a category list that would drift each time the categories move.
 //
 // Both of a Brace fitting's routes into bulwark are checked, since the roster uses
 // both: `Barricades` is an active that feeds the Brace phase, and `Reinforced
@@ -219,10 +218,10 @@ the_site_scales_what_a_hostile_deals_and_never_its_bulwark :: proc(t: ^testing.T
 // **Speed is the archetype's axis, and the site must not touch it** (#165, and the
 // reason FIGHT_OPPONENT_SPEED was retired onto Hostile_Archetype by #135).
 //
-// This is a new tripwire, and it is live rather than theoretical: the roster's four
-// Modify_Speed items are filed under Category `.Muster` (Spare Rigging, Copper
-// Sheathing, Outriggers, Enchanted Keel), and `.Muster` is a category the site now
-// scales. Only ship_fitting_output_scaled's refusal to touch anything but an active
+// This is a live tripwire rather than theoretical: the roster's four Modify_Speed items
+// are filed under Category `.Fire` (Spare Rigging, Copper Sheathing, Outriggers,
+// Enchanted Keel), and `.Fire` is a category the site scales. Only
+// ship_fitting_output_scaled's refusal to touch anything but an active
 // Phase_Contribution keeps a Deep node from handing Reef Skimmer more Speed than a
 // Coastal one — which would quietly decide who is allowed to break off, since
 // escape eligibility is *strictly faster* (combat_may_break_off).
@@ -560,14 +559,14 @@ a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^
 // roster — every `Selector`-based item, which is most of what the roster is *for* —
 // could not sit on a hostile at any magnitude.
 //
-// It can now, and the reason is structural rather than tuned: a Selector muster is
-// output, and output is the side of the ledger that can absorb a 12. The build is a
+// It can now, and the reason is structural rather than tuned: a Selector offense fitting
+// is output, and output is the side of the ledger that can absorb a 12. The build is a
 // hard hitter instead of an invincible one, which is a *magnitude* problem (tunable
 // by the entry, the site, or the item) rather than a *category* one. So this test
 // asserts the property that changed — the player's damage gets through a stacked
-// Selector muster — and not a number.
+// Selector attacker (Admiral's Guard, a `.Fire` fitting) — and not a number.
 @(test)
-a_selector_muster_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^testing.T) {
+a_selector_offense_fitting_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^testing.T) {
 	// Four Crew aboard: Admiral's Guard itself, Naval Gun Crew, Boarding Pikes and
 	// Deckhands are all Crew-tagged, so the Guard reads its own maximum.
 	guard := [?]string{"Naval Gun Crew", "Admiral's Guard", "Boarding Pikes", "Deckhands"}
@@ -589,7 +588,7 @@ a_selector_muster_can_sit_on_a_hostile_without_walling_the_player :: proc(t: ^te
 	testing.expectf(
 		t,
 		hostile.hull < hostile.max_hull,
-		"a starting player cannot scratch a four-Crew Admiral's Guard build — the muster is feeding bulwark again, and every Selector item is barred from half the game",
+		"a starting player cannot scratch a four-Crew Admiral's Guard build — a Selector attacker is feeding bulwark again, and every Selector item is barred from half the game",
 	)
 }
 

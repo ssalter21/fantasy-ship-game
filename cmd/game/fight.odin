@@ -19,7 +19,7 @@ import rl "vendor:raylib"
 //     opponent's concealed slots read "???" and its hold / weight stay hidden, the same gate
 //     draw_ship_panel used; you see your own ship whole.
 //   - The captain action-row, no amber. The one-decision-per-round menu is a bottom row of
-//     steel controls (Press Muster / Brace / Fire, Man the Sails, a Jettison per laden hold,
+//     steel controls (Press Brace / Fire, Man the Sails, a Jettison per laden hold,
 //     Break Off once escape-eligible). A Fight has no single default move — choosing *is* the
 //     game — so none of them takes the reserved amber; hover is carried by the caret + scrim
 //     lift, exactly as the Build surface (amber is assigned, not tracked).

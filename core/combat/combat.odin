@@ -91,7 +91,6 @@ End_Reason :: enum {
 // output, and whether the side was sunk this round.
 Round_State :: struct {
 	press_phase:   Maybe(ship.Category),
-	muster_output:   int,
 	defense_bonus: int,
 	raw_damage:    int,
 	sunk:          bool,
@@ -328,29 +327,19 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		return total
 	}
 
-	// Muster resolves first so its output is available to this same round's
-	// Fire total below (ADR-0006).
-	for side in Side {
-		round_state[side].muster_output = pressed(combat_phase_output(battle, side, .Muster), .Muster, round_state[side].press_phase)
-	}
-
-	// Brace and Fire resolve together: each is its own fittings' output, pressed,
-	// and Fire alone adds this round's muster_output.
+	// Brace and Fire are the two phases a round resolves (ADR-0006, amended by ADR-0025):
+	// each is its own fittings' output, pressed. raw_damage is a side's own Fire output;
+	// defense_bonus is its own Brace output, the only active lever on the *subtracted*
+	// side of `final = max(0, raw − bulwark)`.
 	//
-	// Muster feeds Fire only, never defense_bonus: bulwark is *subtracted* from raw
-	// damage, so bulwark's vocabulary must stay small while Muster's need not — a
-	// Crew build can fold a large magnitude into its damage that the same magnitude
-	// could never be allowed to absorb. See the band note on core/voyage's
-	// hostile_roster.
-	//
-	// A Press multiplies its own phase's fittings and nothing else (ADR-0006):
-	// muster_output is already pressed by Press Muster, so it is added *after* Press
-	// Fire, not inside it. The two Presses are a real choice — press the guns, or
-	// press the crew.
+	// A Press multiplies its own phase's fittings and nothing else (ADR-0006). Press Fire
+	// (double the damage) is the live choice; Press Brace doubles a bulwark total the
+	// roster barely fills, so Press has effectively decayed to "Press Fire, or waste it".
+	// The {phase} shape is kept against a future second damage axis (ADR-0025).
 	for side in Side {
 		press_phase := round_state[side].press_phase
 		round_state[side].defense_bonus = pressed(combat_phase_output(battle, side, .Brace), .Brace, press_phase)
-		round_state[side].raw_damage = pressed(combat_phase_output(battle, side, .Fire), .Fire, press_phase) + round_state[side].muster_output
+		round_state[side].raw_damage = pressed(combat_phase_output(battle, side, .Fire), .Fire, press_phase)
 	}
 
 	for side in Side {
