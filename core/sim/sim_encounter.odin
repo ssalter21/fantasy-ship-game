@@ -180,9 +180,12 @@ sim_enter_stage :: proc(sim: ^Sim, stage: voyage.Stage, events: ^[dynamic]Event)
 		// stage's baked content has to outlive the entry. can_accept is measured now,
 		// against the ship as it stands.
 		sim.active_trade = s
+		cost_read, gain_read := voyage.voyage_trade_project(&sim.player, sim.active_trade)
 		append(events, Event(Event_Trade_Presented{
 			trade      = sim.active_trade,
 			can_accept = voyage.voyage_trade_can_accept(&sim.player, sim.active_trade),
+			cost_read  = cost_read,
+			gain_read  = gain_read,
 		}))
 		sim.phase = .Awaiting_Trade_Choice
 		return nil

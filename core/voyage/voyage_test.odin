@@ -1504,6 +1504,59 @@ voyage_apply_trade_moves_cargo :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.durability, 2)
 }
 
+// voyage_trade_project feeds the Trade view's two cards (#318): both stats' effective reading
+// before the swap and after it, computed without touching the ship.
+@(test)
+voyage_trade_project_reads_both_sides_before_and_after :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 20, max_hull = 20, durability = 2}
+
+	cost, gain := voyage_trade_project(&s, trade_of(.Durability, 3, .Max_Hull, 1))
+
+	testing.expect_value(t, cost.before, 20) // Max Hull paid
+	testing.expect_value(t, cost.after, 19)
+	testing.expect_value(t, gain.before, 2) // Durability gained
+	testing.expect_value(t, gain.after, 5)
+}
+
+// A Cargo gain projects capped at capacity, so the view surfaces #157 overflow as an after that
+// can't reach before+amount.
+@(test)
+voyage_trade_project_caps_a_cargo_gain_at_capacity :: proc(t: ^testing.T) {
+	s := ship.ship_starting_ship() // 50 cargo, capacity 90
+	defer delete(s.layout)
+	s.durability = 4
+
+	_, gain := voyage_trade_project(&s, trade_of(.Cargo, 60, .Durability, 2))
+
+	testing.expect_value(t, gain.before, 50)
+	testing.expect_value(t, gain.after, 90) // 110 would overflow; the extra 20 is lost (#157)
+}
+
+// A Hull repair projects capped against the ceiling the Max-Hull cost lowers first — the
+// pay-before-grant order voyage_apply_trade uses.
+@(test)
+voyage_trade_project_repairs_against_the_sold_ceiling :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 18, max_hull = 20, durability = 5}
+
+	_, gain := voyage_trade_project(&s, trade_of(.Hull, 5, .Max_Hull, 3))
+
+	testing.expect_value(t, gain.before, 18)
+	testing.expect_value(t, gain.after, 17) // ceiling drops to 17; 18+5 caps there, not at 23
+}
+
+// An unaffordable trade still projects (no assert), and its give card's after sits below the
+// stat's floor — the below-floor read the view draws when can_accept is false.
+@(test)
+voyage_trade_project_shows_an_unaffordable_cost_below_its_floor :: proc(t: ^testing.T) {
+	s := ship.Ship{hull = 10, max_hull = 10, durability = 2}
+
+	cost, _ := voyage_trade_project(&s, trade_of(.Max_Hull, 1, .Durability, 5))
+
+	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Max_Hull, 1, .Durability, 5)))
+	testing.expect_value(t, cost.before, 2)
+	testing.expect_value(t, cost.after, -3) // below the Durability floor of 0
+}
+
 // Scrapped Armour (gain .Cargo, cost .Durability) picked up two side effects
 // when cargo became weight (ADR-0020, #199), and both are the honest, intended
 // cost of the axis rather than a bug to guard:

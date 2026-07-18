@@ -178,6 +178,49 @@ voyage_trade_can_accept :: proc(s: ^ship.Ship, trade: Stage_Trade) -> bool {
 	return voyage_trade_stat_reading(s, trade.cost.stat) - trade.cost.amount >= voyage_trade_stat_floor(trade.cost.stat)
 }
 
+// Trade_Reading is one card's stat before the swap and after it (#310/#318): the pair the
+// Trade view renders as `before → after`. Computed Sim-side, where reading effective stats is
+// free, so the view draws the projection straight from Event_Trade_Presented rather than
+// recomputing the ship. `after` is the truthful post-swap figure: a Cargo gain clamps at
+// capacity so #157 overflow shows as an after that can't reach before+amount, a Hull repair
+// caps against the ceiling a Max-Hull cost just lowered, and an unaffordable cost's after sits
+// below its floor (voyage_trade_stat_floor) — exactly the below-floor read the give card wants.
+Trade_Reading :: struct {
+	before: int,
+	after:  int,
+}
+
+// voyage_trade_project computes both cards' before→after readings for the Trade view. It does
+// not mutate the ship and does not run voyage_apply_trade — Ship.layout is a shared slice, so a
+// value-copy would still stow into the real holds, and apply asserts on an unaffordable trade
+// this must still project. Each side is figured from the effective readings and the swap's own
+// rules: the cost (give) side simply loses its amount and is allowed below the floor (so an
+// unaffordable trade shows the give card dipping under it); the gain (get) side adds its amount
+// and then clamps the way voyage_trade_grant would — a Hull repair against the ceiling the
+// Max-Hull cost lowers, a Cargo gain against capacity (surfacing #157).
+voyage_trade_project :: proc(s: ^ship.Ship, trade: Stage_Trade) -> (cost, gain: Trade_Reading) {
+	cost.before = voyage_trade_stat_reading(s, trade.cost.stat)
+	cost.after = cost.before - trade.cost.amount
+
+	gain.before = voyage_trade_stat_reading(s, trade.gain.stat)
+	switch trade.gain.stat {
+	case .Hull:
+		// A repair caps against the ceiling — lowered first if the cost is paid in Max Hull,
+		// mirroring voyage_apply_trade's pay-before-grant order.
+		ceiling := ship.ship_effective_max_hull(s)
+		if trade.cost.stat == .Max_Hull {
+			ceiling -= trade.cost.amount
+		}
+		gain.after = min(gain.before + trade.gain.amount, ceiling)
+	case .Cargo:
+		// A gain above the holds' capacity is lost (#157), so the after stalls at capacity.
+		gain.after = min(gain.before + trade.gain.amount, ship.ship_cargo_capacity(s^))
+	case .Max_Hull, .Durability:
+		gain.after = gain.before + trade.gain.amount
+	}
+	return
+}
+
 // voyage_trade_pay deducts a trade's cost. The cost is measured against the effective
 // stat (voyage_trade_can_accept) but paid out of the base field, the only field a voyage
 // owns — so a heavily-fitted ship can pay a cost its base alone couldn't cover, and the

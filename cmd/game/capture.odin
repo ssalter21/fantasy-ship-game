@@ -331,17 +331,20 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 }
 
 // capture_draw_screen draws the frame a player would be looking at for this decision. The
-// travel screen (Home, #317), the option screen (Offer/Shop, #312) and the Fight (#315) are all
-// fully drawable surfaces split from their loops, so the scripted walk photographs each as the
-// player would see it — at rest, with no drag. Trade and Refit still fall back to draw_scene,
-// which renders the scene *without* that screen's chrome — their controls are still welded inside
-// their blocking menu loops. The remaining gap is the finding, not an oversight: see issue #277.
+// travel screen (Home, #317), the option screen (Offer/Shop, #312), the Trade stage (#318) and
+// the Fight (#315) are all fully drawable surfaces split from their loops, so the scripted walk
+// photographs each as the player would see it — at rest, with no drag. Refit still falls back to
+// draw_scene, which renders the scene *without* that screen's chrome — its controls are still
+// welded inside its blocking menu loop. The remaining gap is the finding, not an oversight: see
+// issue #277.
 capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	#partial switch awaiting {
 	case .Awaiting_Travel_Choice:
 		draw_home(&state.game, Build_Drag{}, nil, rl.Vector2{-1, -1}, false)
 	case .Awaiting_Option_Choice:
 		draw_offer_shop(&state.game, Shelf_Drag{}, rl.Vector2{-1, -1})
+	case .Awaiting_Trade_Choice:
+		draw_trade(&state.game, rl.Vector2{-1, -1})
 	case .Awaiting_Battle_Command:
 		draw_fight(&state.game, rl.Vector2{-1, -1})
 	case:
