@@ -1048,6 +1048,84 @@ recipe_name_of :: proc(e: Encounter) -> string {
 	return ""
 }
 
+// --- Zero-crossing layout (#338): planar by construction -------------------
+
+// seg_orient returns the sign of the cross product (b-a) x (c-a): +1 if c lies
+// left of the ray a->b, -1 if right, 0 if the three are collinear. The integer
+// building block of the crossing test — exact, no floating point.
+seg_orient :: proc(ax, ay, bx, by, cx, cy: int) -> int {
+	v := (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+	return 1 if v > 0 else (-1 if v < 0 else 0)
+}
+
+// segments_properly_cross reports whether segments p1p2 and p3p4 meet at a point
+// interior to both — a real visual crossing. Two routes that merely share a node
+// (a common endpoint) or touch T-wise give a zero orientation and are not counted,
+// which is what we want: routes are *allowed* to meet at nodes. The layout never
+// lays two routes collinearly overlapping (forward routes across one layer pair
+// share only endpoints; laterals are unit-length verticals with nothing between),
+// so the proper-crossing test alone is exact here.
+segments_properly_cross :: proc(p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y: int) -> bool {
+	d1 := seg_orient(p3x, p3y, p4x, p4y, p1x, p1y)
+	d2 := seg_orient(p3x, p3y, p4x, p4y, p2x, p2y)
+	d3 := seg_orient(p1x, p1y, p2x, p2y, p3x, p3y)
+	d4 := seg_orient(p1x, p1y, p2x, p2y, p4x, p4y)
+	return(
+		((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+		((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)) \
+	)
+}
+
+@(test)
+no_two_routes_ever_cross_on_a_generated_map :: proc(t: ^testing.T) {
+	// #338's headline guarantee, measured the way the Chart draws the map:
+	// view.odin's compute_node_positions places each node at x = layer, y = lane
+	// and routes are drawn straight between node centres. Node y is monotone in
+	// lane within a layer and x is monotone in layer, so two routes cross on the
+	// rendered chart iff their integer (layer, lane) segments cross — the per-layer
+	// y-scaling can't add or remove a crossing. So the planarity is a pure property
+	// of the generated Map, asserted here in core/voyage with no window (the
+	// highest-value, fully-automated seam per spec 0001 §Testing).
+	//
+	// The constraint lives in the generator (monotone forward blocks + adjacent-only
+	// laterals), so it must hold for *every* seed. Sweep 200, mirroring the research
+	// prototype (docs/research/0002-zero-crossing-chart-layout.md), which measured
+	// today's random wiring at ~140 crossings/map and the constrained wiring at a
+	// flat 0 across the same 200.
+	Seg :: struct {
+		ax, ay, bx, by: int,
+	}
+	for seed in u64(0) ..< 200 {
+		m := voyage_map_create(seed)
+		defer voyage_map_destroy(&m)
+
+		// Each undirected route once: m.edges stores every edge from both ends, so
+		// keep only p.id < v.
+		segs: [dynamic]Seg
+		defer delete(segs)
+		for p in m.nodes {
+			for v in m.edges[p.id] {
+				if v <= p.id {
+					continue
+				}
+				w := m.nodes[v]
+				append(&segs, Seg{p.layer, p.lane, w.layer, w.lane})
+			}
+		}
+
+		crossings := 0
+		for i in 0 ..< len(segs) {
+			for j in i + 1 ..< len(segs) {
+				a, b := segs[i], segs[j]
+				if segments_properly_cross(a.ax, a.ay, a.bx, a.by, b.ax, b.ay, b.bx, b.by) {
+					crossings += 1
+				}
+			}
+		}
+		testing.expectf(t, crossings == 0, "seed %d: %d route crossings, want 0", seed, crossings)
+	}
+}
+
 @(test)
 edges_only_connect_the_same_or_an_adjacent_layer :: proc(t: ^testing.T) {
 	for seed in TEST_SEEDS {
