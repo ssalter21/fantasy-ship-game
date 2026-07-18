@@ -218,6 +218,57 @@ a_node_is_labelled_by_the_stage_it_opens_with_not_by_its_cursor :: proc(t: ^test
 }
 
 @(test)
+each_revealed_stage_kind_inks_a_distinct_doodle :: proc(t: ^testing.T) {
+	// Build step 3 (#348) split the blue chart's single "diamond + hue" into one
+	// cartographer's-hand doodle per revealed opening, so a captain reads what a known stop
+	// holds from its shape alone, without a legend (spec §3). A Shop opening is the Port's
+	// anchor; the four others each take their own mark. Visited so a non-revealing kind still
+	// shows its identity (only a Shop opening reveals unvisited, ADR-0016).
+	testing.expect_value(t, node_mark(node_of(voyage.Stage_Shop{}), true), Node_Mark.Anchor)
+	testing.expect_value(t, node_mark(node_of(voyage.Stage_Fight{}), true), Node_Mark.Cutlasses)
+	testing.expect_value(t, node_mark(node_of(voyage.Stage_Offer{}), true), Node_Mark.Scroll)
+	testing.expect_value(t, node_mark(node_of(voyage.Stage_Trade{}), true), Node_Mark.Scales)
+	testing.expect_value(t, node_mark(node_of(voyage.Stage_Reward{}), true), Node_Mark.Chest)
+}
+
+@(test)
+a_masked_stop_is_a_buoy_and_landmarks_keep_their_marks :: proc(t: ^testing.T) {
+	// The Sim hides encounter identity by dropping the encounter (encounter = nil); that
+	// masked stop is the dotted "?" buoy — the whole of the fog (spec §7). Start and Haven are
+	// landmarks, not stages, so they keep their own marks regardless of visited state.
+	masked := voyage.Node{kind = .Encounter, zone = voyage.Zone.Coastal}
+	testing.expect_value(t, node_mark(masked, false), Node_Mark.Buoy)
+	testing.expect_value(t, node_mark(voyage.Node{kind = .Start}, false), Node_Mark.Home)
+	testing.expect_value(t, node_mark(voyage.Node{kind = .Haven}, false), Node_Mark.Island)
+}
+
+@(test)
+node_identity_ink_never_spends_coral :: proc(t: ^testing.T) {
+	// Coral (#E1552B) is the parchment's one warm accent, reserved for the Haven X and the
+	// danger tick (spec §3/§8) — the destination and the risks, nothing else. Node *identity*
+	// inks strong sepia or recedes to faded-ink, so the eye is only ever pulled to those two
+	// things. This pins that contract across every kind and both visited states; the coral X
+	// is drawn inside draw_haven_island, not returned as a node's identity ink.
+	nodes := []voyage.Node {
+		{kind = .Start},
+		{kind = .Haven},
+		node_of(voyage.Stage_Shop{}),
+		node_of(voyage.Stage_Fight{}),
+		node_of(voyage.Stage_Offer{}),
+		node_of(voyage.Stage_Trade{}),
+		node_of(voyage.Stage_Reward{}),
+		{kind = .Encounter, zone = voyage.Zone.Coastal}, // masked buoy
+	}
+	for n in nodes {
+		for visited in ([]bool{false, true}) {
+			color, _ := node_appearance(n, visited)
+			is_coral := color.r == INK_CORAL.r && color.g == INK_CORAL.g && color.b == INK_CORAL.b
+			testing.expect(t, !is_coral)
+		}
+	}
+}
+
+@(test)
 a_visited_node_keeps_its_marker_faded :: proc(t: ^testing.T) {
 	fought := node_of(voyage.Stage_Fight{})
 

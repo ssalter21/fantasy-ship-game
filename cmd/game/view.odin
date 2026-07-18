@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import voyage "../../core/voyage"
 import ship "../../core/ship"
@@ -10,6 +11,19 @@ MAP_AREA := rl.Rectangle{x = 20, y = 20, width = 620, height = 640}
 SHIP_PANEL_X :: 670
 NODE_RADIUS :: 12
 MAP_PAD :: 34
+
+// The parchment Chart's ink palette (spec 0001 §8). The reskin drops the blue
+// nautical-chart tones on this surface — steel rings, CHART_INK routes, the amber
+// snap — for a cartographer's-hand ink language over the sourced parchment page. Two
+// registers carry identity vs. recession: node identity and the road behind you ink
+// in strong sepia; the fog ahead (unexplored ? buoys, charted-not-yet routes) recedes
+// to faded-ink. Coral is the page's one warm accent, and it is spent only on the
+// Haven X and the danger tick — nowhere else, and never amber.
+INK_SEPIA :: rl.Color{126, 92, 58, 255} // Rock #7E5C3A — node identity, the road behind
+INK_FADED :: rl.Color{156, 138, 99, 255} // Faded-ink #9C8A63 — the recessive register only
+INK_SEA_DEEP :: rl.Color{23, 134, 188, 255} // #1786BC — reachable ring + hover, the interactive tone
+INK_CORAL :: rl.Color{225, 85, 43, 255} // #E1552B — the one warm accent: Haven X + danger tick
+INK_TEXT :: rl.Color{18, 51, 63, 255} // Ink #12333F — landmark labels on the warm page
 
 // compute_node_positions places each node from the generator's layer/lane
 // metadata: layer is the column (Start left, Haven right), lane the row within
@@ -96,23 +110,31 @@ node_marker :: proc(opening: voyage.Stage_Kind) -> (color: rl.Color, label: stri
 	return stage_tint(opening), label
 }
 
-// node_appearance picks the marker colour and label for a node. A hidden Encounter is a
-// quiet recessive-blue buoy with no label (the Sim's hiding contract); a visited one, or
-// one that reveals before arrival, shows its opening stage's muted category colour and
-// label, faded when visited so the map keeps a memory of the route. Start is steel and
-// Haven cream — landmarks, not stages, so off the category hues entirely, and the old
-// stock SKYBLUE/GOLD/GRAY are retired (style guide bans them).
+// ink_state fades an identity ink to a memory when the node has been visited (~0.3
+// alpha): the map keeps where you've been without letting it compete with the road
+// ahead (spec §3 states, §7 recession). An unvisited identity inks at full strength.
+ink_state :: proc(ink: rl.Color, visited: bool) -> rl.Color {
+	return visited ? rl.Fade(ink, 0.3) : ink
+}
+
+// node_appearance picks the ink colour and label for a node. Identity inks in strong
+// sepia (INK_SEPIA), faded to a memory once visited; a masked or opening-less Encounter
+// recedes to faded-ink with no label (the Sim's hiding contract). The category *hue* the
+// blue chart used is gone — on the parchment identity is carried by the doodle's shape
+// (node_mark), not its colour, so every mark inks in the one sepia register (spec §3).
 //
-// The shape each node is drawn as (home-mark, dock, diamond, buoy, island) is node_mark's
-// call, keyed on the same predicates; this proc owns only the colour and the label. It is
-// still a place the reveal question is asked of the stage list, never the node kind
-// (ADR-0014, voyage_encounter_reveals) — the same question the Sim's mask asks.
+// The shape each node is drawn as (home port, island, anchor, cutlasses, scroll, scales,
+// chest, buoy) is node_mark's call, keyed on the same predicates; this proc owns only the
+// ink and the label. It is still a place the reveal question is asked of the stage list,
+// never the node kind (ADR-0014, voyage_encounter_reveals) — the same question the Sim's
+// mask asks. The label keeps node_marker's Shop→"Port" rename; the colour it computes is
+// discarded, since the parchment inks every identity the same.
 node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:
-		return COLOUR_STEEL, "Start"
+		return ink_state(INK_SEPIA, visited), "Start"
 	case .Haven:
-		return COLOUR_CREAM, "Haven"
+		return ink_state(INK_SEPIA, visited), "Haven"
 	case .Encounter:
 		// A masked node has no encounter to label; an unvisited one that doesn't reveal
 		// keeps its content back until arrival. Both are the Sim's answer rendered, never
@@ -120,39 +142,44 @@ node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, labe
 		// payload, so there's nothing to leak.
 		encounter, has_encounter := p.encounter.?
 		if !has_encounter || (!visited && !voyage.voyage_encounter_reveals(encounter)) {
-			return COLOUR_BLUE_RECESSIVE, ""
+			return INK_FADED, ""
 		}
 		opening, has_opening := voyage.voyage_encounter_opening(encounter)
 		if !has_opening {
-			return COLOUR_BLUE_RECESSIVE, ""
+			return INK_FADED, ""
 		}
-		color, label = node_marker(voyage.voyage_stage_kind(opening))
-		if visited {
-			color = rl.Fade(color, 0.3)
-		}
-		return color, label
+		_, label = node_marker(voyage.voyage_stage_kind(opening))
+		return ink_state(INK_SEPIA, visited), label
 	}
-	return COLOUR_BLUE_RECESSIVE, ""
+	return INK_FADED, ""
 }
 
-// Node_Mark is the shape a node is drawn as on the chart: the Start home-mark, the Haven
-// island, a Port's dock, a revealed encounter's category diamond, or an unrevealed
-// encounter's ? buoy. Shape carries identity colour alone can't — a Port and a revealed
-// Shop share the Shop hue, but only the Port is a routable landfall, so it takes the dock
-// while every other revealed encounter takes a diamond.
+// Node_Mark is the cartographer's-hand doodle a node is drawn as on the parchment: the
+// Start home port, the Haven treasure island (bearing the coral X), and one doodle per
+// revealed encounter identity — anchor (a Port you can put in at), crossed cutlasses (a
+// battle), scroll (an offer), scales (a trade), chest (a reward) — or the dotted ? buoy an
+// unrevealed encounter keeps until reached. Shape *is* the identity here: the parchment
+// inks every mark in the one sepia register (node_appearance), so unlike the blue chart's
+// single "diamond + hue", the doodle alone tells a captain what a known stop holds without
+// a legend (spec §3).
 Node_Mark :: enum {
 	Home,
 	Island,
-	Dock,
-	Diamond,
+	Anchor,
+	Cutlasses,
+	Scroll,
+	Scales,
+	Chest,
 	Buoy,
 }
 
-// node_mark classifies a node into its chart shape. It re-asks the same reveal predicate
+// node_mark classifies a node into its doodle. It re-asks the same reveal predicate
 // node_appearance does (voyage_encounter_reveals) rather than share a computed value: the
-// two answer different questions off one fact — what shape, what colour — and keeping them
+// two answer different questions off one fact — what shape, what ink — and keeping them
 // side by side is the file's own idiom (move_fires re-derived reveal the same way). A
-// masked or opening-less encounter falls through to a buoy, the same "nothing to show yet".
+// masked or opening-less encounter falls through to a buoy, the same "nothing to show yet";
+// a revealed one splits by its opening Stage_Kind into the four encounter doodles, with a
+// Shop opening reading as the Port's anchor (ADR-0016, only a Shop opening reveals).
 node_mark :: proc(p: voyage.Node, visited: bool) -> Node_Mark {
 	switch p.kind {
 	case .Start:
@@ -168,10 +195,19 @@ node_mark :: proc(p: voyage.Node, visited: bool) -> Node_Mark {
 		if !has_opening {
 			return .Buoy
 		}
-		if voyage.voyage_stage_kind(opening) == .Shop {
-			return .Dock
+		switch voyage.voyage_stage_kind(opening) {
+		case .Shop:
+			return .Anchor
+		case .Fight:
+			return .Cutlasses
+		case .Offer:
+			return .Scroll
+		case .Trade:
+			return .Scales
+		case .Reward:
+			return .Chest
 		}
-		return .Diamond
+		return .Buoy
 	}
 	return .Buoy
 }
@@ -188,12 +224,12 @@ draw_map_page :: proc() {
 	rl.DrawTexturePro(parchment_page_tex, src, MAP_AREA, rl.Vector2{0, 0}, 0, rl.WHITE)
 }
 
-// draw_map draws the whole chart at once: the sourced parchment page, every route dashed in
-// chart ink, every node as its mark (home / island / dock / diamond / buoy), the steel
-// reachability rings with a danger tick on an unrevealed reachable node, the hover caret,
-// and the ship you stand on as the screen's one amber. Composition only — `mouse` carries
-// the hover so the loop can poll while capture passes a no-mouse sentinel and photographs
-// the chart at rest (#277).
+// draw_map draws the whole parchment Chart at once: the sourced parchment page, every route
+// in one of three sepia states on a hand-wavy curve, every node as its cartographer's-hand
+// doodle, the Sea-deep reachability rings with a coral danger tick on an unrevealed
+// reachable node, the hover caret, and the ink placeholder for the node the ship stands on.
+// Composition only — `mouse` carries the hover so the loop can poll while capture passes a
+// no-mouse sentinel and photographs the chart at rest (#277).
 draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	draw_map_page()
 
@@ -204,11 +240,13 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	// free_all — no hand-free here.
 	options := voyage.voyage_travel_options(state.voyage_map, state.current_node_id, state.visited)
 
-	// Routes, under the marks; each undirected pair once. A route reads in one of three
-	// states: sailable now (from the ship to a reachable node) is steel dashes; already
-	// sailed (both ends visited) is solid chart ink; everything else is faint dashes —
-	// charted, not yet a choice. Sailable-now wins over sailed so a backtrack edge reads as
-	// the option it is (ADR-0009). Replaces the old flat grey lines.
+	// Routes, under the marks; each undirected pair once. A route reads in one of three sepia
+	// states — sailable now (from the ship to a reachable node) is bold dashes; already sailed
+	// (both ends visited) is solid ink, the wake left behind; everything else is faint
+	// faded-ink dots, charted but not yet a choice. That weighting *is* the visited recession
+	// (spec §7): the road behind inks strong, the road ahead recedes to faded-ink. Sailable-now
+	// wins over sailed so a backtrack edge reads as the option it is (ADR-0009). Every route
+	// rides a gently hand-wavy curve, not a ruled line (spec §3).
 	for p in state.voyage_map.nodes {
 		for v in state.voyage_map.edges[p.id] {
 			if v <= p.id {
@@ -217,16 +255,16 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 			a, b := state.positions[p.id], state.positions[v]
 			switch {
 			case edge_is_sailable(state.current_node_id, p.id, v, options):
-				draw_chart_dashes(a, b, 2, COLOUR_STEEL)
+				draw_route(a, b, .Sailable)
 			case state.visited[p.id] && state.visited[v]:
-				rl.DrawLineEx(a, b, 2, CHART_INK)
+				draw_route(a, b, .Sailed)
 			case:
-				draw_chart_dashes(a, b, 1, rl.Fade(CHART_INK, 0.4))
+				draw_route(a, b, .Charted)
 			}
 		}
 	}
 
-	// Marks, over the routes. The shape is node_mark's call, the colour node_appearance's.
+	// Marks, over the routes. The doodle is node_mark's call, the ink node_appearance's.
 	for p, i in state.voyage_map.nodes {
 		pos := state.positions[i]
 		color, label := node_appearance(p, state.visited[i])
@@ -235,51 +273,54 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 		case .Home:
 			draw_home_mark(pos, color)
 		case .Island:
-			draw_haven_island(pos)
-		case .Dock:
-			draw_dock_mark(pos, color)
-		case .Diamond:
-			rl.DrawPoly(pos, 4, NODE_RADIUS, 0, color)
+			draw_haven_island(pos, color)
+		case .Anchor:
+			draw_anchor_mark(pos, color)
+		case .Cutlasses:
+			draw_cutlasses_mark(pos, color)
+		case .Scroll:
+			draw_scroll_mark(pos, color)
+		case .Scales:
+			draw_scales_mark(pos, color)
+		case .Chest:
+			draw_chest_mark(pos, color)
 		case .Buoy:
 			draw_buoy_mark(pos)
 		}
-		// Labels only on the landmarks and Ports — the marks whose identity a hue can't
-		// carry (Start and Haven aren't stages; a Port is a routable waypoint, ADR-0016). A
-		// revealed encounter's category rides its diamond's hue (node_appearance still names
-		// it, for the tests and any future legend), so a text label under it would only crowd
-		// the chart where nodes sit close. Buoys stay anonymous (the Sim's hiding contract).
+		// Labels only on the landmarks and the Port — the marks a captain orients by (Start
+		// and Haven aren't stages; a Port is a routable waypoint, ADR-0016). The four encounter
+		// doodles carry their identity in shape, so a text label under them would only crowd the
+		// chart where nodes sit close. Buoys stay anonymous (the Sim's hiding contract).
 		#partial switch mark {
-		case .Home, .Island, .Dock:
-			tone := p.kind == .Haven ? COLOUR_CREAM : COLOUR_STEEL
-			if state.visited[i] {
-				tone = rl.Fade(tone, 0.6)
-			}
+		case .Home, .Island, .Anchor:
+			tone := state.visited[i] ? rl.Fade(INK_TEXT, 0.6) : INK_TEXT
 			draw_map_label(label, pos, tone)
 		}
 	}
 
-	// Reachability, over the marks: a steel ring on each reachable node, cyan with a caret
-	// under the pointer, and a muted-maroon danger tick on one whose encounter is still
-	// unrevealed (a buoy — it might fire; a revealed node already carries its category so
-	// its risk reads on its own). The keyboard-era numbers and the red/green rings retire.
+	// Reachability, over the marks: a Sea-deep dashed ring on each reachable node — the
+	// parchment's interactive tone (spec §3) — with a caret under the pointer, and a coral
+	// danger tick on one whose encounter is still unrevealed (a buoy — it might fire; a
+	// revealed node already carries its identity so its risk reads on its own).
 	for dest in options {
 		pos := state.positions[dest]
 		hovered := rl.CheckCollisionPointCircle(mouse, pos, NODE_RADIUS)
-		rl.DrawCircleLinesV(pos, NODE_RADIUS + 4, hovered ? COLOUR_CYAN : COLOUR_STEEL)
+		draw_dashed_ring(pos, NODE_RADIUS + 5, INK_SEA_DEEP)
 		if node_mark(state.voyage_map.nodes[dest], state.visited[dest]) == .Buoy {
 			draw_danger_tick(pos)
 		}
 		if hovered {
-			draw_caret(rl.Vector2{pos.x - NODE_RADIUS - 12, pos.y}, COLOUR_CYAN)
+			draw_caret(rl.Vector2{pos.x - NODE_RADIUS - 12, pos.y}, INK_SEA_DEEP)
 		}
 	}
 
-	// The ship you stand on: the screen's one amber (style guide — the node you stand on
-	// takes #F7A72B). Drawn last so it reads on top of its own mark and any ring. Replaces
-	// the WHITE "you are here" stopgap.
+	// The node the ship stands on. Spec §5/§3 makes this the resting ship sprite, with no
+	// amber anywhere on the page — but the sprite lands in build step 4. Until then the current
+	// node reads in the ink language rather than the retired amber ring+dot: a doubled sepia
+	// ring, a deliberate placeholder step 4 replaces with the sprite.
 	cur := state.positions[state.current_node_id]
-	rl.DrawCircleLinesV(cur, NODE_RADIUS + 7, COLOUR_AMBER)
-	rl.DrawCircleV(cur, NODE_RADIUS * 0.5, COLOUR_AMBER)
+	rl.DrawCircleLinesV(cur, NODE_RADIUS + 6, INK_SEPIA)
+	rl.DrawCircleLinesV(cur, NODE_RADIUS + 4, INK_SEPIA)
 }
 
 // edge_is_sailable reports whether the undirected edge (a, b) is a move the ship can make
@@ -305,21 +346,89 @@ option_contains :: proc(options: []voyage.Node_ID, id: voyage.Node_ID) -> bool {
 	return false
 }
 
-// draw_chart_dashes strokes a dashed line from a to b, the Chart Table's route language
-// (chart_table.odin) generalised so the map can reuse it at three weights. Dashes are drawn
-// rather than stippled because raylib carries no dash pattern; a zero-length edge still
-// draws one dash rather than dividing by zero.
-draw_chart_dashes :: proc(a, b: rl.Vector2, thickness: f32, color: rl.Color) {
-	DASH :: f32(9)
-	span := rl.Vector2Distance(a, b)
-	steps := max(int(span / DASH), 1)
-	for s in 0 ..< steps {
-		if s % 2 == 1 {
+// ink_wobble returns a small deterministic offset in [-amp, amp], hashed off `seed`. The
+// cartographer's-hand doodles and routes are jittered so they read drawn-by-hand rather than
+// CAD-ruled, but the jitter must be *stable* frame-to-frame — a per-frame random would make
+// the whole map shimmer. Seeding on a mark's position (not a call counter) fixes each stroke
+// in place while giving neighbours different wobble.
+ink_wobble :: proc(seed, amp: f32) -> f32 {
+	h := math.sin(seed * 12.9898) * 43758.5453
+	return (h - math.floor(h) - 0.5) * 2 * amp
+}
+
+// ink_line strokes a hand-drawn line: each end nudged by a deterministic wobble seeded on
+// its own coordinates, so the stroke reads inked-by-hand yet never shimmers. The doodle set
+// builds on this so every mark shares the same wobble register.
+ink_line :: proc(a, b: rl.Vector2, thickness: f32, color: rl.Color) {
+	wa := rl.Vector2{ink_wobble(a.x + a.y * 3, 0.7), ink_wobble(a.x * 3 - a.y, 0.7)}
+	wb := rl.Vector2{ink_wobble(b.x - b.y * 3, 0.7), ink_wobble(b.x * 3 + b.y, 0.7)}
+	rl.DrawLineEx(a + wa, b + wb, thickness, color)
+}
+
+// bezier_quad evaluates the quadratic bezier a→c→b at t via de Casteljau (two lerps), the
+// curve every route and the sailing ship (step 5) ride so the map reads hand-wavy.
+bezier_quad :: proc(a, c, b: rl.Vector2, t: f32) -> rl.Vector2 {
+	return linalg.lerp(linalg.lerp(a, c, t), linalg.lerp(c, b, t), t)
+}
+
+// route_control is the bezier control point for the edge a→b: the midpoint bowed
+// perpendicular by a small deterministic amount, so a route curves by hand instead of ruling
+// straight (spec §3). Deterministic on the endpoints so the bow never shimmers, and shared
+// with step 5 so the ship sails the very curve the route is drawn on.
+route_control :: proc(a, b: rl.Vector2) -> rl.Vector2 {
+	mid := linalg.lerp(a, b, f32(0.5))
+	perp := linalg.normalize0(rl.Vector2{-(b.y - a.y), b.x - a.x})
+	return mid + perp * ink_wobble(a.x + b.x + a.y + b.y, 7)
+}
+
+// Route_Style is a route's state as drawn: Sailable now (bold sepia dashes from the ship),
+// Sailed already (solid sepia wake), or Charted-not-yet (faint faded-ink dots). The weight
+// carries the state so a captain reads each leg without a legend (spec §3), and the strong-vs-
+// faded split is the visited recession (spec §7).
+Route_Style :: enum {
+	Sailable,
+	Sailed,
+	Charted,
+}
+
+// draw_route strokes an edge as its state's sepia trail on the hand-wavy bezier. Sampled into
+// short segments so the curve reads; Sailable skips alternate segments for a dash, Charted
+// drops sparse faded-ink dots, Sailed inks solid — the wake left behind.
+draw_route :: proc(a, b: rl.Vector2, style: Route_Style) {
+	SEGS :: 18
+	c := route_control(a, b)
+	prev := a
+	for s in 1 ..= SEGS {
+		pt := bezier_quad(a, c, b, f32(s) / f32(SEGS))
+		switch style {
+		case .Sailed:
+			rl.DrawLineEx(prev, pt, 3, INK_SEPIA)
+		case .Sailable:
+			if s % 2 == 1 {
+				rl.DrawLineEx(prev, pt, 3, INK_SEPIA)
+			}
+		case .Charted:
+			if s % 2 == 0 {
+				rl.DrawCircleV(pt, 1.5, INK_FADED)
+			}
+		}
+		prev = pt
+	}
+}
+
+// draw_dashed_ring strokes a dashed circle — the reachable node's Sea-deep interactive ring
+// (spec §3), drawn as arcs because raylib carries no dash pattern for circles.
+draw_dashed_ring :: proc(centre: rl.Vector2, radius: f32, color: rl.Color) {
+	SEGS :: 20
+	for i in 0 ..< SEGS {
+		if i % 2 == 1 {
 			continue
 		}
-		t0 := f32(s) / f32(steps)
-		t1 := f32(s + 1) / f32(steps)
-		rl.DrawLineEx(linalg.lerp(a, b, t0), linalg.lerp(a, b, t1), thickness, color)
+		a0 := f32(i) / f32(SEGS) * 2 * math.PI
+		a1 := f32(i + 1) / f32(SEGS) * 2 * math.PI
+		p0 := centre + rl.Vector2{math.cos(a0), math.sin(a0)} * radius
+		p1 := centre + rl.Vector2{math.cos(a1), math.sin(a1)} * radius
+		rl.DrawLineEx(p0, p1, 2, color)
 	}
 }
 
@@ -338,78 +447,173 @@ draw_map_label :: proc(text: string, pos: rl.Vector2, tone: rl.Color) {
 	)
 }
 
-// draw_home_mark draws the Start as a little house: a flat-topped base with a pitched roof,
-// distinct from the dock's plain berth and the encounter diamonds. The roof triangle is
-// wound base-left, base-right, apex so it survives raylib's clockwise cull (style guide).
+// The doodle set — one cartographer's-hand mark per node identity (spec §3, Idiom A). Every
+// doodle inks in the one sepia register `color` the caller passes (strong for identity, faded
+// to a memory when visited), built from ink_line so the strokes share the hand-wobble. Only
+// the Haven's X and the danger tick ever spend coral; no doodle here does.
+
+// draw_home_mark draws the Start as a little home port — a hut with a pitched roof on a short
+// pier, a pennant flying from the ridge. Where you weigh anchor at the run's start.
 draw_home_mark :: proc(pos: rl.Vector2, color: rl.Color) {
 	R :: f32(NODE_RADIUS)
-	rl.DrawRectangleRec(rl.Rectangle{pos.x - R * 0.6, pos.y - R * 0.15, R * 1.2, R * 0.9}, color)
+	// Hut: three walls and a pitched roof, drawn as strokes so it reads inked, not filled.
+	bl := rl.Vector2{pos.x - R * 0.5, pos.y + R * 0.55}
+	br := rl.Vector2{pos.x + R * 0.5, pos.y + R * 0.55}
+	tl := rl.Vector2{pos.x - R * 0.5, pos.y - R * 0.1}
+	tr := rl.Vector2{pos.x + R * 0.5, pos.y - R * 0.1}
+	apex := rl.Vector2{pos.x, pos.y - R * 0.75}
+	ink_line(bl, br, 2, color)
+	ink_line(bl, tl, 2, color)
+	ink_line(br, tr, 2, color)
+	ink_line(tl, apex, 2, color)
+	ink_line(tr, apex, 2, color)
+	// Pier: a run of decking to the right with two short posts into the water.
+	pier_l := rl.Vector2{pos.x + R * 0.5, pos.y + R * 0.55}
+	pier_r := rl.Vector2{pos.x + R * 1.35, pos.y + R * 0.55}
+	ink_line(pier_l, pier_r, 2, color)
+	ink_line(rl.Vector2{pos.x + R * 0.8, pos.y + R * 0.55}, rl.Vector2{pos.x + R * 0.8, pos.y + R * 1.0}, 2, color)
+	ink_line(rl.Vector2{pos.x + R * 1.2, pos.y + R * 0.55}, rl.Vector2{pos.x + R * 1.2, pos.y + R * 1.0}, 2, color)
+	// Pennant: a pole from the ridge with a little flag.
+	pole_top := rl.Vector2{apex.x, apex.y - R * 0.6}
+	ink_line(apex, pole_top, 2, color)
 	rl.DrawTriangle(
-		rl.Vector2{pos.x - R * 0.8, pos.y - R * 0.15},
-		rl.Vector2{pos.x + R * 0.8, pos.y - R * 0.15},
-		rl.Vector2{pos.x, pos.y - R * 0.95},
+		pole_top,
+		rl.Vector2{pole_top.x + R * 0.5, pole_top.y + R * 0.15},
+		rl.Vector2{pole_top.x, pole_top.y + R * 0.35},
 		color,
 	)
 }
 
-// draw_dock_mark draws a Port as a berth with a short pier reaching out — a place ships put
-// in. Shop-blue, always visible (ADR-0016), and shaped unlike the category diamonds so a
-// routable landfall never reads as just another encounter that happens to be a Shop.
-draw_dock_mark :: proc(pos: rl.Vector2, color: rl.Color) {
+// draw_anchor_mark draws a revealed Port (an Encounter opening on a Shop, ADR-0016) as an
+// anchor — a landfall you can put in at. Ring at the crown, a stock across the shank, two
+// curved flukes at the foot.
+draw_anchor_mark :: proc(pos: rl.Vector2, color: rl.Color) {
 	R :: f32(NODE_RADIUS)
-	rl.DrawRectangleRec(rl.Rectangle{pos.x - R * 0.7, pos.y - R * 0.5, R * 1.4, R}, color)
-	rl.DrawLineEx(rl.Vector2{pos.x + R * 0.7, pos.y}, rl.Vector2{pos.x + R * 1.3, pos.y}, 3, color)
+	crown := rl.Vector2{pos.x, pos.y - R * 0.7}
+	foot := rl.Vector2{pos.x, pos.y + R * 0.7}
+	rl.DrawCircleLinesV(rl.Vector2{pos.x, pos.y - R * 0.55}, R * 0.22, color)
+	ink_line(rl.Vector2{crown.x, crown.y + R * 0.3}, foot, 2, color) // shank
+	ink_line(rl.Vector2{pos.x - R * 0.45, pos.y - R * 0.15}, rl.Vector2{pos.x + R * 0.45, pos.y - R * 0.15}, 2, color) // stock
+	// Flukes: a short arm each side sweeping up from the foot.
+	ink_line(foot, rl.Vector2{pos.x - R * 0.6, pos.y + R * 0.25}, 2, color)
+	ink_line(rl.Vector2{pos.x - R * 0.6, pos.y + R * 0.25}, rl.Vector2{pos.x - R * 0.75, pos.y - R * 0.05}, 2, color)
+	ink_line(foot, rl.Vector2{pos.x + R * 0.6, pos.y + R * 0.25}, 2, color)
+	ink_line(rl.Vector2{pos.x + R * 0.6, pos.y + R * 0.25}, rl.Vector2{pos.x + R * 0.75, pos.y - R * 0.05}, 2, color)
 }
 
-// draw_buoy_mark draws an unrevealed encounter as a quiet recessive-blue buoy: a ring with
-// a "?" inside. Recessive blue is "present but never read first", which is exactly what an
-// unknown node is — a marker on the water, not a destination the eye is pulled to.
+// draw_cutlasses_mark draws a revealed Fight as two crossed cutlasses — a battle.
+draw_cutlasses_mark :: proc(pos: rl.Vector2, color: rl.Color) {
+	R :: f32(NODE_RADIUS)
+	// Two blades crossing at the centre; a short guard tick across each hilt.
+	ink_line(rl.Vector2{pos.x - R * 0.75, pos.y + R * 0.75}, rl.Vector2{pos.x + R * 0.75, pos.y - R * 0.75}, 2, color)
+	ink_line(rl.Vector2{pos.x + R * 0.75, pos.y + R * 0.75}, rl.Vector2{pos.x - R * 0.75, pos.y - R * 0.75}, 2, color)
+	ink_line(rl.Vector2{pos.x - R * 0.85, pos.y + R * 0.45}, rl.Vector2{pos.x - R * 0.45, pos.y + R * 0.85}, 2, color)
+	ink_line(rl.Vector2{pos.x + R * 0.85, pos.y + R * 0.45}, rl.Vector2{pos.x + R * 0.45, pos.y + R * 0.85}, 2, color)
+}
+
+// draw_scroll_mark draws a revealed Offer as a scroll — a take-it-or-leave-it note.
+draw_scroll_mark :: proc(pos: rl.Vector2, color: rl.Color) {
+	R :: f32(NODE_RADIUS)
+	top := pos.y - R * 0.7
+	bot := pos.y + R * 0.7
+	left := pos.x - R * 0.5
+	right := pos.x + R * 0.5
+	// Body: two sides, and a rolled curl top and bottom.
+	ink_line(rl.Vector2{left, top}, rl.Vector2{left, bot}, 2, color)
+	ink_line(rl.Vector2{right, top}, rl.Vector2{right, bot}, 2, color)
+	rl.DrawCircleLinesV(rl.Vector2{pos.x, top}, R * 0.5, color)
+	rl.DrawCircleLinesV(rl.Vector2{pos.x, bot}, R * 0.5, color)
+	// A couple of writing lines across it.
+	ink_line(rl.Vector2{left + R * 0.15, pos.y - R * 0.15}, rl.Vector2{right - R * 0.15, pos.y - R * 0.15}, 1, color)
+	ink_line(rl.Vector2{left + R * 0.15, pos.y + R * 0.2}, rl.Vector2{right - R * 0.15, pos.y + R * 0.2}, 1, color)
+}
+
+// draw_scales_mark draws a revealed Trade as a pair of balance scales — a bargain.
+draw_scales_mark :: proc(pos: rl.Vector2, color: rl.Color) {
+	R :: f32(NODE_RADIUS)
+	top := rl.Vector2{pos.x, pos.y - R * 0.75}
+	beam_l := rl.Vector2{pos.x - R * 0.7, pos.y - R * 0.4}
+	beam_r := rl.Vector2{pos.x + R * 0.7, pos.y - R * 0.4}
+	ink_line(top, rl.Vector2{pos.x, pos.y + R * 0.75}, 2, color) // post
+	ink_line(beam_l, beam_r, 2, color) // beam
+	// Pans: a shallow V hanging from each beam end.
+	ink_line(beam_l, rl.Vector2{beam_l.x - R * 0.35, pos.y + R * 0.15}, 1, color)
+	ink_line(beam_l, rl.Vector2{beam_l.x + R * 0.35, pos.y + R * 0.15}, 1, color)
+	ink_line(rl.Vector2{beam_l.x - R * 0.35, pos.y + R * 0.15}, rl.Vector2{beam_l.x + R * 0.35, pos.y + R * 0.15}, 1, color)
+	ink_line(beam_r, rl.Vector2{beam_r.x - R * 0.35, pos.y + R * 0.15}, 1, color)
+	ink_line(beam_r, rl.Vector2{beam_r.x + R * 0.35, pos.y + R * 0.15}, 1, color)
+	ink_line(rl.Vector2{beam_r.x - R * 0.35, pos.y + R * 0.15}, rl.Vector2{beam_r.x + R * 0.35, pos.y + R * 0.15}, 1, color)
+	ink_line(rl.Vector2{pos.x - R * 0.35, pos.y + R * 0.75}, rl.Vector2{pos.x + R * 0.35, pos.y + R * 0.75}, 2, color) // base
+}
+
+// draw_chest_mark draws a revealed Reward as a treasure chest — cargo & coin.
+draw_chest_mark :: proc(pos: rl.Vector2, color: rl.Color) {
+	R :: f32(NODE_RADIUS)
+	left := pos.x - R * 0.7
+	right := pos.x + R * 0.7
+	bot := pos.y + R * 0.65
+	band := pos.y - R * 0.15
+	top := pos.y - R * 0.5
+	// Body box.
+	ink_line(rl.Vector2{left, band}, rl.Vector2{left, bot}, 2, color)
+	ink_line(rl.Vector2{right, band}, rl.Vector2{right, bot}, 2, color)
+	ink_line(rl.Vector2{left, bot}, rl.Vector2{right, bot}, 2, color)
+	// Lid: a shallow arc, drawn as two strokes to the crown.
+	ink_line(rl.Vector2{left, band}, rl.Vector2{pos.x, top}, 2, color)
+	ink_line(rl.Vector2{pos.x, top}, rl.Vector2{right, band}, 2, color)
+	ink_line(rl.Vector2{left, band}, rl.Vector2{right, band}, 2, color) // lid line
+	// Lock.
+	rl.DrawRectangleLinesEx(rl.Rectangle{pos.x - R * 0.15, band - R * 0.05, R * 0.3, R * 0.4}, 1, color)
+}
+
+// draw_buoy_mark draws an unrevealed encounter as a dotted "?" buoy in faded-ink — the whole
+// of the Sim's fog (spec §7). Faded-ink is the recessive register: present, charted, but its
+// content held back until reached, so it never pulls the eye before the road ahead does.
 draw_buoy_mark :: proc(pos: rl.Vector2) {
 	R :: f32(NODE_RADIUS)
-	rl.DrawCircleLinesV(pos, R * 0.75, COLOUR_BLUE_RECESSIVE)
+	// Dotted ring: dots around the circle rather than a solid line.
+	DOTS :: 12
+	for i in 0 ..< DOTS {
+		a := f32(i) / f32(DOTS) * 2 * math.PI
+		p := pos + rl.Vector2{math.cos(a), math.sin(a)} * (R * 0.8)
+		rl.DrawCircleV(p, 1.2, INK_FADED)
+	}
 	q := fmt.ctprint("?")
 	size := rl.MeasureTextEx(ui_font_body, q, UI_BODY_SIZE, 1)
-	rl.DrawTextEx(ui_font_body, q, rl.Vector2{pos.x - size.x / 2, pos.y - size.y / 2}, UI_BODY_SIZE, 1, COLOUR_BLUE_RECESSIVE)
+	rl.DrawTextEx(ui_font_body, q, rl.Vector2{pos.x - size.x / 2, pos.y - size.y / 2}, UI_BODY_SIZE, 1, INK_FADED)
 }
 
-// draw_haven_island draws the win condition — the one landfall that matters — as a small
-// faceted khaki island in the Chart Table's own language (chart_table.odin: overlapping
-// lobes, three passes so a halo isn't cut by a neighbour's sand), ringed in cream. Keeping
-// it the only island holds "the world must never outshine the chrome": no khaki mass
-// competes across the whole map, just this one goal.
-draw_haven_island :: proc(pos: rl.Vector2) {
+// draw_haven_island draws the run's end — the one landfall that matters — as a hand-inked
+// sepia island bearing the coral X that marks the treasure. The X is the *only* spend of
+// coral on the page besides the danger tick (spec §3/§8), so the captain's eye is always
+// pulled to where they are ultimately sailing. `color` is the island's sepia ink (faded once
+// the Haven is visited); the X stays full coral so the goal never dims.
+draw_haven_island :: proc(pos: rl.Vector2, color: rl.Color) {
 	R :: f32(NODE_RADIUS)
-	lobes := [3]Chart_Lobe {
-		{pos + rl.Vector2{-R * 0.4, 0}, R * 0.9, 7, 15, 0.5},
-		{pos + rl.Vector2{R * 0.5, R * 0.2}, R * 0.7, 6, 40, 0.45},
-		{pos + rl.Vector2{0, -R * 0.4}, R * 0.6, 6, 5, 0.0},
-	}
-	for l in lobes {
-		rl.DrawPoly(l.centre, l.sides, l.radius + 4, l.rot, COLOUR_SHALLOW)
-	}
-	for l in lobes {
-		rl.DrawPoly(l.centre, l.sides, l.radius + 2, l.rot, CHART_LAND_SHADE)
-		rl.DrawPoly(l.centre, l.sides, l.radius, l.rot, CHART_LAND)
-	}
-	for l in lobes {
-		if l.green <= 0 {
-			continue
-		}
-		rl.DrawPoly(l.centre, l.sides, l.radius * l.green, l.rot + 20, CHART_LAND_GREEN)
-	}
-	rl.DrawCircleLinesV(pos, R + 6, COLOUR_CREAM)
+	// Island: a low mound over a waterline, drawn as an inked outline rather than a filled
+	// khaki mass so it sits in the parchment's ink language.
+	base_l := rl.Vector2{pos.x - R * 0.95, pos.y + R * 0.55}
+	base_r := rl.Vector2{pos.x + R * 0.95, pos.y + R * 0.55}
+	ink_line(base_l, base_r, 2, color) // waterline
+	// Mound: a shallow arc from left base up over to right base, as three strokes.
+	ink_line(base_l, rl.Vector2{pos.x - R * 0.45, pos.y - R * 0.35}, 2, color)
+	ink_line(rl.Vector2{pos.x - R * 0.45, pos.y - R * 0.35}, rl.Vector2{pos.x + R * 0.45, pos.y - R * 0.35}, 2, color)
+	ink_line(rl.Vector2{pos.x + R * 0.45, pos.y - R * 0.35}, base_r, 2, color)
+	// The coral X marking the treasure — always full coral, drawn bold over the island.
+	ink_line(rl.Vector2{pos.x - R * 0.4, pos.y + R * 0.35}, rl.Vector2{pos.x + R * 0.4, pos.y - R * 0.15}, 3, INK_CORAL)
+	ink_line(rl.Vector2{pos.x + R * 0.4, pos.y + R * 0.35}, rl.Vector2{pos.x - R * 0.4, pos.y - R * 0.15}, 3, INK_CORAL)
 }
 
-// draw_danger_tick draws a short muted-maroon stroke at a reachable buoy's shoulder — "this
-// might fire". Muted maroon (the Fight stage_tint's hue, the one warm the guide admits
-// beside amber) spends neither stock red nor the reserved amber on a risk cue.
+// draw_danger_tick draws a short coral stroke at a reachable buoy's shoulder — "this stop is
+// still a mystery, and you'd be sailing into it". Coral is the page's one warm accent, shared
+// only with the Haven X (spec §3): it warns exactly where the risk is, and nowhere else.
 draw_danger_tick :: proc(pos: rl.Vector2) {
 	R :: f32(NODE_RADIUS)
 	rl.DrawLineEx(
 		rl.Vector2{pos.x + R * 0.55, pos.y - R * 1.15},
 		rl.Vector2{pos.x + R * 1.15, pos.y - R * 0.55},
 		3,
-		stage_tint(.Fight),
+		INK_CORAL,
 	)
 }
 
