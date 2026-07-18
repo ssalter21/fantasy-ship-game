@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import combat "../../core/combat"
+import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
 
@@ -57,6 +58,7 @@ capture_main :: proc() {
 	defer delete(state.game.voyage_map.nodes)
 
 	capture_shot_chart_table(&state)
+	capture_shot_build_surface(&state)
 
 	s := sim.sim_create(VOYAGE_SEED)
 	defer sim.sim_destroy(&s)
@@ -109,6 +111,49 @@ capture_shot_chart_table :: proc(state: ^Capture_State) {
 	draw_chart_table(-1)
 	draw_chart_table(-1)
 	capture_write(state, "chart-table")
+}
+
+// capture_shot_build_surface photographs the Cutaway Build surface on the real starting
+// ship (#302), the three states capture can reach without a mouse: at rest, with a granted
+// item on the shelf, and mid-drag with the ghost over a legal berth. Like the Chart Table
+// it needs no Sim — the surface reads only the ship — so it is shot standalone here rather
+// than from the scripted walk, which never opens a Refit. The drag state is hard-coded, the
+// same trick the run-game skill uses to photograph a hover capture otherwise can't see.
+capture_shot_build_surface :: proc(state: ^Capture_State) {
+	if !rl.IsWindowReady() {
+		return
+	}
+
+	game := Game_State{player = ship.ship_starting_ship()}
+	defer delete(game.player.layout)
+	no_mouse := rl.Vector2{-1, -1}
+
+	// At rest: the ship in refit, no granted item, no amber.
+	draw_build_surface(&game, Build_Drag{}, nil, no_mouse)
+	draw_build_surface(&game, Build_Drag{}, nil, no_mouse)
+	capture_write(state, "build")
+
+	// A granted Large item waiting on the shelf — the surface's one amber.
+	granted, ok := ship.ship_item_by_name("Long Nines")
+	if !ok {
+		return
+	}
+	game.refit_incoming = granted.fitting
+	draw_build_surface(&game, Build_Drag{}, nil, no_mouse)
+	draw_build_surface(&game, Build_Drag{}, nil, no_mouse)
+	capture_write(state, "build-shelf")
+
+	// Mid-drag: the granted item lifted, its ghost over the empty Large forecastle, legal
+	// berths lit and the rest dimmed. The forecastle is the fourth deck slot.
+	rects, n := build_slot_rects(game.player.layout)
+	drag := Build_Drag{active = true, from_slot = nil, fitting = granted.fitting}
+	over := no_mouse
+	if n > 3 {
+		over = rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}
+	}
+	draw_build_surface(&game, drag, nil, over)
+	draw_build_surface(&game, drag, nil, over)
+	capture_write(state, "build-placing")
 }
 
 // capture_write writes the presented frame to CAPTURE_DIR, numbered in walk order so a
