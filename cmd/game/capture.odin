@@ -61,6 +61,7 @@ capture_main :: proc() {
 	capture_shot_build_surface(&state)
 	capture_shot_encounter_frame(&state)
 	capture_shot_offer_shop(&state)
+	capture_shot_fight(&state)
 
 	s := sim.sim_create(VOYAGE_SEED)
 	defer sim.sim_destroy(&s)
@@ -233,6 +234,39 @@ capture_shot_offer_shop :: proc(state: ^Capture_State) {
 	capture_write(state, "shop-buying")
 }
 
+// capture_shot_fight photographs the Fight stage (#315) — the facing cutaways the scripted
+// walk can't linger on (it Holds every round and the battle blurs past in beats). Like the
+// other stage shots it reads only two ships, so it is synthesized here: the starting ship as
+// the player, a second one as a mid-fight opponent (Hull dropped, so a scouted, damaged foe
+// reads) whose concealed holds render "???". Two shots: the fight at rest — both cutaways, the
+// per-slot visibility badges, the round / stage readouts, the no-amber action row — and the
+// round-exchange beat, both damage numbers floating over their hulls under the shared scrim.
+capture_shot_fight :: proc(state: ^Capture_State) {
+	if !rl.IsWindowReady() {
+		return
+	}
+
+	game := Game_State{player = ship.ship_starting_ship()}
+	defer delete(game.player.layout)
+	opponent := ship.ship_starting_ship()
+	defer delete(opponent.layout)
+	opponent.hull = 58 // a foe already worn down, so the opponent stat block reads a real fight
+
+	game.sighted_opponent = opponent
+	game.in_battle = true
+	game.battle_round = 3 // "Round 4", escape still a couple of rounds off
+	game.stage_progress = sim.Event_Stage_Entered{kind = .Fight, index = 0, count = 2}
+	no_mouse := rl.Vector2{-1, -1}
+
+	draw_fight(&game, no_mouse)
+	draw_fight(&game, no_mouse)
+	capture_write(state, "fight")
+
+	draw_fight_exchange(&game, 9, 14)
+	draw_fight_exchange(&game, 9, 14)
+	capture_write(state, "fight-exchange")
+}
+
 // capture_write writes the presented frame to CAPTURE_DIR, numbered in walk order so a
 // session reading the shots back can see the route.
 //
@@ -266,6 +300,10 @@ capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: s
 	#partial switch awaiting {
 	case .Awaiting_Option_Choice:
 		draw_offer_shop(&state.game, Shelf_Drag{}, rl.Vector2{-1, -1})
+	case .Awaiting_Battle_Command:
+		// The Fight has its own drawable scene now (#315), so the scripted walk photographs
+		// the real facing-cutaway screen the captain would decide on, not the map fallback.
+		draw_fight(&state.game, rl.Vector2{-1, -1})
 	case:
 		draw_scene(&state.game, fmt.tprintf("[capture] %s", label), rl.Vector2{-1, -1})
 	}

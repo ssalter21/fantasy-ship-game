@@ -100,6 +100,22 @@ Game_State :: struct {
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
 	may_break_off:        bool,
+	// battle_round is the combat.Battle's round counter, carried on Event_Battle_Menu:
+	// the number of rounds already resolved, so the round about to be fought is
+	// battle_round + 1. The Fight screen's rounds-left / escape-window readout (#315)
+	// reads it — the UI can't recompute it, since a round that lands no damage emits no
+	// combat event to count.
+	battle_round:     int,
+	// pending_exchange accumulates a single round's damage per side so the Fight can play
+	// **one** beat for the whole exchange (#315): both hulls drain and both damage numbers
+	// float together, one click to the next round (ADR-0006's simultaneous resolution),
+	// rather than a beat per hit. Damage is drained from each struck hull as it lands (the
+	// opponent's, which no Event_Ship_Updated carries, and the player's, kept in step with
+	// the Sim's authoritative copy); the beat is flushed at the round boundary — the trailing
+	// Event_Ship_Updated for a continuing round, or a Ship_Sunk / Battle_Ended that gets its
+	// own beat after. exchange_active gates the flush so a round with no damage plays nothing.
+	pending_exchange: [combat.Side]int,
+	exchange_active:  bool,
 	// stage_options is the option list the current stage is presenting, copied from
 	// Event_Options_Presented; offer_shop_loop renders each filled position as a shelf
 	// card to drag onto the ship. A nil position holds no option (a shelf slot past the
@@ -166,8 +182,9 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 }
 
 // dispatch is the game Event_Sink: updates Game_State from every event and, for
-// the events that warrant it, plays a blocking beat via play_beat /
-// play_battle_event_beat before returning control to run_session.
+// the events that warrant it, plays a blocking beat via play_beat (or, for a combat
+// round, dispatch_battle_event's per-round-exchange batching) before returning control
+// to run_session.
 dispatch :: proc(data: rawptr, event: sim.Event) {
 	state := cast(^Game_State)data
 
@@ -205,12 +222,20 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Battle_Menu:
 		state.may_break_off = e.may_break_off
+		state.battle_round = e.round
 
 	case sim.Event_Battle_Event:
-		play_battle_event_beat(state, e.inner)
+		dispatch_battle_event(state, e.inner)
 
 	case sim.Event_Ship_Updated:
 		state.player = e.ship
+		// The trailing Ship_Updated of a combat round is the round boundary for a
+		// continuing round (nothing sank, so no Ship_Sunk/Battle_Ended closes it): flush
+		// the exchange beat now the player's authoritative hull has landed. A no-op
+		// outside a battle, or once a terminal beat has already flushed the round.
+		if state.in_battle {
+			fight_flush_exchange(state)
+		}
 
 	case sim.Event_Wreck_Looted:
 		// A won Fight's payout has no screen of its own (unlike a Reward, which gets
