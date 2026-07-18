@@ -43,6 +43,8 @@ capture_main :: proc() {
 
 	ui_fonts_load()
 	defer ui_fonts_unload()
+	menu_art_load()
+	defer menu_art_unload()
 
 	if !os.exists(CAPTURE_DIR) {
 		if err := os.make_directory(CAPTURE_DIR); err != nil {
