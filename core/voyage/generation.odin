@@ -187,65 +187,78 @@ voyage_map_create :: proc(seed: u64) -> Map {
 		delete(enc_ids)
 	}
 
-	// --- 5. Wire edges. Symmetric adjacency; forward edges connect
-	// consecutive layers, laterals connect same-layer nodes.
+	// --- 5. Wire edges, planar by construction (#338). Symmetric adjacency;
+	// forward edges connect consecutive layers, laterals connect same-layer nodes.
+	// Both are constrained so no two routes ever cross when drawn straight over the
+	// x=layer, y=lane positions (view.odin's compute_node_positions), rather than
+	// relying on render-time cleanup that can only reduce crossings, never rule
+	// them out (an adjacent-layer K₂,₂ crosses for every lane ordering).
 	adj := make([][dynamic]int, n)
-	forward_out := make([]int, n)
-	defer delete(forward_out)
 
 	for l in 0 ..< n_layers - 1 {
 		a0 := layer_start_id[l]
-		a1 := a0 + layer_width[l]
+		wl := layer_width[l]
 		b0 := layer_start_id[l + 1]
-		b1 := b0 + layer_width[l + 1]
+		wl1 := layer_width[l + 1]
 
-		// Out guarantee: every node in layer l gets at least one forward edge
-		// into layer l+1 — no dead ends, and every non-Haven node can always
-		// step forward toward Haven.
-		for u in a0 ..< a1 {
-			v := b0 + rand.int_max(b1 - b0, gen)
-			voyage_add_edge(adj, u, v)
-			forward_out[u] += 1
+		// A single-node source (the Start layer) fans out to the whole next layer:
+		// it is the sole route into it, so every child is reachable and no lane
+		// ordering can cross a fan from one point. Exempt from OUT_DEGREE_MAX, like
+		// the old wiring, because it must reach all of layer 1.
+		if wl == 1 {
+			for c in 0 ..< wl1 {
+				voyage_add_edge(adj, a0, b0 + c)
+			}
+			continue
 		}
 
-		// In guarantee: every node in layer l+1 that still has no incoming
-		// edge gets one from a layer-l source with spare out-degree — so no
-		// node is unreachable from Start.
-		for v in b0 ..< b1 {
-			if voyage_has_incoming(adj[:], v, a0, a1) {
-				continue
+		// Monotone block tiling: parent p owns a contiguous child block
+		// [start[p], start[p+1]] (inclusive), the blocks ordered along the lane
+		// axis and adjacent blocks sharing their boundary child. Ordered blocks ⇒
+		// for any p1 < p2 every child of p1 has lane ≤ every child of p2 ⇒ no lane
+		// inversion ⇒ zero forward crossings. Blocks tile [0, wl1-1] so every child
+		// is covered (in-guarantee), and each parent owns ≥1 child (out-guarantee,
+		// no dead ends) — both fall out of the tiling instead of needing a repair
+		// pass. Block widths are the branching, and bounding them at OUT_DEGREE_MAX
+		// keeps forward out-degree in range without a cap check.
+		//
+		// widths sum to wl1-1+wl: wl blocks of width ≥1 covering wl1 children while
+		// each interior boundary child is shared by two blocks. Start every block at
+		// the minimum width 1, then scatter the wl1-1 surplus (each block taking up
+		// to OUT_DEGREE_MAX-1 extra), the same shape voyage_partition_layers uses.
+		widths := make([]int, wl)
+		defer delete(widths)
+		for i in 0 ..< wl {
+			widths[i] = 1
+		}
+		surplus := wl1 - 1
+		for surplus > 0 {
+			i := rand.int_max(wl, gen)
+			if widths[i] < OUT_DEGREE_MAX {
+				widths[i] += 1
+				surplus -= 1
 			}
-			u := voyage_pick_source_with_capacity(a0, a1, forward_out, gen)
-			voyage_add_edge(adj, u, v)
-			forward_out[u] += 1
 		}
 
-		// Extra edges: real branching, capped at OUT_DEGREE_MAX forward edges
-		// per node (Start exempt — it must fan out to the whole first layer).
-		for u in a0 ..< a1 {
-			extra := rand.int_max(OUT_DEGREE_MAX, gen)
-			for _ in 0 ..< extra {
-				if l != 0 && forward_out[u] >= OUT_DEGREE_MAX {
-					break
-				}
-				v := b0 + rand.int_max(b1 - b0, gen)
-				if !voyage_contains(adj[u][:], v) {
-					voyage_add_edge(adj, u, v)
-					forward_out[u] += 1
-				}
+		start := 0
+		for p in 0 ..< wl {
+			for c in start ..< start + widths[p] {
+				voyage_add_edge(adj, a0 + p, b0 + c)
 			}
+			start += widths[p] - 1 // next block shares this one's boundary child
 		}
 	}
 
-	// Lateral edges within a layer (skip the single-node Start/Haven layers).
+	// Lateral edges, restricted to adjacent lanes (i ↔ i+1) so the straight
+	// same-layer segment has no node between its endpoints to pass through — a
+	// wider lateral would cut through every lane it spans. Skip the single-node
+	// Start/Haven layers.
 	for l in 1 ..< n_layers - 1 {
 		a0 := layer_start_id[l]
 		w := layer_width[l]
-		for i in 0 ..< w {
-			for j in i + 1 ..< w {
-				if rand.float64(gen) < LATERAL_EDGE_CHANCE {
-					voyage_add_edge(adj, a0 + i, a0 + j)
-				}
+		for i in 0 ..< w - 1 {
+			if rand.float64(gen) < LATERAL_EDGE_CHANCE {
+				voyage_add_edge(adj, a0 + i, a0 + i + 1)
 			}
 		}
 	}
@@ -415,34 +428,6 @@ voyage_contains :: proc(xs: []int, x: int) -> bool {
 		}
 	}
 	return false
-}
-
-// voyage_has_incoming reports whether v already has an edge from any node in the
-// layer spanning [a0, a1).
-voyage_has_incoming :: proc(adj: [][dynamic]int, v, a0, a1: int) -> bool {
-	for u in adj[v] {
-		if u >= a0 && u < a1 {
-			return true
-		}
-	}
-	return false
-}
-
-// voyage_pick_source_with_capacity chooses a node in [a0, a1) whose forward
-// out-degree is still below OUT_DEGREE_MAX; falls back to any node in range if
-// somehow all are saturated (layer widths make that unreachable in practice).
-voyage_pick_source_with_capacity :: proc(a0, a1: int, forward_out: []int, gen: rand.Generator) -> int {
-	candidates: [dynamic]int
-	defer delete(candidates)
-	for u in a0 ..< a1 {
-		if forward_out[u] < OUT_DEGREE_MAX {
-			append(&candidates, u)
-		}
-	}
-	if len(candidates) == 0 {
-		return a0 + rand.int_max(a1 - a0, gen)
-	}
-	return candidates[rand.int_max(len(candidates), gen)]
 }
 
 // voyage_map_destroy frees a Map's owned memory: each node's adjacency slice and
