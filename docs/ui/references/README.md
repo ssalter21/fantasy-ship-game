@@ -16,35 +16,34 @@ them. What they do fix, consistently, is a colour world and a tonal register.
 
 The map's `## Notes` frame — "craft, not art" — still holds. Take the palette; invent the craft.
 
-**`menu/menu-ui-mock.png` is the exception, and it is a look reference, not a spec.** It is the one image here
-that *is* a UI, and it fixes the style guide's chrome palette and hierarchy. But its **contents are wrong for
-this game** — see the `menu/` table below before taking anything but colour and proportion from it.
+**`menu/menu-ui-mock.png` is the exception, and it is a *layout* reference, not a palette one.** It is the one
+image here that *is* a UI, so it fixes the style guide's **hierarchy and proportion**. But it is a **navy** mock
+and **no longer sets colour** — see the `menu/` table below.
 
-### The palette these agree on — and the one thing they do not
+### The palette these agree on
 
-Across the set the same four-part colour world recurs:
+Across the daylight set the same bright, saturated colour world recurs — and `style/island-tropical.jpg` states
+it most clearly, which is why the style guide makes it the **keystone**:
 
-- **Deep navy / indigo grounds** — the dominant field (`ship-night`, `ship-battle`, `treasure-map` water)
-- **Saturated cyan / turquoise** — the mid-tone and the eye's rest point (`wave`, `menu-port-tropical`, `island-tropical`)
-- **Warm amber / orange accents** — lanterns, muzzle flare, sun. Always *small*, always punching against blue.
-  This is the accent colour, and its scarcity is the point.
-- **Sand / parchment cream** — the light neutral (`treasure-map`, beaches)
+- **Saturated turquoise sea** — the dominant cool and the eye's rest point (`island-tropical`,
+  `menu-port-tropical`, `wave`). Bright, high-value, not navy.
+- **Warm tan sand and parchment** — the neutral the world sits on (`island-tropical` cliffs, `treasure-map`
+  paper, beaches). Desaturated warm.
+- **Vivid greens** — a full ramp from deep shadow to a yellow-green highlight (`island-tropical` palms,
+  `island-tropical`'s inland). Where the earlier navy direction was most muted.
+- **A single warm accent** — amber/orange, always *small*, always punching against blue (`ship-night` lanterns,
+  `ship-battle` flare). Its scarcity is the point.
 
-The blue-versus-amber opposition is the strongest signal in the set. It is a complementary pairing, and it is
-what should replace raylib's stock `LIGHTGRAY` / `BEIGE` / `MAROON`.
+The clash between **saturated cyan and warm sand** is the strongest signal in the daylight set — a warm-vs-cool
+opposition at high value. That clash, not a dark ground, is what the style guide builds its contrast on, and it
+is what should replace raylib's stock `LIGHTGRAY` / `BEIGE` / `MAROON`.
 
-**They do not agree on hue, and you cannot average them.**
-[#294](https://github.com/ssalter21/fantasy-ship-game/issues/294) measured the set and found **two families
-31.8° apart** — navy (`menu-ui-mock` H217, `ship-night` H230, `ship-battle` H234) and teal (`wave` H186,
-`colour-palette.webp` H193, `island-tropical` H195, `menu-port-tropical` H198, `treasure-map` H198,
-`floating-port` H202). "Just use the references" is therefore **not an instruction that can be followed** —
-the references have to be reconciled first, and the style guide is where that happened.
-
-They reconcile as **one depth ramp**: navy is deep water, teal is shallow. `island-tropical` carries both ends
-in one image, and the mock's chart is three measured stops of it. Do **not** re-derive a palette from these
-images without reading [the guide's Palette section](../style-guide.md#palette) first — in particular, a
-global hue-vs-value fit across the set reports a ramp (r = −0.52) that is really **time of day**, and it will
-walk you straight back into the split #294 removed.
+> **This supersedes an earlier reading.** A previous pass reconciled the set as *one depth ramp* — navy as deep
+> water, teal as shallow — and grounded the whole UI on a near-black navy. That read the *night* scenes
+> (`ship-night`, `ship-battle`, and the navy `menu-ui-mock`) as the palette's spine and demoted the daylight
+> ones. It produced a clinical, cold UI that drifted from the references' actual brightness. The set is not a
+> depth ramp; it is a **bright daylight world with a scarce warm accent**, and the guide now derives from the
+> daylight images directly.
 
 ### Tonal register
 
@@ -61,8 +60,8 @@ It stops being fine the moment an image is promoted to a shipped asset. See `men
 
 | Image | Chosen for | Notes |
 | --- | --- | --- |
-| `menu-ui-mock.png` | **The palette ramp and the hierarchy.** The only image here that is a UI — and the only one showing a chart and a chrome coexisting. | **Look reference, not a spec** — see the warning below. Its solid fills are exact and were sampled directly into the style guide; its *translucency* is not internally consistent (it is a painting of a UI, not a rendered one), so its alpha cannot be reverse-engineered. **Dropping this image was offered and declined ([#294](https://github.com/ssalter21/fantasy-ship-game/issues/294)):** it is the set's only witness to how navy chrome and a chart coexist, and its water is the three measured ramp stops. Removing it would delete the evidence that unifies the rest. |
-| `treasure-map.jpg` | **Form and framing only.** No longer an intended asset. | The torn parchment edge and dark border are the only framing signal in the whole set. **Watermarked ("Magnific") — cannot ship as-is**, and [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294) drew the Chart Table's chart from the ramp instead of sourcing one, so nothing is waiting on it. Also **9.67% strongly-warm** against 0.2–2.7% for every other reference: as a full-screen ground it would end the amber rule's scarcity. A sourced image is still [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284), now an improvement in *depiction* rather than a dependency. |
+| `menu-ui-mock.png` | **Hierarchy and proportion only.** The one image here that is a UI. | **Layout reference, not a palette one.** It is a *navy* mock; the style guide takes its stack, its centred title, its left-aligned labels, and its caret-and-scrim hover model — and **leaves its colour**, which the daylight set overrules. Its solid fills are exact but navy; its *translucency* is not internally consistent (it is a painting of a UI, not a rendered one), so its alpha cannot be reverse-engineered either. Its **contents are wrong for this game** — see the warning below. |
+| `treasure-map.jpg` | **The parchment map surface, and framing.** Promoted. | The run-map is being rebuilt as an actual chart — a piece of parchment — and this is its reference: sand-and-cream paper, water drawn *on* the paper, a red compass rose and X. It is the palette source for that surface, not just the torn-edge framing device. **Still watermarked ("Magnific") — cannot ship as-is**; a *sourced* map image remains [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284). Its warmth is a feature here, not a threat: parchment is *desaturated* warm, so it coexists with the scarce, *saturated* amber accent (see the guide's saturation rule). |
 
 ### The mock is a look reference, not a spec
 
@@ -84,14 +83,14 @@ Three things in `menu-ui-mock.png` are **actively wrong for this game**. Do not 
 
 | Image | Chosen for | Notes |
 | --- | --- | --- |
-| `colour-palette.webp` | **Nothing, now. Demoted by [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294).** | Despite the name it is a scene (a mountain valley at dusk), not a swatch sheet — **and not a sea**. #280 made it `zone_tint`'s source, which put the world 31.8° of hue from the chrome and is what made the art direction and the game read as two different games. It sits at H≈193 at *every* depth, so it cannot express the depth ramp the actual sea references do. Kept as a scene; **do not derive palette from it.** |
-| `wave.jpg` | Cyan/turquoise mid-tones; the sea's colour | Bright daylight end of the range. Watermarked (depositphotos). |
-| `menu-port-tropical.jpg` | Bright end of the palette; a port in daylight | The most "readable" image in the set — high value contrast, clear silhouettes. |
-| `island-tropical.jpg` | Saturated tropical greens against cyan | Watermarked (Adobe Stock). |
-| `ship-night.jpg` | **The amber-on-navy accent relationship**, at its clearest | Small warm lantern points against a large cold field. If one image drives the accent rule, it is this one. |
-| `ship-battle.jpg` | Amber accent at its most extreme (muzzle flare on navy) | Same relationship as `ship-night`, louder. Watermarked (Magnific). |
+| `island-tropical.jpg` | **The keystone.** The clearest statement of the target palette. | Saturated turquoise sea, warm tan cliffs, a full vivid green ramp, purple-white clouds — every colour turned up. The style guide's roster is sampled from it. Watermarked (Adobe Stock) — reference only, never shipped. |
+| `menu-port-tropical.jpg` | Supporting witness: the bright daylight sea and a port | The most "readable" image in the set — high value contrast, clear silhouettes, terracotta roofs against blue water. Backs the keystone's sea. |
+| `wave.jpg` | The brightest cyan/turquoise mid-tones | The daylight-end of the sea's colour. Watermarked (depositphotos). |
+| `ship-night.jpg` | **The amber-on-blue accent relationship**, at its clearest | Small warm lantern points against a large cold field. If one image drives the accent rule, it is this one. **Accent witness only** — a night scene; do not read a ground colour from it. |
+| `ship-battle.jpg` | Amber accent at its most extreme (muzzle flare on blue) | Same relationship as `ship-night`, louder. **Accent witness only.** Watermarked (Magnific). |
 | `floating-port.jpg` | Sky/cloud blues; airy end of the range | Watermarked (Dreamstime). |
-| `pirate-port.jpg` | Atmosphere and mood only — **the outlier** | **Not pixel art** (painted concept art), and dark/desaturated where the rest are bright/saturated. Do not derive palette from this one; it contradicts the other eight. Kept because the maintainer liked the mood. |
+| `colour-palette.webp` | **Nothing. Demoted.** | Despite the name it is a scene (a mountain valley at dusk), not a swatch sheet — **and not a sea**. It sits at one hue at every depth and cannot express the bright daylight world the sea references do. Kept as a scene; **do not derive palette from it.** |
+| `pirate-port.jpg` | Atmosphere and mood only — **the outlier** | **Not pixel art** (painted concept art), and dark/desaturated where the rest are bright/saturated. Do not derive palette from this one; it contradicts the daylight set. Kept because the maintainer liked the mood. |
 
 ## Typeface — settled
 
