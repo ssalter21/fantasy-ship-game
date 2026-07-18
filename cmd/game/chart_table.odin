@@ -29,11 +29,15 @@ CHART_TABLE_BUTTON_PITCH :: 64
 CHART_TABLE_BUTTON_Y0 :: 360
 CHART_TABLE_TITLE_CENTRE_Y :: 115
 
-// The title is letterspaced rather than enlarged: the guide fixes 40px as the display
-// size, so `spacing` is the only knob left for the mock's wide, airy title. 8 lands the
-// rendered title on the mock's title-to-window-width ratio (~43%).
+// The title is letterspaced rather than enlarged: the guide fixes the display size (now
+// 32px, Pixel Operator's crisp title size), so `spacing` is the only knob left for the
+// mock's wide, airy title, and it also holds the title to the width the surrounding
+// composition clears for it (the islands avoid the title band). 13 lands the rendered
+// title on the mock's title-to-window-width ratio (~43%, measured 432px in 1024). Keep it
+// an integer: a fractional spacing drifts glyphs off the pixel grid and softens a POINT-
+// filtered face. (Pixelify at 40px reached the same ratio at 8; the smaller face needs more.)
 CHART_TABLE_TITLE :: "Fantasy Ship Game"
-CHART_TABLE_TITLE_SPACING :: 8
+CHART_TABLE_TITLE_SPACING :: 13
 
 // The label sits left of centre inside a centred box, with the caret in the margin the
 // inset leaves. A centred label in a centred box gives the eye no edge to run down.
