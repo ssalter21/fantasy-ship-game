@@ -131,12 +131,16 @@ Game_State :: struct {
 	// a halt's beat reads it to name what was forfeited.
 	stage_progress:   Maybe(sim.Event_Stage_Entered),
 	// active_trade is the bargain the current Trade stage is offering, copied from
-	// Event_Trade_Presented; trade_menu_loop renders its two sides and offers
-	// accept-or-reject. trade_can_accept comes from the same event rather than being
+	// Event_Trade_Presented; trade_menu_loop renders its two cards and offers
+	// accept-or-decline. trade_can_accept comes from the same event rather than being
 	// re-derived here, since it turns on the ship's *effective* stats, which
-	// state.player's base fields don't give (the Sim owns that rule).
+	// state.player's base fields don't give (the Sim owns that rule). trade_cost_read /
+	// trade_gain_read are the give and get cards' before→after readings, likewise off the
+	// event so the view projects the swap without recomputing the ship (#318).
 	active_trade:     voyage.Stage_Trade,
 	trade_can_accept: bool,
+	trade_cost_read:  voyage.Trade_Reading,
+	trade_gain_read:  voyage.Trade_Reading,
 	// refit_incoming is the item an open Refit is placing, tracked from
 	// Event_Refit_Started and cleared once installed or the refit finishes, so the Build
 	// surface knows whether there is a granted item on the shelf to place or the ship is
@@ -261,11 +265,13 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		state.stage_options = e.options
 
 	case sim.Event_Trade_Presented:
-		// A Trade stage was entered: remember the bargain and whether the ship can pay
-		// for it, so trade_menu_loop can render both sides and grey out an unaffordable
-		// accept.
+		// A Trade stage was entered: remember the bargain, whether the ship can pay for
+		// it, and the two cards' before→after readings, so trade_menu_loop can render
+		// both projections and dim an unaffordable Accept.
 		state.active_trade = e.trade
 		state.trade_can_accept = e.can_accept
+		state.trade_cost_read = e.cost_read
+		state.trade_gain_read = e.gain_read
 
 	case sim.Event_Purchase_Rejected:
 		play_beat(state, fmt.tprintf("You can't afford %s.", e.option.fitting.name))

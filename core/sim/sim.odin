@@ -376,9 +376,16 @@ Event_Options_Presented :: struct {
 // (voyage_trade_can_accept): Sim-side state, since it depends on the ship's *effective* stats,
 // which the base fields on Event_Ship_Updated aren't enough to re-derive. This is the trade
 // counterpart of Event_Battle_Menu's may_break_off.
+//
+// `cost_read` and `gain_read` are the give and get cards' before→after readings
+// (voyage_trade_project), broadcast so the Trade view (#318) renders the swap straight from the
+// event rather than recomputing the ship's effective stats — the same reason can_accept rides
+// along.
 Event_Trade_Presented :: struct {
 	trade:      voyage.Stage_Trade,
 	can_accept: bool,
+	cost_read:  voyage.Trade_Reading,
+	gain_read:  voyage.Trade_Reading,
 }
 
 // Event_Purchase_Rejected reports a buy the ship could not afford: the option's cost exceeds
