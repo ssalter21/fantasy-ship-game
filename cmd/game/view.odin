@@ -710,25 +710,19 @@ draw_stage_chip :: proc(state: ^Game_State, chip: rl.Rectangle, index: int, curs
 	}
 }
 
-// draw_scene_contents draws whichever screen is relevant (battle or map), the player's
-// ship panel, and an optional overlay banner. It does not Begin/EndDrawing itself, so a
-// caller that draws more on top (menu.odin's button lists) can share one Begin/End pair
-// around it; draw_scene is the standalone wrapper for callers with nothing further.
+// draw_scene_contents draws the map/travel scene — the chart, the player's ship panel, the
+// encounter strip, and an optional overlay banner. It does not Begin/EndDrawing itself, so a
+// caller that draws more on top can share one Begin/End pair around it; draw_scene is the
+// standalone wrapper for callers with nothing further. The Fight is no longer drawn here — it
+// has its own facing-cutaway scene (draw_fight_contents, #315), which draw_beat routes battle
+// beats through — so this is always the out-of-battle scene now.
 draw_scene_contents :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 	rl.ClearBackground(COLOUR_DEEP)
 
-	if state.in_battle {
-		if opponent, ok := state.sighted_opponent.?; ok {
-			draw_ship_panel(&opponent, rl.Vector2{SHIP_PANEL_X, 20}, "Opponent", true)
-		}
-		draw_ship_panel(&state.player, rl.Vector2{SHIP_PANEL_X, 220}, "Your Ship", false)
-	} else {
-		draw_map(state, mouse)
-		draw_ship_panel(&state.player, rl.Vector2{SHIP_PANEL_X, 20}, "Your Ship", false)
-	}
+	draw_map(state, mouse)
+	draw_ship_panel(&state.player, rl.Vector2{SHIP_PANEL_X, 20}, "Your Ship", false)
 
-	// Last of the left column, so it sits over the map rather than under it — drawn for
-	// both layouts, since an encounter is walked across all of them.
+	// Last of the left column, so it sits over the map rather than under it.
 	draw_encounter_strip(state)
 
 	if len(overlay) > 0 {
@@ -767,16 +761,21 @@ draw_scene :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 	draw_scene_contents(state, overlay, mouse)
 }
 
-// draw_beat renders one frame of a playback beat: the stage or scene beneath, then the shared
-// playback overlay laid over it (#304, encounter_frame.odin). The beat is the styled
-// scrim-and-headline surface — it dims the stage but leaves it visible — replacing play_beat's
-// old bottom bar. The scene draws with no bottom-bar overlay of its own (empty overlay arg);
-// the headline rides the overlay instead. Its own Begin/EndDrawing pair, like draw_scene.
+// draw_beat renders one frame of a playback beat: the scene beneath, then the shared playback
+// overlay laid over it (#304, encounter_frame.odin). The beat is the styled scrim-and-headline
+// surface — it dims the scene but leaves it visible — replacing play_beat's old bottom bar. The
+// scene under it is the Fight's facing cutaways when a battle is live (so a battle beat lands
+// on the two ships the captain is looking at, #315), otherwise the map/travel scene. Its own
+// Begin/EndDrawing pair, like draw_scene.
 draw_beat :: proc(state: ^Game_State, headline: string) {
 	rl.BeginDrawing()
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)
 
-	draw_scene_contents(state, "", rl.Vector2{-1, -1})
+	if state.in_battle {
+		draw_fight_scene(state, rl.Vector2{-1, -1})
+	} else {
+		draw_scene_contents(state, "", rl.Vector2{-1, -1})
+	}
 	draw_playback_overlay(headline)
 }
