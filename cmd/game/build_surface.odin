@@ -300,6 +300,17 @@ draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)
 
+	draw_build_surface_body(state, drag, confirm, mouse, false)
+}
+
+// draw_build_surface_body composes the Cutaway without owning the frame's Begin/EndDrawing, so
+// Home (draw_home) can lay the raised chart over the same surface inside one drawing pair.
+// `at_home` is the two Home/Refit differences: a granted Refit is titled "Refit" and shows a
+// steel Done (Refit_Finish); Home is the persistent "At Anchor" ground and shows no Done — it
+// leaves by sailing, not by finishing, so its Home wrapper draws a chart tab over this body
+// instead. Everything else is shared, and the shelf block is naturally skipped at Home, where
+// there is never a granted item.
+draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(ship.Slot_Index), mouse: rl.Vector2, at_home: bool) {
 	rl.ClearBackground(COLOUR_DEEP)
 
 	draw_build_hull()
@@ -326,7 +337,9 @@ draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(
 	}
 
 	draw_build_ledger(state)
-	draw_build_done(mouse)
+	if !at_home {
+		draw_build_done(mouse)
+	}
 
 	// The shelf: a granted item at rest is the screen's one amber. While it is being
 	// dragged the resting card gives way to the ghost, so there are never two.
@@ -345,7 +358,7 @@ draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(
 		draw_build_discard_confirm(state, slot, mouse)
 	}
 
-	draw_build_heading()
+	draw_build_heading(at_home ? "At Anchor" : "Refit")
 	draw_vignette()
 	draw_chart_table_version_stamp()
 }
@@ -426,9 +439,10 @@ draw_build_hull :: proc(
 }
 
 // draw_build_heading names the screen, cream, top-left — the display tone, biggest thing in
-// the corner it sits in (the guide's hierarchy: colour first).
-draw_build_heading :: proc() {
-	rl.DrawTextEx(ui_font_body, "Refit", rl.Vector2{45, BUILD_HEADING_Y}, UI_BODY_SIZE, 1, COLOUR_CREAM)
+// the corner it sits in (the guide's hierarchy: colour first). The word is the caller's: a
+// granted Refit reads "Refit", the persistent Home "At Anchor".
+draw_build_heading :: proc(title: string) {
+	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{45, BUILD_HEADING_Y}, UI_BODY_SIZE, 1, COLOUR_CREAM)
 }
 
 // draw_build_zone_label draws a zone's name with a supporting eye / eye-off glyph: what a
@@ -658,5 +672,172 @@ draw_build_discard_confirm :: proc(state: ^Game_State, slot: ship.Slot_Index, mo
 		UI_BODY_SIZE,
 		1,
 		COLOUR_CYAN_DIM,
+	)
+}
+
+// Home is the Build surface made the persistent between-encounters screen (#317, ADR-0024):
+// the same Cutaway as a granted Refit, but the player's own resting ground rather than a modal
+// the Sim hands them. There is no granted item, so no amber and no shelf — drags do free
+// reallocation (a slot Move, or a drag-off-to-Jettison Remove), each a Command_Refit the Sim
+// applies in place and stays at anchor (sim_process_anchor_refit). In place of the Refit's Done,
+// a corner-tab raises the **chart** over the surface; a click on a reachable node there sails
+// (Command_Travel_To). The tab is the shipped stand-in the map's fog names for the swipe, and it
+// reuses the same press-drag-release primitive #302 built for refit.
+
+// home_chart_tab_rect is the Home chart tab's slot: the shared bottom-centre flick position
+// (encounter_chart_tab_rect, #304), lifted to sit just above Home's stats ledger. Home is the
+// one place the flick tab and a bottom stats ledger coexist — an encounter frame carries its
+// stats top-right — so the encounter tab sits flush to the edge while Home's clears its ledger.
+home_chart_tab_rect :: proc() -> rl.Rectangle {
+	rect := encounter_chart_tab_rect()
+	rect.y = BUILD_LEDGER_Y - rect.height - 10
+	return rect
+}
+
+// home_loop is the between-encounters blocking loop, the Awaiting_Travel_Choice successor to
+// travel_menu_loop: it renders the Build surface as Home and returns either a Command_Refit when
+// a free reallocation drag completes, or a Command_Travel_To when a node is clicked on the raised
+// chart. run_session ticks that command and re-enters, so a run of free refits between two sails
+// is a sequence of these calls — the same shape build_surface_loop has, minus a shelf and a
+// Finish.
+home_loop :: proc(state: ^Game_State) -> sim.Command {
+	if !rl.IsWindowReady() {
+		// No live window (e.g. under `odin test`): sail a legal option as a harmless
+		// placeholder, matching travel_menu_loop's retired fallback; the current node when none.
+		if len(state.travel_options) > 0 {
+			return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
+		}
+		return sim.Command(sim.Command_Travel_To{node_id = state.current_node_id})
+	}
+
+	drag: Build_Drag
+	confirm_discard: Maybe(ship.Slot_Index)
+	chart_raised := false
+
+	for {
+		window_quit_if_closed()
+		mouse := rl.GetMousePosition()
+
+		// Chart raised: the sailable overlay over the still-present Build surface. A click on a
+		// reachable node sails; a click on the (now "lower") tab drops back to the surface. The
+		// node hit-test is travel_menu_loop's, over the same emitted options the Sim gates on.
+		if chart_raised {
+			draw_home(state, Build_Drag{}, nil, mouse, true)
+			if rl.IsMouseButtonPressed(.LEFT) {
+				for dest in state.travel_options {
+					if rl.CheckCollisionPointCircle(mouse, state.positions[dest], NODE_RADIUS) {
+						return sim.Command(sim.Command_Travel_To{node_id = dest})
+					}
+				}
+				if rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
+					chart_raised = false
+				}
+			}
+			continue
+		}
+
+		// Confirm sub-state: a discard is one deliberate click from committing, or a click
+		// anywhere else cancels it (same as build_surface_loop).
+		if slot, confirming := confirm_discard.?; confirming {
+			draw_home(state, Build_Drag{}, confirm_discard, mouse, false)
+			if rl.IsMouseButtonPressed(.LEFT) {
+				if rl.CheckCollisionPointRec(mouse, build_confirm_yes_rect()) {
+					return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = slot}})
+				}
+				confirm_discard = nil
+			}
+			continue
+		}
+
+		// A drag in flight: the ghost follows the cursor until release, when where it lands
+		// decides the free-reallocation command (Move) or a cancel. With no shelf item at Home,
+		// build_begin_drag only ever lifts a filled slot, so build_drop_command yields a Move or
+		// a discard — never an Install/Replace.
+		if drag.active {
+			draw_home(state, drag, nil, mouse, false)
+			if rl.IsMouseButtonReleased(.LEFT) {
+				on_discard := rl.CheckCollisionPointRec(mouse, build_discard_rect())
+				cmd, ready, wants := build_drop_command(state, drag, build_slot_at(state, mouse), on_discard)
+				drag.active = false
+				if slot, discard := wants.?; discard {
+					confirm_discard = slot
+				} else if ready {
+					return cmd
+				}
+			}
+			continue
+		}
+
+		// Resting: draw, then a press raises the chart (its tab) or lifts a fitting into a drag.
+		draw_home(state, drag, nil, mouse, false)
+		if rl.IsMouseButtonPressed(.LEFT) {
+			if rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
+				chart_raised = true
+			} else if started, ok := build_begin_drag(state, mouse); ok {
+				drag = started
+			}
+		}
+	}
+}
+
+// draw_home draws one whole frame of Home: the Build surface body, then — when the chart is
+// raised — a dimming scrim and the chart laid over it, and the corner tab on top either way.
+// Split from home_loop so composing and polling are separate acts, so --capture photographs
+// both the resting surface and the raised chart (#277). The chart draws over the surface (not
+// beside it) because the tab stand-in is a raise/lower, not a split view — the swipe that
+// replaces it (fog) will animate this same over-lay.
+draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(ship.Slot_Index), mouse: rl.Vector2, chart_raised: bool) {
+	rl.BeginDrawing()
+	defer rl.EndDrawing()
+	defer free_all(context.temp_allocator)
+
+	draw_build_surface_body(state, drag, confirm, mouse, true)
+
+	if chart_raised {
+		rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, rl.Fade(COLOUR_DEEP, 0.55))
+		draw_map(state, mouse)
+	}
+	draw_home_chart_tab(chart_raised, mouse)
+}
+
+// draw_home_chart_tab draws the interactive chart tab at Home's bottom-centre slot
+// (home_chart_tab_rect). Unlike the encounter's view-only twin it is a steel control whose
+// scrim lifts on hover, and its caret points up to raise the chart or down to lower it. A
+// shape, not a glyph, wound to survive raylib's clockwise cull.
+draw_home_chart_tab :: proc(chart_raised: bool, mouse: rl.Vector2) {
+	rect := home_chart_tab_rect()
+	hovered := rl.CheckCollisionPointRec(mouse, rect)
+	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, hovered ? 0.75 : 0.55))
+	draw_subpanel_border(rect, true)
+
+	label := chart_raised ? fmt.ctprint("Lower") : fmt.ctprint("Chart")
+	lsize := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1)
+	CARET := f32(16)
+	GAP := f32(6)
+	group_x := rect.x + (rect.width - (CARET + GAP + lsize.x)) / 2
+	caret_cx := group_x + CARET / 2
+	cy := rect.y + rect.height / 2
+	if chart_raised {
+		rl.DrawTriangle(
+			rl.Vector2{caret_cx - 7, cy - 4},
+			rl.Vector2{caret_cx, cy + 6},
+			rl.Vector2{caret_cx + 7, cy - 4},
+			COLOUR_STEEL,
+		)
+	} else {
+		rl.DrawTriangle(
+			rl.Vector2{caret_cx - 7, cy + 4},
+			rl.Vector2{caret_cx + 7, cy + 4},
+			rl.Vector2{caret_cx, cy - 6},
+			COLOUR_STEEL,
+		)
+	}
+	rl.DrawTextEx(
+		ui_font_body,
+		label,
+		rl.Vector2{group_x + CARET + GAP, rect.y + (rect.height - UI_BODY_SIZE) / 2},
+		UI_BODY_SIZE,
+		1,
+		COLOUR_STEEL,
 	)
 }
