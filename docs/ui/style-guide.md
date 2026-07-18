@@ -9,6 +9,13 @@ see [What this guide does not cover](#what-this-guide-does-not-cover).
 Written for [Write the style guide](https://github.com/ssalter21/fantasy-ship-game/issues/280), on the
 `effort:ui-capability` map ([#275](https://github.com/ssalter21/fantasy-ship-game/issues/275)).
 
+> **This is a clean-slate rewrite.** It supersedes an earlier navy direction — "one palette, and it is a depth
+> ramp," grounded on the near-black `#081127` — which read as clinical and cold and drifted away from the
+> reference set's actual brightness. The target now is **bright, high-contrast, saturated 16-bit**, derived from
+> the daylight images the old guide had buried. The shipped `COLOUR_*` constants still hold the old navy values;
+> re-colouring them is the follow-on and is out of scope here (see
+> [What this guide does not cover](#what-this-guide-does-not-cover)).
+
 ## Craft, not art
 
 "Good" here means **shapes, a real typeface, a deliberate palette, spacing, hierarchy, and framing**. It does
@@ -17,230 +24,216 @@ named colours (`LIGHTGRAY` / `BEIGE` / `MAROON`), and no hierarchy — not becau
 below is reachable with raylib primitives (`DrawRectangleRec`, `DrawRectangleLinesEx`, `DrawTextEx`,
 `DrawTriangle`, `DrawPoly`) and no new renderer.
 
-## Where this came from, and what the mock is not
-
-Two sources, and they are **not** equal.
+## Where this came from
 
 `docs/ui/references/` holds nine scenes gathered in
-[#276](https://github.com/ssalter21/fantasy-ship-game/issues/276). None of them contains a UI. They fix a
-colour world and a 16-bit register; they say nothing about layout or type. Read
+[#276](https://github.com/ssalter21/fantasy-ship-game/issues/276), plus one mock. They are not equal, and which
+one leads is the whole difference between this guide and its predecessor. Read
 `docs/ui/references/README.md` before them.
 
-`docs/ui/references/menu/menu-ui-mock.png` is different: it is the one reference that **is** a UI. It fixes
-this guide's palette ramp and its hierarchy, and it is the only image in the set that shows a chart and a
-chrome coexisting — which is why [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294) kept it
-when the option to drop it was on the table. But it is a **look reference, not a specification**, and three
-things in it are actively wrong for this game:
+- **`style/island-tropical.jpg` is the keystone.** It is the clearest statement of the target: a saturated
+  turquoise sea, warm tan cliffs, vivid layered greens, purple-white clouds. Every colour is turned *up*. The
+  palette below is sampled from it, with **`style/menu-port-tropical.jpg`** and **`menu/treasure-map.jpg`** as
+  supporting witnesses (the port for its bright daylight sea, the map for its parchment-and-sand world).
+- **`menu/menu-ui-mock.png` is a layout reference only.** It is the one image that *is* a UI, so it still fixes
+  **hierarchy and proportion** — but it is a *navy* mock, and it no longer sets colour. Take its stack, its
+  centred title, its caret-and-scrim hover; leave its palette.
+- **`style/ship-night.jpg` and `style/ship-battle.jpg` are accent witnesses only.** They show a warm point
+  punching against a cold field — the amber relationship — and nothing else. They are night scenes; do not read
+  a ground colour out of them.
+- **`style/colour-palette.webp` stays demoted.** A dusk mountain valley, not a sea. Do not derive palette from
+  it.
 
-- **Its menu items are not the Chart Table's.**
-  [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278) settled that the Chart Table holds a
-  title, **Begin a voyage**, **Quit**, and nothing else, and that it is **stateless**. The mock's
-  *Continue Voyage* (there is no save), *Crew & Codex* (meta-progression, out of scope), *Settings*, and its
-  `SEED TIDEBORN-4417` line (seeding policy, out of scope) are illustrative only. Do not build them.
-- **Its input model is not the game's.** The mock shows `↑↓ NAVIGATE  ⏎ SELECT`. Every menu in this game is
-  mouse click-polling; nothing reads arrow keys.
-- **Its aspect ratio is not the game's.** The mock is 1421×787 (**1.806**); the window is 1024×700
-  (**1.463**). Its layout cannot be transplanted by scaling. Use its *proportions and hierarchy*, re-laid out.
+## The palette
 
-One more property worth knowing before you sample it yourself: the mock is a **painting of a UI, not a
-rendered one**. Its solid fills are exact and trustworthy, but its translucency is not internally consistent
-(the same overlay lightens the island and tints the water by different amounts, which no single alpha
-produces). Take its solids as law and its transparency as a target to match by eye.
+**There is one palette. It is a flat, high-contrast roster, and everything draws from it** — the chrome, the
+world, the chart, the map. Not a ramp: a fixed set of named swatches, and no screen may reach outside it. That
+shared roster is the whole anti-clash guarantee. The chrome cannot fight the world because they are painted from
+the same tin.
 
-## Palette
+### The contrast engine is warm-versus-cool
 
-**There is one palette, and it is a depth ramp.** Hue falls and value rises as the water shallows. Everything
-else — the ground the chrome sits on, the zones, the accents — is a stop on that ramp or a deliberate
-exception to it.
+The brightness in `island-tropical` is not a dark ground with a bright accent. It is **saturated cyan sea
+clashing against warm sand and white foam**, with vivid green between them. That warm-vs-cool clash is the
+mechanism — carry it into every screen. High contrast here means a *hue* clash at *high* value, not a value
+drop into shadow.
 
-This replaces the three-palette split (chrome / world / semantic, from two different sources) that this guide
-carried until [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294). That split was not a reading
-of the references; it was **an artifact of sampling two of them that disagree**, and it is what made the art
-direction and the game read as two different games.
+### Two grounds: the sea is the world, parchment is where words live
 
-### Why one ramp, and how it was found
+The sea is bright and saturated, which is glorious behind a ship and hostile behind a paragraph. So the roster
+carries **two grounds**, and the rule for which is simple:
 
-Measured across all ten references, the set holds **two hue families 31.8° apart**:
+- **The sea `#1FA9D0` is the backdrop** — the world, the map's water, the space a ship sails. Break it up with
+  islands, sky, and foam; never paint a flat wall of it edge to edge.
+- **Parchment `#EBD9A6` is the ground for text** — menus, panels, stat blocks, and the run-map. Dark ink on
+  warm parchment is the high-contrast, legible, unmistakably-pirate surface the words sit on.
 
-| Family | Mean blue hue | Images |
+This is the reference set resolving itself: `island-tropical` is the sea, `treasure-map` is the parchment, and
+a pirate UI is charts drawn on paper over open water.
+
+### The roster
+
+These are law. Values are starting points, tuned in-engine by eye — but the *relationships* (which is brighter,
+which is warmer, which is scarce) are not up for renegotiation.
+
+**Cool — the sea and its field**
+
+| Role | Hex | RGB | Is |
+| --- | --- | --- | --- |
+| **Sea — field** | `#1FA9D0` | 31, 169, 208 | The sea, and the world backdrop. Replaces `RAYWHITE`/navy `COLOUR_DEEP`. |
+| **Sea — bright** | `#2CC3DE` | 44, 195, 222 | The loud turquoise. Near-surface water, highlights. |
+| **Shallow** | `#63E2EC` | 99, 226, 236 | Brightest cool. The halo where water meets land; the eye's rest point. |
+| **Sea — deep** | `#1786BC` | 23, 134, 188 | Distance, deepest water, and interactive borders on parchment. |
+| **Foam** | `#F2FBFB` | 242, 251, 251 | Whitecaps, dividers, the brightest thing allowed. |
+
+**Sky** (for screens that show it)
+
+| Role | Hex | RGB |
 | --- | --- | --- |
-| **Navy** | H217–234 | `menu-ui-mock` 217, `ship-night` 230, `ship-battle` 234 |
-| **Teal** | H186–202 | `wave` 186, `colour-palette.webp` 193, `island-tropical` 195, `menu-port-tropical` 198, `treasure-map` 198, `floating-port` 202 |
+| Sky — high | `#3F79C0` | 63, 121, 192 |
+| Sky | `#5A93D2` | 90, 147, 210 |
+| Horizon haze | `#8FBCE8` | 143, 188, 232 |
+| Cloud | `#EEF1F8` | 238, 241, 248 |
+| Cloud shadow | `#B7BCE0` | 183, 188, 224 |
 
-So **"just use the references" is not executable as stated** — they do not agree with each other. Two traps
-are worth recording, because both are easy to walk into:
+**Warm neutral — land and parchment** (all *desaturated* warm; see [the saturation rule](#the-saturation-rule))
 
-- **A global hue-vs-value fit says "ramp" and is lying.** Across the whole set, hue falls as value rises
-  (r = −0.52), which looks exactly like depth. It is **time of day**. `ship-night` holds H230 across values
-  0.08→0.77; `wave` holds H186 across 0.37→0.99. Where the two overlap in brightness they are still ~44°
-  apart. Night scenes are dark and daylight scenes are bright, and that alone manufactures the correlation.
-- **The real ramp lives inside single images.** The mock's water is three measured stops —
-  **H222 V0.15 → H212 V0.19 → H200 V0.25** — which is exactly this game's three zones.
-  `island-tropical` independently carries both ends (navy `#091746` deep, cyan `#2091AE` shallow).
+| Role | Hex | RGB | Is |
+| --- | --- | --- | --- |
+| **Parchment** | `#EBD9A6` | 235, 217, 166 | The ground for text: panels, menus, the map. |
+| **Sand** | `#D2A968` | 210, 169, 104 | Land body, panel shade, dividers on parchment. |
+| **Cliff** | `#B98A50` | 185, 138, 80 | Deeper sand; borders; the shadowed edge of land. |
+| **Rock** | `#7E5C3A` | 126, 92, 58 | Shadow under land; the darkest warm. |
+| **Trunk** | `#875F38` | 135, 95, 56 | Palms, timber. |
 
-The two families were never rivals: **they are the deep and shallow ends of one sea.** The mock's deep water
-is `#081127`, which *is* this guide's ground — the same hex. The outlier is `colour-palette.webp`, which #280
-made the world's source: a dusk mountain **valley**, sitting at H≈193 at every depth. It is not a sea, and it
-is the reason the world sat 32° of hue away from the chrome.
+**Foliage** (vivid — this is where the old guide was most muted)
 
-### The ramp
+| Role | Hex | RGB |
+| --- | --- | --- |
+| Green — highlight | `#9BDE57` | 155, 222, 87 |
+| Green — light | `#57C94D` | 87, 201, 77 |
+| Green | `#2FA23E` | 47, 162, 62 |
+| Green — deep | `#1B6A2B` | 27, 106, 43 |
 
-These are law. The first three are **both** the chrome's grounds **and** `zone_tint`'s three zones — one set of
-colours, not two that must be kept in sync.
-
-| Stop | Hex | RGB | H | V | Is |
-| --- | --- | --- | --- | --- | --- |
-| **Deep** | `#081127` | 8, 17, 39 | 222 | 0.15 | The dominant field, the canvas, **and** zone `Deep`. Replaces `RAYWHITE`. |
-| **Mid** | `#0A1C30` | 10, 28, 48 | 212 | 0.19 | Open water; large calm areas. **And** zone `Open_Sea`. |
-| **Shallow** | `#0E2E3F` | 14, 46, 63 | 200 | 0.25 | Where water meets land. **And** zone `Coastal`. |
-| **Vignette** | `#050B18` | 5, 11, 24 | 221 | 0.09 | Below the ramp. Frames the screen; see [Framing](#framing). |
-### The tones on the ramp
-
-Everything the chrome draws with. Cyan is the ramp's bright end (H186 — where `wave` sits); steel and
-recessive blue are ramp hues at lower saturation; amber and cream are the two deliberate exceptions.
+**Accents**
 
 | Role | Hex | RGB | Notes |
 | --- | --- | --- | --- |
-| **Amber — action** | `#F7A72B` | 247, 167, 43 | **Reserved.** H36 — the ramp's complement, see below. See [The amber rule](#the-amber-rule). |
-| **Ink on amber** | `#08122B` | 8, 18, 43 | The only text colour that goes on amber. Never cream. |
-| **Steel — interactive** | `#8AA9D6` | 138, 169, 214 | Unselected controls: their border *and* their label. H215 — on the ramp. |
-| **Cream — display** | `#E7D2A3` | 231, 210, 163 | Titles and headings only. Parchment, not white. |
-| **Cyan — emphasis** | `#6FE0EC` | 111, 224, 236 | The ramp's bright end (H186). Subtitles, taglines, the eye's rest point. Sparingly. |
-| **Cyan — dim** | `#57B5C3` | 87, 181, 195 | Hints and secondary help text. |
-| **Blue — recessive** | `#3A5A82` | 58, 90, 130 | Text that must be present but never read first (version stamp). |
+| **Amber — action** | `#FFB020` | 255, 176, 32 | **Reserved.** The one thing you can act on. See [the amber rule](#the-amber-rule). |
+| **Ink on amber** | `#40260A` | 64, 38, 10 | The only text colour that goes on amber. |
+| **Coral-red — reserved** | `#E1552B` | 225, 85, 43 | Held back: the chart's X-mark now, danger/damage later. Scarce by law. |
 
-**Amber is complementary to the ramp, and that is why the ramp is navy at depth.** `#F7A72B` is H36.5; its
-exact complement is H216.5, which is the Deep/Mid stop. Against the teal family (H195) the same amber is 159°
-away rather than 174° — still contrasting, measurably less opposed. The README calls blue-versus-amber the
-strongest signal in the set; it is strongest *at the navy end*, which is also where the two images that
-actually carry an amber accent (`ship-night`, `ship-battle`) sit. Choosing the teal end would have cost that.
+**Text tones** (hierarchy is carried by colour — see [Hierarchy](#hierarchy))
 
-Two rules that fall out of these tables:
+| Role | Hex | RGB | Notes |
+| --- | --- | --- | --- |
+| **Ink — primary** | `#12333F` | 18, 51, 63 | Titles and body on parchment. Deep teal, not black. |
+| **Ink — muted** | `#4C7385` | 76, 115, 133 | Secondary and help text on parchment. |
+| **Faded ink — recessive** | `#9C8A63` | 156, 138, 99 | Present, read last (version stamp). Faded map-ink. |
+| **Cream** | `#F3E6C4` | 243, 230, 196 | The rare light heading placed *over* the sea, not on parchment. |
 
-- **Never `RAYWHITE`, `LIGHTGRAY`, `BEIGE`, `MAROON`, `SKYBLUE`, `GRAY`, or `WHITE` again.** Every stock
-  raylib named colour has a replacement above. The stock palette is the single largest programmer-art signal
-  in the current build.
-- **Text colour is hierarchy.** There are six text tones here (ink, steel, cream, cyan, dim cyan, recessive
-  blue) and only two type sizes (below). Rank by colour first, size second.
+### The saturation rule
+
+**Neutral warm is desaturated. Saturated warm is amber, and amber alone.**
+
+This is the rule that lets the world be sandy without stealing the button. Parchment, sand, cliff, and rock are
+all *low-saturation* warm; amber `#FFB020` is *high-saturation* warm. The eye separates them by saturation, so a
+whole parchment panel can sit under a single amber control and the amber still reads as "act here." A second
+saturated warm anywhere on screen breaks the rule — that is what coral-red's reservation protects.
+
+Two rules fall out of the roster:
+
+- **Never `RAYWHITE`, `LIGHTGRAY`, `BEIGE`, `MAROON`, `SKYBLUE`, `GRAY`, or `WHITE` again.** Every stock raylib
+  named colour has a replacement above. The stock palette is the single largest programmer-art signal in the
+  current build.
+- **Text colour is hierarchy.** Rank by colour first, size second — there are only two type sizes (below).
 
 ### The amber rule
 
-`#F7A72B` means **"this is the thing you can act on right now."** Nothing else may use it.
+`#FFB020` means **"this is the thing you can act on right now."** Nothing else may use it.
 
-This is the strongest signal in the whole reference set, and it only works because it is scarce. In
-`style/ship-night.jpg` — the image that drives it — the warm points occupy a tiny fraction of a large cold
-field, and that ratio *is* the effect. An amber that appears three times on a screen means nothing.
+It only works because it is scarce. In `style/ship-night.jpg` — the image that drives it — the warm points
+occupy a tiny fraction of a large cold field, and that ratio *is* the effect. An amber that appears three times
+on a screen means nothing. One amber per screen is the target; two is a smell; three is a bug.
 
-Concretely: the selected/hovered/actionable control is amber-filled with `#08122B` ink. Everything else
-interactive is steel-bordered with a steel label on a translucent ground. One amber per screen is the target;
-two is a smell; three is a bug.
+Concretely: the actionable control is amber-filled with `#40260A` ink. Everything else interactive is
+outlined in `#1786BC` (or steel, on a dark ground) with a matching label over a translucent ground.
 
-**Amber marks the default action, not the pointer.** "The hovered control is amber" and "one amber per screen"
-are the same rule only in the mock, where one caret moves and nothing else can be selected. This game is
-mouse-driven, so *any* control can be hovered — and the moment you hover a non-default one, amber-on-hover puts
-two ambers on screen and the rule eats itself. The resolution, found while building the Chart Table
-([#281](https://github.com/ssalter21/fantasy-ship-game/issues/281)):
+**Amber marks the default action, not the pointer.** This game is mouse-driven, so *any* control can be hovered
+— and amber-on-hover would put two ambers on screen the moment you hover a non-default control. The resolution
+(found building the Chart Table, [#281](https://github.com/ssalter21/fantasy-ship-game/issues/281)):
 
 - **Amber is assigned, not tracked.** The screen's default action is amber-filled and stays amber whatever the
   mouse does. A screen with no default action has no amber.
 - **Hover is carried by the caret and the scrim** — the `▶` moves to the hovered control, and its translucent
-  ground lifts (`0.55` → `0.75`). Both read clearly and neither spends amber.
+  ground lifts. Both read clearly and neither spends amber.
 
-### `zone_tint`, and the one place the ramp cannot land yet
+### Coral-red is reserved
 
-`zone_tint` (`view.odin:44`) is the ramp's three stops, so there is nothing to reconcile: zone `Deep` **is**
-the ground the chrome sits on. That is the whole point of one ramp.
+`#E1552B` is held back on purpose. Today it is **the chart's X-mark** — the one warm point on the map. Later it
+is **danger and damage**. It is never the "go" colour (that is amber's job, and red-as-go would fight the Fight
+stage), and it never appears twice on a screen. Its scarcity is its meaning, exactly like amber's.
 
-It carries the ramp's **hues** and not its **values**, and that is a limit rather than a choice:
+### The map is parchment
 
-| Zone | Ramp hue | Shipped | RGB | Why not the ramp's own value |
-| --- | --- | --- | --- | --- |
-| `Coastal` | H200 | `#67A7C7` | 103, 167, 199 | lifted to V0.78 |
-| `Open_Sea` | H212 | `#3D6899` | 61, 104, 153 | lifted to V0.60 |
-| `Deep` | H222 | `#30426B` | 48, 66, 107 | lifted to V0.42 |
-| fallback (no zone) | H212, low sat | `#667280` | 102, 114, 128 | absence of hue reads as absence of zone |
+The run-map is being rebuilt as **an actual chart — a piece of parchment**, not a tinted sea. When that lands,
+the map's ground is `#EBD9A6`, its water is drawn *on* the paper in the sea tones, its land is sand and
+foliage, and its markers are re-derived against parchment. `menu/treasure-map.jpg` is the reference for that
+surface — it is promoted from "form and framing only" to a genuine palette source for the map.
 
-**Why.** `draw_scene` (`view.odin:486`) clears the voyage canvas to `RAYWHITE`, and the band draws at
-`Fade(..., 0.18)` (`view.odin:178`). An 18% wash over white carries almost none of the underlying value:
-composite the ramp's true stops (V0.15/0.19/0.25) through it and all three zones land **within 5/255 of each
-other** — `#D3D4D8`, `#D3D6DA`, `#D4D9DC`, one indistinguishable grey. The values above are lifted until they
-survive the wash, holding adjacent zones **9/255** apart, which is exactly what shipped before this change.
+Until the rebuild, keep the map's colours light:
 
-**The ramp's value axis lands when the canvas stops being white** — i.e. when the five voyage screens are
-restyled, which is out of the `effort:ui-capability` map's scope. Until then `zone_tint` is on the ramp in
-hue and off it in value, and that is recorded rather than hidden. If you are the restyle: change
-`ClearBackground` to `COLOUR_DEEP` and these four constants collapse onto the ramp table above.
+- **Encounter category (`stage_tint`) — principle only.** The mechanism survives any palette and is worth not
+  re-litigating: **category is hue, state is brightness, and only the *current* node/chip goes amber.** That is
+  what keeps "amber means act" alive on a busy map. The five category hues themselves are *not* pinned here —
+  they get re-derived against the parchment ground in the map rebuild. Do not spend effort tuning them against
+  the current navy field.
 
-Usage is unchanged: a background band and an unrevealed encounter's generic marker (`view.odin:132`). They are
-**ambient**. If a zone tint is ever the brightest thing on screen, it is being misused.
+### `zone_tint` — the three sea stops
+
+`zone_tint` carries the sea's own tones for the three water zones — `Coastal`, `Open_Sea`, `Deep`. Drawn from
+the roster's cool column (bright shallow → sea → sea-deep), they are **ambient**: a background band and an
+unrevealed encounter's generic marker. If a zone tint is ever the brightest thing on screen, it is being
+misused.
+
+One limit is recorded rather than hidden, and it is a *code* fact, out of this pass's scope: `draw_scene`
+clears the voyage canvas to a light ground and the zone band draws at low alpha, so an untuned tint washes out.
+The values survive the wash only when lifted, and they land true when the canvas ground itself becomes a sea
+tone — i.e. when the voyage screens are re-coloured. That is the follow-on, not this guide.
 
 ### The chart's own tones
 
-For a chart background (the Chart Table draws one; see [The chart](#the-chart)). Sampled from the mock's
-chart, not invented:
+The Chart Table draws a chart because [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278) settled
+that the screen *is* a chart with buttons over it. It is **drawn from the roster with raylib primitives, not
+sourced as an image** — that costs no bytes against ADR-0009's self-contained exe, raises no licence question,
+and cannot clash with the chrome because both draw from the one roster.
 
-| Role | Hex | RGB | Notes |
-| --- | --- | --- | --- |
-| **Land** | `#535049` | 83, 80, 73 | The island body. Khaki, **not parchment** — see below. |
-| **Land shade** | `#494337` | 73, 67, 55 | Its shadowed edge. |
-| **Land green** | `#23412C` | 35, 65, 44 | The inland patch. |
-| **Grid** | `#4D5863` | 77, 88, 99 | The graticule. H210 — already on the ramp. |
-| **Chart ink** | `#6E82A0` | 110, 130, 160 | The rose, the route. H215, opaque — see [The chart](#the-chart). |
-| **Mark** | `#B2482B` | 178, 72, 43 | The X. The mock's, and the only warm thing on the chart besides amber. |
+Its parts map straight onto the roster: **water** in the sea tones, **land** in sand and cliff, **foliage** in
+the greens, **grid** in `#1786BC` at low alpha, and the **X-mark** in coral-red. Two rules came out of drawing
+it, both the kind that produce a screen that looks broken rather than wrong:
 
-**Land is khaki, not parchment, and that is measured.** `menu/treasure-map.jpg` is **9.67% strongly-warm**
-against 0.2–2.7% for every other reference. The amber rule works *only* because warm is scarce, so a parchment
-ground would end it — and a cream title and an amber button cannot sit on cream anyway. The mock is the
-proof that a treasure map does not have to be parchment: it *is* one — islands, grid, compass rose, a red X —
-rendered at 2.68% warm on navy water.
+- **The world must never outshine the chrome.** Peak luminance of any chart element must sit below the title's.
+  The chart is the ground; the buttons are the figure.
+- **Alpha composites per draw, not per figure — so a translucent figure cannot have a brightness.** Overlapping
+  translucent primitives stack toward opaque. If a shape is built from overlapping primitives (a compass rose,
+  say), give it an **opaque dim tone**; it is the only way its peak is predictable from the constant.
 
-### `stage_tint` — the deliberate exception
-
-`stage_tint` (`view.odin:81`) is the one thing that is **not** on the ramp, and that is on purpose: it carries
-*category*, and a ramp has only one hue axis to spend, which depth already owns.
-
-It is used in **two places on purpose**: the node markers on the map and the chips in the encounter strip.
-That is the property to protect — *a Battle node and a Battle chip must read as the same thing*. Under the old
-three-palette split this made `stage_tint` "a third category, legible against both"; with one ramp the
-statement is simpler — **it is off-ramp hue on an on-ramp ground**, which is exactly why it reads.
-
-It is also, today, a **five-hue rainbow** — `Fight`→`MAROON`, `Offer`→`LIME`, `Trade`→`ORANGE`,
-`Shop`→`SKYBLUE`, `Reward`→`GOLD` — which directly contradicts [the amber rule](#the-amber-rule). Two of those
-five are amber-adjacent. You cannot have Trade shouting orange and Reward shouting gold and still have amber
-mean "look here."
-
-**The resolution: category is hue, state is brightness.**
-
-Each stage kind keeps a distinct hue, so the node/chip identity survives — but muted, pulled into the
-palette's register, and never at full saturation:
-
-| Stage kind | Label | Hex | RGB | Was |
-| --- | --- | --- | --- | --- |
-| `Fight` | Battle | `#A6485A` | 166, 72, 90 | `MAROON` |
-| `Offer` | Items | `#6E9E5A` | 110, 158, 90 | `LIME` |
-| `Trade` | Trade | `#B4794A` | 180, 121, 74 | `ORANGE` |
-| `Shop` | Market / Port | `#4E8CB8` | 78, 140, 184 | `SKYBLUE` |
-| `Reward` | Loot | `#C0A45E` | 192, 164, 94 | `GOLD` |
-| fallback | — | `#4A5568` | 74, 85, 104 | `GRAY` |
-
-Then **state** is what goes bright: the current stage's chip, and the node you are standing on, take
-`#F7A72B`. Nothing else does.
-
-The cost of this, stated so it is not rediscovered as a bug: **`Reward` loses gold as its identity** and
-`Trade` loses orange. They become muted hues that only go bright when current. That is deliberate — it is the
-price of amber meaning something, and it was weighed and accepted rather than overlooked.
+And one trap that a compass rose walks into: **`DrawTriangle` culls clockwise winding, drawing nothing at
+all.** A rose wound the wrong way renders its hub and none of its spokes — a silent, total no-op. Wind
+counter-clockwise.
 
 ## Type
 
 **Pixelify Sans**, SIL Open Font License 1.1.
 
-- Source: <https://github.com/google/fonts/tree/main/ofl/pixelifysans>
-- Licence verified by reading the `OFL.txt` that ships in the archive — not a tag someone typed on a
-  download page. OFL 1.1 permits embedding and redistribution in a commercial binary.
+- Source: <https://github.com/google/fonts/tree/main/ofl/pixelifysans>. Ships in the repo at
+  `assets/fonts/PixelifySans.ttf`.
+- Licence verified by reading the `OFL.txt` in the archive — not a tag on a download page. OFL 1.1 permits
+  embedding and redistribution in a commercial binary.
 - **Embed it via Odin `#load`.** [ADR-0009 (playtest distribution)](../adr/0009-playtest-distribution.md)
-  commits to a "native, self-contained Windows `game.exe`", proven against a real tester's machine; a font
-  shipped as a sidecar file breaks that. Load with `rl.LoadFontFromMemory`.
-  (Note: two ADRs share the number 0009 — the relevant one is *playtest distribution*, not *node graph*.)
+  commits to a "native, self-contained Windows `game.exe`"; a font shipped as a sidecar file breaks that. Load
+  with `rl.LoadFontFromMemory`. (Note: two ADRs share the number 0009 — the relevant one is *playtest
+  distribution*, not *node graph*.)
 
 ### The size scale
 
@@ -251,8 +244,8 @@ price of amber meaning something, and it was weighed and accepted rather than ov
 | **40px** | The Chart Table title. Display only. |
 | **20px** | Everything else. |
 
-This is not minimalism for its own sake — it is measured. Pixelify Sans is a pixel font on a 20px design
-grid, and it does not render cleanly off it:
+This is measured, not minimalist. Pixelify Sans is a pixel font on a 20px design grid, and it does not render
+cleanly off it:
 
 | Size | Antialiased pixels | Verdict |
 | --- | --- | --- |
@@ -262,25 +255,25 @@ grid, and it does not render cleanly off it:
 | **40px** | 13% | good |
 | 60px | 10% | good, if a screen ever needs it |
 
-**There is no clean size below 20px.** The current 12/14/16 have no equivalent and must grow. That is a real
-cost of adopting any pixel font — Silkscreen bottoms out at 16px the same way — and it is why hierarchy here
-is carried by **colour**, which is free, rather than by size, which is not.
+**There is no clean size below 20px.** Any 12/14/16 call sites must grow. That is a real cost of a pixel font —
+Silkscreen bottoms out at 16px the same way — and it is why hierarchy here is carried by **colour**, which is
+free, rather than by size, which is not.
 
 ### A size is a font, not a parameter
 
-The scale above is **two `rl.Font`s, not one font drawn at two sizes.** One `rl.Font` is one glyph atlas
-rasterized at one size: ask `DrawTextEx` for 20px from an atlas baked at 40 and it resamples, giving up exactly
-the pixel-exactness the table above was measured to buy. Bake each size once and keep both
-(`cmd/game/ui.odin`'s `ui_font_title` / `ui_font_body`).
+The scale is **two `rl.Font`s, not one font drawn at two sizes.** One `rl.Font` is one glyph atlas rasterized
+at one size: ask `DrawTextEx` for 20px from an atlas baked at 40 and it resamples, giving up exactly the
+pixel-exactness the table was measured to buy. Bake each size once and keep both (`cmd/game/ui.odin`'s
+`ui_font_title` / `ui_font_body`).
 
 Two things that go with it, both mandatory and neither obvious:
 
 - **Set the texture filter to `POINT`.** raylib defaults a font atlas to bilinear, which softens it on upload
-  and silently undoes the whole antialiasing measurement — the font is then *exactly* as mushy as the guide
-  says it must not be. `rl.SetTextureFilter(font.texture, .POINT)` immediately after loading.
+  and silently undoes the whole antialiasing measurement. `rl.SetTextureFilter(font.texture, .POINT)`
+  immediately after loading.
 - **The default codepoint set is ASCII 32–126.** `LoadFontFromMemory` with a nil codepoint list bakes that and
   no more, so `·` (U+00B7) and `—` (U+2014) are **not** in the atlas by default despite the face carrying them.
-  Retiring `view.odin`'s em-dash workaround (below) needs an explicit codepoint list, not just the font.
+  Retiring the em-dash workaround needs an explicit codepoint list, not just the font.
 
 ### No bold, ever
 
@@ -289,8 +282,8 @@ raylib's stb_truetype **ignores variable axes entirely** — it renders the defa
 said "use the Bold weight" would be unfollowable, which is the exact failure this guide exists to prevent.
 
 If a bold is ever genuinely needed it must be **pre-instanced at build time** with `fonttools varLib.instancer`
-and embedded as a second blob. Do not reach for it first: the mock itself uses no weight contrast, only size
-and colour.
+and embedded as a second blob. Do not reach for it first: the reference set carries no weight contrast, only
+size and colour.
 
 ### Rejected typefaces, and why
 
@@ -300,23 +293,23 @@ Recorded so they are not rediscovered and re-litigated:
 | --- | --- |
 | **Pixel Pirate** | **Licence.** At least three distinct fonts share the name (one free on dafont, one *sold commercially* by FontBros); the "100% Free" tag is author-typed, not a licence file; it is described as derived from the *Pirates of the Caribbean* logo type; and this game has a public itch.io page, so redistribution rights are real. `docs/ui/references/typeface.htm` was saved to settle this and captured a Google redirect notice instead — it contains no font data. **Do not adopt without a licence document.** |
 | **Press Start 2P** | **Measured overflow.** At 16px it is ~16px/char: `Hull 20/20  DUR 3  SPD 2` renders 384px into a 348px ship panel, and `Reallocate a fitting` renders 320px into a 220px button. It does not fit this game. |
-| **VT323** | **Never crisp** — 46–98% antialiased at every size 8–34. It is a curvy face, and reads as a DOS terminal rather than 16-bit. |
+| **VT323** | **Never crisp** — 46–98% antialiased at every size 8–34. A curvy face; reads as a DOS terminal rather than 16-bit. |
 | **Micro5**, **Jersey10** | Illegible mush at body sizes; 12 printable Latin-1 gaps each (`±`, `²`, `³`, `µ`). |
 | **Silkscreen** | **Runner-up, and a close one.** Crisper than Pixelify (10% AA at 32px), static, complete Latin-1, 31KB. Rejected because it reads **all-caps**, and this game has prose — `battle_event_text`, `fitting_summary_lines`, `condition_intent`. Caps cannot carry prose. Revisit only if the restyle finds Pixelify too soft, and know that changing face later means redoing every screen. |
 
 ### One thing the font fixes for free
 
-`view.odin:290-293` documents that raylib's built-in font carries only codepoints 32–255, so an em-dash
-renders as `?` — which is why that code says `"none"` instead. **Pixelify Sans carries U+2014.** Once it is
-embedded, that workaround can go.
+raylib's built-in font carries only codepoints 32–255, so an em-dash renders as `?` — which is why some code
+says `"none"` instead. **Pixelify Sans carries U+2014.** Once it is embedded (with an explicit codepoint list),
+that workaround can go.
 
 ## Glyphs are shapes, not text
 
 The mock draws `▶` `◆` `↑` `↓` `⏎`. **Draw these with raylib primitives, never as text.**
 
 This is measured, not stylistic. Of every candidate face examined, **none** carries `◆` (U+25C6) or `⏎`
-(U+23CE), and the only one carrying `▶ ↑ ↓` is Press Start 2P — which is rejected on width. Depending on a
-font for these glyphs means depending on a font that does not exist.
+(U+23CE), and the only one carrying `▶ ↑ ↓` is Press Start 2P — which is rejected on width. Depending on a font
+for these glyphs means depending on a font that does not exist.
 
 | Mark | Draw with |
 | --- | --- |
@@ -331,67 +324,39 @@ Above U+00FF, assume a shape.
 
 ### Hierarchy
 
-The mock's order of attention, and the mechanism that produces it:
+Words live on parchment, so the primary hierarchy is **dark ink on a warm ground**, ranked by colour:
 
-1. **Title** — 40px, cream `#E7D2A3`, on the darkest ground. Biggest thing on screen by a wide margin.
-2. **The action** — amber `#F7A72B` fill. The only saturated warm mass.
-3. **Other controls** — steel `#8AA9D6` border and label on a translucent ground. Present, clearly clickable,
+1. **Title / heading** — `#12333F` ink at 40px on parchment (or `#F3E6C4` cream if placed over the sea).
+   Biggest thing on screen.
+2. **The action** — amber `#FFB020` fill with `#40260A` ink. The only saturated warm mass.
+3. **Other controls** — `#1786BC` border and label over a translucent ground. Present, clearly clickable,
    visibly not the default.
-4. **Hints** — dim cyan `#57B5C3`, 20px, bottom of screen.
-5. **The version stamp** — recessive blue `#3A5A82`. Findable, never read first.
+4. **Body and hints** — muted ink `#4C7385`, 20px.
+5. **The version stamp** — faded ink `#9C8A63`. Findable, never read first.
 
-Note what is *not* doing the work: there is no bold, no second font, and only two sizes. **Colour carries the
-hierarchy.** If a screen needs a new level, reach for a tone from
-[the tones on the ramp](#the-tones-on-the-ramp), not a new size.
+There is no bold, no second font, and only two sizes. **Colour carries the hierarchy.** If a screen needs a new
+level, reach for a tone from the roster, not a new size.
 
-**The version stamp is shared chrome, and this guide forks it.** Levels 1–4 above describe a screen; level 5
-describes `view.odin:514`'s `draw_version_stamp`, which the five out-of-scope voyage screens *also* draw — at
-12px, in the stock font, in stock `GRAY`. Restyling it in place would restyle those five screens, so a styled
-screen draws its own stamp (`draw_chart_table_version_stamp`) and the two converge when the restyle lands.
-Expect the same fork for anything else shared between a styled screen and an unstyled one.
-
-### The chart
-
-The Chart Table draws a chart because [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278)
-settled that the screen *is* a chart with buttons over it. It is **drawn from the ramp with raylib
-primitives, not sourced as an image** ([#294](https://github.com/ssalter21/fantasy-ship-game/issues/294)):
-that costs no bytes against ADR-0009's self-contained exe, raises no licence question, and — the point —
-**cannot clash with the chrome, because the chrome's ground and the chart's deep water are one ramp stop.**
-
-Two rules came out of drawing it, and both are the kind that produce a screen that looks broken rather than
-one that looks wrong:
-
-- **The world must never outshine the chrome.** Same rule as the zone tints, and it needs enforcing on a chart
-  too. Measure it: peak luminance of any chart element must sit below the title's. The first rose peaked at
-  **209 against the title's 185** — the background was the brightest thing on the screen.
-- **Alpha composites per draw, not per figure — so a translucent figure cannot have a brightness.** Eight
-  `Fade(CREAM, 0.7)` spokes crossing at a hub stack to near-opaque cream. If a shape is built from overlapping
-  primitives, give it an **opaque dim tone** (`#6E82A0`); it is the only way its peak is predictable from the
-  constant.
-
-And one trap the caret already knew about, which the rose walked into anyway: **`DrawTriangle` culls
-clockwise winding, drawing nothing at all.** A rose wound the wrong way renders its hub and none of its eight
-spokes — a silent, total no-op. Wind counter-clockwise. This is now noted here rather than only in a comment
-on one function.
+**The version stamp is shared chrome, and it forks.** A styled screen draws its own stamp; the unstyled voyage
+screens still draw the stock-`GRAY`, 12px one. The two converge when the restyle lands. Expect the same fork for
+anything else shared between a styled screen and an unstyled one.
 
 ### Framing
 
-The torn parchment edge and dark border are the only framing signal in the entire reference set, and the mock
-keeps them as a **vignette**: the screen darkens to `#050B18` at its edges. That is the frame — not a drawn
-border.
+The framing signal is **the torn parchment edge**, not a dark vignette. The old navy guide darkened the screen
+to near-black at its edges; that reintroduces exactly the cold, clinical frame this rewrite is removing. Frame
+with paper: a sand-and-cliff torn border, the treasure-map's own device.
 
-For panels, framing is a **2px border in the tone that states the panel's role** (steel for interactive,
-recessive blue for inert) over a translucent ground, not a filled box. The mock's unselected rows let the
-chart read through them; that translucency is what makes chrome sit *on* a world rather than cover it.
-
-Starting alpha for a scrim: `rl.Fade(ground, 0.55)`, tuned by eye. The mock cannot give a real number here —
-its transparency is painted, not composited (see [above](#where-this-came-from-and-what-the-mock-is-not)).
+For panels, framing is a **2px border in the tone that states the panel's role** — `#1786BC` for interactive,
+`#B98A50` cliff for inert — over a translucent ground, not a filled box. Let the world read through unselected
+panels; that translucency is what makes chrome sit *on* a world rather than cover it. Starting alpha for a
+scrim: `rl.Fade(ground, 0.55)`, tuned by eye.
 
 ### Proportions
 
 The mock's layout **cannot be copied** — its aspect is 1.806 against the window's 1.463. What transfers is its
-proportions. Measured from the mock and scaled to 1024×700, as a **starting point** for
-[Build the Chart Table](https://github.com/ssalter21/fantasy-ship-game/issues/281), not a spec:
+proportions. Measured from the mock and scaled to 1024×700, as a **starting point** for the Chart Table, not a
+spec:
 
 | Element | In the mock | At 1024×700 |
 | --- | --- | --- |
@@ -402,50 +367,37 @@ proportions. Measured from the mock and scaled to 1024×700, as a **starting poi
 | Hint row | 93.5% of height | **y ≈ 655** |
 | Horizontal | title and buttons both centred | centred |
 
-The button stack is centred horizontally but its **labels are left-aligned inside** each row, with the caret
-in the left margin. That asymmetry is deliberate in the mock and worth keeping: a centred label in a centred
-box has no anchor for the eye to run down.
-
-**The table has no vertical origin for the stack, on purpose.** It gives pitch, not a starting `y`, and the
-mock's own origin does not transfer — it stacks four items where the Chart Table has two, so copying its `y`
-leaves a two-item stack sitting wrong in the field. Centre the stack in the space the title leaves and record
-the number you chose (the Chart Table's is `CHART_TABLE_BUTTON_Y0`).
+The button stack is centred horizontally but its **labels are left-aligned inside** each row, with the caret in
+the left margin. That asymmetry is deliberate: a centred label in a centred box has no anchor for the eye to run
+down. Give pitch, not a starting `y` — centre the stack in the space the title leaves and record the number you
+chose.
 
 ## Rules for raylib
 
 - **`rl.DrawTextEx`, not `rl.DrawText`.** `DrawText` uses the built-in font. Every text call must pass the
   loaded font. This is the single change that retires most of the programmer-art read.
-- `DrawTextEx` takes a **`spacing`** parameter. The mock's title and subtitle are visibly letterspaced; that
-  is where it comes from. Pixelify at 40px renders a repo-length title at ~385px unspaced, narrower than the
-  mock's title — close that gap with `spacing`, not with a bigger size. The mock's title is **~614px in the
-  mock's own 1421px-wide space, i.e. ~43% of the window's width**, which is the figure that transfers: ~441px
-  at 1024, reached at `spacing` ≈ 8. (Read as *mock* pixels the number implies `spacing` ≈ 19 and a title that
-  falls apart; scale it before using it.)
+- `DrawTextEx` takes a **`spacing`** parameter. The mock's title and subtitle are visibly letterspaced. Pixelify
+  at 40px renders a repo-length title at ~385px unspaced; close the gap to the mock's ~441px-at-1024 with
+  `spacing` ≈ 8, not with a bigger size.
 - **Split composition from polling.** Any new screen needs a `draw_X_screen(state)` that the loop calls *and*
   capture calls. Compose buttons inside a poll loop and `--capture` photographs the screen with its buttons
-  missing — see [#277](https://github.com/ssalter21/fantasy-ship-game/issues/277) and the comment at
-  `menu.odin:461-465`.
+  missing.
 - Text reaches drawing as `fmt.ctprintf` temp-allocator strings, freed by the per-frame
   `free_all(context.temp_allocator)`. Nothing here changes that.
 
 ## What this guide does not cover
 
-- **A layout system.** Deliberately not designed, and **the first styled screen agrees**: building the Chart
-  Table ([#281](https://github.com/ssalter21/fantasy-ship-game/issues/281)) reached for no stacking, alignment
-  or constraint anything. A centred button stack is a pure function of five constants, hit-tested and drawn
-  from one call (`chart_table_buttons`) — the idiom `option_screen_boxes` already established, and the one to
-  copy. The **only** thing wanted and missing was a measure-then-place text helper, `MeasureTextEx` → subtract
-  → halve being written out at each centred string. A two-button screen is too small to justify more; the
-  restyle's five dense panels are where the real evidence will come from. The proportions above are a starting
-  point, not a grid.
-- **Restyling the five existing screens** (battle, travel, refit, trade, shop). Out of scope for the
-  `effort:ui-capability` map. This guide states the target; it does not create a migration. Their 12/14/16/20
-  call sites do not move until someone takes that effort — at which point every size below 20px must grow.
-- **Art assets.** Illustration, ship art, node icons. Out of scope, with one carve-out: the Chart Table's
-  background — which [#294](https://github.com/ssalter21/fantasy-ship-game/issues/294) resolved by **drawing**
-  rather than sourcing (see [The chart](#the-chart)), so the carve-out is currently unspent. A *sourced*
-  image remains [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284); it would now be an
-  improvement in **depiction**, not in palette, and it is no longer gating anything. The mock is **not** it,
-  and its provenance is unrecorded.
+- **A layout system.** Deliberately not designed. A centred button stack is a pure function of a few constants,
+  hit-tested and drawn from one call — the idiom `option_screen_boxes` already established. The only helper
+  wanted and missing is a measure-then-place text centring helper. The proportions above are a starting point,
+  not a grid.
+- **Re-colouring the shipped screens.** The `COLOUR_*` constants (`COLOUR_DEEP`, `COLOUR_GROUND`,
+  `COLOUR_STEEL`, `COLOUR_CREAM`, `COLOUR_CYAN`, …) still hold the old navy values, and the built screens
+  (Chart Table, Fight, Trade, the Build surface) still draw them. Migrating them to this roster — and growing
+  every sub-20px call site — is the follow-on UI work this guide exists to feed. This guide states the target;
+  it does not create the migration.
+- **Art assets.** Illustration, ship art, node icons. Out of scope, with one carve-out: a *sourced* Chart Table
+  background image ([#284](https://github.com/ssalter21/fantasy-ship-game/issues/284)), which would now be an
+  improvement in **depiction**, not palette. The mock is **not** it, and its provenance is unrecorded.
 - **The Chart Table's contents.** Settled by
   [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278), not here.
