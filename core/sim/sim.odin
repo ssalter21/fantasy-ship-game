@@ -16,8 +16,13 @@ import "core:mem/virtual"
 // stages are walked by one generic path (sim_encounter.odin) that parks in whichever
 // phase the stage under the cursor asks for, so adding a stage primitive must not add a
 // phase. Each survivor earns its place on a distinct decision *shape*:
-//   - Awaiting_Travel_Choice — the routing choice *between* encounters, which no stage
-//     list can express.
+//   - Awaiting_Travel_Choice — the at-anchor decision *between* encounters, which no stage
+//     list can express. It is genuinely one decision shape — "do a thing to your ship, or
+//     leave" — that admits two command variants: a Command_Travel_To sails, and a free
+//     Command_Refit rearranges the loadout in place and stays at anchor (ADR-0020's free
+//     reallocation outside battle). sim_tick routes on the pending variant, the way
+//     Awaiting_Battle_Command carries an inner combat.Command — so free refit at Home earns
+//     no phase of its own.
 //   - Awaiting_Battle_Command — a multi-round sub-mode over combat.Command (ADR-0006),
 //     not a one-shot pick from a list.
 //   - Awaiting_Option_Choice — "pick one of a few, or decline", shared by every
@@ -516,7 +521,7 @@ sim_tick :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 	switch sim.phase {
 	case .Awaiting_Travel_Choice:
-		sim_process_travel(sim, events)
+		sim_process_at_anchor(sim, events)
 	case .Awaiting_Battle_Command:
 		sim_process_battle_round(sim, events)
 	case .Awaiting_Option_Choice:

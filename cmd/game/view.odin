@@ -323,8 +323,8 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 
 // edge_is_sailable reports whether the undirected edge (a, b) is a move the ship can make
 // right now: one end is the node it stands on and the other is in the emitted reachable
-// set. That is exactly the set travel_menu_loop accepts a click on, so the steel dashes
-// mark precisely the edges a click will sail.
+// set. That is exactly the set home_loop's raised chart accepts a click on, so the steel
+// dashes mark precisely the edges a click will sail.
 edge_is_sailable :: proc(current, a, b: voyage.Node_ID, options: []voyage.Node_ID) -> bool {
 	if a == current {
 		return option_contains(options, b)

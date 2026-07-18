@@ -772,6 +772,99 @@ a_refit_slot_index_out_of_range_asserts :: proc(t: ^testing.T) {
 	sim_tick(&sim, &events)
 }
 
+// --- At anchor: free refit between encounters (#317) ------------------------
+//
+// The between-encounters await accepts a free Command_Refit as well as a Command_Travel_To
+// over the one Awaiting_Travel_Choice phase (ADR-0020, ADR-0024's persistent Build at Home).
+// These drive that Sim plumbing directly: seat nothing, just take the voyage-start tick to a
+// travel choice and submit a refit against the starting layout in place.
+//
+// Starting slots (as the refit-sequence test above documents): 2 gun deck (L) Gun Deck,
+// 3 forecastle (L) empty headroom, 5 hold 2 (S) Cargo.
+
+@(test)
+a_free_refit_move_at_anchor_applies_and_stays_awaiting_travel :: proc(t: ^testing.T) {
+	// A Move rearranges the loadout in place with no incoming item, and the Sim comes right
+	// back awaiting a travel choice with the destinations re-broadcast — the surface stays
+	// live between encounters.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_tick(&sim, &events) // voyage start → at anchor, awaiting a travel choice
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+
+	submit_refit(&sim, Refit_Move{from = 2, to = 3})
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, has_event(ev, Event_Fitting_Moved))
+	testing.expect(t, has_event(ev, Event_Ship_Updated))
+	testing.expect(t, slot_is_empty(&sim, 2))
+	testing.expect_value(t, fitting_name_at(&sim, 3), "Gun Deck")
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, has_event(ev, Event_Travel_Options)) // options re-emitted: still at anchor
+	testing.expect(t, sim.awaiting_decision)
+}
+
+@(test)
+a_free_refit_remove_at_anchor_applies_and_stays_awaiting_travel :: proc(t: ^testing.T) {
+	// A Remove discards a fitting (no inventory, ADR-0012) and likewise stays at anchor.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_tick(&sim, &events) // voyage start
+	submit_refit(&sim, Refit_Remove{slot = 5})
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, has_event(ev, Event_Fitting_Removed))
+	testing.expect(t, slot_is_empty(&sim, 5))
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, has_event(ev, Event_Travel_Options))
+}
+
+@(test)
+a_free_refit_install_at_anchor_is_rejected :: proc(t: ^testing.T) {
+	// With nothing to place, an Install at anchor is refused — the same "nothing pending"
+	// rejection a granted Refit gives, since no incoming item is open outside a stage's grant
+	// (ADR-0012). The layout is untouched and the Sim stays at anchor.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_tick(&sim, &events) // voyage start
+	submit_refit(&sim, Refit_Install{slot = 3}) // the empty Large forecastle
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect(t, slot_is_empty(&sim, 3)) // nothing landed
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+}
+
+@(test)
+travelling_from_anchor_still_sails :: proc(t: ^testing.T) {
+	// A Command_Travel_To at anchor routes to the travel processor, not the refit one, so the
+	// ship arrives at the chosen node — sailing is unchanged by widening the await.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	opts := tick_travel_options(&sim, &events) // voyage start → options
+	testing.expect(t, len(opts) > 0)
+	dest := opts[0]
+
+	submit_travel(&sim, dest)
+	clear(&events)
+	sim_tick(&sim, &events)
+
+	testing.expect(t, has_event(events[:], Event_Arrived_At_Node))
+	testing.expect_value(t, sim.current, dest)
+}
+
 // offer_stage bakes an Offer carrying the first ITEM_OFFER_OPTION_COUNT roster items
 // in roster order, so a test knows exactly which fitting each option index holds and
 // they are real, placeable fittings.

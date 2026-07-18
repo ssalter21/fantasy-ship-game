@@ -172,7 +172,7 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	case .Awaiting_Battle_Command:
 		return battle_menu_loop(state)
 	case .Awaiting_Travel_Choice:
-		return travel_menu_loop(state)
+		return home_loop(state)
 	case .Awaiting_Refit:
 		return build_surface_loop(state)
 	case .Ended:
@@ -202,8 +202,8 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		state.positions = compute_node_positions(e.voyage_map)
 
 	case sim.Event_Travel_Options:
-		// The Sim's legal moves for the upcoming travel decision; travel_menu_loop
-		// offers exactly these instead of re-deriving them.
+		// The Sim's legal moves for the upcoming travel decision; home_loop's raised
+		// chart offers exactly these instead of re-deriving them.
 		state.travel_options = e.options
 		// Being asked where to sail *is* the signal that the walk is over (the Sim emits
 		// this only from Awaiting_Travel_Choice), so the strip clears here rather than

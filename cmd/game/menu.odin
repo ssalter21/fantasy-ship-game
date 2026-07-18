@@ -155,34 +155,11 @@ battle_event_text :: proc(event: combat.Event) -> string {
 // stays here beside the other beat-text builders, reused by the Fight's Ship_Sunk /
 // Break_Off / Battle_Ended and jettison beats.
 
-// travel_menu_loop blocks until the player clicks one of the currently-legal
-// destination nodes (the ones draw_map rings and numbers), then returns a
-// Command_Travel_To (ADR-0002). Clicks on non-reachable nodes are ignored: the UI
-// offers exactly the moves the Sim emitted on Event_Travel_Options
-// (state.travel_options), the same set the Sim gates travel on.
-travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
-	if !rl.IsWindowReady() {
-		// No live window (e.g. under `odin test`): the session isn't gated, so any
-		// emitted option is a safe placeholder; fall back to the current node when none.
-		if len(state.travel_options) > 0 {
-			return sim.Command(sim.Command_Travel_To{node_id = state.travel_options[0]})
-		}
-		return sim.Command(sim.Command_Travel_To{node_id = state.current_node_id})
-	}
-	for {
-		window_quit_if_closed()
-		draw_scene(state, "Click a highlighted node to travel there.", rl.GetMousePosition())
-
-		if rl.IsMouseButtonPressed(.LEFT) {
-			mouse := rl.GetMousePosition()
-			for dest in state.travel_options {
-				if rl.CheckCollisionPointCircle(mouse, state.positions[dest], NODE_RADIUS) {
-					return sim.Command(sim.Command_Travel_To{node_id = dest})
-				}
-			}
-		}
-	}
-}
+// The travel screen (the between-encounters decision) is now Home — the persistent Build
+// surface with the chart raised over it (build_surface.odin, #317, ADR-0024): the modal
+// chart-as-Home retired into home_loop, which does free refit at anchor and offers the same
+// node hit-test over the Sim's emitted travel options. get_captain_choice's
+// Awaiting_Travel_Choice case now enters home_loop.
 
 // ITEM_OFFER_BOX_* and the offer column origin size the Trade screen's two boxes: each is
 // tall enough for a name line plus two detail lines, stacked under the ship panel. (They

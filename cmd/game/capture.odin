@@ -58,6 +58,7 @@ capture_main :: proc() {
 	defer delete(state.game.voyage_map.nodes)
 
 	capture_shot_chart_table(&state)
+	capture_shot_home(&state)
 	capture_shot_build_surface(&state)
 	capture_shot_encounter_frame(&state)
 	capture_shot_offer_shop(&state)
@@ -114,6 +115,45 @@ capture_shot_chart_table :: proc(state: ^Capture_State) {
 	draw_chart_table(-1)
 	draw_chart_table(-1)
 	capture_write(state, "chart-table")
+}
+
+// capture_shot_home photographs Home (#317) — the persistent between-encounters Build surface
+// and the chart raised over it. Home reads the same map, positions and travel options a real
+// voyage's first tick emits, so a throwaway Sim ticked once and dispatched into a fresh
+// Game_State populates both states without a scripted walk — which has no mouse to raise the
+// tab. The first tick emits only Event_Voyage_Started and Event_Travel_Options, neither of which
+// plays a beat, so dispatching them here is safe.
+capture_shot_home :: proc(state: ^Capture_State) {
+	if !rl.IsWindowReady() {
+		return
+	}
+
+	s := sim.sim_create(VOYAGE_SEED)
+	defer sim.sim_destroy(&s)
+
+	game := Game_State{}
+	defer delete(game.visited)
+	defer delete(game.positions)
+	defer delete(game.voyage_map.nodes)
+
+	events: [dynamic]sim.Event
+	defer delete(events)
+	sim.sim_tick(&s, &events)
+	for e in events {
+		dispatch(&game, e)
+	}
+
+	no_mouse := rl.Vector2{-1, -1}
+
+	// At anchor: the ship in refit as the resting home, no granted item, no amber.
+	draw_home(&game, Build_Drag{}, nil, no_mouse, false)
+	draw_home(&game, Build_Drag{}, nil, no_mouse, false)
+	capture_write(state, "home")
+
+	// The chart raised over the surface: the sailable overlay, the between-encounters travel view.
+	draw_home(&game, Build_Drag{}, nil, no_mouse, true)
+	draw_home(&game, Build_Drag{}, nil, no_mouse, true)
+	capture_write(state, "home-chart")
 }
 
 // capture_shot_build_surface photographs the Cutaway Build surface on the real starting
@@ -290,19 +330,19 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 	state.shots += 1
 }
 
-// capture_draw_screen draws the frame a player would be looking at for this decision.
-// The option screen (Offer/Shop) is a fully drawable surface (draw_offer_shop), so the
-// scripted walk photographs it as the player would see it — the ship, the shelf, the
-// chrome, at rest with no drag. Every other phase falls back to draw_scene, which renders
-// the scene *without* that screen's chrome — its buttons are still welded inside its
-// blocking menu loop. The gap is the finding, not an oversight: see issue #277.
+// capture_draw_screen draws the frame a player would be looking at for this decision. The
+// travel screen (Home, #317), the option screen (Offer/Shop, #312) and the Fight (#315) are all
+// fully drawable surfaces split from their loops, so the scripted walk photographs each as the
+// player would see it — at rest, with no drag. Trade and Refit still fall back to draw_scene,
+// which renders the scene *without* that screen's chrome — their controls are still welded inside
+// their blocking menu loops. The remaining gap is the finding, not an oversight: see issue #277.
 capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	#partial switch awaiting {
+	case .Awaiting_Travel_Choice:
+		draw_home(&state.game, Build_Drag{}, nil, rl.Vector2{-1, -1}, false)
 	case .Awaiting_Option_Choice:
 		draw_offer_shop(&state.game, Shelf_Drag{}, rl.Vector2{-1, -1})
 	case .Awaiting_Battle_Command:
-		// The Fight has its own drawable scene now (#315), so the scripted walk photographs
-		// the real facing-cutaway screen the captain would decide on, not the map fallback.
 		draw_fight(&state.game, rl.Vector2{-1, -1})
 	case:
 		draw_scene(&state.game, fmt.tprintf("[capture] %s", label), rl.Vector2{-1, -1})
