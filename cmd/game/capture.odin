@@ -146,13 +146,20 @@ capture_shot_home :: proc(state: ^Capture_State) {
 	no_mouse := rl.Vector2{-1, -1}
 
 	// At anchor: the ship in refit as the resting home, no granted item, no amber.
-	draw_home(&game, Build_Drag{}, nil, no_mouse, false)
-	draw_home(&game, Build_Drag{}, nil, no_mouse, false)
+	draw_home(&game, Build_Drag{}, nil, no_mouse, 0)
+	draw_home(&game, Build_Drag{}, nil, no_mouse, 0)
 	capture_write(state, "home")
 
+	// Mid-swipe: the chart half-raised, sliding up over a partly-dimmed surface. draw_home
+	// composes any elevation, so the swipe (#324) is photographable at rest — the split #277 asks
+	// for. This frame is only reachable through the fixed raise, never a poll.
+	draw_home(&game, Build_Drag{}, nil, no_mouse, 0.5)
+	draw_home(&game, Build_Drag{}, nil, no_mouse, 0.5)
+	capture_write(state, "home-chart-rising")
+
 	// The chart raised over the surface: the sailable overlay, the between-encounters travel view.
-	draw_home(&game, Build_Drag{}, nil, no_mouse, true)
-	draw_home(&game, Build_Drag{}, nil, no_mouse, true)
+	draw_home(&game, Build_Drag{}, nil, no_mouse, 1)
+	draw_home(&game, Build_Drag{}, nil, no_mouse, 1)
 	capture_write(state, "home-chart")
 }
 
@@ -340,7 +347,7 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	#partial switch awaiting {
 	case .Awaiting_Travel_Choice:
-		draw_home(&state.game, Build_Drag{}, nil, rl.Vector2{-1, -1}, false)
+		draw_home(&state.game, Build_Drag{}, nil, rl.Vector2{-1, -1}, 0)
 	case .Awaiting_Option_Choice:
 		draw_offer_shop(&state.game, Shelf_Drag{}, rl.Vector2{-1, -1})
 	case .Awaiting_Trade_Choice:

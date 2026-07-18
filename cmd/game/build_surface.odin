@@ -5,6 +5,7 @@ import "core:math/linalg"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
+import rlgl "vendor:raylib/rlgl"
 
 // The Build surface is the ship "always in refit" (#302, ADR-0024): the Cutaway that
 // replaces the modal refit_menu_loop's programmer-art slot list. The ship is drawn as
@@ -680,9 +681,61 @@ draw_build_discard_confirm :: proc(state: ^Game_State, slot: ship.Slot_Index, mo
 // the Sim hands them. There is no granted item, so no amber and no shelf — drags do free
 // reallocation (a slot Move, or a drag-off-to-Jettison Remove), each a Command_Refit the Sim
 // applies in place and stays at anchor (sim_process_anchor_refit). In place of the Refit's Done,
-// a corner-tab raises the **chart** over the surface; a click on a reachable node there sails
-// (Command_Travel_To). The tab is the shipped stand-in the map's fog names for the swipe, and it
-// reuses the same press-drag-release primitive #302 built for refit.
+// the **chart** raises over the surface on a swipe from the bottom-centre tab; a click on a
+// reachable node there sails (Command_Travel_To). The swipe reuses the same press-drag-release
+// primitive #302 built for refit — #317's corner-tab click was its stand-in (#324).
+//
+// The chart's elevation is a continuous `raise` in [0, 1] (0 lowered, 1 raised), not a toggle:
+// a press-drag on the tab tracks the drag so the chart feels grabbed (chart_raise moves with
+// the cursor), and releasing past CHART_RAISE_THRESHOLD settles it the rest of the way — raised
+// or lowered — animated by chart_settle. draw_home composes the surface with the chart laid over
+// it at any `raise`, so --capture and the run-game skill can shoot a mid-swipe frame (#277).
+
+// CHART_SWIPE_SPAN is how many pixels of upward drag raise the chart fully — the swipe's
+// sensitivity, decoupled from CHART_RISE_TRAVEL (how far the chart travels on screen) so a
+// comfortable flick raises it without dragging the whole window height.
+CHART_SWIPE_SPAN :: 260
+// CHART_RISE_TRAVEL is the on-screen distance the chart slides: a full window height, so at
+// raise 0 the chart sits entirely below the visible area and rises into place as raise → 1.
+CHART_RISE_TRAVEL :: f32(WINDOW_HEIGHT)
+// CHART_RAISE_THRESHOLD is the release point past which a swipe settles raised rather than
+// lowered — halfway, so the chart commits to whichever end the flick was heading for.
+CHART_RAISE_THRESHOLD :: f32(0.5)
+// CHART_SETTLE_SPEED is the settle animation's rate in raise-units per second: after release
+// the chart tweens to its end (~1/8 s for a full span) rather than snapping, so the flick reads
+// as one continuous motion.
+CHART_SETTLE_SPEED :: f32(8)
+
+// Chart_Swipe is an in-flight raise/lower drag on the Home chart tab — the press-drag-release
+// primitive #302 built for refit, reused for the chart (#324). `origin_y`/`origin_raise` anchor
+// the drag so chart_raise tracks the cursor from wherever it was grabbed: lifting from a lowered
+// chart raises it, pulling down from a raised chart lowers it.
+Chart_Swipe :: struct {
+	active:       bool,
+	origin_y:     f32,
+	origin_raise: f32,
+}
+
+// chart_settle steps a chart_raise one frame toward its settle target, snapping to the target
+// once within a frame's step — the tween that finishes a released swipe. A no-op when already
+// at rest (raise == target), so a lowered, un-touched chart costs nothing.
+chart_settle :: proc(raise, target: f32) -> f32 {
+	if raise == target {
+		return raise
+	}
+	step := CHART_SETTLE_SPEED * rl.GetFrameTime()
+	if raise < target {
+		return min(raise + step, target)
+	}
+	return max(raise - step, target)
+}
+
+// chart_swipe_raise is the chart's elevation for a drag at `mouse_y`: the grab's raise plus the
+// upward drag distance scaled to CHART_SWIPE_SPAN, clamped to [0, 1]. Dragging up (a smaller y)
+// raises; dragging down lowers.
+chart_swipe_raise :: proc(swipe: Chart_Swipe, mouse_y: f32) -> f32 {
+	return clamp(swipe.origin_raise + (swipe.origin_y - mouse_y) / CHART_SWIPE_SPAN, 0, 1)
+}
 
 // home_chart_tab_rect is the Home chart tab's slot: the shared bottom-centre flick position
 // (encounter_chart_tab_rect, #304), lifted to sit just above Home's stats ledger. Home is the
@@ -712,17 +765,39 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 
 	drag: Build_Drag
 	confirm_discard: Maybe(ship.Slot_Index)
-	chart_raised := false
+	swipe: Chart_Swipe
+	chart_raise: f32 = 0 // 0 lowered .. 1 raised, the chart's live elevation
+	chart_target: f32 = 0 // 0 or 1: where a released swipe is settling to
 
 	for {
 		window_quit_if_closed()
 		mouse := rl.GetMousePosition()
 
-		// Chart raised: the sailable overlay over the still-present Build surface. A click on a
-		// reachable node sails; a click on the (now "lower") tab drops back to the surface. The
+		// While not grabbed, the chart eases toward its settle target each frame; grabbed, it
+		// tracks the cursor instead (below). A lowered, un-touched chart is already at its target,
+		// so this is a no-op on the resting Build surface.
+		if !swipe.active {
+			chart_raise = chart_settle(chart_raise, chart_target)
+		}
+
+		// Chart grabbed: the swipe in flight. The chart tracks the drag so it feels grabbed, not
+		// switched; releasing past the threshold settles it raised, else lowered — the tween the
+		// settle step above then finishes.
+		if swipe.active {
+			chart_raise = chart_swipe_raise(swipe, mouse.y)
+			draw_home(state, Build_Drag{}, nil, mouse, chart_raise)
+			if rl.IsMouseButtonReleased(.LEFT) {
+				chart_target = chart_raise >= CHART_RAISE_THRESHOLD ? 1 : 0
+				swipe.active = false
+			}
+			continue
+		}
+
+		// Chart raised and at rest: the sailable overlay over the still-present Build surface. A
+		// click on a reachable node sails; a press on the tab grabs the chart to lower it. The
 		// node hit-test is travel_menu_loop's, over the same emitted options the Sim gates on.
-		if chart_raised {
-			draw_home(state, Build_Drag{}, nil, mouse, true)
+		if chart_raise >= 1 && chart_target >= 1 {
+			draw_home(state, Build_Drag{}, nil, mouse, 1)
 			if rl.IsMouseButtonPressed(.LEFT) {
 				for dest in state.travel_options {
 					if rl.CheckCollisionPointCircle(mouse, state.positions[dest], NODE_RADIUS) {
@@ -730,16 +805,26 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 					}
 				}
 				if rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
-					chart_raised = false
+					swipe = Chart_Swipe{active = true, origin_y = mouse.y, origin_raise = chart_raise}
 				}
 			}
 			continue
 		}
 
+		// Mid-settle: the chart is animating up or down but not grabbed. Draw the frame and
+		// swallow input so a click never lands on a half-raised chart — neither the surface nor a
+		// node is live until it comes fully to rest.
+		if chart_raise > 0 {
+			draw_home(state, Build_Drag{}, nil, mouse, chart_raise)
+			continue
+		}
+
+		// From here the chart is fully lowered: the Build surface is the live screen.
+
 		// Confirm sub-state: a discard is one deliberate click from committing, or a click
 		// anywhere else cancels it (same as build_surface_loop).
 		if slot, confirming := confirm_discard.?; confirming {
-			draw_home(state, Build_Drag{}, confirm_discard, mouse, false)
+			draw_home(state, Build_Drag{}, confirm_discard, mouse, 0)
 			if rl.IsMouseButtonPressed(.LEFT) {
 				if rl.CheckCollisionPointRec(mouse, build_confirm_yes_rect()) {
 					return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = slot}})
@@ -754,7 +839,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		// build_begin_drag only ever lifts a filled slot, so build_drop_command yields a Move or
 		// a discard — never an Install/Replace.
 		if drag.active {
-			draw_home(state, drag, nil, mouse, false)
+			draw_home(state, drag, nil, mouse, 0)
 			if rl.IsMouseButtonReleased(.LEFT) {
 				on_discard := rl.CheckCollisionPointRec(mouse, build_discard_rect())
 				cmd, ready, wants := build_drop_command(state, drag, build_slot_at(state, mouse), on_discard)
@@ -768,11 +853,12 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 			continue
 		}
 
-		// Resting: draw, then a press raises the chart (its tab) or lifts a fitting into a drag.
-		draw_home(state, drag, nil, mouse, false)
+		// Resting: draw, then a press grabs the chart tab into a raise swipe, or lifts a fitting
+		// into a refit drag.
+		draw_home(state, drag, nil, mouse, 0)
 		if rl.IsMouseButtonPressed(.LEFT) {
 			if rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
-				chart_raised = true
+				swipe = Chart_Swipe{active = true, origin_y = mouse.y, origin_raise = chart_raise}
 			} else if started, ok := build_begin_drag(state, mouse); ok {
 				drag = started
 			}
@@ -780,36 +866,47 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 	}
 }
 
-// draw_home draws one whole frame of Home: the Build surface body, then — when the chart is
-// raised — a dimming scrim and the chart laid over it, and the corner tab on top either way.
-// Split from home_loop so composing and polling are separate acts, so --capture photographs
-// both the resting surface and the raised chart (#277). The chart draws over the surface (not
-// beside it) because the tab stand-in is a raise/lower, not a split view — the swipe that
-// replaces it (fog) will animate this same over-lay.
-draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(ship.Slot_Index), mouse: rl.Vector2, chart_raised: bool) {
+// draw_home draws one whole frame of Home at a given chart elevation: the Build surface body,
+// then — when `raise` is above 0 — a scrim that deepens with the raise and the chart slid up
+// from below by (1 - raise) of its travel, and the tab on top either way. Split from home_loop
+// so composing and polling are separate acts: home_loop passes the live chart_raise, and
+// --capture passes a fixed raise to photograph the surface, a mid-swipe frame, or the raised
+// chart without ever polling (#277). The chart draws over the surface (not beside it) because
+// the swipe is a raise/lower, not a split view; the rlgl translate slides the whole chart as
+// one, so draw_map keeps drawing at its fixed positions and only the hover mouse is un-shifted
+// back into chart space.
+draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(ship.Slot_Index), mouse: rl.Vector2, raise: f32) {
 	rl.BeginDrawing()
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)
 
 	draw_build_surface_body(state, drag, confirm, mouse, true)
 
-	if chart_raised {
-		rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, rl.Fade(COLOUR_DEEP, 0.55))
-		draw_map(state, mouse)
+	if raise > 0 {
+		rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, rl.Fade(COLOUR_DEEP, 0.55 * raise))
+		offset := (1 - raise) * CHART_RISE_TRAVEL
+		rlgl.PushMatrix()
+		rlgl.Translatef(0, offset, 0)
+		// draw_map hit-tests hover against the cursor; the chart is drawn `offset` lower, so the
+		// cursor is un-shifted by the same amount to keep hover over the mark the eye sees.
+		draw_map(state, rl.Vector2{mouse.x, mouse.y - offset})
+		rlgl.PopMatrix()
 	}
-	draw_home_chart_tab(chart_raised, mouse)
+	draw_home_chart_tab(raise, mouse)
 }
 
 // draw_home_chart_tab draws the interactive chart tab at Home's bottom-centre slot
 // (home_chart_tab_rect). Unlike the encounter's view-only twin it is a steel control whose
-// scrim lifts on hover, and its caret points up to raise the chart or down to lower it. A
-// shape, not a glyph, wound to survive raylib's clockwise cull.
-draw_home_chart_tab :: proc(chart_raised: bool, mouse: rl.Vector2) {
+// scrim lifts on hover, and its caret points up to raise the chart or down to lower it, flipping
+// once the swipe crosses the settle threshold. A shape, not a glyph, wound to survive raylib's
+// clockwise cull.
+draw_home_chart_tab :: proc(raise: f32, mouse: rl.Vector2) {
 	rect := home_chart_tab_rect()
 	hovered := rl.CheckCollisionPointRec(mouse, rect)
 	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, hovered ? 0.75 : 0.55))
 	draw_subpanel_border(rect, true)
 
+	chart_raised := raise >= CHART_RAISE_THRESHOLD
 	label := chart_raised ? fmt.ctprint("Lower") : fmt.ctprint("Chart")
 	lsize := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1)
 	CARET := f32(16)
