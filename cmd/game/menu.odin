@@ -26,7 +26,7 @@ play_beat :: proc(state: ^Game_State, overlay: string) {
 	for {
 		window_quit_if_closed()
 		elapsed += rl.GetFrameTime()
-		draw_scene(state, stable_overlay)
+		draw_scene(state, stable_overlay, rl.Vector2{-1, -1})
 		if elapsed > BEAT_MAX_SECONDS || rl.IsKeyPressed(.SPACE) || rl.IsMouseButtonPressed(.LEFT) {
 			return
 		}
@@ -206,7 +206,7 @@ travel_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	}
 	for {
 		window_quit_if_closed()
-		draw_scene(state, "Click a highlighted node to travel there.")
+		draw_scene(state, "Click a highlighted node to travel there.", rl.GetMousePosition())
 
 		if rl.IsMouseButtonPressed(.LEFT) {
 			mouse := rl.GetMousePosition()
@@ -356,7 +356,7 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		}
 
 		rl.BeginDrawing()
-		draw_scene_contents(state, prompt)
+		draw_scene_contents(state, prompt, rl.Vector2{-1, -1})
 		draw_buttons(buttons[:])
 		rl.EndDrawing()
 
@@ -474,7 +474,7 @@ draw_option_screen :: proc(state: ^Game_State) {
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)
 
-	draw_scene_contents(state, header)
+	draw_scene_contents(state, header, rl.Vector2{-1, -1})
 	for slot, i in state.stage_options {
 		if option, filled := slot.?; filled {
 			draw_option_box(boxes[i], option, ship.ship_cargo(state.player))
@@ -579,7 +579,7 @@ trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	for {
 		window_quit_if_closed()
 		rl.BeginDrawing()
-		draw_scene_contents(state, fmt.tprintf("%s - a permanent trade. Accept, or sail on.", trade.name))
+		draw_scene_contents(state, fmt.tprintf("%s - a permanent trade. Accept, or sail on.", trade.name), rl.Vector2{-1, -1})
 		draw_trade_accept_box(boxes[accept_index], trade, state.trade_can_accept)
 		draw_labeled_box(boxes[reject_index], "Reject (sail on)", "Nothing changes.", "")
 		rl.EndDrawing()

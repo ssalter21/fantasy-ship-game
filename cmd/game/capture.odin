@@ -189,7 +189,7 @@ capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: s
 	case .Awaiting_Option_Choice:
 		draw_option_screen(&state.game)
 	case:
-		draw_scene(&state.game, fmt.tprintf("[capture] %s", label))
+		draw_scene(&state.game, fmt.tprintf("[capture] %s", label), rl.Vector2{-1, -1})
 	}
 }
 

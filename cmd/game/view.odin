@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math/linalg"
 import voyage "../../core/voyage"
 import ship "../../core/ship"
 import rl "vendor:raylib"
@@ -39,40 +40,6 @@ compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 	return positions
 }
 
-// zone_tint is the ambient colour of a zone, used both for the background
-// gradient band and for an unvisited encounter's generic marker.
-//
-// These *are* the style guide's depth ramp: hue falls and value rises as the water
-// shallows (H222 -> H212 -> H200), which is exactly ui.odin's COLOUR_DEEP / COLOUR_MID /
-// COLOUR_SHALLOW — zone Deep is the ground the chrome sits on, one set of colours, not
-// two kept in sync. The no-zone fallback drops below the ramp to COLOUR_VIGNETTE: an
-// absence of hue reads as an absence of zone. Before #294 they came from
-// colour-palette.webp — a dusk mountain valley sitting at H~193 at every depth, i.e. not
-// a sea — which is what put the world 31.8° of hue away from the chrome.
-//
-// Until this restyle these four constants were *lifted* off the ramp's values: draw_scene
-// cleared the canvas to RAYWHITE and the band draws at 18% alpha, so a wash over white
-// carried almost none of the underlying value and dropping the true stops (V0.15/0.19/0.25)
-// in here composited all three zones to within 5/255 of one another — one indistinguishable
-// grey. Now that draw_scene clears to COLOUR_DEEP the wash rides a dark ground, the lift is
-// gone, and the value axis lands (the band's alpha is raised to match — see
-// draw_zone_background).
-zone_tint :: proc(zone: Maybe(voyage.Zone)) -> rl.Color {
-	z, ok := zone.?
-	if !ok {
-		return COLOUR_VIGNETTE
-	}
-	switch z {
-	case .Coastal:
-		return COLOUR_SHALLOW
-	case .Open_Sea:
-		return COLOUR_MID
-	case .Deep:
-		return COLOUR_DEEP
-	}
-	return COLOUR_VIGNETTE
-}
-
 // stage_kind_label is the one place a Stage_Kind becomes player-facing words,
 // shared by the encounter strip, a halt's beat, and (via node_marker) the map. The
 // enum spelling is authoring vocabulary, not the player's.
@@ -92,22 +59,26 @@ stage_kind_label :: proc(kind: voyage.Stage_Kind) -> string {
 	return "?"
 }
 
-// stage_tint is a stage primitive's colour, shared by the map marker and the
-// encounter strip so a Battle node and a Battle chip read as the same thing.
+// stage_tint is a stage primitive's colour, shared by the map marker and the encounter
+// strip so a Battle node and a Battle chip read as the same thing. These are the style
+// guide's muted category tones ("category is hue, state is brightness"): each kind keeps a
+// distinct hue but pulled into the palette's register and never at full saturation, so none
+// competes with the reserved amber. Retires the rl.MAROON/LIME/ORANGE/SKYBLUE/GOLD rainbow
+// the guide bans — two of whose five were amber-adjacent and broke the amber rule.
 stage_tint :: proc(kind: voyage.Stage_Kind) -> rl.Color {
 	switch kind {
 	case .Fight:
-		return rl.MAROON
+		return rl.Color{166, 72, 90, 255} // muted maroon (#A6485A) — the one warm beside amber
 	case .Offer:
-		return rl.LIME
+		return rl.Color{110, 158, 90, 255} // muted lime (#6E9E5A)
 	case .Trade:
-		return rl.ORANGE
+		return rl.Color{180, 121, 74, 255} // muted orange (#B4794A)
 	case .Shop:
-		return rl.SKYBLUE
+		return rl.Color{78, 140, 184, 255} // muted sky (#4E8CB8)
 	case .Reward:
-		return rl.GOLD
+		return rl.Color{192, 164, 94, 255} // muted gold (#C0A45E) — loses gold as identity, by design
 	}
-	return rl.GRAY
+	return rl.Color{74, 85, 104, 255} // fallback (#4A5568)
 }
 
 // node_marker is the map's colour and label for an encounter, keyed on the stage it
@@ -122,22 +93,26 @@ node_marker :: proc(opening: voyage.Stage_Kind) -> (color: rl.Color, label: stri
 	if opening == .Shop {
 		label = "Port"
 	}
-	return rl.Fade(stage_tint(opening), 0.7), label
+	return stage_tint(opening), label
 }
 
-// node_appearance picks the marker colour and label for a node. A hidden Encounter is
-// a generic zone-tinted marker with no label (the Sim's hiding contract); a visited one,
-// or one that reveals before arrival, shows its opening stage's colour and label, faded
-// when visited so the map keeps a memory of the route. Start and Haven are always labelled.
+// node_appearance picks the marker colour and label for a node. A hidden Encounter is a
+// quiet recessive-blue buoy with no label (the Sim's hiding contract); a visited one, or
+// one that reveals before arrival, shows its opening stage's muted category colour and
+// label, faded when visited so the map keeps a memory of the route. Start is steel and
+// Haven cream — landmarks, not stages, so off the category hues entirely, and the old
+// stock SKYBLUE/GOLD/GRAY are retired (style guide bans them).
 //
-// Revealing is asked of the stage list, never the node kind (ADR-0014,
-// voyage_encounter_reveals) — the same question the Sim's mask asks.
+// The shape each node is drawn as (home-mark, dock, diamond, buoy, island) is node_mark's
+// call, keyed on the same predicates; this proc owns only the colour and the label. It is
+// still a place the reveal question is asked of the stage list, never the node kind
+// (ADR-0014, voyage_encounter_reveals) — the same question the Sim's mask asks.
 node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:
-		return rl.SKYBLUE, "Start"
+		return COLOUR_STEEL, "Start"
 	case .Haven:
-		return rl.GOLD, "Haven"
+		return COLOUR_CREAM, "Haven"
 	case .Encounter:
 		// A masked node has no encounter to label; an unvisited one that doesn't reveal
 		// keeps its content back until arrival. Both are the Sim's answer rendered, never
@@ -145,11 +120,11 @@ node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, labe
 		// payload, so there's nothing to leak.
 		encounter, has_encounter := p.encounter.?
 		if !has_encounter || (!visited && !voyage.voyage_encounter_reveals(encounter)) {
-			return zone_tint(p.zone), ""
+			return COLOUR_BLUE_RECESSIVE, ""
 		}
 		opening, has_opening := voyage.voyage_encounter_opening(encounter)
 		if !has_opening {
-			return rl.GRAY, ""
+			return COLOUR_BLUE_RECESSIVE, ""
 		}
 		color, label = node_marker(voyage.voyage_stage_kind(opening))
 		if visited {
@@ -157,105 +132,324 @@ node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, labe
 		}
 		return color, label
 	}
-	return rl.GRAY, ""
+	return COLOUR_BLUE_RECESSIVE, ""
 }
 
-// move_fires reports whether traveling to node p would trigger a fresh encounter:
-// only an unvisited Encounter fires (never a landmark, never a revisit). Lets the UI
-// colour-code offered moves without knowing the still-hidden kind.
-move_fires :: proc(p: voyage.Node, visited: bool) -> bool {
-	return p.kind == .Encounter && !visited
+// Node_Mark is the shape a node is drawn as on the chart: the Start home-mark, the Haven
+// island, a Port's dock, a revealed encounter's category diamond, or an unrevealed
+// encounter's ? buoy. Shape carries identity colour alone can't — a Port and a revealed
+// Shop share the Shop hue, but only the Port is a routable landfall, so it takes the dock
+// while every other revealed encounter takes a diamond.
+Node_Mark :: enum {
+	Home,
+	Island,
+	Dock,
+	Diamond,
+	Buoy,
 }
 
-// draw_zone_background paints a faint per-zone tint band behind the graph as an
-// ambient depth cue: each zone's tint spans the x-range of its columns.
-//
-// The band composites zone_tint (now the ramp's true stops, see zone_tint) over the
-// COLOUR_DEEP canvas. The old 18% wash was tuned for lifted colours over white; over the
-// dark ground it would crush the three ramp stops back to ~2/255 apart. This alpha rides
-// them near the ramp's own values so adjacent zones hold apart the way they shipped, while
-// staying translucent enough to blend where bands overlap. Still ambient: at V0.15-0.25 a
-// band is never the brightest thing on screen.
-ZONE_BAND_ALPHA :: f32(0.75)
-
-draw_zone_background :: proc(state: ^Game_State) {
-	for zone in voyage.Zone {
-		lo, hi: f32 = 1e9, -1e9
-		found := false
-		for p, i in state.voyage_map.nodes {
-			pz, ok := p.zone.?
-			if !ok || pz != zone {
-				continue
-			}
-			found = true
-			lo = min(lo, state.positions[i].x)
-			hi = max(hi, state.positions[i].x)
+// node_mark classifies a node into its chart shape. It re-asks the same reveal predicate
+// node_appearance does (voyage_encounter_reveals) rather than share a computed value: the
+// two answer different questions off one fact — what shape, what colour — and keeping them
+// side by side is the file's own idiom (move_fires re-derived reveal the same way). A
+// masked or opening-less encounter falls through to a buoy, the same "nothing to show yet".
+node_mark :: proc(p: voyage.Node, visited: bool) -> Node_Mark {
+	switch p.kind {
+	case .Start:
+		return .Home
+	case .Haven:
+		return .Island
+	case .Encounter:
+		encounter, has_encounter := p.encounter.?
+		if !has_encounter || (!visited && !voyage.voyage_encounter_reveals(encounter)) {
+			return .Buoy
 		}
-		if !found {
-			continue
+		opening, has_opening := voyage.voyage_encounter_opening(encounter)
+		if !has_opening {
+			return .Buoy
 		}
-		band := rl.Rectangle{
-			x      = lo - MAP_PAD,
-			y      = MAP_AREA.y,
-			width  = (hi - lo) + 2 * MAP_PAD,
-			height = MAP_AREA.height,
+		if voyage.voyage_stage_kind(opening) == .Shop {
+			return .Dock
 		}
-		rl.DrawRectangleRec(band, rl.Fade(zone_tint(zone), ZONE_BAND_ALPHA))
+		return .Diamond
 	}
+	return .Buoy
 }
 
-// draw_map draws the whole graph at once: the zone background, every edge, every
-// node's marker (unvisited encounters as generic zone dots), the current location,
-// and a numbered highlight on each reachable node — red if stepping there fires a
-// fresh encounter, green if safe.
-draw_map :: proc(state: ^Game_State) {
-	draw_zone_background(state)
-	rl.DrawRectangleLinesEx(MAP_AREA, 2, rl.GRAY)
+MAP_GRID_PITCH :: 64
 
-	// Edges (drawn under the nodes; each undirected pair once).
+// draw_map_water paints the chart's ground: a left→right depth gradient and a faint
+// graticule inside MAP_AREA, framed by a recessive border. It replaces the three flat zone
+// bands (#303). The zones already run Coastal→Open_Sea→Deep left-to-right — layer is the x
+// axis (compute_node_positions) — so grading the water shallow→deep along x carries the
+// same depth cue as one continuous sea rather than three stripes. The stops are the depth
+// ramp itself (COLOUR_SHALLOW/MID/DEEP), drawn as two halves because raylib's horizontal
+// gradient takes only two colours.
+//
+// The border is recessive blue, not a box that competes: the deep (right) end of the water
+// is COLOUR_DEEP, the same as the canvas it sits on, so without an edge the panel would
+// bleed into the ground. The grid is the quietest thing on the chart, faded like the Chart
+// Table's own graticule (CHART_GRID at 0.22).
+draw_map_water :: proc() {
+	half := MAP_AREA.width / 2
+	rl.DrawRectangleGradientH(
+		i32(MAP_AREA.x),
+		i32(MAP_AREA.y),
+		i32(half),
+		i32(MAP_AREA.height),
+		COLOUR_SHALLOW,
+		COLOUR_MID,
+	)
+	rl.DrawRectangleGradientH(
+		i32(MAP_AREA.x + half),
+		i32(MAP_AREA.y),
+		i32(MAP_AREA.width - half),
+		i32(MAP_AREA.height),
+		COLOUR_MID,
+		COLOUR_DEEP,
+	)
+
+	for x := MAP_AREA.x + MAP_GRID_PITCH; x < MAP_AREA.x + MAP_AREA.width; x += MAP_GRID_PITCH {
+		rl.DrawLineV(
+			rl.Vector2{x, MAP_AREA.y},
+			rl.Vector2{x, MAP_AREA.y + MAP_AREA.height},
+			rl.Fade(CHART_GRID, 0.22),
+		)
+	}
+	for y := MAP_AREA.y + MAP_GRID_PITCH; y < MAP_AREA.y + MAP_AREA.height; y += MAP_GRID_PITCH {
+		rl.DrawLineV(
+			rl.Vector2{MAP_AREA.x, y},
+			rl.Vector2{MAP_AREA.x + MAP_AREA.width, y},
+			rl.Fade(CHART_GRID, 0.22),
+		)
+	}
+
+	rl.DrawRectangleLinesEx(MAP_AREA, 2, COLOUR_BLUE_RECESSIVE)
+}
+
+// draw_map draws the whole chart at once: the depth-graded water, every route dashed in
+// chart ink, every node as its mark (home / island / dock / diamond / buoy), the steel
+// reachability rings with a danger tick on an unrevealed reachable node, the hover caret,
+// and the ship you stand on as the screen's one amber. Composition only — `mouse` carries
+// the hover so the loop can poll while capture passes a no-mouse sentinel and photographs
+// the chart at rest (#277).
+draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
+	draw_map_water()
+
+	// The reachable set is recomputed here rather than borrowed from state.travel_options:
+	// the map is also drawn mid-encounter (behind a beat) when no options are current, so a
+	// fresh recompute rings the nodes reachable from wherever the ship is. options is
+	// voyage_travel_options' temp_allocator scratch, reclaimed by draw_scene's per-frame
+	// free_all — no hand-free here.
+	options := voyage.voyage_travel_options(state.voyage_map, state.current_node_id, state.visited)
+
+	// Routes, under the marks; each undirected pair once. A route reads in one of three
+	// states: sailable now (from the ship to a reachable node) is steel dashes; already
+	// sailed (both ends visited) is solid chart ink; everything else is faint dashes —
+	// charted, not yet a choice. Sailable-now wins over sailed so a backtrack edge reads as
+	// the option it is (ADR-0009). Replaces the old flat grey lines.
 	for p in state.voyage_map.nodes {
 		for v in state.voyage_map.edges[p.id] {
 			if v <= p.id {
 				continue
 			}
-			rl.DrawLineV(state.positions[p.id], state.positions[v], rl.Fade(rl.GRAY, 0.5))
+			a, b := state.positions[p.id], state.positions[v]
+			switch {
+			case edge_is_sailable(state.current_node_id, p.id, v, options):
+				draw_chart_dashes(a, b, 2, COLOUR_STEEL)
+			case state.visited[p.id] && state.visited[v]:
+				rl.DrawLineEx(a, b, 2, CHART_INK)
+			case:
+				draw_chart_dashes(a, b, 1, rl.Fade(CHART_INK, 0.4))
+			}
 		}
 	}
 
-	// Recompute the reachable set here rather than borrow the emitted state.travel_options:
-	// the map is also drawn mid-encounter (behind the upgrade menu, the end-of-voyage beat)
-	// when no travel options are current, so the fresh recompute rings the nodes reachable
-	// from wherever the ship is. travel_menu_loop is what consumes the Sim's emitted options.
-	// options is voyage_travel_options' temp_allocator scratch — reclaimed by the per-frame
-	// free_all in draw_scene, no hand-free here.
-	options := voyage.voyage_travel_options(state.voyage_map, state.current_node_id, state.visited)
-
+	// Marks, over the routes. The shape is node_mark's call, the colour node_appearance's.
 	for p, i in state.voyage_map.nodes {
 		pos := state.positions[i]
 		color, label := node_appearance(p, state.visited[i])
-		rl.DrawCircleV(pos, NODE_RADIUS, color)
-		if len(label) > 0 {
-			// DARKGRAY, not BLACK: the canvas is COLOUR_DEEP now, so black labels vanish into
-			// the ground. A legibility stopgap on unstyled map chrome — the chart's real type
-			// (Pixelify, the tone hierarchy) lands with the Chart restyle (#303).
-			rl.DrawText(fmt.ctprintf("%s", label), i32(pos.x - 18), i32(pos.y + NODE_RADIUS + 2), 12, rl.DARKGRAY)
+		mark := node_mark(p, state.visited[i])
+		switch mark {
+		case .Home:
+			draw_home_mark(pos, color)
+		case .Island:
+			draw_haven_island(pos)
+		case .Dock:
+			draw_dock_mark(pos, color)
+		case .Diamond:
+			rl.DrawPoly(pos, 4, NODE_RADIUS, 0, color)
+		case .Buoy:
+			draw_buoy_mark(pos)
+		}
+		// Labels only on the landmarks and Ports — the marks whose identity a hue can't
+		// carry (Start and Haven aren't stages; a Port is a routable waypoint, ADR-0016). A
+		// revealed encounter's category rides its diamond's hue (node_appearance still names
+		// it, for the tests and any future legend), so a text label under it would only crowd
+		// the chart where nodes sit close. Buoys stay anonymous (the Sim's hiding contract).
+		#partial switch mark {
+		case .Home, .Island, .Dock:
+			tone := p.kind == .Haven ? COLOUR_CREAM : COLOUR_STEEL
+			if state.visited[i] {
+				tone = rl.Fade(tone, 0.6)
+			}
+			draw_map_label(label, pos, tone)
 		}
 	}
 
-	// Reachable-next highlights, numbered, over the base markers.
-	for dest, n in options {
+	// Reachability, over the marks: a steel ring on each reachable node, cyan with a caret
+	// under the pointer, and a muted-maroon danger tick on one whose encounter is still
+	// unrevealed (a buoy — it might fire; a revealed node already carries its category so
+	// its risk reads on its own). The keyboard-era numbers and the red/green rings retire.
+	for dest in options {
 		pos := state.positions[dest]
-		ring := move_fires(state.voyage_map.nodes[dest], state.visited[dest]) ? rl.RED : rl.GREEN
-		rl.DrawCircleLinesV(pos, NODE_RADIUS + 4, ring)
-		rl.DrawText(fmt.ctprintf("%d", n + 1), i32(pos.x - 4), i32(pos.y - 7), 14, rl.WHITE)
+		hovered := rl.CheckCollisionPointCircle(mouse, pos, NODE_RADIUS)
+		rl.DrawCircleLinesV(pos, NODE_RADIUS + 4, hovered ? COLOUR_CYAN : COLOUR_STEEL)
+		if node_mark(state.voyage_map.nodes[dest], state.visited[dest]) == .Buoy {
+			draw_danger_tick(pos)
+		}
+		if hovered {
+			draw_caret(rl.Vector2{pos.x - NODE_RADIUS - 12, pos.y}, COLOUR_CYAN)
+		}
 	}
 
-	// Current location outline, drawn last so it reads on top. WHITE, not BLACK: a black
-	// ring is invisible on the COLOUR_DEEP canvas, and this "you are here" mark is exactly
-	// what must read. WHITE matches the reachable-node numbers already on this map; the
-	// chart's real treatment lands with the Chart restyle (#303).
+	// The ship you stand on: the screen's one amber (style guide — the node you stand on
+	// takes #F7A72B). Drawn last so it reads on top of its own mark and any ring. Replaces
+	// the WHITE "you are here" stopgap.
 	cur := state.positions[state.current_node_id]
-	rl.DrawCircleLinesV(cur, NODE_RADIUS + 7, rl.WHITE)
+	rl.DrawCircleLinesV(cur, NODE_RADIUS + 7, COLOUR_AMBER)
+	rl.DrawCircleV(cur, NODE_RADIUS * 0.5, COLOUR_AMBER)
+}
+
+// edge_is_sailable reports whether the undirected edge (a, b) is a move the ship can make
+// right now: one end is the node it stands on and the other is in the emitted reachable
+// set. That is exactly the set travel_menu_loop accepts a click on, so the steel dashes
+// mark precisely the edges a click will sail.
+edge_is_sailable :: proc(current, a, b: voyage.Node_ID, options: []voyage.Node_ID) -> bool {
+	if a == current {
+		return option_contains(options, b)
+	}
+	if b == current {
+		return option_contains(options, a)
+	}
+	return false
+}
+
+option_contains :: proc(options: []voyage.Node_ID, id: voyage.Node_ID) -> bool {
+	for o in options {
+		if o == id {
+			return true
+		}
+	}
+	return false
+}
+
+// draw_chart_dashes strokes a dashed line from a to b, the Chart Table's route language
+// (chart_table.odin) generalised so the map can reuse it at three weights. Dashes are drawn
+// rather than stippled because raylib carries no dash pattern; a zero-length edge still
+// draws one dash rather than dividing by zero.
+draw_chart_dashes :: proc(a, b: rl.Vector2, thickness: f32, color: rl.Color) {
+	DASH :: f32(9)
+	span := rl.Vector2Distance(a, b)
+	steps := max(int(span / DASH), 1)
+	for s in 0 ..< steps {
+		if s % 2 == 1 {
+			continue
+		}
+		t0 := f32(s) / f32(steps)
+		t1 := f32(s + 1) / f32(steps)
+		rl.DrawLineEx(linalg.lerp(a, b, t0), linalg.lerp(a, b, t1), thickness, color)
+	}
+}
+
+// draw_map_label centres a Pixelify label under a node, at the body size and a tone the
+// caller picks from the hierarchy. Retires draw_map's 12px DARKGRAY DrawText stopgap.
+draw_map_label :: proc(text: string, pos: rl.Vector2, tone: rl.Color) {
+	label := fmt.ctprintf("%s", text)
+	size := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1)
+	rl.DrawTextEx(
+		ui_font_body,
+		label,
+		rl.Vector2{pos.x - size.x / 2, pos.y + NODE_RADIUS + 2},
+		UI_BODY_SIZE,
+		1,
+		tone,
+	)
+}
+
+// draw_home_mark draws the Start as a little house: a flat-topped base with a pitched roof,
+// distinct from the dock's plain berth and the encounter diamonds. The roof triangle is
+// wound base-left, base-right, apex so it survives raylib's clockwise cull (style guide).
+draw_home_mark :: proc(pos: rl.Vector2, color: rl.Color) {
+	R :: f32(NODE_RADIUS)
+	rl.DrawRectangleRec(rl.Rectangle{pos.x - R * 0.6, pos.y - R * 0.15, R * 1.2, R * 0.9}, color)
+	rl.DrawTriangle(
+		rl.Vector2{pos.x - R * 0.8, pos.y - R * 0.15},
+		rl.Vector2{pos.x + R * 0.8, pos.y - R * 0.15},
+		rl.Vector2{pos.x, pos.y - R * 0.95},
+		color,
+	)
+}
+
+// draw_dock_mark draws a Port as a berth with a short pier reaching out — a place ships put
+// in. Shop-blue, always visible (ADR-0016), and shaped unlike the category diamonds so a
+// routable landfall never reads as just another encounter that happens to be a Shop.
+draw_dock_mark :: proc(pos: rl.Vector2, color: rl.Color) {
+	R :: f32(NODE_RADIUS)
+	rl.DrawRectangleRec(rl.Rectangle{pos.x - R * 0.7, pos.y - R * 0.5, R * 1.4, R}, color)
+	rl.DrawLineEx(rl.Vector2{pos.x + R * 0.7, pos.y}, rl.Vector2{pos.x + R * 1.3, pos.y}, 3, color)
+}
+
+// draw_buoy_mark draws an unrevealed encounter as a quiet recessive-blue buoy: a ring with
+// a "?" inside. Recessive blue is "present but never read first", which is exactly what an
+// unknown node is — a marker on the water, not a destination the eye is pulled to.
+draw_buoy_mark :: proc(pos: rl.Vector2) {
+	R :: f32(NODE_RADIUS)
+	rl.DrawCircleLinesV(pos, R * 0.75, COLOUR_BLUE_RECESSIVE)
+	q := fmt.ctprint("?")
+	size := rl.MeasureTextEx(ui_font_body, q, UI_BODY_SIZE, 1)
+	rl.DrawTextEx(ui_font_body, q, rl.Vector2{pos.x - size.x / 2, pos.y - size.y / 2}, UI_BODY_SIZE, 1, COLOUR_BLUE_RECESSIVE)
+}
+
+// draw_haven_island draws the win condition — the one landfall that matters — as a small
+// faceted khaki island in the Chart Table's own language (chart_table.odin: overlapping
+// lobes, three passes so a halo isn't cut by a neighbour's sand), ringed in cream. Keeping
+// it the only island holds "the world must never outshine the chrome": no khaki mass
+// competes across the whole map, just this one goal.
+draw_haven_island :: proc(pos: rl.Vector2) {
+	R :: f32(NODE_RADIUS)
+	lobes := [3]Chart_Lobe {
+		{pos + rl.Vector2{-R * 0.4, 0}, R * 0.9, 7, 15, 0.5},
+		{pos + rl.Vector2{R * 0.5, R * 0.2}, R * 0.7, 6, 40, 0.45},
+		{pos + rl.Vector2{0, -R * 0.4}, R * 0.6, 6, 5, 0.0},
+	}
+	for l in lobes {
+		rl.DrawPoly(l.centre, l.sides, l.radius + 4, l.rot, COLOUR_SHALLOW)
+	}
+	for l in lobes {
+		rl.DrawPoly(l.centre, l.sides, l.radius + 2, l.rot, CHART_LAND_SHADE)
+		rl.DrawPoly(l.centre, l.sides, l.radius, l.rot, CHART_LAND)
+	}
+	for l in lobes {
+		if l.green <= 0 {
+			continue
+		}
+		rl.DrawPoly(l.centre, l.sides, l.radius * l.green, l.rot + 20, CHART_LAND_GREEN)
+	}
+	rl.DrawCircleLinesV(pos, R + 6, COLOUR_CREAM)
+}
+
+// draw_danger_tick draws a short muted-maroon stroke at a reachable buoy's shoulder — "this
+// might fire". Muted maroon (the Fight stage_tint's hue, the one warm the guide admits
+// beside amber) spends neither stock red nor the reserved amber on a risk cue.
+draw_danger_tick :: proc(pos: rl.Vector2) {
+	R :: f32(NODE_RADIUS)
+	rl.DrawLineEx(
+		rl.Vector2{pos.x + R * 0.55, pos.y - R * 1.15},
+		rl.Vector2{pos.x + R * 1.15, pos.y - R * 0.55},
+		3,
+		stage_tint(.Fight),
+	)
 }
 
 // draw_ship_panel renders a ship readout at origin. When gate_visibility is true
@@ -520,7 +714,7 @@ draw_stage_chip :: proc(state: ^Game_State, chip: rl.Rectangle, index: int, curs
 // ship panel, and an optional overlay banner. It does not Begin/EndDrawing itself, so a
 // caller that draws more on top (menu.odin's button lists) can share one Begin/End pair
 // around it; draw_scene is the standalone wrapper for callers with nothing further.
-draw_scene_contents :: proc(state: ^Game_State, overlay: string) {
+draw_scene_contents :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 	rl.ClearBackground(COLOUR_DEEP)
 
 	if state.in_battle {
@@ -529,7 +723,7 @@ draw_scene_contents :: proc(state: ^Game_State, overlay: string) {
 		}
 		draw_ship_panel(&state.player, rl.Vector2{SHIP_PANEL_X, 220}, "Your Ship", false)
 	} else {
-		draw_map(state)
+		draw_map(state, mouse)
 		draw_ship_panel(&state.player, rl.Vector2{SHIP_PANEL_X, 20}, "Your Ship", false)
 	}
 
@@ -563,11 +757,12 @@ draw_version_stamp :: proc() {
 
 // draw_scene is draw_scene_contents wrapped in its own Begin/EndDrawing pair
 // (used by the blocking event-playback beats in menu.odin, which have
-// nothing further to draw on top).
-draw_scene :: proc(state: ^Game_State, overlay: string) {
+// nothing further to draw on top). `mouse` is threaded to the map's hover; a caller with
+// no live pointer (a beat, capture) passes an off-screen {-1, -1} so nothing rings.
+draw_scene :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 	rl.BeginDrawing()
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)
 
-	draw_scene_contents(state, overlay)
+	draw_scene_contents(state, overlay, mouse)
 }
