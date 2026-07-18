@@ -84,10 +84,10 @@ option_menu_loop_falls_back_to_declining_without_a_live_window :: proc(t: ^testi
 }
 
 @(test)
-refit_menu_loop_falls_back_to_finish_without_a_live_window :: proc(t: ^testing.T) {
+build_surface_loop_falls_back_to_finish_without_a_live_window :: proc(t: ^testing.T) {
 	state := Game_State{}
 
-	cmd := refit_menu_loop(&state)
+	cmd := build_surface_loop(&state)
 
 	refit, ok := cmd.(sim.Command_Refit)
 	testing.expect(t, ok)
@@ -96,78 +96,60 @@ refit_menu_loop_falls_back_to_finish_without_a_live_window :: proc(t: ^testing.T
 }
 
 @(test)
-refit_click_maps_clicks_to_loadout_operations :: proc(t: ^testing.T) {
-	// The place/swap/move/finish interaction is pure state logic, testable
-	// without a live window (issue #96).
+build_drop_command_maps_drags_to_loadout_operations :: proc(t: ^testing.T) {
+	// The drag-first install/swap/move/discard mapping is pure state logic, testable
+	// without a live window (#302 — the drag-first successor to refit_click's test). The
+	// exact-size fit rule is the Sim's, so this only asserts which command a landed drag
+	// emits, never whether the Sim will accept it.
 	s := ship.ship_starting_ship()
 	defer delete(s.layout)
 	state := Game_State{player = s}
-	finish := len(s.layout)
 	// Starting slots: 0 top deck (M) Captain's Quarters, 2 gun deck (L) Gun Deck,
-	// 4 hold 1 (M) Cargo. Place a Medium item so the swap/move slots line up.
+	// 3 forecastle (L) empty, 4 hold 1 (M) Cargo.
 
-	// Finish box commits a Refit_Finish.
-	cmd, ready := refit_click(&state, finish, finish)
+	// A granted shelf item dropped on an empty berth installs it.
+	shelf := Build_Drag{active = true, from_slot = nil, fitting = ship.ship_fitting_top_crew()}
+	cmd, ready, wants := build_drop_command(&state, shelf, ship.Slot_Index(3), false)
 	testing.expect(t, ready)
+	_, no_discard := wants.?
+	testing.expect(t, !no_discard)
 	refit, _ := cmd.(sim.Command_Refit)
-	_, is_finish := refit.command.(sim.Refit_Finish)
-	testing.expect(t, is_finish)
+	install, is_install := refit.command.(sim.Refit_Install)
+	testing.expect(t, is_install)
+	testing.expect_value(t, install.slot, ship.Slot_Index(3))
 
-	// Placing a Medium item: clicking any filled slot emits Refit_Replace and lets
-	// the Sim decide the fit — the menu no longer predicts the size match (issue
-	// #111). Slot 0 holds Captain's Quarters (Medium).
-	state.refit_incoming = ship.ship_fitting_top_crew() // Medium
-	cmd, ready = refit_click(&state, 0, finish)
+	// Dropped on a filled berth it swaps in (Replace, discarding the occupant).
+	cmd, ready, _ = build_drop_command(&state, shelf, ship.Slot_Index(0), false)
 	testing.expect(t, ready)
 	refit, _ = cmd.(sim.Command_Refit)
 	replace, is_replace := refit.command.(sim.Refit_Replace)
 	testing.expect(t, is_replace)
 	testing.expect_value(t, replace.slot, ship.Slot_Index(0))
 
-	// A filled slot of a different size (2 is a Large Gun Deck) is no longer
-	// ignored: the menu emits the same Refit_Replace and the Sim rejects the size
-	// mismatch (Event_Refit_Rejected), rather than the menu re-checking the rule.
-	cmd, ready = refit_click(&state, 2, finish)
-	testing.expect(t, ready)
-	refit, _ = cmd.(sim.Command_Refit)
-	replace, is_replace = refit.command.(sim.Refit_Replace)
-	testing.expect(t, is_replace)
-	testing.expect_value(t, replace.slot, ship.Slot_Index(2))
+	// Dropped in open water (no target) it returns to the shelf — no command.
+	_, ready, _ = build_drop_command(&state, shelf, nil, false)
+	testing.expect(t, !ready)
 
-	// An empty same-size slot installs the pending item.
-	state.player.layout[4].fitting = nil // hold 1, Medium
-	cmd, ready = refit_click(&state, 4, finish)
-	testing.expect(t, ready)
-	refit, _ = cmd.(sim.Command_Refit)
-	install, is_install := refit.command.(sim.Refit_Install)
-	testing.expect(t, is_install)
-	testing.expect_value(t, install.slot, ship.Slot_Index(4))
-
-	// Rearranging (no pending item): select a filled source, then move it to the
-	// empty slot 4.
-	state.refit_incoming = nil
-	state.refit_move_from = nil
-	_, ready = refit_click(&state, 0, finish)
-	testing.expect(t, !ready) // selecting, not committing
-	from, selecting := state.refit_move_from.?
-	testing.expect(t, selecting)
-	testing.expect_value(t, from, ship.Slot_Index(0))
-	cmd, ready = refit_click(&state, 4, finish)
+	// An installed fitting dragged onto another slot moves it there.
+	slot_drag := Build_Drag{active = true, from_slot = ship.Slot_Index(0), fitting = ship.ship_fitting_captains_quarters()}
+	cmd, ready, _ = build_drop_command(&state, slot_drag, ship.Slot_Index(4), false)
 	testing.expect(t, ready)
 	refit, _ = cmd.(sim.Command_Refit)
 	move, is_move := refit.command.(sim.Refit_Move)
 	testing.expect(t, is_move)
 	testing.expect_value(t, move.from, ship.Slot_Index(0))
 	testing.expect_value(t, move.to, ship.Slot_Index(4))
-	_, still_selecting := state.refit_move_from.?
-	testing.expect(t, !still_selecting) // move committed, selection cleared
 
-	// Clicking the selected source again cancels the move.
-	_, _ = refit_click(&state, 0, finish)
-	_, ready = refit_click(&state, 0, finish)
+	// Dropped back on its own slot it cancels — no move.
+	_, ready, _ = build_drop_command(&state, slot_drag, ship.Slot_Index(0), false)
 	testing.expect(t, !ready)
-	_, still_selecting = state.refit_move_from.?
-	testing.expect(t, !still_selecting)
+
+	// Dragged onto the discard zone it asks for a confirm rather than committing.
+	_, ready, wants = build_drop_command(&state, slot_drag, nil, true)
+	testing.expect(t, !ready)
+	discard_slot, wants_discard := wants.?
+	testing.expect(t, wants_discard)
+	testing.expect_value(t, discard_slot, ship.Slot_Index(0))
 }
 
 // encounter_of bakes a stage list into an Encounter, as generation would from a recipe

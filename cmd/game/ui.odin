@@ -65,17 +65,32 @@ ui_fonts_unload :: proc() {
 // keeps a pixel font pixel-crisp — raylib's default bilinear filter softens the atlas
 // on upload and undoes the measurement the size scale rests on.
 //
-// A nil codepoint list bakes the default set (ASCII 32-126). U+2014, which the guide
-// notes retires view.odin's em-dash workaround, is outside that set and would need an
-// explicit list; nothing here draws one yet.
+// The codepoint list is explicit rather than nil: LoadFontFromMemory's default set is
+// ASCII 32-126, which omits the middot "·" (U+00B7) and em-dash "—" (U+2014) — both of
+// which the face carries and the guide notes need an explicit list, not just the font, to
+// reach the atlas. The Build surface's ledger and item specs separate with "·", so a nil
+// list would render them as the missing-glyph box.
+UI_FONT_EXTRA_CODEPOINTS :: [?]rune{'·', '—'}
+
 ui_font_bake :: proc(size: i32) -> rl.Font {
+	ASCII_LO :: 32
+	ASCII_HI :: 126
+	extra := UI_FONT_EXTRA_CODEPOINTS
+	codepoints: [(ASCII_HI - ASCII_LO + 1) + len(extra)]rune
+	for i in 0 ..< (ASCII_HI - ASCII_LO + 1) {
+		codepoints[i] = rune(ASCII_LO + i)
+	}
+	for c, i in extra {
+		codepoints[(ASCII_HI - ASCII_LO + 1) + i] = c
+	}
+
 	font := rl.LoadFontFromMemory(
 		".ttf",
 		raw_data(PIXELIFY_SANS_TTF),
 		i32(len(PIXELIFY_SANS_TTF)),
 		size,
-		nil,
-		0,
+		raw_data(codepoints[:]),
+		i32(len(codepoints)),
 	)
 	rl.SetTextureFilter(font.texture, .POINT)
 	return font

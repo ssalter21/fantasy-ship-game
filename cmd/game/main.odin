@@ -122,12 +122,11 @@ Game_State :: struct {
 	active_trade:     voyage.Stage_Trade,
 	trade_can_accept: bool,
 	// refit_incoming is the item an open Refit is placing, tracked from
-	// Event_Refit_Started and cleared once installed or the refit finishes, so
-	// refit_menu_loop knows whether it is placing an item or just rearranging.
+	// Event_Refit_Started and cleared once installed or the refit finishes, so the Build
+	// surface knows whether there is a granted item on the shelf to place or the ship is
+	// just being rearranged. The drag-in-progress itself is a build_surface_loop local, not
+	// a Game_State field: a whole press-drag-release completes inside one loop call.
 	refit_incoming:   Maybe(ship.Fitting),
-	// refit_move_from is the slot a two-click Refit move has selected as its source,
-	// or nil when no move is in progress.
-	refit_move_from:  Maybe(ship.Slot_Index),
 	status:           voyage.Voyage_Status,
 }
 
@@ -153,7 +152,7 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	case .Awaiting_Travel_Choice:
 		return travel_menu_loop(state)
 	case .Awaiting_Refit:
-		return refit_menu_loop(state)
+		return build_surface_loop(state)
 	case .Ended:
 		panic("get_captain_choice called while the sim isn't awaiting a decision")
 	}
@@ -242,9 +241,8 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Refit_Started:
 		// Opening a Refit: remember the item being placed (nil for a rearrange-only
-		// refit) and clear any half-built move, so refit_menu_loop starts clean.
+		// refit), so the Build surface shows a granted item on the shelf.
 		state.refit_incoming = e.incoming
-		state.refit_move_from = nil
 
 	case sim.Event_Fitting_Installed:
 		// The incoming item just landed in a slot — it is no longer pending, so the
@@ -260,7 +258,6 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Refit_Finished:
 		state.refit_incoming = nil
-		state.refit_move_from = nil
 
 	case sim.Event_Encounter_Resolved:
 		// No cleanup needed: the snapshot lives in the Sim's own run-scoped arena and is
