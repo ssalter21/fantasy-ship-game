@@ -361,7 +361,11 @@ draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: M
 	}
 
 	draw_build_heading(at_home ? "At Anchor" : "Refit")
-	draw_vignette()
+	// At Home the parchment page brings its own torn edge as the frame (spec 0001 §2), so no
+	// vignette here; Refit is a separate surface and keeps its own.
+	if !at_home {
+		draw_vignette()
+	}
 	draw_chart_table_version_stamp()
 }
 

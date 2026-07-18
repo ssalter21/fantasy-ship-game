@@ -137,7 +137,6 @@ draw_chart_table :: proc(hovered: int) {
 CHART_LAND :: rl.Color{83, 80, 73, 255} // the mock's island body, #535049
 CHART_LAND_SHADE :: rl.Color{73, 67, 55, 255} // its shadowed edge, #494337
 CHART_LAND_GREEN :: rl.Color{35, 65, 44, 255} // its inland green, #23412C
-CHART_GRID :: rl.Color{77, 88, 99, 255} // the mock's grid, #4D5863 — H210, already on the ramp
 // CHART_INK is the chart's own linework — the rose, the route. Opaque and quiet on
 // purpose. The world must never outshine the chrome (the guide's rule for zone tints
 // is the same rule), and a translucent tone cannot enforce that: alpha composites
