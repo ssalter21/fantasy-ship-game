@@ -115,6 +115,29 @@ for name, (x, y) in {'top-left': (2, 2), 'centre': (w//2, h//2), 'bottom-right':
 Any claim about a colour, a size or an alignment should come off a scan like this and be checked against the
 guide's stated value.
 
+## Context budget: look once, scout the rest
+
+This loop spends context faster than it produces code: a screen that lands in a ~750-line diff can burn a 250K+
+session, and almost none of it reaches the diff. It goes to *process* — images that never leave the window, and
+source files full-read to find a seam. An implementation session's target is **150K**, and it's defended here,
+where the spending happens.
+
+- **Screenshots are the dominant sink** — heavy, uncompressible, and capture writes **43 of them per run**.
+  Read only the 1–3 shots you are actually iterating on, never the gallery. Kill capture the moment your target
+  shot exists (the `00-chart-table.png` wait above) so the other 40 are never written, let alone read.
+- **Look once, scan thereafter.** The first look at a shot judges layout — that needs your eyes. Every check
+  *after* that (a colour moved, an edge aligned, a value changed) comes off the PIL pixel-scan above, which is
+  dozens of tokens against a whole image. Re-reading the same PNG each iteration is the single most expensive
+  habit in this loop.
+- **Scout source, read only to edit.** To learn *what `build_card_dims` returns and where the seam sits*, a
+  `/scout` sub-agent reads the big render files (`view.odin`, `menu.odin`, `build_surface.odin` — hundreds of
+  lines each) and reports the digest back; the code informs your edit without settling permanently into the
+  window. Full-read a file only for the lines you are about to change.
+- **Push noisy investigation into a sub-agent.** Tracing how the encounter frame, build surface and a retired
+  loop fit together is fan-out reading — dispatch it and keep the findings, not the file dumps.
+- **Size the work to one screen, one seam.** A ticket scoped to a single screen opens few files and looks at
+  few shots. That, not a token count, is what keeps the session inside budget.
+
 ## What capture cannot see
 
 Capture is the fast path, not the whole picture. Three blind spots, all real:
