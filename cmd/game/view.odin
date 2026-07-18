@@ -176,65 +176,26 @@ node_mark :: proc(p: voyage.Node, visited: bool) -> Node_Mark {
 	return .Buoy
 }
 
-MAP_GRID_PITCH :: 64
-
-// draw_map_water paints the chart's ground: a left→right depth gradient and a faint
-// graticule inside MAP_AREA, framed by a recessive border. It replaces the three flat zone
-// bands (#303). The zones already run Coastal→Open_Sea→Deep left-to-right — layer is the x
-// axis (compute_node_positions) — so grading the water shallow→deep along x carries the
-// same depth cue as one continuous sea rather than three stripes. The stops are the depth
-// ramp itself (COLOUR_SHALLOW/MID/DEEP), drawn as two halves because raylib's horizontal
-// gradient takes only two colours.
-//
-// The border is recessive blue, not a box that competes: the deep (right) end of the water
-// is COLOUR_DEEP, the same as the canvas it sits on, so without an edge the panel would
-// bleed into the ground. The grid is the quietest thing on the chart, faded like the Chart
-// Table's own graticule (CHART_GRID at 0.22).
-draw_map_water :: proc() {
-	half := MAP_AREA.width / 2
-	rl.DrawRectangleGradientH(
-		i32(MAP_AREA.x),
-		i32(MAP_AREA.y),
-		i32(half),
-		i32(MAP_AREA.height),
-		COLOUR_SHALLOW,
-		COLOUR_MID,
-	)
-	rl.DrawRectangleGradientH(
-		i32(MAP_AREA.x + half),
-		i32(MAP_AREA.y),
-		i32(MAP_AREA.width - half),
-		i32(MAP_AREA.height),
-		COLOUR_MID,
-		COLOUR_DEEP,
-	)
-
-	for x := MAP_AREA.x + MAP_GRID_PITCH; x < MAP_AREA.x + MAP_AREA.width; x += MAP_GRID_PITCH {
-		rl.DrawLineV(
-			rl.Vector2{x, MAP_AREA.y},
-			rl.Vector2{x, MAP_AREA.y + MAP_AREA.height},
-			rl.Fade(CHART_GRID, 0.22),
-		)
-	}
-	for y := MAP_AREA.y + MAP_GRID_PITCH; y < MAP_AREA.y + MAP_AREA.height; y += MAP_GRID_PITCH {
-		rl.DrawLineV(
-			rl.Vector2{MAP_AREA.x, y},
-			rl.Vector2{MAP_AREA.x + MAP_AREA.width, y},
-			rl.Fade(CHART_GRID, 0.22),
-		)
-	}
-
-	rl.DrawRectangleLinesEx(MAP_AREA, 2, COLOUR_BLUE_RECESSIVE)
+// draw_map_page blits the sourced parchment sheet (art.odin) to fill MAP_AREA — the warm
+// aged page and its rough torn deckled rim baked into one texture (spec 0001 §2). The
+// parchment is the Chart ground and its torn edge is the frame, so there is no border box:
+// the sheet is a torn object on a transparent canvas, and the surround shows the darkened
+// Build behind the page rather than a second frame. POINT-scaled at native resolution
+// (art.odin sets the filter). The live layer (routes, marks, rings, ship) draws procedurally
+// over it.
+draw_map_page :: proc() {
+	src := rl.Rectangle{0, 0, f32(parchment_page_tex.width), f32(parchment_page_tex.height)}
+	rl.DrawTexturePro(parchment_page_tex, src, MAP_AREA, rl.Vector2{0, 0}, 0, rl.WHITE)
 }
 
-// draw_map draws the whole chart at once: the depth-graded water, every route dashed in
+// draw_map draws the whole chart at once: the sourced parchment page, every route dashed in
 // chart ink, every node as its mark (home / island / dock / diamond / buoy), the steel
 // reachability rings with a danger tick on an unrevealed reachable node, the hover caret,
 // and the ship you stand on as the screen's one amber. Composition only — `mouse` carries
 // the hover so the loop can poll while capture passes a no-mouse sentinel and photographs
 // the chart at rest (#277).
 draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
-	draw_map_water()
+	draw_map_page()
 
 	// The reachable set is recomputed here rather than borrowed from state.travel_options:
 	// the map is also drawn mid-encounter (behind a beat) when no options are current, so a

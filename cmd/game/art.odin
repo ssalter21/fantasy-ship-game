@@ -39,3 +39,29 @@ menu_art_load :: proc() {
 menu_art_unload :: proc() {
 	rl.UnloadTexture(menu_island_tex)
 }
+
+// The parchment treasure-map page (spec 0001 §2/§9): the warm aged sheet the Chart is
+// inked onto, with its rough torn deckled edge (Sand→Cliff→Rock) baked into the same
+// texture. The page and its rim are one object — a torn sheet of paper on the table — so a
+// blit fills the centred MAP_AREA and the transparent surround shows the darkened Build
+// behind it. Same embed pipeline as the menu island: PixelLab-sourced, conformed to the
+// parchment roster (§8), POINT-scaled at native resolution.
+PARCHMENT_PAGE_PNG :: #load("../../assets/art/parchment-page.png")
+
+// parchment_page_tex is the uploaded page. A GPU resource like the menu island, so it is
+// loaded after InitWindow and freed by parchment_art_unload.
+parchment_page_tex: rl.Texture2D
+
+// parchment_art_load uploads the embedded page. POINT filtering for the same reason the
+// menu island and font need it: raylib's default bilinear softens pixel art on upload and
+// undoes generating at native resolution. Must run after InitWindow.
+parchment_art_load :: proc() {
+	img := rl.LoadImageFromMemory(".png", raw_data(PARCHMENT_PAGE_PNG), i32(len(PARCHMENT_PAGE_PNG)))
+	defer rl.UnloadImage(img)
+	parchment_page_tex = rl.LoadTextureFromImage(img)
+	rl.SetTextureFilter(parchment_page_tex, .POINT)
+}
+
+parchment_art_unload :: proc() {
+	rl.UnloadTexture(parchment_page_tex)
+}
