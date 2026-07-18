@@ -89,6 +89,22 @@ _Avoid_: Game mode, client mode
 
 - **The end-of-voyage beat belongs to the voyage, not the Chart Table.** Both endings — Haven reached and permadeath — are told by the voyage, which owns the state that makes them mean anything (hull, cargo, which node you sank at). It says its piece and hands back to an unchanged Chart Table. The Chart Table never greets you with an outcome; it has none to greet you with.
 
+### Voyage UI spine (in-voyage presentation — see ADR-0024)
+
+The in-voyage UI is **two top-level modes** — Home and Encounter — and nothing else. It sits above `run_session` where ADR-0022 put the Chart Table; these terms describe what the UI does *within* one voyage.
+
+- **Home** — the mode at anchor, **between encounters**, while the Sim awaits the next travel choice. The **Build surface** is its persistent editable ground and the **chart** is a raisable overlay over it. It is the one place the player is free: refit freely, and sail. Reached from the Chart Table at Start and returned to after every resolved encounter; a landmark or already-walked node drops you straight back here.
+  _Avoid_: the refit screen, the travel screen — Home is one mode holding both a Build surface and a raisable chart, not either screen alone.
+- **Encounter** (mode) — the mode walking a node's stage list: a focused, one-stage-at-a-time takeover, entered by sailing into a node and left when the walk completes or halts. The current stage owns the screen; the chart is raisable here only as a **view-only** reference (see the flick).
+- **Build surface** (the Build screen) — the **one** refit surface, and the whole of refit. Persistent at Home, and reused by the Offer and Shop stages with a **shelf** added beside the ship's slots. Available everywhere except inside a **Fight** — the single place refit is locked. The modal `refit_menu_loop` collapses into it. Every edit commits live (each install/move/remove is a command that emits an Event), and there is no inventory (a fitting pulled off is discarded — see **Refit**).
+  _Avoid_: a modal refit opened per Offer/Shop; a separate placement UI — placement *is* refit, on this one surface.
+- **The flick** (the swipe) — the motion that raises and lowers the chart overlay over the Build surface: **swipe the chart over, swipe it back**, anchored by a corner tab or screen edge. A **mouse drag** (press–drag–release), the one input primitive beyond the game's click-polling; a click on the tab is an acceptable first-build stand-in. The chart is swipe-raisable everywhere, but **sailable only at Home** — mid-encounter its nodes are greyed and unclickable, since travel is not a legal move until the walk ends.
+  _Avoid_: arrow keys or a screen-switch — the flick lays a second live surface over the first, it does not swap screens.
+- **The shelf** — the temporary source container an **Offer** or **Shop** stage adds beside the ship's slots on the Build surface: the items on offer / the stock. Taking one is an ordinary refit move (shelf item → slot); the only move that can carry a cost is a **Shop** shelf→ship transfer, which spends cargo (an Offer's is free). Exists only for the duration of the stage.
+  _Avoid_: an inventory — the shelf is a stage-scoped source, not a store the player carries between nodes.
+- **Playback layer** — the single shared, blocking beat overlay any stage invokes on top of itself; every `Event_Sink` beat renders through it (a Fight's per-round Events, arrival, a Reward's grant, a halt, a wreck's loot, the voyage-end beat). It is a shared *surface* for the `Event_Sink`'s output, not a change to its blocking contract (ADR-0002, ADR-0022).
+  _Avoid_: each stage drawing its own beats — playback is one layer, not five.
+
 ### Map & voyage structure (see ADR-0009, superseding ADR-0007's topology/ports/gradient; encounter terms amended by ADR-0014)
 
 - **Voyage** — one playable attempt from Start to Haven (or to permadeath), launched from the **Chart Table** and returning to it at either ending. Not resumable/saved — save/resume and meta-progression between voyages are not yet specified; #278 named the Chart Table as where meta-progression would attach without ruling on whether it should exist.
