@@ -11,20 +11,18 @@ Visibility :: enum {
 	Concealed,
 }
 
-// Category is a fitting's round phase (ADR-0006): every round resolves
-// Muster -> Brace -> Fire, and Category is which of the three a fitting triggers
-// in. It lives in this package rather than core/combat because layout order —
-// this package's data — is what fixes the phase grouping combat resolves by.
+// Category is a fitting's round phase (ADR-0006, amended by ADR-0025): every round
+// resolves Brace -> Fire, and Category is which of the two a fitting triggers in. It
+// lives in this package rather than core/combat because layout order — this package's
+// data — is what fixes the phase grouping combat resolves by.
 Category :: enum {
-	Muster,
 	Brace,
 	Fire,
 }
 
 // Tag is a fitting's family membership: the axis synergy effects count fittings
-// along, independent of combat phase (Category) — a Beast may muster, defend, or
-// attack. Multi-tag is allowed (selector_matches counts a fitting under each of
-// its tags).
+// along, independent of combat phase (Category) — a Beast may brace or fire. Multi-tag
+// is allowed (selector_matches counts a fitting under each of its tags).
 Tag :: enum {
 	Crew,
 	Weapon,

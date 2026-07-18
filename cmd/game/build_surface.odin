@@ -540,7 +540,7 @@ draw_build_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, dim: 
 	}
 }
 
-// draw_build_category_chip draws the Muster / Brace / Fire chip — a steel-outlined tag, no
+// draw_build_category_chip draws the Brace / Fire chip — a steel-outlined tag, no
 // fill, no new hue — and returns its width so the effect intent can sit beside it.
 draw_build_category_chip :: proc(pos: rl.Vector2, category: ship.Category) -> f32 {
 	label := fmt.ctprintf("%v", category)

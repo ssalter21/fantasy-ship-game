@@ -96,17 +96,17 @@ voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 
 // voyage_stakes_scales_category reports whether the site's power reading scales a fitting of
 // this Category. The rule: stakes scales what a hostile deals, never its bulwark. raw_damage
-// = Fire + Muster (ADR-0017), so scaling those makes a deep hostile hit harder; Brace is
-// excluded because bulwark is subtracted from raw — a site that scaled it would eventually
-// make a hostile impossible to hurt at any magnitude.
+// is a side's Fire output, so scaling Fire makes a deep hostile hit harder; Brace is excluded
+// because bulwark is subtracted from raw — a site that scaled it would eventually make a
+// hostile impossible to hurt at any magnitude.
 //
-// This is the *category* half of the rule. Category is a combat phase, and .Muster also holds
+// This is the *category* half of the rule. Category is a combat phase, and .Fire also holds
 // every Modify_Speed item; ship_fitting_output_scaled is what declines to touch those, for
 // the reason on that proc.
 voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	switch category {
-	case .Fire, .Muster:
-		return true // raw_damage = Fire + Muster (ADR-0017)
+	case .Fire:
+		return true // raw_damage is Fire output
 	case .Brace:
 		return false // bulwark: subtracted from raw, never scaled
 	}
