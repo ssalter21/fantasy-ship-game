@@ -270,7 +270,7 @@ battle_reallocate_can_give :: proc(s: ship.Ship, i: ship.Slot_Index) -> bool {
 // battle_menu_loop blocks until the player picks a battle action, then returns a
 // Command_Battle_Choice (ADR-0006's one-decision-per-round menu).
 //
-// It owns its own frame loop (like option_menu_loop and refit_menu_loop) rather than
+// It owns its own frame loop (like offer_shop_loop and build_surface_loop) rather than
 // delegating, because Reallocate takes two clicks — a source hold then a destination —
 // and the menu shows a different button list in each mode. The half-made selection
 // (reallocate_from) is a local, not a Game_State field: the loop blocks until one whole
@@ -380,148 +380,18 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	}
 }
 
-// ITEM_OFFER_BOX_* and the offer column origin size the Item Offer's option boxes: each
-// is tall enough for a name line plus two detail lines, stacked under the ship panel.
+// ITEM_OFFER_BOX_* and the offer column origin size the Trade screen's two boxes: each is
+// tall enough for a name line plus two detail lines, stacked under the ship panel. (They
+// once sized the option-list boxes too, before that screen became the Offer/Shop Build
+// surface in #312; the Trade screen is the remaining programmer-art holdout, #318's job.)
 ITEM_OFFER_BOX_W :: 340
 ITEM_OFFER_BOX_H :: 62
 ITEM_OFFER_Y0 :: 296
 
-// option_menu_loop is the one option-list screen (issue #131): it blocks until the
-// player takes a presented option or declines, then returns a Command_Choose_Option —
-// an Option_Index for a take, or nil to decline. One loop serves both Item Offer and
-// shop shelf, since the Sim presents a single list (Event_Options_Presented) that
-// differs only in whether options carry prices.
-//
-// It reads what it's rendering off the options themselves: any priced option makes it a
-// shop (show cargo, offer Leave); an unpriced list is an Offer (offer Skip). An
-// unaffordable card is drawn dimmed but still clickable — the Sim owns affordability and
-// bounces an unaffordable buy back as Event_Purchase_Rejected, so the menu never gates
-// the click itself.
-//
-// A box index is its option's Option_Index, so an empty position is drawn as a
-// non-clickable gap rather than skipped, keeping indices aligned with the Sim's list.
-option_menu_loop :: proc(state: ^Game_State) -> sim.Command {
-	if !rl.IsWindowReady() {
-		// No live window (e.g. under `odin test`): decline rather than take an option
-		// and open a refit the test harness can't drive.
-		return sim.Command(sim.Command_Choose_Option{selection = nil})
-	}
-	options := state.stage_options
-	boxes := option_screen_boxes()
-	decline_index := len(boxes) - 1
-
-	for {
-		window_quit_if_closed()
-		draw_option_screen(state)
-
-		if rl.IsMouseButtonPressed(.LEFT) {
-			mouse := rl.GetMousePosition()
-			for box, i in boxes {
-				if !rl.CheckCollisionPointRec(mouse, box) {
-					continue
-				}
-				if i == decline_index {
-					return sim.Command(sim.Command_Choose_Option{selection = nil})
-				}
-				// A click on an empty position takes nothing — the Sim has no option
-				// there; ignore it so only real options and the decline are actionable.
-				if _, filled := options[i].?; !filled {
-					continue
-				}
-				return sim.Command(sim.Command_Choose_Option{selection = sim.Option_Index(i)})
-			}
-		}
-	}
-}
-
-// option_screen_boxes lays out one clickable box per option position, plus a trailing
-// decline box. Layout is a pure function of the constants, so rendering and hit-testing
-// can each ask for it rather than sharing a local — which is what lets the screen be
-// drawn by a caller (capture) that never hit-tests.
-option_screen_boxes :: proc() -> [sim.STAGE_OPTION_MAX + 1]rl.Rectangle {
-	boxes: [sim.STAGE_OPTION_MAX + 1]rl.Rectangle
-	for i in 0 ..< len(boxes) {
-		boxes[i] = rl.Rectangle {
-			x      = SHIP_PANEL_X,
-			y      = f32(ITEM_OFFER_Y0 + i * (ITEM_OFFER_BOX_H + 6)),
-			width  = ITEM_OFFER_BOX_W,
-			height = ITEM_OFFER_BOX_H,
-		}
-	}
-	return boxes
-}
-
-// option_screen_labels is the screen's wording, which turns on whether the list is
-// priced — a shop's shelf or an Offer's items (see option_list_is_priced).
-option_screen_labels :: proc(state: ^Game_State) -> (header: string, decline_label: string) {
-	if option_list_is_priced(state.stage_options) {
-		return fmt.tprintf("Shop - cargo: %d. Buy an item, or leave.", ship.ship_cargo(state.player)),
-			"Leave (buy nothing)"
-	}
-	return "Choose an item to take, or skip.", "Skip (take nothing)"
-}
-
-// draw_option_screen draws one whole frame of the option screen: the scene plus the
-// option chrome that only this screen has. It is split out of option_menu_loop so that
-// composing the screen and waiting for a click are separate acts — the loop draws then
-// polls, while capture draws and never polls. Without this split the chrome exists only
-// inside a blocking loop, and a screenshot catches the scene with its buttons missing.
-draw_option_screen :: proc(state: ^Game_State) {
-	header, decline_label := option_screen_labels(state)
-	boxes := option_screen_boxes()
-
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
-	defer free_all(context.temp_allocator)
-
-	draw_scene_contents(state, header, rl.Vector2{-1, -1})
-	for slot, i in state.stage_options {
-		if option, filled := slot.?; filled {
-			draw_option_box(boxes[i], option, ship.ship_cargo(state.player))
-		}
-	}
-	draw_labeled_box(boxes[len(boxes) - 1], decline_label, "", "")
-}
-
-// option_list_is_priced reports whether any option carries a price — how the menu tells
-// a shop's shelf from an Offer's items without the Sim naming the primitive. Costs are
-// per-option, so it asks the list rather than assuming the stage.
-option_list_is_priced :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) -> bool {
-	for slot in options {
-		if option, filled := slot.?; filled {
-			if _, has_cost := option.cost.?; has_cost {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// draw_option_box renders one presented option as a titled box: its name (with the price
-// alongside where it has one), then its size · phase · tags spec and effect-intent lines.
-// A priced option costing more than `cargo` is dimmed so an unaffordable buy reads as
-// such before the click; a free option is never dimmed.
-draw_option_box :: proc(box: rl.Rectangle, option: sim.Stage_Option, cargo: int) {
-	spec, intent := fitting_summary_lines(option.fitting)
-	cost, priced := option.cost.?
-	affordable := !priced || cost <= cargo
-
-	title := option.fitting.name
-	if priced {
-		title = fmt.tprintf("%s  -  %d cargo", option.fitting.name, cost)
-	}
-	if affordable {
-		draw_labeled_box(box, title, spec, intent)
-		return
-	}
-
-	rl.DrawRectangleRec(box, rl.Color{210, 210, 210, 255})
-	rl.DrawRectangleLinesEx(box, 1, rl.DARKGRAY)
-	x := i32(box.x + 8)
-	rl.DrawText(fmt.ctprintf("%s", title), x, i32(box.y + 6), 16, rl.GRAY)
-	rl.DrawText(fmt.ctprintf("%s", spec), x, i32(box.y + 26), 12, rl.DARKGRAY)
-	rl.DrawText(fmt.ctprintf("%s", intent), x, i32(box.y + 42), 12, rl.DARKGRAY)
-}
+// The option-list screen (issue #131) is now the Offer/Shop Build surface + shelf
+// (offer_shop.odin, #312): the click-a-box list retired into the Cutaway ship with a
+// right-side shelf you drag cards from. get_captain_choice's Awaiting_Option_Choice case
+// now enters offer_shop_loop.
 
 // trade_stat_label names a tradeable stat for the player (issue #136): the enum's own
 // spelling (Max_Hull) isn't presentable.

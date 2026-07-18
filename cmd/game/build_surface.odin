@@ -47,17 +47,19 @@ Build_Drag :: struct {
 }
 
 // build_card_dims is a card's footprint by slot size — Large > Medium > Small — so size
-// reads off the card's own size (#302), no number needed.
-build_card_dims :: proc(size: ship.Slot_Size) -> (w: f32, h: f32) {
+// reads off the card's own size (#302), no number needed. `scale` shrinks the whole
+// size-language uniformly, so the encounter stages (#312) can sit the same ship beside a
+// shelf without re-deciding what a Large card is; Home draws it at scale 1.
+build_card_dims :: proc(size: ship.Slot_Size, scale: f32 = 1) -> (w: f32, h: f32) {
 	switch size {
 	case .Small:
-		return 140, 110
+		return 140 * scale, 110 * scale
 	case .Medium:
-		return 190, 130
+		return 190 * scale, 130 * scale
 	case .Large:
-		return 250, 150
+		return 250 * scale, 150 * scale
 	}
-	return 140, 110
+	return 140 * scale, 110 * scale
 }
 
 // build_slot_rects lays every slot out into two centred rows — exposed stations on the
@@ -65,24 +67,36 @@ build_card_dims :: proc(size: ship.Slot_Size) -> (w: f32, h: f32) {
 // tracking slot size. A pure function of the layout, so draw and hit-test both ask for it
 // rather than sharing a local (the split that lets capture draw a screen it never clicks).
 // Value array, no allocation; `n` is how many of the BUILD_MAX_SLOTS entries are live.
-build_slot_rects :: proc(layout: []ship.Layout_Slot) -> (rects: [BUILD_MAX_SLOTS]rl.Rectangle, n: int) {
+//
+// The rows are centred within [area_x, area_x + area_w] rather than the whole window, and
+// sized at `scale`, so the encounter stages (#312) can pin the ship to a left region and
+// clear a right-hand shelf while Home keeps the full width at scale 1 (the defaults).
+build_slot_rects :: proc(
+	layout: []ship.Layout_Slot,
+	area_x: f32 = 0,
+	area_w: f32 = WINDOW_WIDTH,
+	deck_y: f32 = BUILD_DECK_Y,
+	hold_y: f32 = BUILD_HOLD_Y,
+	scale: f32 = 1,
+) -> (rects: [BUILD_MAX_SLOTS]rl.Rectangle, n: int) {
 	n = min(len(layout), BUILD_MAX_SLOTS)
+	gap := BUILD_SLOT_GAP * scale
 
 	// A row is centred: sum its cards' widths and the gaps between them, then start it so
-	// the whole run is centred in the window.
-	row_width :: proc(layout: []ship.Layout_Slot, want: ship.Visibility, n: int) -> f32 {
+	// the whole run is centred in the area.
+	row_width :: proc(layout: []ship.Layout_Slot, want: ship.Visibility, n: int, gap, scale: f32) -> f32 {
 		total: f32 = 0
 		count := 0
 		for ls, i in layout {
 			if i >= n || ls.slot.base_visibility != want {
 				continue
 			}
-			w, _ := build_card_dims(ls.slot.size)
+			w, _ := build_card_dims(ls.slot.size, scale)
 			total += w
 			count += 1
 		}
 		if count > 1 {
-			total += f32(count - 1) * BUILD_SLOT_GAP
+			total += f32(count - 1) * gap
 		}
 		return total
 	}
@@ -91,22 +105,22 @@ build_slot_rects :: proc(layout: []ship.Layout_Slot) -> (rects: [BUILD_MAX_SLOTS
 		layout: []ship.Layout_Slot,
 		rects: ^[BUILD_MAX_SLOTS]rl.Rectangle,
 		want: ship.Visibility,
-		row_y: f32,
+		row_y, area_x, area_w, gap, scale: f32,
 		n: int,
 	) {
-		x := (WINDOW_WIDTH - row_width(layout, want, n)) / 2
+		x := area_x + (area_w - row_width(layout, want, n, gap, scale)) / 2
 		for ls, i in layout {
 			if i >= n || ls.slot.base_visibility != want {
 				continue
 			}
-			w, h := build_card_dims(ls.slot.size)
+			w, h := build_card_dims(ls.slot.size, scale)
 			rects[i] = rl.Rectangle{x = x, y = row_y, width = w, height = h}
-			x += w + BUILD_SLOT_GAP
+			x += w + gap
 		}
 	}
 
-	place_row(layout, &rects, .Exposed, BUILD_DECK_Y, n)
-	place_row(layout, &rects, .Concealed, BUILD_HOLD_Y, n)
+	place_row(layout, &rects, .Exposed, deck_y, area_x, area_w, gap, scale, n)
+	place_row(layout, &rects, .Concealed, hold_y, area_x, area_w, gap, scale, n)
 	return rects, n
 }
 
@@ -215,6 +229,16 @@ build_begin_drag :: proc(state: ^Game_State, point: rl.Vector2) -> (Build_Drag, 
 build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
+	}
+
+	// Shelf-drag bridge (#312): an Offer/Shop shelf drop committed a Choose_Option and
+	// remembered the berth it landed on, so the Refit that choice opened installs there and
+	// finishes with no second gesture — the spine collapsing "choose option → refit" into one
+	// drag. build_shelf_bridge_command drives that to completion without ever polling, so the
+	// auto refit is invisible: the player's one drag is the whole gesture. Nil the rest of the
+	// time, when this is a Home refit the player drives by hand.
+	if cmd, bridging := build_shelf_bridge_command(state); bridging {
+		return cmd
 	}
 
 	drag: Build_Drag
@@ -355,21 +379,33 @@ build_is_legal_berth :: proc(state: ^Game_State, drag: Build_Drag, slot: ship.Sl
 // draw_build_hull sketches the ship's cross-section behind the cards: a faint hull outline
 // and the waterline that splits deck from belly. Kept quiet (low-alpha steel) — it frames
 // the split, it must never outshine the cards or the chrome (the guide's world-vs-chrome
-// rule).
-draw_build_hull :: proc() {
+// rule). The hull spans [area_x, area_x + area_w] with its lines at the given heights, so
+// the encounter stages (#312) can draw a narrower, higher cross-section beside a shelf
+// while Home fills the window (the defaults).
+draw_build_hull :: proc(
+	area_x: f32 = 0,
+	area_w: f32 = WINDOW_WIDTH,
+	deck_top_y: f32 = BUILD_DECK_Y - 22,
+	waterline_y: f32 = BUILD_WATERLINE_Y,
+	keel_y: f32 = BUILD_LEDGER_Y - 40,
+) {
+	area_r := area_x + area_w
+
 	// The belly reads a shade deeper than the deck's air, so "below the waterline" is a
 	// darker, concealed place at a glance.
 	rl.DrawRectangleRec(
-		rl.Rectangle{x = 0, y = BUILD_WATERLINE_Y, width = WINDOW_WIDTH, height = WINDOW_HEIGHT - BUILD_WATERLINE_Y},
+		rl.Rectangle{x = area_x, y = waterline_y, width = area_w, height = WINDOW_HEIGHT - waterline_y},
 		rl.Fade(COLOUR_VIGNETTE, 0.45),
 	)
 
 	// A hull silhouette: deck line across, sides sloping into a keel, so the belly cards sit
-	// inside a ship rather than in an open box.
-	deck_l := rl.Vector2{60, BUILD_DECK_Y - 22}
-	deck_r := rl.Vector2{WINDOW_WIDTH - 60, BUILD_DECK_Y - 22}
-	keel_l := rl.Vector2{200, BUILD_LEDGER_Y - 40}
-	keel_r := rl.Vector2{WINDOW_WIDTH - 200, BUILD_LEDGER_Y - 40}
+	// inside a ship rather than in an open box. The keel is inset a fifth of the width from
+	// each side, so it stays a hull whatever the area's width.
+	inset := area_w * 0.19
+	deck_l := rl.Vector2{area_x + 60, deck_top_y}
+	deck_r := rl.Vector2{area_r - 60, deck_top_y}
+	keel_l := rl.Vector2{area_x + inset, keel_y}
+	keel_r := rl.Vector2{area_r - inset, keel_y}
 	hull := rl.Fade(COLOUR_STEEL, 0.16)
 	rl.DrawLineEx(deck_l, deck_r, 2, hull)
 	rl.DrawLineEx(deck_l, keel_l, 2, hull)
@@ -379,13 +415,13 @@ draw_build_hull :: proc() {
 	// The waterline itself: a dim-cyan rule with a row of ticks, the sea's surface.
 	water := rl.Fade(COLOUR_CYAN_DIM, 0.5)
 	rl.DrawLineEx(
-		rl.Vector2{40, BUILD_WATERLINE_Y},
-		rl.Vector2{WINDOW_WIDTH - 40, BUILD_WATERLINE_Y},
+		rl.Vector2{area_x + 40, waterline_y},
+		rl.Vector2{area_r - 40, waterline_y},
 		2,
 		water,
 	)
-	for x := f32(60); x < WINDOW_WIDTH - 60; x += 26 {
-		rl.DrawLineEx(rl.Vector2{x, BUILD_WATERLINE_Y}, rl.Vector2{x + 8, BUILD_WATERLINE_Y + 4}, 1, rl.Fade(COLOUR_CYAN_DIM, 0.3))
+	for x := area_x + 60; x < area_r - 60; x += 26 {
+		rl.DrawLineEx(rl.Vector2{x, waterline_y}, rl.Vector2{x + 8, waterline_y + 4}, 1, rl.Fade(COLOUR_CYAN_DIM, 0.3))
 	}
 }
 

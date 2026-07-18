@@ -60,6 +60,7 @@ capture_main :: proc() {
 	capture_shot_chart_table(&state)
 	capture_shot_build_surface(&state)
 	capture_shot_encounter_frame(&state)
+	capture_shot_offer_shop(&state)
 
 	s := sim.sim_create(VOYAGE_SEED)
 	defer sim.sim_destroy(&s)
@@ -181,6 +182,57 @@ capture_shot_encounter_frame :: proc(state: ^Capture_State) {
 	capture_write(state, "encounter-playback")
 }
 
+// capture_shot_offer_shop photographs the Shop stage (#312) — the two states the scripted
+// walk can't reach: a Shop's priced shelf (the walk only meets free Offers, since a Shop
+// lives at a Port), and a buy mid-drag with the cargo preview. Like the Build surface it
+// reads only the ship plus a synthesized shelf, so it is shot standalone here rather than
+// from the walk; the drag state is hard-coded, the same trick capture_shot_build_surface
+// uses. Two shots: the shelf at rest — priced cards, one dearer than the hold can pay so its
+// dimmed, undraggable read shows — and a buy in flight, the amber ghost over the empty Large
+// forecastle with the stat line ghosting the post-buy cargo (`Cargo 80/90 → 62/90`).
+capture_shot_offer_shop :: proc(state: ^Capture_State) {
+	if !rl.IsWindowReady() {
+		return
+	}
+
+	game := Game_State{player = ship.ship_starting_ship()}
+	defer delete(game.player.layout)
+	no_mouse := rl.Vector2{-1, -1}
+
+	names := [?]string{"Long Nines", "Chain & Bar Shot", "Titan's Heart", "Outriggers"}
+	costs := [?]int{18, 34, 120, 26} // the 120 sits above the starting hold, so it dims
+	for name, i in names {
+		if item, ok := ship.ship_item_by_name(name); ok {
+			game.stage_options[i] = sim.Stage_Option{fitting = item.fitting, cost = costs[i]}
+		}
+	}
+
+	draw_offer_shop(&game, Shelf_Drag{}, no_mouse)
+	draw_offer_shop(&game, Shelf_Drag{}, no_mouse)
+	capture_write(state, "shop")
+
+	item, ok := ship.ship_item_by_name("Long Nines") // Large, so the empty Large forecastle lights
+	if !ok {
+		return
+	}
+	drag := Shelf_Drag{active = true, option_index = sim.Option_Index(0), fitting = item.fitting, cost = 18}
+	rects, n := build_slot_rects(
+		game.player.layout,
+		OFFER_SHOP_SHIP_X,
+		OFFER_SHOP_SHIP_W,
+		OFFER_SHOP_DECK_Y,
+		OFFER_SHOP_HOLD_Y,
+		OFFER_SHOP_SCALE,
+	)
+	over := no_mouse
+	if n > 3 {
+		over = rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}
+	}
+	draw_offer_shop(&game, drag, over)
+	draw_offer_shop(&game, drag, over)
+	capture_write(state, "shop-buying")
+}
+
 // capture_write writes the presented frame to CAPTURE_DIR, numbered in walk order so a
 // session reading the shots back can see the route.
 //
@@ -205,14 +257,15 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 }
 
 // capture_draw_screen draws the frame a player would be looking at for this decision.
-// Only the option screen is split into a drawable proc so far (draw_option_screen);
-// every other phase falls back to draw_scene, which renders the scene *without* that
-// screen's chrome — its buttons are still welded inside its blocking menu loop. The
-// gap is the finding, not an oversight: see issue #277.
+// The option screen (Offer/Shop) is a fully drawable surface (draw_offer_shop), so the
+// scripted walk photographs it as the player would see it — the ship, the shelf, the
+// chrome, at rest with no drag. Every other phase falls back to draw_scene, which renders
+// the scene *without* that screen's chrome — its buttons are still welded inside its
+// blocking menu loop. The gap is the finding, not an oversight: see issue #277.
 capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	#partial switch awaiting {
 	case .Awaiting_Option_Choice:
-		draw_option_screen(&state.game)
+		draw_offer_shop(&state.game, Shelf_Drag{}, rl.Vector2{-1, -1})
 	case:
 		draw_scene(&state.game, fmt.tprintf("[capture] %s", label), rl.Vector2{-1, -1})
 	}
