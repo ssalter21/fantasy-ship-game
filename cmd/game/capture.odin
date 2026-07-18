@@ -150,9 +150,9 @@ capture_shot_home :: proc(state: ^Capture_State) {
 	draw_home(&game, Build_Drag{}, nil, no_mouse, 0)
 	capture_write(state, "home")
 
-	// Mid-swipe: the chart half-raised, sliding up over a partly-dimmed surface. draw_home
-	// composes any elevation, so the swipe (#324) is photographable at rest — the split #277 asks
-	// for. This frame is only reachable through the fixed raise, never a poll.
+	// Mid-flip: the chart half-raised, sliding up over a partly-dimmed surface. draw_home
+	// composes any elevation, so the click flip (#329) is photographable at rest — the split #277
+	// asks for. This frame is only reachable through the fixed raise, never a poll.
 	draw_home(&game, Build_Drag{}, nil, no_mouse, 0.5)
 	draw_home(&game, Build_Drag{}, nil, no_mouse, 0.5)
 	capture_write(state, "home-chart-rising")
