@@ -1,0 +1,17 @@
+Pixel Operator
+by Jayvee Enaguas (HarvettFox96)
+
+Released into the public domain under Creative Commons Zero (CC0) 1.0.
+  https://creativecommons.org/publicdomain/zero/1.0/
+
+The font's own name table records this dedication (name IDs 13/14), so the
+licence is read from the file itself, not from a download page — the same
+standard the style guide applies to any embedded face.
+
+CC0 waives all rights: no attribution is required to embed or redistribute
+Pixel Operator in a commercial binary. This credit is kept for provenance, not
+obligation.
+
+Source: https://www.dafont.com/pixel-operator.font
+Only the regular static instance (PixelOperator.ttf) is embedded; the family
+also ships Bold, Mono, and 8-px variants which are not used here.

@@ -30,17 +30,19 @@ COLOUR_CYAN :: rl.Color{111, 224, 236, 255} // subtitles and taglines; the eye's
 COLOUR_CYAN_DIM :: rl.Color{87, 181, 195, 255} // hints and secondary help text
 COLOUR_BLUE_RECESSIVE :: rl.Color{58, 90, 130, 255} // present but never read first
 
-// The size scale, whole. The guide measures Pixelify Sans as 2% antialiased at 20px
-// and 78% at 10px: there is no clean size below 20px, so hierarchy is carried by
-// colour rather than by size.
-UI_TITLE_SIZE :: 40
-UI_BODY_SIZE :: 20
+// The size scale, whole. Pixel Operator is a native-16px pixel face: measured 0.0%
+// antialiased at 16 and 32 (both integer multiples of its pixel em) and mush off that
+// grid — 86% at 20px, 40% at 40px. The scale is therefore 32/16, the two crisp sizes
+// nearest the old 40/20. Hierarchy is still carried by colour, not size: that is the
+// house style, no longer a workaround for a face with no clean small size.
+UI_TITLE_SIZE :: 32
+UI_BODY_SIZE :: 16
 
-// PIXELIFY_SANS_TTF is the UI typeface, compiled into the binary rather than shipped
+// PIXEL_OPERATOR_TTF is the UI typeface, compiled into the binary rather than shipped
 // beside it: ADR-0009 (playtest distribution) commits to a self-contained game.exe
 // proven against a real tester's machine, which a sidecar font file breaks.
-// SIL OFL 1.1 — see assets/fonts/OFL.txt.
-PIXELIFY_SANS_TTF :: #load("../../assets/fonts/PixelifySans.ttf")
+// CC0 1.0 (public domain) — see assets/fonts/PixelOperator-LICENSE.txt.
+PIXEL_OPERATOR_TTF :: #load("../../assets/fonts/PixelOperator.ttf")
 
 // ui_font_title and ui_font_body are the same face baked at the scale's two sizes.
 // One rl.Font is one glyph atlas rasterized at one size, so a size is a font here:
@@ -70,7 +72,7 @@ ui_fonts_unload :: proc() {
 // which the face carries and the guide notes need an explicit list, not just the font, to
 // reach the atlas. The Build surface's ledger and item specs separate with "·", so a nil
 // list would render them as the missing-glyph box. (The projection arrow the Shop's cargo
-// preview reads, #312, is plain ASCII "->": Pixelify Sans carries no U+2192.)
+// preview reads, #312, is plain ASCII "->": Pixel Operator carries no U+2192 either.)
 UI_FONT_EXTRA_CODEPOINTS :: [?]rune{'·', '—'}
 
 ui_font_bake :: proc(size: i32) -> rl.Font {
@@ -87,8 +89,8 @@ ui_font_bake :: proc(size: i32) -> rl.Font {
 
 	font := rl.LoadFontFromMemory(
 		".ttf",
-		raw_data(PIXELIFY_SANS_TTF),
-		i32(len(PIXELIFY_SANS_TTF)),
+		raw_data(PIXEL_OPERATOR_TTF),
+		i32(len(PIXEL_OPERATOR_TTF)),
 		size,
 		raw_data(codepoints[:]),
 		i32(len(codepoints)),

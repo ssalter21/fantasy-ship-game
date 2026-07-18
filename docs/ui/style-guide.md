@@ -224,16 +224,21 @@ counter-clockwise.
 
 ## Type
 
-**Pixelify Sans**, SIL Open Font License 1.1.
+**Pixel Operator**, Creative Commons Zero (CC0) 1.0 — public domain.
 
-- Source: <https://github.com/google/fonts/tree/main/ofl/pixelifysans>. Ships in the repo at
-  `assets/fonts/PixelifySans.ttf`.
-- Licence verified by reading the `OFL.txt` in the archive — not a tag on a download page. OFL 1.1 permits
-  embedding and redistribution in a commercial binary.
+- Source: <https://www.dafont.com/pixel-operator.font> (by Jayvee Enaguas).
+- Licence verified by reading the font's own `name` table (IDs 13/14 record the CC0 dedication) — not a tag
+  someone typed on a download page. CC0 waives all rights: embedding and redistribution in a commercial binary
+  need no attribution. `assets/fonts/PixelOperator-LICENSE.txt` keeps the credit for provenance, not obligation.
 - **Embed it via Odin `#load`.** [ADR-0009 (playtest distribution)](../adr/0009-playtest-distribution.md)
   commits to a "native, self-contained Windows `game.exe`"; a font shipped as a sidecar file breaks that. Load
   with `rl.LoadFontFromMemory`. (Note: two ADRs share the number 0009 — the relevant one is *playtest
   distribution*, not *node graph*.)
+- **Why this face and not the first one.** The UI shipped on Pixelify Sans first; it was replaced because its
+  digits share the letters' skeletons — `0`/`O`, `1`/`l`/`I`, `5`/`S` collide — and in a UI where almost
+  everything the player weighs is a number, a numeral that does not announce itself as a numeral is the wrong
+  face. Pixel Operator's digits are distinct (flagged `1`, narrow `0`), it is static, and it is CC0. See the
+  rejected-typefaces table for the full record.
 
 ### The size scale
 
@@ -241,28 +246,33 @@ counter-clockwise.
 
 | Size | Role |
 | --- | --- |
-| **40px** | The Chart Table title. Display only. |
-| **20px** | Everything else. |
+| **32px** | The Chart Table title. Display only. |
+| **16px** | Everything else. |
 
-This is measured, not minimalist. Pixelify Sans is a pixel font on a 20px design grid, and it does not render
-cleanly off it:
+This is measured, not minimalist. Pixel Operator is a **native-16px** pixel font: it is pixel-perfect only on
+integer multiples of its 16px em, and mush off that grid.
 
 | Size | Antialiased pixels | Verdict |
 | --- | --- | --- |
-| 10px | **78%** | mush — unusable |
-| **20px** | **2%** | pixel-perfect |
-| 30px | 12% | acceptable |
-| **40px** | 13% | good |
-| 60px | 10% | good, if a screen ever needs it |
+| 12px | **99%** | mush — unusable |
+| **16px** | **0%** | pixel-perfect |
+| 20px | **86%** | mush — the old scale's body size |
+| 24px | 58% | bad |
+| **32px** | **0%** | pixel-perfect |
+| 40px | 40% | soft — the old scale's title size |
+| **48px** | **0%** | pixel-perfect, if a screen ever needs a bigger title |
 
-**There is no clean size below 20px.** Any 12/14/16 call sites must grow. That is a real cost of a pixel font —
-Silkscreen bottoms out at 16px the same way — and it is why hierarchy here is carried by **colour**, which is
-free, rather than by size, which is not.
+**The clean sizes are 16, 32, 48 — nothing between.** The old 40/20 scale (measured for Pixelify Sans) landed
+on two of Pixel Operator's *worst* sizes, so the swap moved the scale to 32/16, the two crisp sizes nearest the
+old pair, preserving the exact 2:1 title:body ratio. Body dropped 20→16, which also eases the width budgets a
+tight face fights (see Press Start 2P below). Hierarchy is still carried by **colour**, not size — but that is
+now the house style, not, as it was under Pixelify, a workaround for a face with no clean size below 20px. 16px
+*is* clean; colour still carries the levels because two sizes is the whole scale and always was.
 
 ### A size is a font, not a parameter
 
 The scale is **two `rl.Font`s, not one font drawn at two sizes.** One `rl.Font` is one glyph atlas rasterized
-at one size: ask `DrawTextEx` for 20px from an atlas baked at 40 and it resamples, giving up exactly the
+at one size: ask `DrawTextEx` for 16px from an atlas baked at 32 and it resamples, giving up exactly the
 pixel-exactness the table was measured to buy. Bake each size once and keep both (`cmd/game/ui.odin`'s
 `ui_font_title` / `ui_font_body`).
 
@@ -275,15 +285,17 @@ Two things that go with it, both mandatory and neither obvious:
   no more, so `·` (U+00B7) and `—` (U+2014) are **not** in the atlas by default despite the face carrying them.
   Retiring the em-dash workaround needs an explicit codepoint list, not just the font.
 
-### No bold, ever
+### No bold — but now by choice, not by constraint
 
-`PixelifySans[wght].ttf` is a variable font (`wght` 400–700), Google publishes **no static instances**, and
-raylib's stb_truetype **ignores variable axes entirely** — it renders the default (400) instance. A guide that
-said "use the Bold weight" would be unfollowable, which is the exact failure this guide exists to prevent.
+Under Pixelify Sans a bold was *unreachable*: it is a variable font (`wght` 400–700) with no static instances,
+and raylib's stb_truetype ignores variable axes, rendering only the 400 default. Pixel Operator removes that
+constraint — it ships a real **static** `PixelOperator-Bold.ttf`, which stb_truetype would rasterize fine as a
+third embedded blob.
 
-If a bold is ever genuinely needed it must be **pre-instanced at build time** with `fonttools varLib.instancer`
-and embedded as a second blob. Do not reach for it first: the reference set carries no weight contrast, only
-size and colour.
+So the rule is now a design choice, not a technical one: **still no bold.** The mock uses no weight contrast,
+only size and colour, and adding a weight would be a new hierarchy signal this guide deliberately does without.
+If one is ever genuinely wanted the path is now trivial (embed the Bold blob, bake a third `rl.Font`) — but
+reach for a tone from the ramp first.
 
 ### Rejected typefaces, and why
 
@@ -291,17 +303,27 @@ Recorded so they are not rediscovered and re-litigated:
 
 | Face | Rejected because |
 | --- | --- |
+| **Pixelify Sans** | **Adopted, then replaced — ambiguous digits.** It carried the whole first styling pass, but its numerals share the letterforms' skeletons (`0`/`O`, `1`/`l`/`I`, `5`/`S`), and this UI is almost entirely numbers. A rounded pixel face on a 20px grid; crisp there but soft above it. Replaced by Pixel Operator. Its removal is the reason the size scale moved 20/40 → 16/32. |
 | **Pixel Pirate** | **Licence.** At least three distinct fonts share the name (one free on dafont, one *sold commercially* by FontBros); the "100% Free" tag is author-typed, not a licence file; it is described as derived from the *Pirates of the Caribbean* logo type; and this game has a public itch.io page, so redistribution rights are real. `docs/ui/references/typeface.htm` was saved to settle this and captured a Google redirect notice instead — it contains no font data. **Do not adopt without a licence document.** |
 | **Press Start 2P** | **Measured overflow.** At 16px it is ~16px/char: `Hull 20/20  DUR 3  SPD 2` renders 384px into a 348px ship panel, and `Reallocate a fitting` renders 320px into a 220px button. It does not fit this game. |
 | **VT323** | **Never crisp** — 46–98% antialiased at every size 8–34. A curvy face; reads as a DOS terminal rather than 16-bit. |
 | **Micro5**, **Jersey10** | Illegible mush at body sizes; 12 printable Latin-1 gaps each (`±`, `²`, `³`, `µ`). |
-| **Silkscreen** | **Runner-up, and a close one.** Crisper than Pixelify (10% AA at 32px), static, complete Latin-1, 31KB. Rejected because it reads **all-caps**, and this game has prose — `battle_event_text`, `fitting_summary_lines`, `condition_intent`. Caps cannot carry prose. Revisit only if the restyle finds Pixelify too soft, and know that changing face later means redoing every screen. |
+| **Silkscreen** | **The Pixelify runner-up.** Crisper than Pixelify (10% AA at 32px), static, complete Latin-1, 31KB. Rejected because it reads **all-caps**, and this game has prose — `battle_event_text`, `fitting_summary_lines`, `condition_intent`. Caps cannot carry prose. When Pixelify's soft digits later forced a second search, Pixel Operator — mixed-case *and* crisp — won over Silkscreen for the same all-caps reason. |
+| **Pixel Operator Mono / Departure Mono** | **The digit-fix runners-up.** Both give unambiguous, tabular numerals (Departure has a dotted zero — the strongest `0≠O` signal of any candidate). Rejected for prose: monospace runs wide and clips the game's battle text, and Departure reads sci-fi terminal rather than 16-bit fantasy. Pixel Operator (proportional, same family as the Mono) fixes the digits without the width cost. |
 
 ### One thing the font fixes for free
 
 raylib's built-in font carries only codepoints 32–255, so an em-dash renders as `?` — which is why some code
-says `"none"` instead. **Pixelify Sans carries U+2014.** Once it is embedded (with an explicit codepoint list),
-that workaround can go.
+says `"none"` instead. **Pixel Operator carries U+2014** (and the game draws U+2014 ×261 and U+00B7 ×29, both
+in the atlas). Once it is embedded, that workaround can go.
+
+### What Pixel Operator does *not* carry
+
+Measured against the game's actual drawn strings, nothing that matters — but recorded so it is not
+rediscovered. It lacks `→` (U+2192), exactly as Pixelify did; the Shop's cargo projection already draws ASCII
+`->`, and the game's other `→` uses are all in **code comments**, never rendered. It also has 12 printable
+Latin-1 gaps (`¤ § ª ­ ¯ ² ³ ¹ º ¼ ½ ¾`) — none of which the game draws. If a future string needs one of these,
+check the atlas before assuming it is there.
 
 ## Glyphs are shapes, not text
 
@@ -326,12 +348,12 @@ Above U+00FF, assume a shape.
 
 Words live on parchment, so the primary hierarchy is **dark ink on a warm ground**, ranked by colour:
 
-1. **Title / heading** — `#12333F` ink at 40px on parchment (or `#F3E6C4` cream if placed over the sea).
+1. **Title / heading** — `#12333F` ink at 32px on parchment (or `#F3E6C4` cream if placed over the sea).
    Biggest thing on screen.
 2. **The action** — amber `#FFB020` fill with `#40260A` ink. The only saturated warm mass.
 3. **Other controls** — `#1786BC` border and label over a translucent ground. Present, clearly clickable,
    visibly not the default.
-4. **Body and hints** — muted ink `#4C7385`, 20px.
+4. **Body and hints** — muted ink `#4C7385`, 16px.
 5. **The version stamp** — faded ink `#9C8A63`. Findable, never read first.
 
 There is no bold, no second font, and only two sizes. **Colour carries the hierarchy.** If a screen needs a new
@@ -376,9 +398,13 @@ chose.
 
 - **`rl.DrawTextEx`, not `rl.DrawText`.** `DrawText` uses the built-in font. Every text call must pass the
   loaded font. This is the single change that retires most of the programmer-art read.
-- `DrawTextEx` takes a **`spacing`** parameter. The mock's title and subtitle are visibly letterspaced. Pixelify
-  at 40px renders a repo-length title at ~385px unspaced; close the gap to the mock's ~441px-at-1024 with
-  `spacing` ≈ 8, not with a bigger size.
+- `DrawTextEx` takes a **`spacing`** parameter. The mock's title and subtitle are visibly letterspaced; that
+  is where it comes from. Pixel Operator at 32px renders the repo-length title well under the mock's width
+  unspaced — close that gap with `spacing`, not with a bigger size. The mock's title is **~614px in the mock's
+  own 1421px-wide space, i.e. ~43% of the window's width**, which is the figure that transfers: ~440px at 1024,
+  reached at `spacing` = **13** (measured 432px; keep it an integer so glyphs stay on the pixel grid). Note the
+  spacing is face- *and* size-specific: Pixelify at the old 40px hit the same ~43% at `spacing` ≈ 8, so a
+  smaller face on a narrower em needs more — re-measure, never copy the old number.
 - **Split composition from polling.** Any new screen needs a `draw_X_screen(state)` that the loop calls *and*
   capture calls. Compose buttons inside a poll loop and `--capture` photographs the screen with its buttons
   missing.
@@ -393,9 +419,10 @@ chose.
   not a grid.
 - **Re-colouring the shipped screens.** The `COLOUR_*` constants (`COLOUR_DEEP`, `COLOUR_GROUND`,
   `COLOUR_STEEL`, `COLOUR_CREAM`, `COLOUR_CYAN`, …) still hold the old navy values, and the built screens
-  (Chart Table, Fight, Trade, the Build surface) still draw them. Migrating them to this roster — and growing
-  every sub-20px call site — is the follow-on UI work this guide exists to feed. This guide states the target;
-  it does not create the migration.
+  (Chart Table, Fight, Trade, the Build surface) still draw them. Migrating them to this roster — and rebaking
+  every call site onto the 16/32 scale (16px being the crisp body size; the odd 12/14 have no clean equivalent
+  and snap to 16) — is the follow-on UI work this guide exists to feed. This guide states the target; it does
+  not create the migration.
 - **Art assets.** Illustration, ship art, node icons. Out of scope, with one carve-out: a *sourced* Chart Table
   background image ([#284](https://github.com/ssalter21/fantasy-ship-game/issues/284)), which would now be an
   improvement in **depiction**, not palette. The mock is **not** it, and its provenance is unrecorded.
