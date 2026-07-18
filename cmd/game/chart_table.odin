@@ -105,6 +105,7 @@ draw_chart_table :: proc(hovered: int) {
 	defer free_all(context.temp_allocator)
 
 	draw_chart_table_ground()
+	draw_menu_title_scrim()
 
 	title := fmt.ctprint(CHART_TABLE_TITLE)
 	size := rl.MeasureTextEx(ui_font_title, title, UI_TITLE_SIZE, CHART_TABLE_TITLE_SPACING)
@@ -174,6 +175,24 @@ draw_chart_table_ground :: proc() {
 	src := rl.Rectangle{0, 0, f32(menu_island_tex.width), f32(menu_island_tex.height)}
 	dst := rl.Rectangle{0, 0, WINDOW_WIDTH, WINDOW_HEIGHT}
 	rl.DrawTexturePro(menu_island_tex, src, dst, rl.Vector2{0, 0}, 0, rl.WHITE)
+}
+
+// draw_menu_title_scrim darkens a full-width band behind the title so the cream reads
+// over the daytime background's bright sky. The sourced daylight scene (art.odin) sits
+// above the title's own luminance, so the guide's "world never outshines the chrome"
+// rule cannot hold globally for it — legibility is bought locally here instead of by
+// draining the daylight out of the whole image. Centred on the title line
+// (CHART_TABLE_TITLE_CENTRE_Y) and fading to nothing top and bottom so it reads as
+// atmosphere, not a drawn bar. The dusk variant does not need this and drops it.
+MENU_TITLE_SCRIM_HALF :: 60
+MENU_TITLE_SCRIM_ALPHA :: 0.62
+
+draw_menu_title_scrim :: proc() {
+	SCRIM_TOP :: CHART_TABLE_TITLE_CENTRE_Y - MENU_TITLE_SCRIM_HALF
+	clear := rl.Fade(COLOUR_VIGNETTE, 0)
+	dark := rl.Fade(COLOUR_VIGNETTE, MENU_TITLE_SCRIM_ALPHA)
+	rl.DrawRectangleGradientV(0, SCRIM_TOP, WINDOW_WIDTH, MENU_TITLE_SCRIM_HALF, clear, dark)
+	rl.DrawRectangleGradientV(0, CHART_TABLE_TITLE_CENTRE_Y, WINDOW_WIDTH, MENU_TITLE_SCRIM_HALF, dark, clear)
 }
 
 // draw_chart_table_button renders one row of the stack.
