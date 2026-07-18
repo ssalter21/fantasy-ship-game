@@ -72,10 +72,10 @@ battle_menu_loop_falls_back_to_hold_without_a_live_window :: proc(t: ^testing.T)
 }
 
 @(test)
-option_menu_loop_falls_back_to_declining_without_a_live_window :: proc(t: ^testing.T) {
+offer_shop_loop_falls_back_to_declining_without_a_live_window :: proc(t: ^testing.T) {
 	state := Game_State{}
 
-	cmd := option_menu_loop(&state)
+	cmd := offer_shop_loop(&state)
 
 	choice, ok := cmd.(sim.Command_Choose_Option)
 	testing.expect(t, ok)

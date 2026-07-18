@@ -47,7 +47,7 @@ Chart_Table_Button :: struct {
 
 // chart_table_buttons lays the stack out as a pure function of the constants, so
 // rendering and hit-testing each ask for it rather than sharing a local — the same
-// split option_screen_boxes uses, and what lets capture draw a screen it never clicks.
+// split build_slot_rects uses, and what lets capture draw a screen it never clicks.
 chart_table_buttons :: proc() -> [2]Chart_Table_Button {
 	buttons := [2]Chart_Table_Button {
 		{label = "Begin a voyage", choice = .Begin},

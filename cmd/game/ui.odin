@@ -69,7 +69,8 @@ ui_fonts_unload :: proc() {
 // ASCII 32-126, which omits the middot "·" (U+00B7) and em-dash "—" (U+2014) — both of
 // which the face carries and the guide notes need an explicit list, not just the font, to
 // reach the atlas. The Build surface's ledger and item specs separate with "·", so a nil
-// list would render them as the missing-glyph box.
+// list would render them as the missing-glyph box. (The projection arrow the Shop's cargo
+// preview reads, #312, is plain ASCII "->": Pixelify Sans carries no U+2192.)
 UI_FONT_EXTRA_CODEPOINTS :: [?]rune{'·', '—'}
 
 ui_font_bake :: proc(size: i32) -> rl.Font {

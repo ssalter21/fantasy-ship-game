@@ -101,11 +101,11 @@ Game_State :: struct {
 	sighted_opponent: Maybe(ship.Ship),
 	may_break_off:        bool,
 	// stage_options is the option list the current stage is presenting, copied from
-	// Event_Options_Presented; option_menu_loop renders each filled position and
-	// offers a take-or-decline choice. A nil position holds no option (a shelf slot
-	// past the deck's tail, or a slot past a narrower stage's count). Affordability
-	// is read live off the player's hold (ship.ship_cargo, kept current by
-	// Event_Ship_Updated), so no separate cargo field is tracked here.
+	// Event_Options_Presented; offer_shop_loop renders each filled position as a shelf
+	// card to drag onto the ship. A nil position holds no option (a shelf slot past the
+	// deck's tail, or a slot past a narrower stage's count). Affordability is read live
+	// off the player's hold (ship.ship_cargo, kept current by Event_Ship_Updated), so no
+	// separate cargo field is tracked here.
 	stage_options:    [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option),
 	// stage_progress is where the current encounter's walk is — the last
 	// Event_Stage_Entered, or nil between encounters. It is the **only** thing
@@ -127,6 +127,12 @@ Game_State :: struct {
 	// just being rearranged. The drag-in-progress itself is a build_surface_loop local, not
 	// a Game_State field: a whole press-drag-release completes inside one loop call.
 	refit_incoming:   Maybe(ship.Fitting),
+	// pending_shelf_install is the berth an Offer/Shop shelf drag dropped on (#312): the
+	// slot the shelf card landed in, set as the drop commits its Command_Choose_Option, so
+	// the Refit that choice opens installs there and finishes on its own — the two sim
+	// phases (choose, then refit) collapsed into one drag in presentation. build_surface_loop
+	// reads and clears it; nil the rest of the time (a Home refit, or any other refit).
+	pending_shelf_install: Maybe(ship.Slot_Index),
 	status:           voyage.Voyage_Status,
 }
 
@@ -144,7 +150,7 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 
 	switch awaiting {
 	case .Awaiting_Option_Choice:
-		return option_menu_loop(state)
+		return offer_shop_loop(state)
 	case .Awaiting_Trade_Choice:
 		return trade_menu_loop(state)
 	case .Awaiting_Battle_Command:
@@ -225,8 +231,8 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Options_Presented:
 		// A stage presenting an option list was entered, or re-entered from a buy's
-		// refit: remember its list so option_menu_loop can render it (refilled after a
-		// buy).
+		// refit: remember its list so offer_shop_loop can render its shelf (refilled
+		// after a buy).
 		state.stage_options = e.options
 
 	case sim.Event_Trade_Presented:

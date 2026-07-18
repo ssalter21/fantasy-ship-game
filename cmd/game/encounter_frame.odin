@@ -51,11 +51,19 @@ encounter_stat_line_text :: proc(s: ^ship.Ship) -> string {
 // draw_encounter_stat_line draws that readout steel and right-aligned, so the top-right
 // corner is identical on all five stages (#304). A readout, never amber.
 draw_encounter_stat_line :: proc(s: ^ship.Ship) {
-	text := fmt.ctprintf("%s", encounter_stat_line_text(s))
-	size := rl.MeasureTextEx(ui_font_body, text, UI_BODY_SIZE, 1)
+	draw_encounter_stat_line_text(encounter_stat_line_text(s))
+}
+
+// draw_encounter_stat_line_text right-aligns an already-composed stat string into the
+// top-right corner. Split from draw_encounter_stat_line so a stage that wants to overwrite
+// one field — the Shop's live cargo projection on pickup (#312), `Cargo 6/8 → 2/8` — draws
+// its own line in the same place and tone rather than duplicating the alignment.
+draw_encounter_stat_line_text :: proc(text: string) {
+	ctext := fmt.ctprintf("%s", text)
+	size := rl.MeasureTextEx(ui_font_body, ctext, UI_BODY_SIZE, 1)
 	rl.DrawTextEx(
 		ui_font_body,
-		text,
+		ctext,
 		rl.Vector2{WINDOW_WIDTH - size.x - ENCOUNTER_STAT_MARGIN, ENCOUNTER_HEADING.y},
 		UI_BODY_SIZE,
 		1,
@@ -173,10 +181,17 @@ draw_playback_overlay :: proc(headline: string) {
 // reason; this extends that to the whole frame. No ground clear and no Begin/EndDrawing — it
 // decorates whatever the caller has composed, which the stage build tasks (#312/#315/#318)
 // call once after their body.
-draw_encounter_chrome :: proc(state: ^Game_State, kind: voyage.Stage_Kind) {
+// `stat_override`, when non-empty, replaces the computed stat line — the seam the Shop uses
+// to ghost a post-buy cargo figure while a priced card is in hand (#312), leaving the rest
+// of the furniture untouched.
+draw_encounter_chrome :: proc(state: ^Game_State, kind: voyage.Stage_Kind, stat_override: string = "") {
 	draw_vignette()
 	draw_encounter_header(kind)
-	draw_encounter_stat_line(&state.player)
+	if len(stat_override) > 0 {
+		draw_encounter_stat_line_text(stat_override)
+	} else {
+		draw_encounter_stat_line(&state.player)
+	}
 	draw_encounter_chart_tab()
 	draw_chart_table_version_stamp()
 }
