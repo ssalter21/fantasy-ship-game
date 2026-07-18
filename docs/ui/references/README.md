@@ -8,17 +8,19 @@ gathered by the maintainer in [Gather the reference images](https://github.com/s
 **The written art direction these fed is [`docs/ui/style-guide.md`](../style-guide.md). Read that first — it
 is the followable output. These are its raw material.**
 
-**The nine scenes are palette and tone references. They are not layout references.**
+**The eight scenes are palette and tone references. They are not layout references.**
 
-Not one of the nine scenes contains a UI: no buttons, no panels, no menus, no type, no HUD. They therefore say
+Not one of them contains a UI: no buttons, no panels, no menus, no type, no HUD. They therefore say
 nothing about spacing, typography, or hierarchy, and the style guide must **not** try to read those out of
 them. What they do fix, consistently, is a colour world and a tonal register.
 
 The map's `## Notes` frame — "craft, not art" — still holds. Take the palette; invent the craft.
 
-**`menu/menu-ui-mock.png` is the exception, and it is a *layout* reference, not a palette one.** It is the one
-image here that *is* a UI, so it fixes the style guide's **hierarchy and proportion**. But it is a **navy** mock
-and **no longer sets colour** — see the `menu/` table below.
+**Two images that once lived here have been removed** — `menu/menu-ui-mock.png` (a *layout* reference, the one
+image that *was* a UI, fixing hierarchy and proportion but never colour — it was a *navy* mock) and
+`menu/treasure-map.jpg` (the parchment-map surface). Both were watermarked stock that could never ship, and
+both have since been absorbed into [`docs/ui/style-guide.md`](../style-guide.md) and the sourced parchment-chart
+work. The `menu/` section below records what they were and where their decisions went.
 
 ### The palette these agree on
 
@@ -27,8 +29,8 @@ it most clearly, which is why the style guide makes it the **keystone**:
 
 - **Saturated turquoise sea** — the dominant cool and the eye's rest point (`island-tropical`,
   `menu-port-tropical`, `wave`). Bright, high-value, not navy.
-- **Warm tan sand and parchment** — the neutral the world sits on (`island-tropical` cliffs, `treasure-map`
-  paper, beaches). Desaturated warm.
+- **Warm tan sand and parchment** — the neutral the world sits on (`island-tropical` cliffs and beaches; the
+  parchment surface had its own reference, `treasure-map`, now removed — see `menu/`). Desaturated warm.
 - **Vivid greens** — a full ramp from deep shadow to a yellow-green highlight (`island-tropical` palms,
   `island-tropical`'s inland). Where the earlier navy direction was most muted.
 - **A single warm accent** — amber/orange, always *small*, always punching against blue (`ship-night` lanterns,
@@ -54,30 +56,38 @@ is what should replace raylib's stock `LIGHTGRAY` / `BEIGE` / `MAROON`.
 Most of these are **watermarked stock or aggregator exports** (Magnific, Adobe Stock, Dreamstime,
 depositphotos). That is fine for what they are — internal references, never redistributed, never shipped.
 
-It stops being fine the moment an image is promoted to a shipped asset. See `menu/` below.
+It stops being fine the moment an image is promoted to a shipped asset — which is exactly what forced the two
+`menu/` images out of the repo. See `menu/` below.
 
-## menu/
+## menu/ — removed
 
-| Image | Chosen for | Notes |
+This folder held two images, both now **deleted from the repo**. They were the two references being pushed
+toward *shipping*, and both were watermarked stock that could never ship as-is (the provenance rule above). Their
+design decisions were carried into [`docs/ui/style-guide.md`](../style-guide.md) — the followable output — and
+the map surface has since been sourced for real, so the raw references were retired. This section records what
+they were and where each one's decisions live now.
+
+| Was | What it fixed | Where that lives now |
 | --- | --- | --- |
-| `menu-ui-mock.png` | **Hierarchy and proportion only.** The one image here that is a UI. | **Layout reference, not a palette one.** It is a *navy* mock; the style guide takes its stack, its centred title, its left-aligned labels, and its caret-and-scrim hover model — and **leaves its colour**, which the daylight set overrules. Its solid fills are exact but navy; its *translucency* is not internally consistent (it is a painting of a UI, not a rendered one), so its alpha cannot be reverse-engineered either. Its **contents are wrong for this game** — see the warning below. |
-| `treasure-map.jpg` | **The parchment map surface, and framing.** Promoted. | The run-map is being rebuilt as an actual chart — a piece of parchment — and this is its reference: sand-and-cream paper, water drawn *on* the paper, a red compass rose and X. It is the palette source for that surface, not just the torn-edge framing device. **Still watermarked ("Magnific") — cannot ship as-is**; a *sourced* map image remains [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284). Its warmth is a feature here, not a threat: parchment is *desaturated* warm, so it coexists with the scarce, *saturated* amber accent (see the guide's saturation rule). |
+| `menu-ui-mock.png` | **Hierarchy and proportion only** — the one image here that was a UI: its stack, centred title, left-aligned labels, caret-and-scrim hover, and *measured* proportions. **Never its colour** — a *navy* mock the daylight set overruled. | [`style-guide.md`](../style-guide.md), where the mock's proportions are measured out and scaled to the 1024×700 window as a starting point for the Chart Table layout. |
+| `treasure-map.jpg` | **The parchment map surface and torn-edge framing** — sand-and-cream paper, water drawn *on* the paper, a red compass rose and X. The palette source for that surface, not just the framing device. | The Chart Table background was sourced for real in [#284](https://github.com/ssalter21/fantasy-ship-game/issues/284), and the parchment chart is being built out (the recent parchment-chart / torn-edge border work). The style guide's [saturation rule](../style-guide.md) carries its warm-parchment-vs-amber logic. |
 
-### The mock is a look reference, not a spec
+### The mock was a look reference, not a spec
 
-Three things in `menu-ui-mock.png` are **actively wrong for this game**. Do not build them:
+Recorded so nobody re-imports the mock and rebuilds these — three things in `menu-ui-mock.png` were **actively
+wrong for this game**:
 
-- **Its menu items are not the Chart Table's.** [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278)
+- **Its menu items were not the Chart Table's.** [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278)
   settled that the Chart Table holds a title, **Begin a voyage**, **Quit**, and nothing else, and that it is
   **stateless**. The mock's *Continue Voyage* (there is no save), *Crew & Codex* (meta-progression, out of
-  scope), *Settings*, and its `SEED TIDEBORN-4417` line (seeding policy, out of scope) are illustrative only.
-- **Its input model is not the game's.** It shows `↑↓ NAVIGATE  ⏎ SELECT`; every menu in this game is mouse
+  scope), *Settings*, and its `SEED TIDEBORN-4417` line (seeding policy, out of scope) were illustrative only.
+- **Its input model was not the game's.** It showed `↑↓ NAVIGATE  ⏎ SELECT`; every menu in this game is mouse
   click-polling and nothing reads arrow keys.
-- **Its aspect ratio is not the game's.** 1421×787 (1.806) against the window's 1024×700 (1.463). Its layout
-  cannot be transplanted by scaling — only its proportions transfer.
+- **Its aspect ratio was not the game's.** 1421×787 (1.806) against the window's 1024×700 (1.463). Its layout
+  could not be transplanted by scaling — only its proportions transferred.
 
-**It is also not the shippable background.** Its provenance is unrecorded, and #284's bar was a shippable file
-*plus* a provenance line. See #284.
+Neither image was ever the shippable background: the mock's provenance was unrecorded, and #284's bar was a
+shippable file *plus* a provenance line.
 
 ## style/
 
@@ -107,6 +117,7 @@ the measured size scale, and the full rejection list live in [`docs/ui/style-gui
   from the *Pirates of the Caribbean* logo type — a trademark/derivative question given the public itch.io
   page. **Do not adopt it without a licence document.**
 
-`typeface.htm` was saved to settle the above and **captured nothing** — it is a Google *"Redirect Notice"*
-interstitial, not the fontmeme page, and contains no font data. It is kept only so the next person does not
-re-save it expecting an answer.
+A `typeface.htm` was once saved to settle the above and **captured nothing** — it was a Google *"Redirect
+Notice"* interstitial, not the fontmeme page, and held no font data, so it has been deleted. **Don't re-save
+it expecting an answer** — the fontmeme page blocks automated fetches, which is why the licence question above
+stays unconfirmed.
