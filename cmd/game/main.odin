@@ -62,6 +62,8 @@ main :: proc() {
 	defer menu_art_unload()
 	parchment_art_load()
 	defer parchment_art_unload()
+	ship_art_load()
+	defer ship_art_unload()
 
 	for chart_table_loop() == .Begin {
 		run_voyage()

@@ -24,6 +24,31 @@ INK_FADED :: rl.Color{156, 138, 99, 255} // Faded-ink #9C8A63 — the recessive 
 INK_SEA_DEEP :: rl.Color{23, 134, 188, 255} // #1786BC — reachable ring + hover, the interactive tone
 INK_CORAL :: rl.Color{225, 85, 43, 255} // #E1552B — the one warm accent: Haven X + danger tick
 INK_TEXT :: rl.Color{18, 51, 63, 255} // Ink #12333F — landmark labels on the warm page
+INK_PARCHMENT :: rl.Color{235, 217, 166, 255} // Parchment #EBD9A6 — the page ground; the ship's chip
+
+// Ship_Heading is the sailing sprite's eight baked directions, ordered to match the columns of
+// the embedded strip (art.odin): N, NE, E, SE, S, SW, W, NW, left-to-right. Step 4 only rests
+// the ship (SHIP_REST_HEADING); step 5 snaps this to the route tangent as the ship sails.
+Ship_Heading :: enum {
+	N,
+	NE,
+	E,
+	SE,
+	S,
+	SW,
+	W,
+	NW,
+}
+
+// SHIP_REST_HEADING is the heading the ship holds while moored on the current node. East points
+// it up-map toward the Haven (layers run Start-left → Haven-right, view.odin positions), so the
+// resting vessel reads as poised to sail toward the treasure.
+SHIP_REST_HEADING :: Ship_Heading.E
+
+// SHIP_DRAW_SIZE is the sprite's on-page square in pixels — ~1.3× the node radius (spec §5), a
+// little larger than a node so the vessel sits proud of the marks. A clean 2:1 POINT downscale
+// from the 64px source frames.
+SHIP_DRAW_SIZE :: 32
 
 // compute_node_positions places each node from the generator's layer/lane
 // metadata: layer is the column (Start left, Haven right), lane the row within
@@ -314,13 +339,26 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 		}
 	}
 
-	// The node the ship stands on. Spec §5/§3 makes this the resting ship sprite, with no
-	// amber anywhere on the page — but the sprite lands in build step 4. Until then the current
-	// node reads in the ink language rather than the retired amber ring+dot: a doubled sepia
-	// ring, a deliberate placeholder step 4 replaces with the sprite.
+	// The node the ship stands on reads as the resting ship sprite itself (spec §5): the one
+	// raster on the inked page, moored at its default heading. No amber ring+dot, no procedural
+	// glyph — the sprite is the current-node marker. Step 5 sets it in motion.
 	cur := state.positions[state.current_node_id]
-	rl.DrawCircleLinesV(cur, NODE_RADIUS + 6, INK_SEPIA)
-	rl.DrawCircleLinesV(cur, NODE_RADIUS + 4, INK_SEPIA)
+	draw_ship_sprite(cur, SHIP_REST_HEADING)
+}
+
+// draw_ship_sprite blits the ship at pos facing heading. A faint parchment chip is laid down
+// first so the routes and marks crossing the current node don't muddy under the hull (spec §5),
+// then the heading's column of the embedded strip is drawn centred and scaled to SHIP_DRAW_SIZE.
+// Frame size is read from the sheet height so the layout stays a single source of truth with the
+// strip art.odin loads. The sprite carries its own transparency, so it composites over the chip.
+draw_ship_sprite :: proc(pos: rl.Vector2, heading: Ship_Heading) {
+	rl.DrawCircleV(pos, f32(NODE_RADIUS) + 3, rl.Fade(INK_PARCHMENT, 0.62))
+
+	frame := f32(ship_sprite_tex.height)
+	src := rl.Rectangle{f32(int(heading)) * frame, 0, frame, frame}
+	d := f32(SHIP_DRAW_SIZE)
+	dst := rl.Rectangle{pos.x - d / 2, pos.y - d / 2, d, d}
+	rl.DrawTexturePro(ship_sprite_tex, src, dst, rl.Vector2{0, 0}, 0, rl.WHITE)
 }
 
 // edge_is_sailable reports whether the undirected edge (a, b) is a move the ship can make
