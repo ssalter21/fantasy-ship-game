@@ -59,6 +59,7 @@ capture_main :: proc() {
 
 	capture_shot_chart_table(&state)
 	capture_shot_build_surface(&state)
+	capture_shot_encounter_frame(&state)
 
 	s := sim.sim_create(VOYAGE_SEED)
 	defer sim.sim_destroy(&s)
@@ -154,6 +155,30 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 	draw_build_surface(&game, drag, nil, over)
 	draw_build_surface(&game, drag, nil, over)
 	capture_write(state, "build-placing")
+}
+
+// capture_shot_encounter_frame photographs the shared encounter frame (#304) — the constant
+// furniture the per-stage builds fill in. Like the Chart Table and Build surface it reads
+// only the ship, so it is shot standalone here rather than from the scripted walk (which
+// declines every stage and lingers on none). Two shots: the bare frame on a representative
+// stage — header naming it in its category colour, the top-right stat line, the view-only
+// chart tab, the vignette — and the playback layer over it, the Reward beat that is only
+// this overlay.
+capture_shot_encounter_frame :: proc(state: ^Capture_State) {
+	if !rl.IsWindowReady() {
+		return
+	}
+
+	game := Game_State{player = ship.ship_starting_ship()}
+	defer delete(game.player.layout)
+
+	draw_encounter_frame(&game, .Shop, "")
+	draw_encounter_frame(&game, .Shop, "")
+	capture_write(state, "encounter-frame")
+
+	draw_encounter_frame(&game, .Reward, "Salvage! You haul aboard 4 cargo.")
+	draw_encounter_frame(&game, .Reward, "Salvage! You haul aboard 4 cargo.")
+	capture_write(state, "encounter-playback")
 }
 
 // capture_write writes the presented frame to CAPTURE_DIR, numbered in walk order so a

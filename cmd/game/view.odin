@@ -755,14 +755,28 @@ draw_version_stamp :: proc() {
 	rl.DrawText(text, WINDOW_WIDTH - width - MARGIN, MARGIN, FONT_SIZE, rl.GRAY)
 }
 
-// draw_scene is draw_scene_contents wrapped in its own Begin/EndDrawing pair
-// (used by the blocking event-playback beats in menu.odin, which have
-// nothing further to draw on top). `mouse` is threaded to the map's hover; a caller with
-// no live pointer (a beat, capture) passes an off-screen {-1, -1} so nothing rings.
+// draw_scene is draw_scene_contents wrapped in its own Begin/EndDrawing pair, for the
+// callers with nothing further to draw on top: the travel screen and capture's non-option
+// fallback. `mouse` is threaded to the map's hover; a caller with no live pointer (capture)
+// passes an off-screen {-1, -1} so nothing rings.
 draw_scene :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 	rl.BeginDrawing()
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)
 
 	draw_scene_contents(state, overlay, mouse)
+}
+
+// draw_beat renders one frame of a playback beat: the stage or scene beneath, then the shared
+// playback overlay laid over it (#304, encounter_frame.odin). The beat is the styled
+// scrim-and-headline surface — it dims the stage but leaves it visible — replacing play_beat's
+// old bottom bar. The scene draws with no bottom-bar overlay of its own (empty overlay arg);
+// the headline rides the overlay instead. Its own Begin/EndDrawing pair, like draw_scene.
+draw_beat :: proc(state: ^Game_State, headline: string) {
+	rl.BeginDrawing()
+	defer rl.EndDrawing()
+	defer free_all(context.temp_allocator)
+
+	draw_scene_contents(state, "", rl.Vector2{-1, -1})
+	draw_playback_overlay(headline)
 }

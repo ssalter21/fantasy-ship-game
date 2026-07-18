@@ -10,23 +10,23 @@ import rl "vendor:raylib"
 
 BEAT_MAX_SECONDS :: 1.2
 
-// play_beat blocks in a short render loop showing overlay until the player
-// clicks/presses a key or BEAT_MAX_SECONDS elapses (ADR-0002). It clones overlay
-// first because callers commonly pass temp-allocator memory (fmt.tprintf/
-// battle_event_text) and this loop's own draw_scene frees the temp allocator every
-// frame, which would corrupt a borrowed overlay after the first frame.
-play_beat :: proc(state: ^Game_State, overlay: string) {
+// play_beat blocks in a short render loop rendering the shared playback overlay (#304)
+// over the current stage until the player clicks/presses a key or BEAT_MAX_SECONDS elapses
+// (ADR-0002). It clones the headline first because callers commonly pass temp-allocator
+// memory (fmt.tprintf/battle_event_text) and this loop's own draw_beat frees the temp
+// allocator every frame, which would corrupt a borrowed headline after the first frame.
+play_beat :: proc(state: ^Game_State, headline: string) {
 	if !rl.IsWindowReady() {
 		return
 	}
-	stable_overlay := strings.clone(overlay)
-	defer delete(stable_overlay)
+	stable_headline := strings.clone(headline)
+	defer delete(stable_headline)
 
 	elapsed: f32
 	for {
 		window_quit_if_closed()
 		elapsed += rl.GetFrameTime()
-		draw_scene(state, stable_overlay, rl.Vector2{-1, -1})
+		draw_beat(state, stable_headline)
 		if elapsed > BEAT_MAX_SECONDS || rl.IsKeyPressed(.SPACE) || rl.IsMouseButtonPressed(.LEFT) {
 			return
 		}
