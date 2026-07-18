@@ -42,35 +42,35 @@ compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 // zone_tint is the ambient colour of a zone, used both for the background
 // gradient band and for an unvisited encounter's generic marker.
 //
-// These sit on the style guide's depth ramp: hue falls and value rises as the water
-// shallows (H222 -> H212 -> H200), which is the same ramp ui.odin's COLOUR_DEEP /
-// COLOUR_MID / COLOUR_SHALLOW name. Before #294 they came from colour-palette.webp —
-// a dusk mountain valley sitting at H~193 at every depth, i.e. not a sea — which is
-// what put the world 31.8° of hue away from the chrome and made the two read as
-// different games.
+// These *are* the style guide's depth ramp: hue falls and value rises as the water
+// shallows (H222 -> H212 -> H200), which is exactly ui.odin's COLOUR_DEEP / COLOUR_MID /
+// COLOUR_SHALLOW — zone Deep is the ground the chrome sits on, one set of colours, not
+// two kept in sync. The no-zone fallback drops below the ramp to COLOUR_VIGNETTE: an
+// absence of hue reads as an absence of zone. Before #294 they came from
+// colour-palette.webp — a dusk mountain valley sitting at H~193 at every depth, i.e. not
+// a sea — which is what put the world 31.8° of hue away from the chrome.
 //
-// They are the ramp's *hues*, not its values, and that is a limit rather than a
-// choice. draw_scene clears this canvas to RAYWHITE and the band draws at 18% alpha,
-// so a wash carries almost none of the underlying value: dropping the ramp's true
-// stops (V0.15/0.19/0.25) in here composites all three zones to within 5/255 of each
-// other — one indistinguishable grey. The values below are lifted until they survive
-// that wash, which holds adjacent zones 9/255 apart, exactly what shipped before.
-// The ramp's value axis lands only when the canvas stops being white, and that is the
-// restyle effort's (#275, out of scope), not this one's.
+// Until this restyle these four constants were *lifted* off the ramp's values: draw_scene
+// cleared the canvas to RAYWHITE and the band draws at 18% alpha, so a wash over white
+// carried almost none of the underlying value and dropping the true stops (V0.15/0.19/0.25)
+// in here composited all three zones to within 5/255 of one another — one indistinguishable
+// grey. Now that draw_scene clears to COLOUR_DEEP the wash rides a dark ground, the lift is
+// gone, and the value axis lands (the band's alpha is raised to match — see
+// draw_zone_background).
 zone_tint :: proc(zone: Maybe(voyage.Zone)) -> rl.Color {
 	z, ok := zone.?
 	if !ok {
-		return rl.Color{102, 114, 128, 255}
+		return COLOUR_VIGNETTE
 	}
 	switch z {
 	case .Coastal:
-		return rl.Color{103, 167, 199, 255}
+		return COLOUR_SHALLOW
 	case .Open_Sea:
-		return rl.Color{61, 104, 153, 255}
+		return COLOUR_MID
 	case .Deep:
-		return rl.Color{48, 66, 107, 255}
+		return COLOUR_DEEP
 	}
-	return rl.Color{102, 114, 128, 255}
+	return COLOUR_VIGNETTE
 }
 
 // stage_kind_label is the one place a Stage_Kind becomes player-facing words,
@@ -169,6 +169,15 @@ move_fires :: proc(p: voyage.Node, visited: bool) -> bool {
 
 // draw_zone_background paints a faint per-zone tint band behind the graph as an
 // ambient depth cue: each zone's tint spans the x-range of its columns.
+//
+// The band composites zone_tint (now the ramp's true stops, see zone_tint) over the
+// COLOUR_DEEP canvas. The old 18% wash was tuned for lifted colours over white; over the
+// dark ground it would crush the three ramp stops back to ~2/255 apart. This alpha rides
+// them near the ramp's own values so adjacent zones hold apart the way they shipped, while
+// staying translucent enough to blend where bands overlap. Still ambient: at V0.15-0.25 a
+// band is never the brightest thing on screen.
+ZONE_BAND_ALPHA :: f32(0.75)
+
 draw_zone_background :: proc(state: ^Game_State) {
 	for zone in voyage.Zone {
 		lo, hi: f32 = 1e9, -1e9
@@ -191,7 +200,7 @@ draw_zone_background :: proc(state: ^Game_State) {
 			width  = (hi - lo) + 2 * MAP_PAD,
 			height = MAP_AREA.height,
 		}
-		rl.DrawRectangleRec(band, rl.Fade(zone_tint(zone), 0.18))
+		rl.DrawRectangleRec(band, rl.Fade(zone_tint(zone), ZONE_BAND_ALPHA))
 	}
 }
 
@@ -226,7 +235,10 @@ draw_map :: proc(state: ^Game_State) {
 		color, label := node_appearance(p, state.visited[i])
 		rl.DrawCircleV(pos, NODE_RADIUS, color)
 		if len(label) > 0 {
-			rl.DrawText(fmt.ctprintf("%s", label), i32(pos.x - 18), i32(pos.y + NODE_RADIUS + 2), 12, rl.BLACK)
+			// DARKGRAY, not BLACK: the canvas is COLOUR_DEEP now, so black labels vanish into
+			// the ground. A legibility stopgap on unstyled map chrome — the chart's real type
+			// (Pixelify, the tone hierarchy) lands with the Chart restyle (#303).
+			rl.DrawText(fmt.ctprintf("%s", label), i32(pos.x - 18), i32(pos.y + NODE_RADIUS + 2), 12, rl.DARKGRAY)
 		}
 	}
 
@@ -238,9 +250,12 @@ draw_map :: proc(state: ^Game_State) {
 		rl.DrawText(fmt.ctprintf("%d", n + 1), i32(pos.x - 4), i32(pos.y - 7), 14, rl.WHITE)
 	}
 
-	// Current location outline, drawn last so it reads on top.
+	// Current location outline, drawn last so it reads on top. WHITE, not BLACK: a black
+	// ring is invisible on the COLOUR_DEEP canvas, and this "you are here" mark is exactly
+	// what must read. WHITE matches the reachable-node numbers already on this map; the
+	// chart's real treatment lands with the Chart restyle (#303).
 	cur := state.positions[state.current_node_id]
-	rl.DrawCircleLinesV(cur, NODE_RADIUS + 7, rl.BLACK)
+	rl.DrawCircleLinesV(cur, NODE_RADIUS + 7, rl.WHITE)
 }
 
 // draw_ship_panel renders a ship readout at origin. When gate_visibility is true
@@ -253,12 +268,17 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 	// SPD is the *effective* Speed (ADR-0020): s.speed is only the base term; a ship's
 	// real Speed reads its weight via ship_effective_speed. Printing the raw base would
 	// overstate a heavily-laden ship.
+	//
+	// DARKGRAY, not BLACK: the panel sits on the COLOUR_DEEP canvas now, where black text is
+	// invisible. This matches the title/Hold lines already in this proc — a legibility stopgap
+	// on the unstyled panel; its real restyle (Pixelify, the tone hierarchy) is the Build
+	// screen's (#302).
 	rl.DrawText(
 		fmt.ctprintf("Hull %d/%d   DUR %d   SPD %d", s.hull, s.max_hull, s.durability, ship.ship_effective_speed(s)),
 		x,
 		y + 26,
 		16,
-		rl.BLACK,
+		rl.DARKGRAY,
 	)
 	// Hold and Weight, drawn own-ship only: a scouted opponent's wealth stays behind the
 	// concealment gate (ADR-0005), the same reason its fittings read "???" below. "Hold X/Y"
@@ -296,7 +316,9 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 			}
 			label = fmt.tprintf("%s: %s (%d)", layout_slot.slot.name, fitting.name, magnitude)
 		}
-		rl.DrawText(fmt.ctprintf("%s", label), x, row_y, 14, rl.BLACK)
+		// DARKGRAY, not BLACK, for the same reason as the Hull line above: legible on the
+		// COLOUR_DEEP canvas until the Build screen restyle (#302) gives the panel real type.
+		rl.DrawText(fmt.ctprintf("%s", label), x, row_y, 14, rl.DARKGRAY)
 	}
 }
 
@@ -499,7 +521,7 @@ draw_stage_chip :: proc(state: ^Game_State, chip: rl.Rectangle, index: int, curs
 // caller that draws more on top (menu.odin's button lists) can share one Begin/End pair
 // around it; draw_scene is the standalone wrapper for callers with nothing further.
 draw_scene_contents :: proc(state: ^Game_State, overlay: string) {
-	rl.ClearBackground(rl.RAYWHITE)
+	rl.ClearBackground(COLOUR_DEEP)
 
 	if state.in_battle {
 		if opponent, ok := state.sighted_opponent.?; ok {
