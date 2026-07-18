@@ -26,18 +26,22 @@ below is reachable with raylib primitives (`DrawRectangleRec`, `DrawRectangleLin
 
 ## Where this came from
 
-`docs/ui/references/` holds nine scenes gathered in
-[#276](https://github.com/ssalter21/fantasy-ship-game/issues/276), plus one mock. They are not equal, and which
+`docs/ui/references/` holds eight scenes gathered in
+[#276](https://github.com/ssalter21/fantasy-ship-game/issues/276). They are not equal, and which
 one leads is the whole difference between this guide and its predecessor. Read
-`docs/ui/references/README.md` before them.
+`docs/ui/references/README.md` before them — it also records two images that fed this guide and have since
+been **removed** from the repo (a navy UI mock and a parchment treasure-map), whose decisions are captured
+below so the guide stands on its own without them.
 
 - **`style/island-tropical.jpg` is the keystone.** It is the clearest statement of the target: a saturated
   turquoise sea, warm tan cliffs, vivid layered greens, purple-white clouds. Every colour is turned *up*. The
-  palette below is sampled from it, with **`style/menu-port-tropical.jpg`** and **`menu/treasure-map.jpg`** as
-  supporting witnesses (the port for its bright daylight sea, the map for its parchment-and-sand world).
-- **`menu/menu-ui-mock.png` is a layout reference only.** It is the one image that *is* a UI, so it still fixes
-  **hierarchy and proportion** — but it is a *navy* mock, and it no longer sets colour. Take its stack, its
-  centred title, its caret-and-scrim hover; leave its palette.
+  palette below is sampled from it, with **`style/menu-port-tropical.jpg`** as a supporting witness for its
+  bright daylight sea. The parchment-and-sand world had a second witness, a `treasure-map` reference now
+  **removed** from the repo (recorded in the references README).
+- **The layout came from a `menu-ui-mock.png`, since removed** — the one reference image that *was* a UI. It
+  fixed **hierarchy and proportion** only; being a *navy* mock, it never set colour. Its stack, its centred
+  title, and its caret-and-scrim hover are taken forward; its proportions are measured out under
+  [Proportions](#proportions) below, so the guide no longer needs the image itself.
 - **`style/ship-night.jpg` and `style/ship-battle.jpg` are accent witnesses only.** They show a warm point
   punching against a cold field — the amber relationship — and nothing else. They are night scenes; do not read
   a ground colour out of them.
@@ -68,8 +72,8 @@ carries **two grounds**, and the rule for which is simple:
 - **Parchment `#EBD9A6` is the ground for text** — menus, panels, stat blocks, and the run-map. Dark ink on
   warm parchment is the high-contrast, legible, unmistakably-pirate surface the words sit on.
 
-This is the reference set resolving itself: `island-tropical` is the sea, `treasure-map` is the parchment, and
-a pirate UI is charts drawn on paper over open water.
+This is the reference set resolving itself: `island-tropical` is the sea, the (since-removed) `treasure-map`
+was the parchment, and a pirate UI is charts drawn on paper over open water.
 
 ### The roster
 
@@ -178,8 +182,10 @@ stage), and it never appears twice on a screen. Its scarcity is its meaning, exa
 
 The run-map is being rebuilt as **an actual chart — a piece of parchment**, not a tinted sea. When that lands,
 the map's ground is `#EBD9A6`, its water is drawn *on* the paper in the sea tones, its land is sand and
-foliage, and its markers are re-derived against parchment. `menu/treasure-map.jpg` is the reference for that
-surface — it is promoted from "form and framing only" to a genuine palette source for the map.
+foliage, and its markers are re-derived against parchment. The parchment surface was taken from a `treasure-map`
+reference (since **removed** — see the references README); the sourced Chart Table background in
+[#284](https://github.com/ssalter21/fantasy-ship-game/issues/284) and the parchment-chart build now carry it
+forward.
 
 Until the rebuild, keep the map's colours light:
 
@@ -292,7 +298,7 @@ and raylib's stb_truetype ignores variable axes, rendering only the 400 default.
 constraint — it ships a real **static** `PixelOperator-Bold.ttf`, which stb_truetype would rasterize fine as a
 third embedded blob.
 
-So the rule is now a design choice, not a technical one: **still no bold.** The mock uses no weight contrast,
+So the rule is now a design choice, not a technical one: **still no bold.** The mock used no weight contrast,
 only size and colour, and adding a weight would be a new hierarchy signal this guide deliberately does without.
 If one is ever genuinely wanted the path is now trivial (embed the Bold blob, bake a third `rl.Font`) — but
 reach for a tone from the ramp first.
@@ -304,7 +310,7 @@ Recorded so they are not rediscovered and re-litigated:
 | Face | Rejected because |
 | --- | --- |
 | **Pixelify Sans** | **Adopted, then replaced — ambiguous digits.** It carried the whole first styling pass, but its numerals share the letterforms' skeletons (`0`/`O`, `1`/`l`/`I`, `5`/`S`), and this UI is almost entirely numbers. A rounded pixel face on a 20px grid; crisp there but soft above it. Replaced by Pixel Operator. Its removal is the reason the size scale moved 20/40 → 16/32. |
-| **Pixel Pirate** | **Licence.** At least three distinct fonts share the name (one free on dafont, one *sold commercially* by FontBros); the "100% Free" tag is author-typed, not a licence file; it is described as derived from the *Pirates of the Caribbean* logo type; and this game has a public itch.io page, so redistribution rights are real. `docs/ui/references/typeface.htm` was saved to settle this and captured a Google redirect notice instead — it contains no font data. **Do not adopt without a licence document.** |
+| **Pixel Pirate** | **Licence.** At least three distinct fonts share the name (one free on dafont, one *sold commercially* by FontBros); the "100% Free" tag is author-typed, not a licence file; it is described as derived from the *Pirates of the Caribbean* logo type; and this game has a public itch.io page, so redistribution rights are real. A saved capture meant to settle this caught only a Google redirect notice — no font data — and has since been deleted; the fontmeme page blocks automated fetches. **Do not adopt without a licence document.** |
 | **Press Start 2P** | **Measured overflow.** At 16px it is ~16px/char: `Hull 20/20  DUR 3  SPD 2` renders 384px into a 348px ship panel, and `Reallocate a fitting` renders 320px into a 220px button. It does not fit this game. |
 | **VT323** | **Never crisp** — 46–98% antialiased at every size 8–34. A curvy face; reads as a DOS terminal rather than 16-bit. |
 | **Micro5**, **Jersey10** | Illegible mush at body sizes; 12 printable Latin-1 gaps each (`±`, `²`, `³`, `µ`). |
@@ -327,7 +333,7 @@ check the atlas before assuming it is there.
 
 ## Glyphs are shapes, not text
 
-The mock draws `▶` `◆` `↑` `↓` `⏎`. **Draw these with raylib primitives, never as text.**
+The mock drew `▶` `◆` `↑` `↓` `⏎`. **Draw these with raylib primitives, never as text.**
 
 This is measured, not stylistic. Of every candidate face examined, **none** carries `◆` (U+25C6) or `⏎`
 (U+23CE), and the only one carrying `▶ ↑ ↓` is Press Start 2P — which is rejected on width. Depending on a font
@@ -367,7 +373,7 @@ anything else shared between a styled screen and an unstyled one.
 
 The framing signal is **the torn parchment edge**, not a dark vignette. The old navy guide darkened the screen
 to near-black at its edges; that reintroduces exactly the cold, clinical frame this rewrite is removing. Frame
-with paper: a sand-and-cliff torn border, the treasure-map's own device.
+with paper: a sand-and-cliff torn border — the framing device of a treasure map.
 
 For panels, framing is a **2px border in the tone that states the panel's role** — `#1786BC` for interactive,
 `#B98A50` cliff for inert — over a translucent ground, not a filled box. Let the world read through unselected
@@ -376,9 +382,9 @@ scrim: `rl.Fade(ground, 0.55)`, tuned by eye.
 
 ### Proportions
 
-The mock's layout **cannot be copied** — its aspect is 1.806 against the window's 1.463. What transfers is its
-proportions. Measured from the mock and scaled to 1024×700, as a **starting point** for the Chart Table, not a
-spec:
+These proportions were **measured from the now-removed `menu-ui-mock.png`** (recorded in the references README)
+and scaled to 1024×700 — a **starting point** for the Chart Table, not a spec. The mock's own layout could not
+be copied regardless: its aspect was 1.806 against the window's 1.463, so only its proportions transfer.
 
 | Element | In the mock | At 1024×700 |
 | --- | --- | --- |
@@ -398,9 +404,9 @@ chose.
 
 - **`rl.DrawTextEx`, not `rl.DrawText`.** `DrawText` uses the built-in font. Every text call must pass the
   loaded font. This is the single change that retires most of the programmer-art read.
-- `DrawTextEx` takes a **`spacing`** parameter. The mock's title and subtitle are visibly letterspaced; that
+- `DrawTextEx` takes a **`spacing`** parameter. The mock's title and subtitle were visibly letterspaced; that
   is where it comes from. Pixel Operator at 32px renders the repo-length title well under the mock's width
-  unspaced — close that gap with `spacing`, not with a bigger size. The mock's title is **~614px in the mock's
+  unspaced — close that gap with `spacing`, not with a bigger size. The mock's title was **~614px in the mock's
   own 1421px-wide space, i.e. ~43% of the window's width**, which is the figure that transfers: ~440px at 1024,
   reached at `spacing` = **13** (measured 432px; keep it an integer so glyphs stay on the pixel grid). Note the
   spacing is face- *and* size-specific: Pixelify at the old 40px hit the same ~43% at `spacing` ≈ 8, so a
@@ -425,6 +431,6 @@ chose.
   not create the migration.
 - **Art assets.** Illustration, ship art, node icons. Out of scope, with one carve-out: a *sourced* Chart Table
   background image ([#284](https://github.com/ssalter21/fantasy-ship-game/issues/284)), which would now be an
-  improvement in **depiction**, not palette. The mock is **not** it, and its provenance is unrecorded.
+  improvement in **depiction**, not palette. The removed mock was **not** it, and its provenance was never recorded.
 - **The Chart Table's contents.** Settled by
   [#278](https://github.com/ssalter21/fantasy-ship-game/issues/278), not here.
