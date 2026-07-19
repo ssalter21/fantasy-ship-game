@@ -803,12 +803,34 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		// that set the sail going and snap it to arrival on its first frame.
 		if dest, sailing := state.sail_pending.?; sailing {
 			draw_home(state, Build_Drag{}, nil, mouse, 1)
+			skipped := rl.IsMouseButtonPressed(.LEFT) || rl.IsKeyPressed(.SPACE)
+
+			// Landed. The ship holds on the node it reached while the arrival's ink sets (spec
+			// §6), and only then does the Sim hear the move. The hold is what makes the bloom
+			// exist at all: Command_Travel_To hands the screen straight to the encounter the node
+			// opens, so without it the frame after arrival is not the chart and the ripple plays
+			// to nobody. Measured in the running game — the first cut recorded the bloom and left
+			// immediately, and it was never once visible. The skip covers the hold too, so travel
+			// is still never a forced wait.
 			if state.sail_progress >= 1 {
-				state.sail_pending = nil
-				state.sail_progress = 0
-				return sim.Command(sim.Command_Travel_To{node_id = dest})
+				bloom, setting := state.arrival_bloom.?
+				if !setting {
+					// The moment the *sprite* touches the node — the same moment for a skipped
+					// sail, whose progress was forced to 1. The bloom is a flourish on the
+					// motion, not on the Sim's bookkeeping, so it starts here and not on the
+					// Sim's arrival event.
+					state.arrival_bloom = Ink_Bloom{node = dest, started = rl.GetTime()}
+					continue
+				}
+				if skipped || rl.GetTime() - bloom.started >= INK_BLOOM_LIFE {
+					state.sail_pending = nil
+					state.sail_progress = 0
+					return sim.Command(sim.Command_Travel_To{node_id = dest})
+				}
+				continue
 			}
-			if rl.IsMouseButtonPressed(.LEFT) || rl.IsKeyPressed(.SPACE) {
+
+			if skipped {
 				state.sail_progress = 1
 			} else {
 				state.sail_progress = sail_advance(state.sail_progress, rl.GetFrameTime())
@@ -830,6 +852,11 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 					if rl.CheckCollisionPointCircle(hit, state.positions[dest], NODE_RADIUS) {
 						state.sail_pending = dest
 						state.sail_progress = 0
+						// Clear the last landing's ripple as this leg begins: the arrival hold
+						// above reads the field to tell "this sail has landed" from "still under
+						// way", so a bloom left over from the previous arrival would make the new
+						// sail look like it had already finished setting and skip its own hold.
+						state.arrival_bloom = nil
 						break
 					}
 				}

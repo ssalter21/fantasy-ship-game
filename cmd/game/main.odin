@@ -109,6 +109,13 @@ Game_State :: struct {
 	// spans frames while the chart overlay's own state re-tweens from zero each one.
 	sail_pending:     Maybe(sim.Node_ID),
 	sail_progress:    f32,
+	// arrival_bloom is the landing the ship has just made and when, driving the sepia ink ripple
+	// that blooms out of an arrival (spec §6). It lives beside the sail fields and for the same
+	// reason — the bloom outlasts the frame that set it — and doubles as home_loop's record that
+	// the sail under way has landed and is holding while its ink sets. Set on touchdown, cleared
+	// when the next leg begins; the ripple itself expires on its own age, so a bloom still set
+	// from a landing long past simply draws nothing.
+	arrival_bloom:    Maybe(Ink_Bloom),
 	player:           ship.Ship,
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),

@@ -72,10 +72,10 @@ sail_curve_t :: proc(eased: f32, forward: bool) -> f32 {
 	return forward ? eased : 1 - eased
 }
 
-// sail_ship_pose is where the sprite sits and which way it faces at a given eased progress along
-// the leg from→to: a point on the drawn route, and the curve's tangent there snapped to eight
-// directions. The tangent is flipped on a backwards leg so the bow points at the destination
-// rather than the origin.
+// sail_ship_pose is where the sprite sits, which way it faces, and how far it is leaning at a
+// given eased progress along the leg from→to: a point on the drawn route, the curve's tangent
+// there snapped to eight directions, and the heel that tangent's bend calls for. The tangent is
+// flipped on a backwards leg so the bow points at the destination rather than the origin.
 sail_ship_pose :: proc(
 	positions: []rl.Vector2,
 	from, to: voyage.Node_ID,
@@ -83,6 +83,7 @@ sail_ship_pose :: proc(
 ) -> (
 	pos: rl.Vector2,
 	heading: Ship_Heading,
+	lean: f32,
 ) {
 	a, c, b, forward := sail_leg_curve(positions, from, to)
 	t := sail_curve_t(eased, forward)
@@ -90,7 +91,8 @@ sail_ship_pose :: proc(
 	if !forward {
 		tangent = -tangent
 	}
-	return bezier_quad(a, c, b, t), heading_from_tangent(tangent)
+	lean = heel_into_turn(tangent, bezier_accel(a, c, b), eased)
+	return bezier_quad(a, c, b, t), heading_from_tangent(tangent), lean
 }
 
 // draw_sail_leg strokes the leg under way with its wake filling in as the ship passes (spec §5):
@@ -115,4 +117,113 @@ draw_sail_leg :: proc(a, b: rl.Vector2, t: f32, forward: bool) {
 // edge_is_sail_leg reports whether the undirected edge (a, b) is the leg currently being sailed.
 edge_is_sail_leg :: proc(a, b, from, to: voyage.Node_ID) -> bool {
 	return (a == from && b == to) || (a == to && b == from)
+}
+
+// ---- Travel juice (spec 0001 §6) ----
+//
+// The polish layered over the locked sail: spume off the bow, a hull that lives in the water,
+// and an ink bloom where it lands. All of it is transient by construction — the solid sepia wake
+// stays the only lasting line on the page — so none of it owns a particle list or a per-frame
+// tick. Each effect is a pure function of a number the sail already carries (raw progress) or of
+// the wall clock, which means draw_map can ask for it and nothing has to remember it.
+
+// SPUME_FLECKS is how many foam flecks a leg throws off the bow, and SPUME_LIFE how long one
+// drifts before it has faded out — as a fraction of the leg, not seconds, so the whole spume is a
+// pure function of the sail's raw progress. That framing also means the skip clears the water
+// instantly instead of leaving foam hanging over the arrival. Both are the spec's density dial,
+// set by eye: enough flecks that the bow throws water, few enough that the page stays a chart.
+SPUME_FLECKS :: 16
+SPUME_LIFE :: f32(0.5)
+
+// spume_fleck is fleck i's schedule at raw sail progress: where along the leg it left the bow and
+// how far through its life it is — 0 the moment it is thrown, 1 when it has faded to nothing.
+// Flecks spawn evenly along the leg so the bow sheds water at a steady rate; `alive` is false
+// before its moment and after it is gone.
+spume_fleck :: proc(i: int, progress: f32) -> (spawn, age: f32, alive: bool) {
+	spawn = f32(i) / f32(SPUME_FLECKS)
+	age = (progress - spawn) / SPUME_LIFE
+	return spawn, age, age >= 0 && age < 1
+}
+
+// The sprite's life dials (spec §6): swell, not jitter. Bob is pixels of vertical rise on the
+// 32px sprite, heel degrees of roll, and the periods are deliberately mismatched between the two
+// so the vessel breathes rather than pumping to one metronome. A ship under way works harder and
+// faster than one moored, so sailing gets the bigger, quicker figures.
+SHIP_BOB_SAILING :: f32(2)
+SHIP_BOB_IDLE :: f32(1)
+SHIP_BOB_PERIOD_SAILING :: f32(0.8)
+SHIP_BOB_PERIOD_IDLE :: f32(2.4)
+SHIP_HEEL_SAILING :: f32(2.5)
+SHIP_HEEL_IDLE :: f32(1.25)
+
+// SHIP_HEEL_INTO_TURN is the degrees a ship leans into a bend at the middle of a leg, on top of
+// the swell — the roll that says the hull is being carried through the turn rather than slid
+// along it.
+SHIP_HEEL_INTO_TURN :: f32(6)
+
+// ship_rock is the sprite's swell at a moment: vertical bob in pixels and heel in degrees, an
+// overlay on the baked 8-way frame that leaves the heading snap alone. `time` is wall-clock
+// seconds, so the idle rock keeps running while the ship is moored — the sail's own progress
+// stops at arrival, and a hull that froze the instant it landed would read as pasted on. Pure in
+// its clock so the shape of the motion is testable without one.
+ship_rock :: proc(time: f64, sailing: bool) -> (bob, heel: f32) {
+	t := f32(time)
+	bob_amp := sailing ? SHIP_BOB_SAILING : SHIP_BOB_IDLE
+	heel_amp := sailing ? SHIP_HEEL_SAILING : SHIP_HEEL_IDLE
+	period := sailing ? SHIP_BOB_PERIOD_SAILING : SHIP_BOB_PERIOD_IDLE
+
+	bob = math.sin(t * 2 * math.PI / period) * bob_amp
+	heel = math.cos(t * 2 * math.PI / (period * 1.6)) * heel_amp
+	return
+}
+
+// bezier_accel is the quadratic bezier's second derivative. It is constant over the curve, which
+// is why a leg bends one way for its whole length and the ship's lean never flips mid-sail.
+bezier_accel :: proc(a, c, b: rl.Vector2) -> rl.Vector2 {
+	return 2 * (a - 2 * c + b)
+}
+
+// heel_into_turn is the steady lean a hull carries through a bend: the sign of the turn — where
+// the ship is heading crossed with how that heading is changing — leaned by SHIP_HEEL_INTO_TURN,
+// swelling in and out over the leg so the vessel rolls up as it leaves and rights itself as it
+// lands. Chart space is screen space, so a positive cross product is a clockwise turn and raylib
+// rotates clockwise on a positive angle: the sign carries straight through. A straight leg (no
+// bend, or the degenerate zero tangent at a stationary endpoint) leans not at all.
+//
+// The swell is a parabola rather than a sine hump for the same reason sail_ease is fixed at its
+// endpoints: it is exactly 0 at both, so a ship moored on a node is exactly upright instead of
+// heeled by the last float ulp of sin(π).
+heel_into_turn :: proc(tangent, accel: rl.Vector2, eased: f32) -> f32 {
+	turn := tangent.x * accel.y - tangent.y * accel.x
+	if turn == 0 {
+		return 0
+	}
+	e := clamp(eased, 0, 1)
+	lean := SHIP_HEEL_INTO_TURN * 4 * e * (1 - e)
+	return turn > 0 ? lean : -lean
+}
+
+// Ink_Bloom is an arrival's sepia ripple: the node the ship landed on and the wall-clock second
+// it landed. Started rather than remaining, so nothing has to tick it down — the bloom outlives
+// the frame that set it and expires on its own age.
+Ink_Bloom :: struct {
+	node:    voyage.Node_ID,
+	started: f64,
+}
+
+// INK_BLOOM_LIFE is how long the arrival ripple takes to spread and fade (spec §6), and
+// INK_BLOOM_REACH how far past the node's own radius it reaches at full spread.
+INK_BLOOM_LIFE :: f64(0.6)
+INK_BLOOM_REACH :: f32(22)
+
+// ink_bloom_phase is the ripple's state at `now`: how far it has spread from the node (0 at the
+// mark, 1 at full reach) and how much ink is left in it. The spread eases *out* — the ink runs
+// fast into the paper and slows as it sets — while the alpha drains evenly, so the ring thins as
+// it widens instead of vanishing at a stroke.
+ink_bloom_phase :: proc(now, started: f64) -> (spread, alpha: f32, alive: bool) {
+	age := f32((now - started) / INK_BLOOM_LIFE)
+	if age < 0 || age >= 1 {
+		return 0, 0, false
+	}
+	return 1 - (1 - age) * (1 - age), 1 - age, true
 }
