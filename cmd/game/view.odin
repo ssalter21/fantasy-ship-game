@@ -271,6 +271,11 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	sail_dest, sailing := state.sail_pending.?
 	sail_eased := sail_ease(state.sail_progress)
 
+	// The juice's clock (spec §6). Wall time, not the sail's progress: the hull keeps rocking
+	// while moored and an arrival's bloom outlives the sail that caused it, so neither can be
+	// driven off a tween that stops at 1.
+	now := rl.GetTime()
+
 	// Routes, under the marks; each undirected pair once. A route reads in one of three sepia
 	// states — sailable now (from the ship to a reachable node) is bold dashes; already sailed
 	// (both ends visited) is solid ink, the wake left behind; everything else is faint
@@ -350,30 +355,123 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 		}
 	}
 
+	// The arrival ripple, over the marks: the last landing's ink still spreading into the paper
+	// (spec §6). It expires on its own age, so a stale bloom from an arrival ago simply draws
+	// nothing and no one has to clear it.
+	if bloom, landed := state.arrival_bloom.?; landed {
+		draw_ink_bloom(state.positions[bloom.node], now, bloom.started)
+	}
+
 	// The ship is the one raster on the inked page (spec §5) and the current-node marker: moored
 	// at its default heading on the node it stands on, or out on the leg it is sailing, facing the
-	// curve's tangent. No amber ring+dot, no procedural glyph.
+	// curve's tangent. Either way it rocks in the water (spec §6) — bob and heel over the baked
+	// frame, the heading snap untouched. No amber ring+dot, no procedural glyph. A landed sail
+	// still holding while its ink sets rocks at its moored amplitude, not its working one: the
+	// ship has arrived, and only the Sim hasn't heard yet.
+	under_way := sailing && state.sail_progress < 1
+	bob, heel := ship_rock(now, under_way)
 	if sailing {
-		pos, heading := sail_ship_pose(state.positions, state.current_node_id, sail_dest, sail_eased)
-		draw_ship_sprite(pos, heading)
+		pos, heading, lean := sail_ship_pose(
+			state.positions,
+			state.current_node_id,
+			sail_dest,
+			sail_eased,
+		)
+		// Spume under the hull, over the wake it is thrown across, so the flecks read as water
+		// off the bow rather than marks on the chart.
+		draw_spume(state.positions, state.current_node_id, sail_dest, state.sail_progress)
+		draw_ship_sprite(pos, heading, bob, heel + lean)
 	} else {
-		draw_ship_sprite(state.positions[state.current_node_id], SHIP_REST_HEADING)
+		draw_ship_sprite(state.positions[state.current_node_id], SHIP_REST_HEADING, bob, heel)
 	}
 }
 
-// draw_ship_sprite blits the ship at pos facing heading. A faint parchment chip is laid down
-// first so the routes and marks crossing the current node don't muddy under the hull (spec §5),
-// then the heading's column of the embedded strip is drawn centred and scaled to SHIP_DRAW_SIZE.
-// Frame size is read from the sheet height so the layout stays a single source of truth with the
-// strip art.odin loads. The sprite carries its own transparency, so it composites over the chip.
-draw_ship_sprite :: proc(pos: rl.Vector2, heading: Ship_Heading) {
+// draw_ship_sprite blits the ship at pos facing heading, riding `bob` pixels of swell and heeled
+// `heel` degrees. A faint parchment chip is laid down first so the routes and marks crossing the
+// current node don't muddy under the hull (spec §5) — the chip stays put while the hull moves,
+// since the water under a ship doesn't bob with it. The heading's column of the embedded strip is
+// then drawn centred and scaled to SHIP_DRAW_SIZE; frame size is read from the sheet height so the
+// layout stays a single source of truth with the strip art.odin loads, and the sprite carries its
+// own transparency so it composites over the chip. Rotation turns about the sprite's own centre,
+// which is why the destination rect is placed *at* pos and the origin carries the half-size — a
+// top-left rect would swing the hull around the node instead of rolling it in place.
+draw_ship_sprite :: proc(pos: rl.Vector2, heading: Ship_Heading, bob, heel: f32) {
 	rl.DrawCircleV(pos, f32(NODE_RADIUS) + 3, rl.Fade(INK_PARCHMENT, 0.62))
 
 	frame := f32(ship_sprite_tex.height)
 	src := rl.Rectangle{f32(int(heading)) * frame, 0, frame, frame}
 	d := f32(SHIP_DRAW_SIZE)
-	dst := rl.Rectangle{pos.x - d / 2, pos.y - d / 2, d, d}
-	rl.DrawTexturePro(ship_sprite_tex, src, dst, rl.Vector2{0, 0}, 0, rl.WHITE)
+	dst := rl.Rectangle{pos.x, pos.y + bob, d, d}
+	rl.DrawTexturePro(ship_sprite_tex, src, dst, rl.Vector2{d / 2, d / 2}, heel, rl.WHITE)
+}
+
+// draw_spume throws the sail's two kinds of transient water (spec §6): pale-parchment foam flecks
+// flung off the bow and out to the side, and faded-ink sepia stipple settling back into the wake.
+// Both fade inside half a leg and neither leaves a mark — the solid sepia wake draw_sail_leg fills
+// in is the only lasting line. Each fleck is placed where the ship actually was when it was
+// thrown (its spawn progress run back through the same ease and the same drawn curve), so the
+// spray trails the hull down the route instead of hanging in a line.
+draw_spume :: proc(positions: []rl.Vector2, from, to: voyage.Node_ID, progress: f32) {
+	a, c, b, forward := sail_leg_curve(positions, from, to)
+	for i in 0 ..< SPUME_FLECKS {
+		spawn, age, alive := spume_fleck(i, progress)
+		if !alive {
+			continue
+		}
+
+		t := sail_curve_t(sail_ease(spawn), forward)
+		at := bezier_quad(a, c, b, t)
+		tangent := bezier_tangent(a, c, b, t)
+		if !forward {
+			tangent = -tangent
+		}
+		// Heading and its perpendicular: foam is thrown sideways off alternating bows, stipple
+		// falls away astern. The wobble is the doodles' own hand-jitter, seeded on the fleck so
+		// the spray is scattered but never shimmers between frames.
+		dir := linalg.normalize0(tangent)
+		side := rl.Vector2{-dir.y, dir.x} * (i % 2 == 0 ? 1 : -1)
+		wobble := ink_wobble(f32(i) * 3.7, 1.5)
+
+		// Foam off the bow, thrown clear of the hull and out to alternating sides. Parchment
+		// cored but rimmed in Cliff, because a pale-parchment fleck *on the parchment page* is
+		// the page: the rim is what makes it read as water rather than as nothing. Both are
+		// roster colours (spec §8) — the fleck spends no new ink on the chart.
+		foam := at + dir * 3 + side * (SPUME_CLEARANCE + SPUME_DRIFT * age) + rl.Vector2{wobble, wobble}
+		fade := 1 - age
+		rl.DrawCircleV(foam, 3 - age, rl.Fade(INK_PARCHMENT, 0.95 * fade))
+		rl.DrawCircleLinesV(foam, 3 - age, rl.Fade(SPUME_FOAM_RIM, 0.8 * fade))
+
+		// Sepia stipple falling astern and settling into the wake, in the recessive register so
+		// it reads as ink drying rather than as a second line drawn on the chart.
+		stipple := at - dir * (SPUME_CLEARANCE + SPUME_DRIFT * 0.7 * age) + side * (3 + wobble)
+		rl.DrawCircleV(stipple, 2, rl.Fade(INK_FADED, 0.7 * fade))
+	}
+}
+
+// SPUME_CLEARANCE is how far a fleck starts from the hull, and SPUME_DRIFT how much further it
+// travels before it fades. Both are sized against the *sprite*, not the leg: the zero-crossing
+// layout sits connected nodes right next to each other (spec §4), so a leg is only a couple of
+// ship-lengths and spume thrown any tighter than the 32px sprite and its chip is simply drawn
+// underneath them. Measured on the running game, which is where this dial belongs (spec §6).
+SPUME_CLEARANCE :: f32(9)
+SPUME_DRIFT :: f32(14)
+
+// SPUME_FOAM_RIM is the foam fleck's edge: Cliff, the page's own mid mottle tone, dark enough to
+// outline a parchment-coloured fleck against clean parchment and light enough not to read as ink.
+SPUME_FOAM_RIM :: rl.Color{185, 138, 80, 255} // Cliff #B98A50
+
+// draw_ink_bloom ripples the arrival flourish out of a node (spec §6): two thin sepia rings
+// widening and thinning together, the outer one leading — "the ink just set". Strong sepia
+// outside over faded-ink within, the page's own two registers, so the bloom reads as the chart's
+// ink rather than a new colour. Silently draws nothing once the ripple has expired.
+draw_ink_bloom :: proc(centre: rl.Vector2, now, started: f64) {
+	spread, alpha, alive := ink_bloom_phase(now, started)
+	if !alive {
+		return
+	}
+	outer := f32(NODE_RADIUS) + spread * INK_BLOOM_REACH
+	rl.DrawCircleLinesV(centre, outer, rl.Fade(INK_SEPIA, alpha))
+	rl.DrawCircleLinesV(centre, outer * 0.62, rl.Fade(INK_FADED, alpha * 0.7))
 }
 
 // edge_is_sailable reports whether the undirected edge (a, b) is a move the ship can make
