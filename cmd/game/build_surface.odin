@@ -741,6 +741,10 @@ home_chart_tab_rect :: proc() -> rl.Rectangle {
 // through the same chart_offset draw_map_page is drawn under, so a hit-test asks about the page
 // the eye sees. The page is the torn sheet itself (view.odin:247) — everything outside it is the
 // darkened Build surface showing through, the four-sided cutaway that frames the map (spec §1).
+// This is the sheet's *bounding box*, so the torn rim's transparent corners fall just inside it
+// and read as margin without dismissing (measured: MAP_AREA's corner is Build navy, not
+// parchment). That way round on purpose — the alternative, insetting to the rim, would let a
+// click on visible parchment near the edge roll the map away under a player aiming at a node.
 home_chart_page_rect :: proc(raise: f32) -> rl.Rectangle {
 	offset := chart_offset(raise)
 	rect := MAP_AREA

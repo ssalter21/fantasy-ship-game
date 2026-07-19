@@ -53,7 +53,11 @@ clicking_the_chart_tab_rolls_the_chart_down :: proc(t: ^testing.T) {
 @(test)
 clicking_the_page_itself_leaves_the_chart_up :: proc(t: ^testing.T) {
 	// Only the margin dismisses: a click on the parchment away from the tab belongs to the
-	// node hit-test, so the map must stay unfurled rather than rolling down under it.
+	// node hit-test, so the map must stay unfurled rather than rolling down under it. Sampled
+	// mid-page rather than at the rect's corner — the corner is inside the bounding box but
+	// outside the torn sheet (measured Build navy there, not Parchment #EBD9A6), so it would
+	// assert the fringe rather than the parchment.
 	page := home_chart_page_rect(1)
-	testing.expect(t, !home_chart_roll_down(rl.Vector2{page.x + 20, page.y + 20}), "page click keeps the map up")
+	mid := rl.Vector2{page.x + page.width / 2, page.y + page.height * 0.67}
+	testing.expect(t, !home_chart_roll_down(mid), "a click on the parchment keeps the map up")
 }
