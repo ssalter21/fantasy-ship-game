@@ -10,7 +10,18 @@ import rl "vendor:raylib"
 MAP_AREA := rl.Rectangle{x = 20, y = 20, width = 620, height = 640}
 SHIP_PANEL_X :: 670
 NODE_RADIUS :: 12
-MAP_PAD :: 34
+// MAP_PAD_X / MAP_PAD_Y inset the node field from MAP_AREA. The axes differ because the
+// layout drives them differently: `fx` runs the full 0..1 across layers, so the Start and
+// the Haven land *exactly* on the field's left and right edge, while `fy` is (lane+1)/(w+1)
+// and never reaches its extremes. Only x, then, has to clear the torn deckled rim baked into
+// the parchment page (spec §2) — measured at its deepest as 261px in from the left and 762
+// from the right — *plus* the overhang of what sits on those two stops: the Start wears the
+// 32px ship sprite (wider than a node) and both wear a centred label. At the blue chart's
+// flat 34 the two stops that orient the captain (stories 4, 5) drew half onto the rim, the
+// "Start" label bleeding onto the Build surface behind. y keeps 34 — the lanes never needed
+// the room, and spending it there would only squash the map.
+MAP_PAD_X :: 85
+MAP_PAD_Y :: 34
 
 // The parchment Chart's ink palette (spec 0001 §8). The reskin drops the blue
 // nautical-chart tones on this surface — steel rings, CHART_INK routes, the amber
@@ -65,15 +76,15 @@ compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 		layer_counts[p.layer] += 1
 	}
 
-	usable_w := MAP_AREA.width - 2 * MAP_PAD
-	usable_h := MAP_AREA.height - 2 * MAP_PAD
+	usable_w := MAP_AREA.width - 2 * MAP_PAD_X
+	usable_h := MAP_AREA.height - 2 * MAP_PAD_Y
 	for p in voyage_map.nodes {
 		fx := max_layer > 0 ? f32(p.layer) / f32(max_layer) : 0
 		w := layer_counts[p.layer]
 		fy := f32(p.lane + 1) / f32(w + 1)
 		positions[p.id] = rl.Vector2{
-			MAP_AREA.x + MAP_PAD + fx * usable_w,
-			MAP_AREA.y + MAP_PAD + fy * usable_h,
+			MAP_AREA.x + MAP_PAD_X + fx * usable_w,
+			MAP_AREA.y + MAP_PAD_Y + fy * usable_h,
 		}
 	}
 	return positions
@@ -343,15 +354,24 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	// parchment's interactive tone (spec §3) — with a caret under the pointer, and a coral
 	// danger tick on one whose encounter is still unrevealed (a buoy — it might fire; a
 	// revealed node already carries its identity so its risk reads on its own).
-	for dest in options {
-		pos := state.positions[dest]
-		hovered := rl.CheckCollisionPointCircle(mouse, pos, NODE_RADIUS)
-		draw_dashed_ring(pos, NODE_RADIUS + 5, INK_SEA_DEEP)
-		if node_mark(state.voyage_map.nodes[dest], state.visited[dest]) == .Buoy {
-			draw_danger_tick(pos)
-		}
-		if hovered {
-			draw_caret(rl.Vector2{pos.x - NODE_RADIUS - 12, pos.y}, INK_SEA_DEEP)
+	//
+	// None of it while a leg is under way: the choice has been made and home_loop is swallowing
+	// input, so a ring still saying "sail here" — on the very node the hull is standing on once
+	// it lands, since current_node_id doesn't move until the Sim is told — and a caret inviting a
+	// click that will be eaten both describe a map the player can no longer act on. Clearing them
+	// for the sail is §5.7's "rings clear and recompute from the new node", arriving one hold
+	// early, and it matches the legal dashes already receding above.
+	if !sailing {
+		for dest in options {
+			pos := state.positions[dest]
+			hovered := rl.CheckCollisionPointCircle(mouse, pos, NODE_RADIUS)
+			draw_dashed_ring(pos, NODE_RADIUS + 5, INK_SEA_DEEP)
+			if node_mark(state.voyage_map.nodes[dest], state.visited[dest]) == .Buoy {
+				draw_danger_tick(pos)
+			}
+			if hovered {
+				draw_caret(rl.Vector2{pos.x - NODE_RADIUS - 12, pos.y}, INK_SEA_DEEP)
+			}
 		}
 	}
 
@@ -438,8 +458,13 @@ draw_spume :: proc(positions: []rl.Vector2, from, to: voyage.Node_ID, progress: 
 		// roster colours (spec §8) — the fleck spends no new ink on the chart.
 		foam := at + dir * 3 + side * (SPUME_CLEARANCE + SPUME_DRIFT * age) + rl.Vector2{wobble, wobble}
 		fade := 1 - age
-		rl.DrawCircleV(foam, 3 - age, rl.Fade(INK_PARCHMENT, 0.95 * fade))
-		rl.DrawCircleLinesV(foam, 3 - age, rl.Fade(SPUME_FOAM_RIM, 0.8 * fade))
+		// Sized off SPUME_FOAM_R, not a bare 3: the rim is Cliff, which is also the page's own
+		// mid mottle tone, so a fleck drawn at the mottle's speckle scale is camouflaged by
+		// construction. Reading the foam at 1:1 is a matter of out-scaling the speckle it is
+		// tinted like (step 8, measured on the running game).
+		r := SPUME_FOAM_R - 1.5 * age
+		rl.DrawCircleV(foam, r, rl.Fade(INK_PARCHMENT, 0.95 * fade))
+		rl.DrawCircleLinesV(foam, r, rl.Fade(SPUME_FOAM_RIM, 0.8 * fade))
 
 		// Sepia stipple falling astern and settling into the wake, in the recessive register so
 		// it reads as ink drying rather than as a second line drawn on the chart.
@@ -459,6 +484,12 @@ SPUME_DRIFT :: f32(14)
 // SPUME_FOAM_RIM is the foam fleck's edge: Cliff, the page's own mid mottle tone, dark enough to
 // outline a parchment-coloured fleck against clean parchment and light enough not to read as ink.
 SPUME_FOAM_RIM :: rl.Color{185, 138, 80, 255} // Cliff #B98A50
+
+// SPUME_FOAM_R is a fresh fleck's radius, shrinking as it drifts. Above the page's mottle
+// speckle so the foam separates from the ground it is tinted like — the density dial spec §6
+// leaves to the build, turned up at step 8 because at the mottle's own 3px the spray was
+// invisible at 1:1 however many flecks were thrown.
+SPUME_FOAM_R :: f32(4.5)
 
 // draw_ink_bloom ripples the arrival flourish out of a node (spec §6): two thin sepia rings
 // widening and thinning together, the outer one leading — "the ink just set". Strong sepia
@@ -559,8 +590,13 @@ draw_route :: proc(a, b: rl.Vector2, style: Route_Style) {
 				rl.DrawLineEx(prev, pt, 3, INK_SEPIA)
 			}
 		case .Charted:
-			if s % 2 == 0 {
-				rl.DrawCircleV(pt, 1.5, INK_FADED)
+			// Every third sample, not every second, and a dot under the buoy's: the road
+			// ahead is the deepest point of the §7 recession, and a fifty-node map draws
+			// far more route than node. Tuned by eye at 1:1 (step 8) — at the old 1.5/every-
+			// second the charted stipple out-weighed the ? buoy sitting in it, so identity
+			// lost to recession, which §3 inverts.
+			if s % 3 == 0 {
+				rl.DrawCircleV(pt, 1.1, INK_FADED)
 			}
 		}
 		prev = pt
@@ -727,7 +763,10 @@ draw_buoy_mark :: proc(pos: rl.Vector2) {
 	for i in 0 ..< DOTS {
 		a := f32(i) / f32(DOTS) * 2 * math.PI
 		p := pos + rl.Vector2{math.cos(a), math.sin(a)} * (R * 0.8)
-		rl.DrawCircleV(p, 1.2, INK_FADED)
+		// Heavier than the charted route's dot so the buoy reads as a *stop* and not as a
+		// wide spot in the trail — both live in the faded register (§3 reserves it for
+		// exactly these two), so weight is the only separator available.
+		rl.DrawCircleV(p, 1.6, INK_FADED)
 	}
 	q := fmt.ctprint("?")
 	size := rl.MeasureTextEx(ui_font_body, q, UI_BODY_SIZE, 1)
