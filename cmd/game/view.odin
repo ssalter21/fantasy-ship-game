@@ -10,7 +10,16 @@ import rl "vendor:raylib"
 MAP_AREA := rl.Rectangle{x = 20, y = 20, width = 620, height = 640}
 SHIP_PANEL_X :: 670
 NODE_RADIUS :: 12
-MAP_PAD :: 34
+// MAP_PAD_X / MAP_PAD_Y inset the node field from MAP_AREA, and differ because the layout drives
+// the axes differently: `fx` runs the full 0..1 across layers, putting the Start and the Haven
+// *exactly* on the field's left and right edge, while `fy` is (lane+1)/(w+1) and never reaches
+// its extremes. So x alone has to clear the torn deckled rim baked into the page (spec §2) — up
+// to ~60px of irregular edge — plus the overhang of what those two stops wear: the Start carries
+// the 32px ship sprite, wider than a node, and both carry a centred label. Short of that they
+// draw onto the rim and their labels onto the Build surface behind. y stays tight; spending the
+// same room there would only squash the map.
+MAP_PAD_X :: 85
+MAP_PAD_Y :: 34
 
 // The parchment Chart's ink palette (spec 0001 §8). The reskin drops the blue
 // nautical-chart tones on this surface — steel rings, CHART_INK routes, the amber
@@ -65,15 +74,15 @@ compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 		layer_counts[p.layer] += 1
 	}
 
-	usable_w := MAP_AREA.width - 2 * MAP_PAD
-	usable_h := MAP_AREA.height - 2 * MAP_PAD
+	usable_w := MAP_AREA.width - 2 * MAP_PAD_X
+	usable_h := MAP_AREA.height - 2 * MAP_PAD_Y
 	for p in voyage_map.nodes {
 		fx := max_layer > 0 ? f32(p.layer) / f32(max_layer) : 0
 		w := layer_counts[p.layer]
 		fy := f32(p.lane + 1) / f32(w + 1)
 		positions[p.id] = rl.Vector2{
-			MAP_AREA.x + MAP_PAD + fx * usable_w,
-			MAP_AREA.y + MAP_PAD + fy * usable_h,
+			MAP_AREA.x + MAP_PAD_X + fx * usable_w,
+			MAP_AREA.y + MAP_PAD_Y + fy * usable_h,
 		}
 	}
 	return positions
@@ -343,12 +352,18 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	// parchment's interactive tone (spec §3) — with a caret under the pointer, and a coral
 	// danger tick on one whose encounter is still unrevealed (a buoy — it might fire; a
 	// revealed node already carries its identity so its risk reads on its own).
+	//
+	// A leg under way dims them, the same recession the legal dashes take above (spec §5.5).
+	// current_node_id does not move until the Sim is told, so for the whole sail and its arrival
+	// hold the destination is still in `options` — undimmed, the map would ring the node the hull
+	// is standing on as somewhere to sail to. The caret is the exception and goes out entirely:
+	// it tracks the pointer rather than marking state, and home_loop is swallowing clicks.
 	for dest in options {
 		pos := state.positions[dest]
-		hovered := rl.CheckCollisionPointCircle(mouse, pos, NODE_RADIUS)
-		draw_dashed_ring(pos, NODE_RADIUS + 5, INK_SEA_DEEP)
+		hovered := !sailing && rl.CheckCollisionPointCircle(mouse, pos, NODE_RADIUS)
+		draw_dashed_ring(pos, NODE_RADIUS + 5, sail_dimmed(INK_SEA_DEEP, sailing))
 		if node_mark(state.voyage_map.nodes[dest], state.visited[dest]) == .Buoy {
-			draw_danger_tick(pos)
+			draw_danger_tick(pos, sail_dimmed(INK_CORAL, sailing))
 		}
 		if hovered {
 			draw_caret(rl.Vector2{pos.x - NODE_RADIUS - 12, pos.y}, INK_SEA_DEEP)
@@ -438,8 +453,9 @@ draw_spume :: proc(positions: []rl.Vector2, from, to: voyage.Node_ID, progress: 
 		// roster colours (spec §8) — the fleck spends no new ink on the chart.
 		foam := at + dir * 3 + side * (SPUME_CLEARANCE + SPUME_DRIFT * age) + rl.Vector2{wobble, wobble}
 		fade := 1 - age
-		rl.DrawCircleV(foam, 3 - age, rl.Fade(INK_PARCHMENT, 0.95 * fade))
-		rl.DrawCircleLinesV(foam, 3 - age, rl.Fade(SPUME_FOAM_RIM, 0.8 * fade))
+		r := SPUME_FOAM_R - SPUME_FOAM_SHRINK * age
+		rl.DrawCircleV(foam, r, rl.Fade(INK_PARCHMENT, 0.95 * fade))
+		rl.DrawCircleLinesV(foam, r, rl.Fade(SPUME_FOAM_RIM, 0.8 * fade))
 
 		// Sepia stipple falling astern and settling into the wake, in the recessive register so
 		// it reads as ink drying rather than as a second line drawn on the chart.
@@ -459,6 +475,13 @@ SPUME_DRIFT :: f32(14)
 // SPUME_FOAM_RIM is the foam fleck's edge: Cliff, the page's own mid mottle tone, dark enough to
 // outline a parchment-coloured fleck against clean parchment and light enough not to read as ink.
 SPUME_FOAM_RIM :: rl.Color{185, 138, 80, 255} // Cliff #B98A50
+
+// SPUME_FOAM_R is a fresh fleck's radius and SPUME_FOAM_SHRINK how much of it drift takes back.
+// The radius has to sit above the page's own mottle speckle: SPUME_FOAM_RIM is Cliff, which is
+// also a mottle tone, so foam drawn at the speckle's scale reads as more page rather than as
+// water however many flecks are thrown. Spec §6 leaves the density to the build.
+SPUME_FOAM_R :: f32(4.5)
+SPUME_FOAM_SHRINK :: f32(1.5)
 
 // draw_ink_bloom ripples the arrival flourish out of a node (spec §6): two thin sepia rings
 // widening and thinning together, the outer one leading — "the ink just set". Strong sepia
@@ -542,6 +565,14 @@ Route_Style :: enum {
 	Charted,
 }
 
+// The faded register's two weights, and the invariant between them: a ? buoy must out-ink the
+// charted route it sits on. §3 reserves faded-ink for both, so weight is the only thing left to
+// separate a stop from the trail running through it — keep DOT_R_BUOY above DOT_R_CHARTED.
+// CHARTED_DOT_EVERY is how many curve samples pass between dots; larger is sparser.
+DOT_R_BUOY :: f32(1.6)
+DOT_R_CHARTED :: f32(1.1)
+CHARTED_DOT_EVERY :: 3
+
 // draw_route strokes an edge as its state's sepia trail on the hand-wavy bezier. Sampled into
 // short segments so the curve reads; Sailable skips alternate segments for a dash, Charted
 // drops sparse faded-ink dots, Sailed inks solid — the wake left behind.
@@ -559,12 +590,25 @@ draw_route :: proc(a, b: rl.Vector2, style: Route_Style) {
 				rl.DrawLineEx(prev, pt, 3, INK_SEPIA)
 			}
 		case .Charted:
-			if s % 2 == 0 {
-				rl.DrawCircleV(pt, 1.5, INK_FADED)
+			// The deepest point of the §7 recession, and the map draws far more route than
+			// node — so this dot stays under DOT_R_BUOY. A charted stipple that outweighs the
+			// ? buoys sitting in it inverts §3's "identity reads before recession".
+			if s % CHARTED_DOT_EVERY == 0 {
+				rl.DrawCircleV(pt, DOT_R_CHARTED, INK_FADED)
 			}
 		}
 		prev = pt
 	}
+}
+
+// SAIL_DIM is how far the reachable marks recede while a leg is under way (spec §5.5) — faint
+// enough to stop reading as an offer, present enough that the map doesn't reshuffle mid-sail.
+SAIL_DIM :: f32(0.25)
+
+// sail_dimmed is a reachable mark's ink for the frame: full strength when the captain can act,
+// SAIL_DIM once a leg is under way and the choice is no longer theirs to make.
+sail_dimmed :: proc(ink: rl.Color, sailing: bool) -> rl.Color {
+	return sailing ? rl.Fade(ink, SAIL_DIM) : ink
 }
 
 // draw_dashed_ring strokes a dashed circle — the reachable node's Sea-deep interactive ring
@@ -727,7 +771,7 @@ draw_buoy_mark :: proc(pos: rl.Vector2) {
 	for i in 0 ..< DOTS {
 		a := f32(i) / f32(DOTS) * 2 * math.PI
 		p := pos + rl.Vector2{math.cos(a), math.sin(a)} * (R * 0.8)
-		rl.DrawCircleV(p, 1.2, INK_FADED)
+		rl.DrawCircleV(p, DOT_R_BUOY, INK_FADED)
 	}
 	q := fmt.ctprint("?")
 	size := rl.MeasureTextEx(ui_font_body, q, UI_BODY_SIZE, 1)
@@ -758,13 +802,13 @@ draw_haven_island :: proc(pos: rl.Vector2, color: rl.Color) {
 // draw_danger_tick draws a short coral stroke at a reachable buoy's shoulder — "this stop is
 // still a mystery, and you'd be sailing into it". Coral is the page's one warm accent, shared
 // only with the Haven X (spec §3): it warns exactly where the risk is, and nowhere else.
-draw_danger_tick :: proc(pos: rl.Vector2) {
+draw_danger_tick :: proc(pos: rl.Vector2, tint := INK_CORAL) {
 	R :: f32(NODE_RADIUS)
 	rl.DrawLineEx(
 		rl.Vector2{pos.x + R * 0.55, pos.y - R * 1.15},
 		rl.Vector2{pos.x + R * 1.15, pos.y - R * 0.55},
 		3,
-		INK_CORAL,
+		tint,
 	)
 }
 
