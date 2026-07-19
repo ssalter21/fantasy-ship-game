@@ -47,6 +47,8 @@ capture_main :: proc() {
 	defer menu_art_unload()
 	parchment_art_load()
 	defer parchment_art_unload()
+	ship_art_load()
+	defer ship_art_unload()
 
 	if !os.exists(CAPTURE_DIR) {
 		if err := os.make_directory(CAPTURE_DIR); err != nil {

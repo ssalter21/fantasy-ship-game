@@ -65,3 +65,30 @@ parchment_art_load :: proc() {
 parchment_art_unload :: proc() {
 	rl.UnloadTexture(parchment_page_tex)
 }
+
+// The sailing ship (spec 0001 §5/§9): a PixelLab 8-direction pixel-art sprite — deliberately
+// the one raster on the otherwise-procedural live layer, a little vessel *on* the map rather
+// than a mark drawn *in* it. Warm sepia hull + cream sail, no amber, so it reads on the
+// parchment. The eight baked headings (N, NE, E, SE, S, SW, W, NW) are laid out left-to-right
+// in a single horizontal strip, each frame a square the sheet's own height, so a heading
+// indexes a column (view.odin draw_ship_sprite). Step 4 rests the sprite on the current node;
+// step 5 sails it along the route through the same eight frames.
+SHIP_SPRITE_PNG :: #load("../../assets/art/ship-sprite.png")
+
+// ship_sprite_tex is the uploaded 8-heading strip. A GPU resource like the other art, so it is
+// loaded after InitWindow and freed by ship_art_unload.
+ship_sprite_tex: rl.Texture2D
+
+// ship_art_load uploads the embedded strip. POINT filtering for the same reason the parchment
+// page and font need it: raylib's default bilinear softens pixel art on upload and undoes
+// generating at native resolution. Must run after InitWindow.
+ship_art_load :: proc() {
+	img := rl.LoadImageFromMemory(".png", raw_data(SHIP_SPRITE_PNG), i32(len(SHIP_SPRITE_PNG)))
+	defer rl.UnloadImage(img)
+	ship_sprite_tex = rl.LoadTextureFromImage(img)
+	rl.SetTextureFilter(ship_sprite_tex, .POINT)
+}
+
+ship_art_unload :: proc() {
+	rl.UnloadTexture(ship_sprite_tex)
+}
