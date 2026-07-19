@@ -766,10 +766,32 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		// already at its target, so this is a no-op on the resting Build surface.
 		chart_raise = chart_settle(chart_raise, chart_target)
 
+		// Sailing: a destination is chosen but not yet committed, so the ship is out on the leg
+		// and every other input is swallowed. A click or Space snaps to arrival — the sail is
+		// never a forced wait (spec §5) — and only on arrival does the Sim hear the move.
+		// Draw before polling, as the raised chart does: raylib refreshes the pressed edge in
+		// EndDrawing, so a skip tested ahead of the frame's draw would still see the very click
+		// that set the sail going and snap it to arrival on its first frame.
+		if dest, sailing := state.sail_pending.?; sailing {
+			draw_home(state, Build_Drag{}, nil, mouse, 1)
+			if state.sail_progress >= 1 {
+				state.sail_pending = nil
+				state.sail_progress = 0
+				return sim.Command(sim.Command_Travel_To{node_id = dest})
+			}
+			if rl.IsMouseButtonPressed(.LEFT) || rl.IsKeyPressed(.SPACE) {
+				state.sail_progress = 1
+			} else {
+				state.sail_progress = sail_advance(state.sail_progress, rl.GetFrameTime())
+			}
+			continue
+		}
+
 		// Chart raised and at rest: the sailable overlay over the still-present Build surface. A
-		// click on a reachable node sails; a click on the tab flips the chart back down. The node
-		// hit-test is travel_menu_loop's, over the same emitted options the Sim gates on, with the
-		// cursor un-shifted by the chart's centre/rise offset so it lands on the mark the eye sees.
+		// click on a reachable node sets the ship sailing toward it; a click on the tab flips the
+		// chart back down. The node hit-test is travel_menu_loop's, over the same emitted options
+		// the Sim gates on, with the cursor un-shifted by the chart's centre/rise offset so it
+		// lands on the mark the eye sees.
 		if chart_raise >= 1 && chart_target >= 1 {
 			draw_home(state, Build_Drag{}, nil, mouse, 1)
 			if rl.IsMouseButtonPressed(.LEFT) {
@@ -777,10 +799,12 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 				hit := rl.Vector2{mouse.x - offset.x, mouse.y - offset.y}
 				for dest in state.travel_options {
 					if rl.CheckCollisionPointCircle(hit, state.positions[dest], NODE_RADIUS) {
-						return sim.Command(sim.Command_Travel_To{node_id = dest})
+						state.sail_pending = dest
+						state.sail_progress = 0
+						break
 					}
 				}
-				if rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
+				if state.sail_pending == nil && rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
 					chart_target = 0
 				}
 			}

@@ -102,6 +102,13 @@ Game_State :: struct {
 	visited:          []bool, // parallel to voyage_map.nodes; kept for rendering
 	travel_options:   []sim.Node_ID, // borrowed from the latest Event_Travel_Options; the Sim's legal moves
 	current_node_id:  sim.Node_ID,
+	// sail_pending is the destination a click on the raised chart has chosen but not yet
+	// committed: while it is set the ship is under way and home_loop is in its input-swallowed
+	// sailing sub-state, holding Command_Travel_To back until the sprite lands. sail_progress is
+	// that voyage's raw 0..1 tween. Both live here rather than in home_loop because the sail
+	// spans frames while the chart overlay's own state re-tweens from zero each one.
+	sail_pending:     Maybe(sim.Node_ID),
+	sail_progress:    f32,
 	player:           ship.Ship,
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
