@@ -265,6 +265,12 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	// free_all — no hand-free here.
 	options := voyage.voyage_travel_options(state.voyage_map, state.current_node_id, state.visited)
 
+	// A sail in flight redraws two things: the leg under way fills its wake in behind the sprite,
+	// and the sprite rides that leg instead of resting. current_node_id is still the origin
+	// throughout — the Sim only learns of the move when home_loop returns on arrival.
+	sail_dest, sailing := state.sail_pending.?
+	sail_eased := sail_ease(state.sail_progress)
+
 	// Routes, under the marks; each undirected pair once. A route reads in one of three sepia
 	// states — sailable now (from the ship to a reachable node) is bold dashes; already sailed
 	// (both ends visited) is solid ink, the wake left behind; everything else is faint
@@ -279,8 +285,13 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 			}
 			a, b := state.positions[p.id], state.positions[v]
 			switch {
+			case sailing && edge_is_sail_leg(p.id, v, state.current_node_id, sail_dest):
+				forward := state.current_node_id < sail_dest
+				draw_sail_leg(a, b, sail_curve_t(sail_eased, forward), forward)
 			case edge_is_sailable(state.current_node_id, p.id, v, options):
-				draw_route(a, b, .Sailable)
+				// While a leg is under way the other legal dashes recede to charted dots, so the
+				// eye stays on the route being sailed rather than on choices already spent.
+				draw_route(a, b, sailing ? .Charted : .Sailable)
 			case state.visited[p.id] && state.visited[v]:
 				draw_route(a, b, .Sailed)
 			case:
@@ -339,11 +350,15 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 		}
 	}
 
-	// The node the ship stands on reads as the resting ship sprite itself (spec §5): the one
-	// raster on the inked page, moored at its default heading. No amber ring+dot, no procedural
-	// glyph — the sprite is the current-node marker. Step 5 sets it in motion.
-	cur := state.positions[state.current_node_id]
-	draw_ship_sprite(cur, SHIP_REST_HEADING)
+	// The ship is the one raster on the inked page (spec §5) and the current-node marker: moored
+	// at its default heading on the node it stands on, or out on the leg it is sailing, facing the
+	// curve's tangent. No amber ring+dot, no procedural glyph.
+	if sailing {
+		pos, heading := sail_ship_pose(state.positions, state.current_node_id, sail_dest, sail_eased)
+		draw_ship_sprite(pos, heading)
+	} else {
+		draw_ship_sprite(state.positions[state.current_node_id], SHIP_REST_HEADING)
+	}
 }
 
 // draw_ship_sprite blits the ship at pos facing heading. A faint parchment chip is laid down
