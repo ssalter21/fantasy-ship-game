@@ -737,6 +737,35 @@ home_chart_tab_rect :: proc() -> rl.Rectangle {
 	return rect
 }
 
+// home_chart_page_rect is the parchment page's on-screen slot at a given raise: MAP_AREA carried
+// through the same chart_offset draw_map_page is drawn under, so a hit-test asks about the page
+// the eye sees. The page is the torn sheet itself (view.odin:247) — everything outside it is the
+// darkened Build surface showing through, the four-sided cutaway that frames the map (spec §1).
+// This is the sheet's *bounding box*, so the torn rim's transparent corners fall just inside it
+// and read as margin without dismissing (measured: MAP_AREA's corner is Build navy, not
+// parchment). That way round on purpose — the alternative, insetting to the rim, would let a
+// click on visible parchment near the edge roll the map away under a player aiming at a node.
+home_chart_page_rect :: proc(raise: f32) -> rl.Rectangle {
+	offset := chart_offset(raise)
+	rect := MAP_AREA
+	rect.x += offset.x
+	rect.y += offset.y
+	return rect
+}
+
+// home_chart_roll_down reports whether a click on the fully-unfurled chart is a "leave" gesture:
+// the two-state toggle's exits are a re-tap of the chart tab, or a click anywhere on the visible
+// Build margin around the page (spec §1 — click-outside dismiss). The tab sits *inside* the page
+// rect at Home (it clears the stats ledger, home_chart_tab_rect), so the two are disjoint and both
+// roll the map down. A click on the page that isn't the tab is left to the node hit-test: the map
+// stays up, since only the margin dismisses. Pure over the window's rects, so it tests without one.
+home_chart_roll_down :: proc(mouse: rl.Vector2) -> bool {
+	if rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
+		return true
+	}
+	return !rl.CheckCollisionPointRec(mouse, home_chart_page_rect(1))
+}
+
 // home_loop is the between-encounters blocking loop, the Awaiting_Travel_Choice successor to
 // travel_menu_loop: it renders the Build surface as Home and returns either a Command_Refit when
 // a free reallocation drag completes, or a Command_Travel_To when a node is clicked on the raised
@@ -788,10 +817,10 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		}
 
 		// Chart raised and at rest: the sailable overlay over the still-present Build surface. A
-		// click on a reachable node sets the ship sailing toward it; a click on the tab flips the
-		// chart back down. The node hit-test is travel_menu_loop's, over the same emitted options
-		// the Sim gates on, with the cursor un-shifted by the chart's centre/rise offset so it
-		// lands on the mark the eye sees.
+		// click on a reachable node sets the ship sailing toward it; a click on the tab or on the
+		// Build margin framing the page rolls the chart back down (home_chart_roll_down). The node
+		// hit-test is travel_menu_loop's, over the same emitted options the Sim gates on, with the
+		// cursor un-shifted by the chart's centre/rise offset so it lands on the mark the eye sees.
 		if chart_raise >= 1 && chart_target >= 1 {
 			draw_home(state, Build_Drag{}, nil, mouse, 1)
 			if rl.IsMouseButtonPressed(.LEFT) {
@@ -804,7 +833,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 						break
 					}
 				}
-				if state.sail_pending == nil && rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
+				if state.sail_pending == nil && home_chart_roll_down(mouse) {
 					chart_target = 0
 				}
 			}
