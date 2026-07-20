@@ -34,7 +34,7 @@ Comment the **structure and mechanics** instead: the role a type plays, the inva
 - **Types** `Ada_Case` — `Slot_Size`, `Effect_Kind`, `Node_ID`, `Layout_Slot`.
 - **Procs** `snake_case`, prefixed by their subject noun — `ship_fit`, `sim_tick`, `run_travel_options`. Odin has no methods; these free procs are the methods, and the prefix is what groups them.
 - **Constants** `SCREAMING_SNAKE_CASE` — `STARTING_HP`, `ITEM_ROSTER_SIZE`.
-- **Enum members** `Ada_Case` — `.Awaiting_Travel_Choice`, `.Modify_Durability`.
+- **Enum members** `Ada_Case` — `.Awaiting_Travel_Choice`, `.Modify_Max_Hull`.
 
 ## Memory: classify every allocation by lifetime
 

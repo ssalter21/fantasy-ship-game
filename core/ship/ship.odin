@@ -404,7 +404,7 @@ ship_effective_stat :: proc(s: ^Ship, base: int, kind: Effect_Kind) -> int {
 // these rather than the raw fields (ADR-0008's ghost capture resets hull to
 // effective max Hull), so a fitting can raise Speed / Max Hull.
 //
-// ship_effective_speed derives a ship's Speed from its weight (ADR-0020):
+// Speed alone also derives from weight (ADR-0020):
 // `base + Σ Modify_Speed − weight/10`, so no ship's Speed can be read without
 // asking what it carries. The `/10` divisor is the money↔Speed exchange rate (a
 // full Small hold = 1 Speed, Medium = 2, Large = 4) and is forced: any coarser

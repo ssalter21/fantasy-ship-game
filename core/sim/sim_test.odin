@@ -173,7 +173,6 @@ auto_pilot_dispatch :: proc(data: rawptr, event: Event) {
 Pilot_Result :: struct {
 	status:      voyage.Voyage_Status,
 	hull:        int,
-	max_hull:    int,
 	speed:       int,
 	battles_won: int,
 }
@@ -200,10 +199,9 @@ drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Comman
 	run_session(&sim, input, sink)
 
 	res := Pilot_Result {
-		status   = sim.status,
-		hull     = sim.player.hull,
-		max_hull = sim.player.max_hull,
-		speed    = sim.player.speed,
+		status = sim.status,
+		hull   = sim.player.hull,
+		speed  = sim.player.speed,
 	}
 	for event in pilot.events {
 		wrapped, is_battle_event := event.(Event_Battle_Event)
@@ -371,7 +369,6 @@ rejecting_a_trade_changes_nothing_and_still_resolves_the_node :: proc(t: ^testin
 	tick_travel_options(&sim, &events)
 
 	testing.expect_value(t, sim.player.hull, before.hull)
-	testing.expect_value(t, sim.player.max_hull, before.max_hull)
 	testing.expect_value(t, sim.player.max_hull, before.max_hull)
 	testing.expect_value(t, sim.player.speed, before.speed)
 	testing.expect_value(t, ship.ship_cargo(sim.player), cargo_before)

@@ -45,8 +45,7 @@ fire_fitting_deals_its_full_magnitude_to_the_target :: proc(t: ^testing.T) {
 	dealt, ok := events[0].(Event_Damage_Dealt)
 	testing.expect(t, ok)
 	testing.expect_value(t, dealt.target, Side.B)
-	testing.expect_value(t, dealt.raw_damage, 10)
-	testing.expect_value(t, dealt.final_damage, 10)
+	testing.expect_value(t, dealt.damage, 10)
 }
 
 @(test)
@@ -192,27 +191,47 @@ press_brace_changes_nothing_while_brace_has_no_consumer :: proc(t: ^testing.T) {
 	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
-	a := ship.Ship{
-		hull = 20, speed = 5,
-		layout = []ship.Layout_Slot{
+
+	// Hull is set well clear of B's 20 so both runs finish above the floor: at
+	// hull 20 the two would land on 0 whether or not the shield absorbed anything,
+	// and the comparison would prove nothing.
+	defender := ship.Ship {
+		hull = 50,
+		speed = 5,
+		layout = []ship.Layout_Slot {
 			{slot = ship.Slot{size = .Small}, fitting = crew},
 			{slot = ship.Slot{size = .Small}, fitting = shield},
 		},
 	}
-	b := ship.Ship{
-		hull = 20, speed = 5,
+	attacker := ship.Ship {
+		hull = 50,
+		speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	battle := combat_battle_create(&a, &b)
+
+	// Two runs off identical ships, differing only in A's order. The layouts are
+	// read-only here, so the copies can share one backing array.
+	pressed_defender, pressed_attacker := defender, attacker
+	held_defender, held_attacker := defender, attacker
 
 	events: [dynamic]Event
 	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Press{phase = .Brace})
-	combat_resolve_round(&battle, cmds, &events)
 
-	// B's raw damage = 20, and 20 lands regardless of what A pressed.
-	testing.expect_value(t, a.hull, 0)
+	pressed_battle := combat_battle_create(&pressed_defender, &pressed_attacker)
+	press: [Side]Maybe(Command)
+	press[.A] = Command(Command_Press{phase = .Brace})
+	combat_resolve_round(&pressed_battle, press, &events)
+
+	held_battle := combat_battle_create(&held_defender, &held_attacker)
+	hold: [Side]Maybe(Command)
+	hold[.A] = Command(Command_Hold{})
+	combat_resolve_round(&held_battle, hold, &events)
+
+	// The claim is parity, not a number: pressing Brace buys exactly what holding
+	// buys, because nothing reads a Brace total (ADR-0026).
+	testing.expect_value(t, pressed_defender.hull, held_defender.hull)
+	// And what both take is B's Fire output whole — 20 off 50, nothing absorbed.
+	testing.expect_value(t, pressed_defender.hull, 30)
 }
 
 @(test)

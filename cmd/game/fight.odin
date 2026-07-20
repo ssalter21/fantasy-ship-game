@@ -412,15 +412,15 @@ draw_fight_action_row :: proc(state: ^Game_State, mouse: rl.Vector2) {
 dispatch_battle_event :: proc(state: ^Game_State, event: combat.Event) {
 	switch e in event {
 	case combat.Event_Damage_Dealt:
-		state.pending_exchange[e.target] += e.final_damage
+		state.pending_exchange[e.target] += e.damage
 		state.exchange_active = true
 		// Drain the struck hull now so both stat blocks read current when the beat renders.
 		// The opponent's hull has no Event_Ship_Updated to carry it, and the player's is kept
 		// in step with the Sim's authoritative copy that Event_Ship_Updated re-lands after.
 		if e.target == .A {
-			state.player.hull = max(0, state.player.hull - e.final_damage)
+			state.player.hull = max(0, state.player.hull - e.damage)
 		} else if opponent, ok := state.sighted_opponent.?; ok {
-			opponent.hull = max(0, opponent.hull - e.final_damage)
+			opponent.hull = max(0, opponent.hull - e.damage)
 			state.sighted_opponent = opponent
 		}
 	case combat.Event_Ship_Sunk:

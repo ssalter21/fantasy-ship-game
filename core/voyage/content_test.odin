@@ -25,7 +25,7 @@ test_hostile :: proc(archetype: Hostile_Archetype, site: Scaling_Site) -> ship.S
 	return s
 }
 
-// hostile_output is what an archetype actually *deals* in a round — its `raw_damage`,
+// hostile_output is what an archetype actually *deals* in a round — the damage it lands,
 // a side's Fire output (core/combat) — resolved through a real Battle rather than read
 // off the authored magnitudes.
 //
@@ -493,17 +493,19 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 // checks the player can scratch the hostile, and that the fight lasts past the escape
 // gate. Nothing checked the converse, because until #165 nothing could fail it —
 // every archetype out-damaged a starting ship at Coastal, which was the complaint.
-// A multiplicative site factor makes the opposite failure reachable for the first
-// time: damage is `max(0, raw - bulwark)`, a starting ship's bulwark is 4, and an entry
-// authored to deal 8 keeps 4 of it at Coastal — so the fight is a ten-round grind in
-// which the hostile lands *nothing*. That is the same dead node #151 found at the
-// ceiling, arrived at from underneath.
+// A multiplicative site factor made the opposite failure reachable for the first
+// time, because damage was then `max(0, raw - bulwark)`: a starting ship's bulwark was
+// 4, and an entry authored to deal 8 kept only 4 of it at Coastal — a ten-round grind
+// in which the hostile landed *nothing*. That is the same dead node #151 found at the
+// ceiling, arrived at from underneath. It is what forced the roster's re-authoring
+// rather than a taste call: six of the eight entries failed on the day the factor
+// landed (see hostile_roster's note).
 //
-// This is what forced the roster's re-authoring rather than a taste call: six of the
-// eight entries failed it on the day the factor landed (see hostile_roster's note).
-// The bar is deliberately "the player is hurt at all" — not a margin — because the
-// margin is a tuning question and this is a structural one. The failure it names is
-// **zero**, and zero is not a number the playtest should have to discover.
+// ADR-0026 deleted the subtraction, so the zero this names is no longer reachable by
+// absorption and the test cannot fail on today's roster — every authored hit lands
+// whole. It is kept as the floor's statement of intent: the bar is deliberately "the
+// player is hurt at all", not a margin, so it still catches an archetype authored to
+// deal nothing at Coastal. Zero is not a number the playtest should have to discover.
 @(test)
 a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^testing.T) {
 	ROUND_CAP :: 30
@@ -536,11 +538,11 @@ a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^
 
 // **The Selector question, answered as a test** (#151). Admiral's Guard is +3 per
 // Crew aboard, so on a four-Crew build it reads +12 — and the pre-#151 fold put all
-// twelve into the build's own `defense_bonus`, against a starting player's raw of 8.
-// That is not a hard fight, it is arithmetic: the player's damage is `max(0, ...)`,
-// so it was exactly zero, for every round, forever. A whole family of ADR-0012's
-// roster — every `Selector`-based item, which is most of what the roster is *for* —
-// could not sit on a hostile at any magnitude.
+// twelve into the build's own defensive total, against a starting player's raw of 8.
+// That was not a hard fight, it was arithmetic: the player's damage was clamped at
+// `max(0, ...)`, so it came out exactly zero, for every round, forever. A whole family
+// of ADR-0012's roster — every `Selector`-based item, which is most of what the roster
+// is *for* — could not sit on a hostile at any magnitude.
 //
 // It can now, and the reason is structural rather than tuned: a Selector offense fitting
 // is output, and output is the side of the ledger that can absorb a 12. The build is a

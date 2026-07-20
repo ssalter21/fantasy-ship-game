@@ -91,7 +91,7 @@ End_Reason :: enum {
 // and whether the side was sunk this round.
 Round_State :: struct {
 	press_phase: Maybe(ship.Category),
-	raw_damage:  int,
+	damage:      int,
 	sunk:        bool,
 }
 
@@ -105,11 +105,12 @@ Event :: union {
 	Event_Battle_Ended,
 }
 
+// Damage is one number, not a raw/final pair: ADR-0026 deleted the subtraction
+// between them, so a side's Fire total *is* what the target's hull loses.
 Event_Damage_Dealt :: struct {
-	round:        int,
-	target:       Side,
-	raw_damage:   int,
-	final_damage: int,
+	round:  int,
+	target: Side,
+	damage: int,
 }
 
 Event_Ship_Sunk :: struct {
@@ -327,7 +328,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	}
 
 	// Fire is the only phase a round still resolves into a number (ADR-0006,
-	// amended by ADR-0025 and ADR-0026): raw_damage is a side's own Fire output,
+	// amended by ADR-0025 and ADR-0026): a round's damage is a side's own Fire output,
 	// pressed. Brace has **no consumer** — ADR-0026 deleted the subtracted side of
 	// the exchange entirely, so a hit lands at its full weight and there is nothing
 	// left to sum a Brace phase into. Its repair verb arrives with #397.
@@ -337,7 +338,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// The {phase} shape is kept against that repair verb and a future second damage
 	// axis (ADR-0025).
 	for side in Side {
-		round_state[side].raw_damage = pressed(
+		round_state[side].damage = pressed(
 			combat_phase_output(battle, side, .Fire),
 			.Fire,
 			round_state[side].press_phase,
@@ -349,10 +350,10 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		target_ship := battle.ships[target]
 		// Damage lands whole (ADR-0026): no Durability, no Brace output, nothing
 		// else stands between a side's Fire total and the target's hull.
-		final := round_state[side].raw_damage
-		if final > 0 {
-			target_ship.hull = max(0, target_ship.hull-final)
-			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, raw_damage = round_state[side].raw_damage, final_damage = final}))
+		damage := round_state[side].damage
+		if damage > 0 {
+			target_ship.hull = max(0, target_ship.hull-damage)
+			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, damage = damage}))
 		}
 	}
 

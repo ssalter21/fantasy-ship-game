@@ -95,7 +95,7 @@ voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 
 // voyage_stakes_scales_category reports whether the site's power reading scales a fitting of
 // this Category. The rule: stakes scales what a hostile deals, and Fire is the only thing it
-// deals. raw_damage is a side's Fire output, so scaling Fire makes a deep hostile hit harder;
+// deals. A round's damage is a side's Fire output, so scaling Fire makes a deep hostile hit harder;
 // Brace is excluded because since ADR-0026 it feeds nothing at all — there is no bulwark left
 // to scale, and its repair verb (#397) will be scaled on its own terms if at all.
 //
@@ -105,7 +105,7 @@ voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	switch category {
 	case .Fire:
-		return true // raw_damage is Fire output
+		return true // a round's damage is Fire output
 	case .Brace:
 		return false // no consumer since ADR-0026; nothing to scale
 	}
