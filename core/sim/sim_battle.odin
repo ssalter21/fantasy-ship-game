@@ -3,6 +3,18 @@ package sim
 import "../combat"
 import "../voyage"
 
+// sim_battle_menu_event reads off the live Battle the facts the Fight menu cannot derive
+// for itself: which of this round's orders are legal picks for the player (Side.A), and how
+// many rounds have already resolved. Shared by the two places a decision is asked for —
+// battle start and every round that doesn't end it — so the menu can't disagree with itself.
+sim_battle_menu_event :: proc(sim: ^Sim) -> Event_Battle_Menu {
+	return Event_Battle_Menu {
+		may_break_off = combat.combat_may_break_off(&sim.battle, .A),
+		may_press     = combat.combat_may_press(&sim.battle, .A),
+		round         = sim.battle.round,
+	}
+}
+
 // sim_process_battle_round pairs Side.A's submitted command with the scripted
 // opponent's (ADR-0008) and resolves one round via core/combat. On battle end it asks
 // voyage_finish_ship_battle what that means to the Fight stage and hands the outcome back.
@@ -23,7 +35,7 @@ sim_process_battle_round :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 
 	if !sim.battle.ended {
-		append(events, Event(Event_Battle_Menu{may_break_off = combat.combat_may_break_off(&sim.battle, .A), round = sim.battle.round}))
+		append(events, Event(sim_battle_menu_event(sim)))
 		return
 	}
 

@@ -152,7 +152,7 @@ sim_enter_stage :: proc(sim: ^Sim, stage: voyage.Stage, events: ^[dynamic]Event)
 		sim.active_encounter = s
 		sim.battle = voyage.voyage_start_battle(&sim.player, &sim.active_encounter)
 		append(events, Event(Event_Ship_Battle_Sighted{opponent = sim.active_encounter.opponent}))
-		append(events, Event(Event_Battle_Menu{may_break_off = combat.combat_may_break_off(&sim.battle, .A), round = sim.battle.round}))
+		append(events, Event(sim_battle_menu_event(sim)))
 		sim.phase = .Awaiting_Battle_Command
 		return nil
 

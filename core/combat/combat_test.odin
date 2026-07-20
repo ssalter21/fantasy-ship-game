@@ -145,12 +145,14 @@ a_fire_fitting_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 @(test)
 press_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
+	// Hulls deep enough to outlast a pressed broadside, so the round reads as a
+	// comparison of the two sides' output rather than as a sinking.
 	a := ship.Ship{
-		hull = 20, speed = 5,
+		hull = 100, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	b := ship.Ship{
-		hull = 20, speed = 5,
+		hull = 100, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -161,8 +163,8 @@ press_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
 	cmds[.A] = Command(Command_Press{phase = .Fire})
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hull, 20-10*PRESS_MULTIPLIER)
-	testing.expect_value(t, a.hull, 20-10)
+	testing.expect_value(t, b.hull, 100-10*PRESS_MULTIPLIER)
+	testing.expect_value(t, a.hull, 100-10)
 }
 
 // Press Fire doubles the *whole* Fire pile — the guns and the crew-tagged fittings
@@ -187,15 +189,15 @@ press_fire_multiplies_the_whole_fire_pile_including_former_crew :: proc(t: ^test
 	cmds[.A] = Command(Command_Press{phase = .Fire})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// (crew(2) + cannon(5)) * PRESS_MULTIPLIER = 14 — both piles doubled, no seam.
+	// (crew(2) + cannon(5)) * PRESS_MULTIPLIER — both piles multiplied, no seam.
 	testing.expect_value(t, b.hull, 40-(2+5)*PRESS_MULTIPLIER)
 }
 
-// Press Brace doubles its own phase's fittings like any Press (ADR-0006), and since that
+// Press Brace multiplies its own phase's fittings like any Press (ADR-0006), and since that
 // phase repairs, the order buys Hull: the pressing ship ends the round PRESS_MULTIPLIER
 // repairs better off than the one that held.
 @(test)
-press_brace_doubles_the_repair_the_round_restores :: proc(t: ^testing.T) {
+press_brace_multiplies_the_repair_the_round_restores :: proc(t: ^testing.T) {
 	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.Effect{kind = .Repair, magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
 
@@ -290,32 +292,117 @@ hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 	cmds[.A] = Command(Command_Hold{})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// Same outcome as the no-command baseline round (cannon(10) not pressed,
-	// no Man the Sails/Jettison/Break Off side effects): Hold contributes nothing.
+	// Same outcome as the no-command baseline round: Hold is a stance, and it resolves
+	// nothing — no scaling, no jettison, no ending.
 	testing.expect_value(t, b.hull, 20-10)
 	testing.expect_value(t, a.hull, 20)
 	testing.expect_value(t, combat_effective_speed(&battle, .A), 5)
 	testing.expect(t, !battle.ended)
+
+	// Nor does holding spend the battle's one Press.
+	testing.expect(t, combat_may_press(&battle, .A))
+}
+
+// The ration is per *fight*: a Press spent in one round is gone for the rest of the
+// battle, and the flag the Fight menu reads says so from the round after it lands.
+@(test)
+press_is_available_once_per_battle :: proc(t: ^testing.T) {
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 5}}
+	a := ship.Ship{
+		hull = 200, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
+	}
+	b := ship.Ship{hull = 200, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+
+	testing.expect(t, combat_may_press(&battle, .A))
+	testing.expect(t, combat_may_press(&battle, .B))
+
+	press: [Side]Maybe(Command)
+	press[.A] = Command(Command_Press{phase = .Fire})
+	combat_resolve_round(&battle, press, &events)
+
+	testing.expect(t, !combat_may_press(&battle, .A))
+	testing.expect(t, combat_may_press(&battle, .B)) // rationed per side, not per battle
+
+	// A later round with no Press does not hand it back.
+	held: [Side]Maybe(Command)
+	held[.A] = Command(Command_Hold{})
+	combat_resolve_round(&battle, held, &events)
+	testing.expect(t, !combat_may_press(&battle, .A))
 }
 
 @(test)
-man_the_sails_grants_a_speed_increase_for_this_round_only :: proc(t: ^testing.T) {
-	a := ship.Ship{hull = 20, speed = 5}
-	b := ship.Ship{hull = 20, speed = 5}
+a_second_press_in_the_same_battle_asserts :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+
+	a := ship.Ship{hull = 200, speed = 5}
+	b := ship.Ship{hull = 200, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	press: [Side]Maybe(Command)
+	press[.A] = Command(Command_Press{phase = .Fire})
+	combat_resolve_round(&battle, press, &events)
+
+	// The menu never offers a spent Press (Event_Battle_Menu.may_press), so reaching
+	// here is a driver bug rather than a legitimate rejection.
+	testing.expect_assert(t, "Command_Press submitted after this battle's Press was spent")
+	combat_resolve_round(&battle, press, &events)
+}
+
+// Commit is one-directional: the round's repair is multiplied and the round's damage is
+// nothing, so a committing captain can survive a round but never win on it.
+@(test)
+commit_multiplies_the_brace_total_and_zeroes_the_fire_total :: proc(t: ^testing.T) {
+	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.Effect{kind = .Repair, magnitude = 4}}
+	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
+	a := ship.Ship{
+		hull = 50, max_hull = 100, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = surgeon},
+			{slot = ship.Slot{size = .Large}, fitting = cannon},
+		},
+	}
+	b := ship.Ship{hull = 50, max_hull = 100, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
 	defer delete(events)
 	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Man_The_Sails{})
+	cmds[.A] = Command(Command_Commit{})
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, combat_effective_speed(&battle, .A), 5+MAN_THE_SAILS_SPEED_BONUS)
+	testing.expect_value(t, a.hull, 50 + 4 * COMMIT_MULTIPLIER)
+	testing.expect_value(t, b.hull, 50) // the guns were the price
+}
 
-	next_cmds: [Side]Maybe(Command)
-	combat_resolve_round(&battle, next_cmds, &events)
+// Unlike Press, Commit is unrationed: it can be taken every round of a battle.
+@(test)
+commit_is_available_every_round :: proc(t: ^testing.T) {
+	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.Effect{kind = .Repair, magnitude = 4}}
+	a := ship.Ship{
+		hull = 50, max_hull = 100, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = surgeon}},
+	}
+	b := ship.Ship{hull = 50, max_hull = 100, speed = 5}
+	battle := combat_battle_create(&a, &b)
 
-	testing.expect_value(t, combat_effective_speed(&battle, .A), 5)
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Commit{})
+	for _ in 0 ..< 3 {
+		combat_resolve_round(&battle, cmds, &events)
+	}
+
+	testing.expect_value(t, a.hull, 50 + 3 * 4 * COMMIT_MULTIPLIER)
 }
 
 @(test)
@@ -386,276 +473,6 @@ jettison_cargo_on_a_fitting_carrying_nothing_asserts :: proc(t: ^testing.T) {
 
 	// Carrying nothing means weighing nothing extra, so heaving it would be free Speed.
 	testing.expect_assert(t, "Command_Jettison_Cargo slot_index holds no cargo")
-	combat_resolve_round(&battle, cmds, &events)
-}
-
-@(test)
-reallocate_moves_cargo_between_holds_without_changing_weight_or_speed :: proc(t: ^testing.T) {
-	// Reallocation pours cargo from one hold into another, conserving the total
-	// aboard (ADR-0020, #157): weight is unchanged, so Speed does not move the round it
-	// is issued — what it buys is jettison granularity, not Speed. A full Large (40)
-	// pours into an empty Small, capped at the Small's 10 capacity (the destination
-	// slot's size is the denomination, #156).
-	large_cargo := ship.Fitting{name = "Cargo", size = .Large, cargo_held = 40}
-	a := ship.Ship{
-		hull = 20, speed = 10,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
-			{slot = ship.Slot{size = .Small}, fitting = ship.ship_fitting_hold(.Small)},
-		},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-
-	before := combat_effective_speed(&battle, .A) // 10 − 40/10 = 6
-	testing.expect_value(t, before, 6)
-
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	combat_resolve_round(&battle, cmds, &events)
-
-	src, ok0 := a.layout[0].fitting.?
-	testing.expect(t, ok0)
-	testing.expect_value(t, src.cargo_held, 30) // gave up the Small's 10
-	dst, ok1 := a.layout[1].fitting.?
-	testing.expect(t, ok1)
-	testing.expect_value(t, dst.cargo_held, 10) // a new Small hold, full
-	testing.expect_value(t, ship.ship_cargo(a), 40) // conserved
-	testing.expect_value(t, combat_effective_speed(&battle, .A), before) // no weight shifted
-
-	found := false
-	for event in events {
-		if moved, ok := event.(Event_Cargo_Reallocated); ok {
-			found = true
-			testing.expect_value(t, moved.side, Side.A)
-			testing.expect_value(t, moved.from, ship.Slot_Index(0))
-			testing.expect_value(t, moved.to, ship.Slot_Index(1))
-			testing.expect_value(t, moved.amount, 10)
-		}
-	}
-	testing.expect(t, found)
-}
-
-@(test)
-reallocate_buys_a_finer_jettison_than_the_hold_allowed :: proc(t: ^testing.T) {
-	// The precision reallocation buys (#157): with a single full Large as its only
-	// cargo, the cheapest heave is the whole 40 (4 Speed). Splitting 10 into an empty
-	// Small first lets the next Jettison shed exactly 10 (1 Speed) — a finer amount
-	// than was reachable before the reallocation, paid for with the round it cost.
-	large_cargo := ship.Fitting{name = "Cargo", size = .Large, cargo_held = 40}
-	a := ship.Ship{
-		hull = 20, speed = 10,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
-			{slot = ship.Slot{size = .Small}, fitting = ship.ship_fitting_hold(.Small)},
-		},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-
-	laden := combat_effective_speed(&battle, .A) // 10 − 40/10 = 6
-
-	events: [dynamic]Event
-	defer delete(events)
-
-	// Round 1: reallocate 10 into the Small. Weight unchanged, so Speed unchanged.
-	realloc_cmds: [Side]Maybe(Command)
-	realloc_cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	combat_resolve_round(&battle, realloc_cmds, &events)
-	testing.expect_value(t, combat_effective_speed(&battle, .A), laden)
-
-	// Round 2: jettison the freshly-split Small — sheds exactly 10, one Speed, a finer
-	// heave than the 40 the hold allowed before.
-	jettison_cmds: [Side]Maybe(Command)
-	jettison_cmds[.A] = Command(Command_Jettison_Cargo{slot_index = 1})
-	combat_resolve_round(&battle, jettison_cmds, &events)
-	testing.expect_value(t, combat_effective_speed(&battle, .A), laden + 1)
-}
-
-@(test)
-reallocate_into_a_partial_hold_grows_it_up_to_capacity :: proc(t: ^testing.T) {
-	// Pouring into a partly-full cargo fitting grows it, capped at min(source, room)
-	// (#156): a Medium holding 5 has room for 15 more, so a Large of 40 gives up
-	// exactly 15 and keeps 25 — nothing overflows or is lost.
-	large_cargo := ship.Fitting{name = "Cargo", size = .Large, cargo_held = 40}
-	medium_cargo := ship.Fitting{name = "Cargo", size = .Medium, cargo_held = 5}
-	a := ship.Ship{
-		hull = 20, speed = 10,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Large}, fitting = large_cargo},
-			{slot = ship.Slot{size = .Medium}, fitting = medium_cargo},
-		},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	combat_resolve_round(&battle, cmds, &events)
-
-	src, ok0 := a.layout[0].fitting.?
-	testing.expect(t, ok0)
-	testing.expect_value(t, src.cargo_held, 25)
-	dst, ok1 := a.layout[1].fitting.?
-	testing.expect(t, ok1)
-	testing.expect_value(t, dst.cargo_held, 20) // 5 + 15, a full Medium
-	testing.expect_value(t, ship.ship_cargo(a), 45)
-}
-
-@(test)
-reallocate_that_empties_the_source_leaves_the_fitting_in_place :: proc(t: ^testing.T) {
-	// A source drained to nothing keeps its fitting — an emptied hold is an ordinary
-	// installed fitting, and the ship's capacity, not an empty slot. A Small of 10
-	// poured into an empty Medium moves all 10 and leaves the Small carrying nothing.
-	small_cargo := ship.Fitting{name = "Cargo", size = .Small, cargo_held = 10}
-	a := ship.Ship{
-		hull = 20, speed = 10,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = small_cargo},
-			{slot = ship.Slot{size = .Medium}, fitting = ship.ship_fitting_hold(.Medium)},
-		},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	combat_resolve_round(&battle, cmds, &events)
-
-	src, still_occupied := a.layout[0].fitting.?
-	testing.expect(t, still_occupied)
-	testing.expect_value(t, src.cargo_held, 0)
-	testing.expect_value(t, ship.ship_fitting_capacity(src), 10) // still capacity, just empty
-	dst, ok1 := a.layout[1].fitting.?
-	testing.expect(t, ok1)
-	testing.expect_value(t, dst.cargo_held, 10)
-}
-
-@(test)
-reallocate_from_a_slot_to_itself_asserts :: proc(t: ^testing.T) {
-	when testutil.SKIP_WINDOWS_ASSERT_BUG {
-		return
-	}
-	cargo := ship.Fitting{name = "Cargo", size = .Small, cargo_held = 10}
-	a := ship.Ship{
-		hull = 20, speed = 5,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Reallocate{from = 0, to = 0})
-	testing.expect_assert(t, "Command_Reallocate from and to are the same slot")
-	combat_resolve_round(&battle, cmds, &events)
-}
-
-@(test)
-reallocate_from_a_fitting_carrying_nothing_asserts :: proc(t: ^testing.T) {
-	when testutil.SKIP_WINDOWS_ASSERT_BUG {
-		return
-	}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire}
-	a := ship.Ship{
-		hull = 20, speed = 5,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Large}, fitting = cannon},
-			{slot = ship.Slot{size = .Small}},
-		},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	testing.expect_assert(t, "Command_Reallocate from holds no cargo")
-	combat_resolve_round(&battle, cmds, &events)
-}
-
-@(test)
-reallocate_into_an_empty_slot_asserts :: proc(t: ^testing.T) {
-	when testutil.SKIP_WINDOWS_ASSERT_BUG {
-		return
-	}
-	// "Into a non-cargo fitting" has no referent left — every fitting sits on the cargo
-	// axis, so a gun with bulk to spare is a legal destination. What is illegal is an
-	// *empty* slot: it holds nothing to pour into and carries no capacity of its own.
-	cargo := ship.Fitting{name = "Cargo", size = .Small, cargo_held = 10}
-	a := ship.Ship{
-		hull = 20, speed = 5,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = cargo},
-			{slot = ship.Slot{size = .Large}},
-		},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	testing.expect_assert(t, "Command_Reallocate to is an empty slot")
-	combat_resolve_round(&battle, cmds, &events)
-}
-
-@(test)
-reallocate_may_pour_into_a_fitting_that_is_not_a_hold :: proc(t: ^testing.T) {
-	// The axis made this legal: a gun that authors less than its full slot carries the
-	// remainder, so it is a destination like any other.
-	cargo := ship.Fitting{name = "Cargo", size = .Small, cargo_held = 10}
-	armed_trader := ship.Fitting{name = "Armed Trader", size = .Large, bulk = 30, category = .Fire}
-	a := ship.Ship{
-		hull = 20, speed = 5,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = cargo},
-			{slot = ship.Slot{size = .Large}, fitting = armed_trader},
-		},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	combat_resolve_round(&battle, cmds, &events)
-
-	dst, _ := a.layout[1].fitting.?
-	testing.expect_value(t, dst.cargo_held, 10) // into the gun's spare 10
-	testing.expect_value(t, ship.ship_cargo(a), 10) // conserved
-}
-
-@(test)
-reallocate_into_a_full_hold_moves_nothing_and_asserts :: proc(t: ^testing.T) {
-	when testutil.SKIP_WINDOWS_ASSERT_BUG {
-		return
-	}
-	// A full destination has no room, so the move would shift 0 cargo — the menu
-	// never offers it (battle_reallocate_can_receive), and the combat layer asserts,
-	// exactly like jettisoning an empty slot buys nothing.
-	from_cargo := ship.Fitting{name = "Cargo", size = .Small, cargo_held = 10}
-	full_small := ship.Fitting{name = "Cargo", size = .Small, cargo_held = 10}
-	a := ship.Ship{
-		hull = 20, speed = 5,
-		layout = []ship.Layout_Slot{
-			{slot = ship.Slot{size = .Small}, fitting = from_cargo},
-			{slot = ship.Slot{size = .Small}, fitting = full_small},
-		},
-	}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	cmds[.A] = Command(Command_Reallocate{from = 0, to = 1})
-	testing.expect_assert(t, "Command_Reallocate moves no cargo (source empty or destination full)")
 	combat_resolve_round(&battle, cmds, &events)
 }
 
@@ -766,33 +583,6 @@ an_escape_eligible_side_declining_to_break_off_lets_combat_continue_normally :: 
 
 	testing.expect(t, !battle.ended)
 	testing.expect_value(t, b.hull, 20-10)
-}
-
-@(test)
-man_the_sails_speed_increase_can_swing_escape_eligibility_for_the_round_it_was_used :: proc(t: ^testing.T) {
-	a := ship.Ship{hull = 20, speed = 5}
-	b := ship.Ship{hull = 20, speed = 5}
-	battle := combat_battle_create(&a, &b)
-	battle.round = BASELINE_ROUND_COUNT - 1
-
-	events: [dynamic]Event
-	defer delete(events)
-
-	// Tied base Speed: not escape-eligible on its own once baseline is reached.
-	cmds: [Side]Maybe(Command)
-	combat_resolve_round(&battle, cmds, &events) // battle.round == BASELINE_ROUND_COUNT
-	testing.expect(t, !combat_may_break_off(&battle, .A))
-
-	// A plays Man the Sails this round, tipping it strictly faster. The
-	// temp_speed bonus isn't reset until the *next* combat_resolve_round
-	// call, so it's still in effect for the escape-eligibility check made
-	// right after this round resolves (i.e. before next round's command).
-	clear(&events)
-	sails_cmds: [Side]Maybe(Command)
-	sails_cmds[.A] = Command(Command_Man_The_Sails{})
-	combat_resolve_round(&battle, sails_cmds, &events)
-
-	testing.expect(t, combat_may_break_off(&battle, .A))
 }
 
 @(test)

@@ -70,7 +70,19 @@ Auto_Pilot :: struct {
 	policy:        Travel_Policy,
 	battles_taken: int,
 	battle_cmd:    combat.Command,
+	may_press:     bool,
 	events:        [dynamic]Event,
+}
+
+// auto_pilot_battle_command answers a round with the policy's standing order, downgraded to
+// Hold when that order is a Press the battle's ration no longer allows (Event_Battle_Menu
+// carries what is left). A standing order is a scenario knob, not a tactic, so it repeats
+// for as long as it is legal.
+auto_pilot_battle_command :: proc(pilot: ^Auto_Pilot) -> combat.Command {
+	if _, is_press := pilot.battle_cmd.(combat.Command_Press); is_press && !pilot.may_press {
+		return combat.Command_Hold{}
+	}
+	return pilot.battle_cmd
 }
 
 auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
@@ -79,7 +91,7 @@ auto_pilot_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
 	case .Awaiting_Travel_Choice:
 		return Command(Command_Travel_To{node_id = auto_pilot_next(pilot)})
 	case .Awaiting_Battle_Command:
-		return Command(Command_Battle_Choice{combat_command = pilot.battle_cmd})
+		return Command(Command_Battle_Choice{combat_command = auto_pilot_battle_command(pilot)})
 	case .Awaiting_Option_Choice:
 		// Decline every option list (issue #131) — skip an Offer's items, leave a
 		// Shop's shelf. One case now covers both, since they are one decision: a nil
@@ -154,9 +166,10 @@ auto_pilot_take :: proc(pilot: ^Auto_Pilot, dest: Node_ID) -> Node_ID {
 
 // auto_pilot_dispatch is the Auto_Pilot's Event_Sink half: it records every
 // event (the scenarios read battle outcomes back off pilot.events) and tracks
-// the two fields get_captain_choice plans from — the current node and the
-// Sim's latest emitted travel options. A #partial switch: a recording sink
-// only cares about those two variants and correctly ignores the rest.
+// the fields get_captain_choice plans from — the current node, the Sim's latest
+// emitted travel options, and whether the current battle's Press is still in hand.
+// A #partial switch: a recording sink only cares about those variants and
+// correctly ignores the rest.
 auto_pilot_dispatch :: proc(data: rawptr, event: Event) {
 	pilot := cast(^Auto_Pilot)data
 	append(&pilot.events, event)
@@ -165,6 +178,8 @@ auto_pilot_dispatch :: proc(data: rawptr, event: Event) {
 		pilot.current = e.node.id
 	case Event_Travel_Options:
 		pilot.options = e.options
+	case Event_Battle_Menu:
+		pilot.may_press = e.may_press
 	}
 }
 
@@ -1526,6 +1541,20 @@ winning_a_fight_surfaces_the_wreck_cargo_that_overflows_the_hold :: proc(t: ^tes
 // battle_events collects the combat Events of variant T wrapped in this batch, in the
 // order the round emitted them — the seam a battle scenario asserts on (ADR-0001: what
 // presentation learns is the stream, not the hull field).
+// battle_menu picks the last Event_Battle_Menu out of a batch — the flags the Fight screen
+// is holding when it asks for the next round's order. Asserts rather than reporting absence:
+// a batch that asked for no decision is a scenario that didn't set itself up.
+battle_menu :: proc(events: []Event) -> (menu: Event_Battle_Menu) {
+	found := false
+	for e in events {
+		if m, ok := e.(Event_Battle_Menu); ok {
+			menu, found = m, true
+		}
+	}
+	assert(found, "the batch carries no Event_Battle_Menu")
+	return
+}
+
 battle_events :: proc(events: []Event, $T: typeid) -> (found: [dynamic]T) {
 	for e in events {
 		wrapped, is_battle := e.(Event_Battle_Event)
@@ -1653,49 +1682,66 @@ a_repair_never_heals_past_the_ships_maximum :: proc(t: ^testing.T) {
 }
 
 @(test)
-reallocating_cargo_in_battle_moves_cargo_through_the_sim_and_keeps_the_battle_going :: proc(t: ^testing.T) {
-	// The reallocation order end to end through the sim (#200): the player submits a
-	// Command_Reallocate, the round resolves, and the wrapped Event_Cargo_Reallocated
-	// reaches presentation. It shifts no weight, so the cargo total is unchanged — it
-	// buys jettison granularity for a later round, and the battle carries on rather than
-	// ending like a Break Off or a sinking would.
+a_press_spends_the_battles_one_press_and_the_menu_stops_offering_it :: proc(t: ^testing.T) {
+	// The ration end to end: the Fight menu event carries may_press, so presentation is
+	// told the Press is gone rather than counting its own clicks. A second Press asserts
+	// in core/combat, which is only reachable if this flag is ignored.
 	sim := sim_create(0)
 	defer sim_destroy(&sim)
 	events: [dynamic]Event
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	before := ship.ship_cargo(sim.player)
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // a durable opponent: the battle outlives the round
+	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the round
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
+	testing.expect(t, battle_menu(events[:]).may_press) // in hand at the opening decision
 
-	// Water-filling leaves every hold at 10 with the Large forecastle (slot 3) 30 short
-	// of its 40: pour a full Small (slot 5) into it. Total cargo is conserved.
-	clear(&events)
-	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Reallocate{from = 5, to = 3}}))
-	refit_tick(&sim, &events)
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Press{phase = .Fire}}))
+	ev := refit_tick(&sim, &events)
 
-	testing.expect(t, !sim.battle.ended) // reallocation is not an ending
-	testing.expect_value(t, ship.ship_cargo(sim.player), before) // no cargo created or lost
-	src, occupied := sim.player.layout[5].fitting.?
-	testing.expect(t, occupied) // the drained Small keeps its hold — it is still capacity
-	testing.expect_value(t, src.cargo_held, 0)
-	dst, has_dst := sim.player.layout[3].fitting.?
-	testing.expect(t, has_dst)
-	testing.expect_value(t, dst.cargo_held, 20) // its own 10 plus the Small's
+	testing.expect(t, !sim.battle.ended) // a Press is not an ending
+	testing.expect(t, !battle_menu(ev).may_press)
 
-	found := false
-	for event in events {
-		wrapped, is_battle := event.(Event_Battle_Event)
-		if !is_battle {
-			continue
-		}
-		if moved, ok := wrapped.inner.(combat.Event_Cargo_Reallocated); ok {
-			found = true
-			testing.expect_value(t, moved.amount, 10)
-		}
-	}
-	testing.expect(t, found)
+	// It does not come back on a later round.
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}))
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, !battle_menu(ev).may_press)
+}
+
+@(test)
+committing_in_battle_multiplies_the_repair_and_lands_no_damage :: proc(t: ^testing.T) {
+	// Commit end to end: the round's repair is multiplied and the round's damage is
+	// nothing, so the stream carries a Hull_Repaired for the player and a Damage_Dealt
+	// only against them. The battle carries on — Commit is a stance, not an ending.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000))
+
+	arm_with_repair(&sim, 5)
+	sim.player.hull = 100 // room for the repair to land in full
+	// The whole Brace phase is what Commit multiplies, not just the fitting armed above.
+	unpressed_repair := combat.combat_phase_output(&sim.battle, .A, .Brace)
+	testing.expect(t, unpressed_repair > 0)
+
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Commit{}}))
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, !sim.battle.ended)
+
+	repairs := battle_events(ev, combat.Event_Hull_Repaired)
+	defer delete(repairs)
+	testing.expect_value(t, len(repairs), 1)
+	testing.expect_value(t, repairs[0].amount, unpressed_repair * combat.COMMIT_MULTIPLIER)
+
+	// The opponent is struck for nothing: the guns were the price of the repair.
+	hits := battle_events(ev, combat.Event_Damage_Dealt)
+	defer delete(hits)
+	testing.expect_value(t, damage_to(hits[:], .B), 0)
+	testing.expect(t, damage_to(hits[:], .A) > 0) // theirs still land
 }
 
 @(test)

@@ -286,13 +286,15 @@ Event_Ship_Battle_Sighted :: struct {
 }
 
 // Event_Battle_Menu is dispatched every time a battle command decision is about to be asked
-// for (battle start, and after every round that doesn't end the battle): may_break_off and
-// `round` are both Battle-internal state (may_break_off depends on this round's not-yet-reset
-// temp Speed bonuses; `round` is the combat.Battle's own counter) the UI has no other way to
-// derive. `round` is the count of rounds already resolved, so the round about to be fought is
-// `round + 1`; the Fight screen reads it for its rounds-left / escape-window readout (#315).
+// for (battle start, and after every round that doesn't end the battle). All three fields are
+// Battle-internal state the UI has no other way to derive: whether the round's Break Off and
+// Press are legal picks (the escape gate, and the one-Press-per-battle ration), and the
+// combat.Battle's own round counter. `round` is the count of rounds already resolved, so the
+// round about to be fought is `round + 1`; the Fight screen reads it for its rounds-left /
+// escape-window readout (#315).
 Event_Battle_Menu :: struct {
 	may_break_off: bool,
+	may_press:     bool,
 	round:         int,
 }
 
