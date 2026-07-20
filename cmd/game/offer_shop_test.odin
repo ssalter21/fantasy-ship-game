@@ -86,15 +86,16 @@ build_shelf_bridge_installs_then_finishes_a_shelf_drop :: proc(t: ^testing.T) {
 
 	granted := ship.Fitting{name = "test cannon", size = .Large}
 	state.refit_incoming = granted
-	state.pending_shelf_install = ship.Slot_Index(3) // the empty Large forecastle
+	state.pending_shelf_install = ship.Slot_Index(3) // the Large forecastle's bare hold
 
-	// While the item is in hand it installs into the remembered empty berth.
+	// While the item is in hand it lands in the remembered berth. The bridge re-reads
+	// occupancy, so a berth carrying a backfilled hold takes a Replace, not an Install.
 	cmd, bridging := build_shelf_bridge_command(&state)
 	testing.expect(t, bridging)
 	refit, ok := cmd.(sim.Command_Refit)
 	testing.expect(t, ok)
-	install, is_install := refit.command.(sim.Refit_Install)
-	testing.expect(t, is_install && install.slot == ship.Slot_Index(3))
+	replace, is_replace := refit.command.(sim.Refit_Replace)
+	testing.expect(t, is_replace && replace.slot == ship.Slot_Index(3))
 
 	// Once the Sim reports it installed (refit_incoming cleared), the bridge finishes and
 	// releases the berth.

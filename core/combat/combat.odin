@@ -170,28 +170,38 @@ combat_effective_speed :: proc(battle: ^Battle, side: Side) -> int {
 	return ship.ship_effective_speed(battle.ships[side]) + battle.temp_speed[side]
 }
 
-// combat_apply_jettison empties the cargo fitting at slot_index on side's ship,
-// shedding its weight (ADR-0020): null the slot and emit the event. The freed
+// combat_apply_jettison empties the fitting at slot_index on side's ship, shedding
+// its cargo's weight (ADR-0020): zero its cargo_held and emit the event. The freed
 // weight makes the ship faster through ship_effective_speed on its own; the heaved
-// cargo is destroyed, not settled. The cargo-fitting assert keeps an empty hold —
-// which weighs nothing — from being heaved for free Speed.
+// cargo is destroyed, not settled. The assert keeps a fitting that is carrying
+// nothing — and so weighs nothing extra — from being heaved for free Speed.
+//
+// The **fitting stays in its slot**: what is jettisoned is the cargo, not the thing
+// holding it. Under the old model a cargo fitting *was* its cargo, so emptying it and
+// nulling the slot were the same act; now a laden gun must survive having its load
+// heaved, and a hold that has been emptied is still the ship's capacity.
 combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot_Index, events: ^[dynamic]Event) {
 	s := battle.ships[side]
 	assert(slot_index >= 0 && int(slot_index) < len(s.layout), "Command_Jettison_Cargo slot_index out of range")
 	layout_slot := &s.layout[slot_index]
 	fitting, has_fitting := layout_slot.fitting.?
-	assert(has_fitting && fitting.is_cargo, "Command_Jettison_Cargo slot_index does not hold a cargo fitting")
-	layout_slot.fitting = nil
-	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = fitting}))
+	assert(has_fitting && fitting.cargo_held > 0, "Command_Jettison_Cargo slot_index holds no cargo")
+	heaved := fitting // the event reports what went over the side, cargo and all
+	fitting.cargo_held = 0
+	layout_slot.fitting = fitting
+	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = heaved}))
 }
 
-// combat_apply_reallocate pours as much of the cargo fitting at `from` into `to`
-// as `to` can still hold, shifting **no weight** (ADR-0020): the total cargo
-// aboard — and thus the ship's weight and Speed — is unchanged this round. What it
-// buys is *jettison granularity*: `to`'s slot size is the denomination the move
-// rounds to. The asserts mirror combat_apply_jettison and encode what the battle
-// menu's legal-picks-only offering guarantees: `from` holds cargo, `to` is a
-// distinct cargo-capable slot with room, and the move is non-empty.
+// combat_apply_reallocate pours as much of the cargo held at `from` into `to` as
+// `to` can still hold, shifting **no weight** (ADR-0020): the total cargo aboard —
+// and thus the ship's weight and Speed — is unchanged this round. What it buys is
+// *jettison granularity*: `to`'s remaining room is the denomination the move rounds
+// to. The asserts mirror combat_apply_jettison and encode what the battle menu's
+// legal-picks-only offering guarantees: `from` is carrying, `to` is a distinct
+// fitting with capacity left, and the move is non-empty.
+//
+// Both ends are ordinary fittings now, so neither slot is created or nulled — only
+// cargo_held moves between two things that were already installed.
 combat_apply_reallocate :: proc(battle: ^Battle, side: Side, from, to: ship.Slot_Index, events: ^[dynamic]Event) {
 	s := battle.ships[side]
 	assert(from != to, "Command_Reallocate from and to are the same slot")
@@ -200,35 +210,19 @@ combat_apply_reallocate :: proc(battle: ^Battle, side: Side, from, to: ship.Slot
 
 	from_slot := &s.layout[from]
 	src, has_src := from_slot.fitting.?
-	assert(has_src && src.is_cargo, "Command_Reallocate from does not hold a cargo fitting")
+	assert(has_src && src.cargo_held > 0, "Command_Reallocate from holds no cargo")
 
 	to_slot := &s.layout[to]
-	dest_fill := 0
-	if dest, has_dest := to_slot.fitting.?; has_dest {
-		assert(dest.is_cargo, "Command_Reallocate to holds a non-cargo fitting")
-		dest_fill = dest.stack_count
-	}
-	room := ship.ship_cargo_slot_contribution(to_slot.slot.size) - dest_fill
-	moved := min(src.stack_count, room)
+	dest, has_dest := to_slot.fitting.?
+	assert(has_dest, "Command_Reallocate to is an empty slot")
+
+	moved := min(src.cargo_held, ship.ship_fitting_capacity(dest) - dest.cargo_held)
 	assert(moved > 0, "Command_Reallocate moves no cargo (source empty or destination full)")
 
-	// Drain the source, nulling it if emptied: a zero-count cargo fitting is not a
-	// thing (ship_fitting_fits), an empty hold is an empty slot.
-	if moved == src.stack_count {
-		from_slot.fitting = nil
-	} else {
-		src.stack_count -= moved
-		from_slot.fitting = src
-	}
-
-	// Land it: grow the destination's cargo fitting, or create one sized to the slot
-	// (ship_fitting_cargo) when the slot was empty.
-	if dest, has_dest := to_slot.fitting.?; has_dest {
-		dest.stack_count += moved
-		to_slot.fitting = dest
-	} else {
-		to_slot.fitting = ship.ship_fitting_cargo("Cargo", to_slot.slot.size, moved)
-	}
+	src.cargo_held -= moved
+	from_slot.fitting = src
+	dest.cargo_held += moved
+	to_slot.fitting = dest
 
 	append(events, Event(Event_Cargo_Reallocated{round = battle.round, side = side, from = from, to = to, amount = moved}))
 }

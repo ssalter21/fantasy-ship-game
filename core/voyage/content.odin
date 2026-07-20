@@ -135,7 +135,9 @@ voyage_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostil
 		}
 		ship.ship_fit_first_empty_slot(layout, fitting) or_return
 	}
-	return ship.ship_fill_empty_slots_with_cargo(layout, "Spoils")
+	ship.ship_fill_empty_slots_with_holds(layout, "Spoils") or_return
+	ship.ship_fill_holds_to_percent(layout, ship.HOSTILE_FILL_PERCENT)
+	return true
 }
 
 // voyage_pve_opponent builds a full Ship Battle opponent: it draws one archetype from the

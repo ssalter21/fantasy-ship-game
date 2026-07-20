@@ -85,7 +85,10 @@ fight_action_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX
 
 	for layout_slot, i in state.player.layout {
 		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting || !fitting.is_cargo {
+		// Only a fitting that is actually carrying can be heaved: an empty one weighs
+		// nothing extra, so jettisoning it would be free Speed (combat_apply_jettison
+		// asserts the same thing).
+		if !has_fitting || fitting.cargo_held <= 0 {
 			continue
 		}
 		add(&actions, &n, fmt.tprintf("Jettison %s", fitting.name), combat.Command(combat.Command_Jettison_Cargo{slot_index = ship.Slot_Index(i)}), true)
@@ -262,9 +265,9 @@ draw_fight_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, gate:
 	}
 
 	masked := gate && visibility == .Concealed
-	is_cargo := fitting.is_cargo
+	is_hold := ship.ship_fitting_is_hold(fitting)
 	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, 0.55))
-	rl.DrawRectangleLinesEx(rect, 2, is_cargo && !masked ? COLOUR_BLUE_RECESSIVE : COLOUR_STEEL)
+	rl.DrawRectangleLinesEx(rect, 2, is_hold && !masked ? COLOUR_BLUE_RECESSIVE : COLOUR_STEEL)
 
 	if masked {
 		// A scouted opponent's concealed fitting: its presence shows, its identity does not
@@ -277,10 +280,10 @@ draw_fight_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, gate:
 	}
 
 	rl.BeginScissorMode(i32(rect.x), i32(rect.y), i32(rect.width), i32(rect.height))
-	name_tone := is_cargo ? rl.Fade(COLOUR_CREAM, 0.75) : COLOUR_CREAM
+	name_tone := is_hold ? rl.Fade(COLOUR_CREAM, 0.75) : COLOUR_CREAM
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", fitting.name), rl.Vector2{rect.x + 8, rect.y + 6}, UI_BODY_SIZE, 1, name_tone)
-	if is_cargo {
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("holds %d", fitting.stack_count), rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, UI_BODY_SIZE, 1, COLOUR_STEEL)
+	if is_hold {
+		rl.DrawTextEx(ui_font_body, fmt.ctprintf("holds %d", fitting.cargo_held), rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, UI_BODY_SIZE, 1, COLOUR_STEEL)
 	} else {
 		draw_build_category_chip(rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, fitting.category)
 	}
