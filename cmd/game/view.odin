@@ -899,7 +899,7 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 }
 
 // fitting_effect_intent renders a one-line summary of what a fitting does: each of its
-// effects as a magnitude and the verb it carries (Effect_Kind), with synergy and
+// effects as a magnitude and the verb it carries (Verb), with synergy and
 // conditionality spelled out ("+2 Offense per Weapon", "+8 Offense when its condition
 // holds"), joined by commas. "no effect" for a cargo filler.
 //
@@ -923,7 +923,7 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 @(private = "file")
 fitting_one_effect_intent :: proc(effect: ship.Effect) -> string {
 	target: string
-	switch effect.kind {
+	switch effect.verb {
 	case .Phase_Contribution:
 		target = "Offense"
 	case .Repair:

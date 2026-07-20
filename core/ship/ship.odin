@@ -11,17 +11,17 @@ Visibility :: enum u8 {
 	Concealed,
 }
 
-// Category is a round phase (ADR-0006, amended by ADR-0025): every round resolves
+// Phase is a round phase (ADR-0006, amended by ADR-0025): every round resolves
 // Brace -> Fire, and an Effect names which of the two consumes it. It lives in this
 // package rather than core/combat because it is a field of an Effect — this package's
 // data — and layout order is what fixes the grouping combat resolves by.
-Category :: enum u8 {
+Phase :: enum u8 {
 	Brace,
 	Fire,
 }
 
 // Tag is a fitting's family membership: the axis synergy effects count fittings
-// along, independent of combat phase (Category) — a Beast may brace or fire. Multi-tag
+// along, independent of combat phase (Phase) — a Beast may brace or fire. Multi-tag
 // is allowed (selector_matches counts a fitting under each of its tags).
 Tag :: enum u8 {
 	Crew,
@@ -43,7 +43,7 @@ Slot :: struct {
 // (see core/combat's combat_phase_output).
 Magnitude :: distinct int
 
-// Effect_Kind is an Effect's **verb**: what its resolved magnitude does, and thereby
+// Verb is an Effect's **verb**: what its resolved magnitude does, and thereby
 // which consumer reads it. Two kinds feed a combat phase and one adjusts a ship stat:
 //
 //   - Phase_Contribution (the zero value) is the damage a Fire fitting deals.
@@ -54,7 +54,7 @@ Magnitude :: distinct int
 //     category.
 //
 // ship_verb_phase is the pairing between a verb and the phase that consumes it.
-Effect_Kind :: enum {
+Verb :: enum {
 	Phase_Contribution,
 	Repair,
 	Modify_Speed,
@@ -65,12 +65,12 @@ Effect_Kind :: enum {
 // ship_effective_speed, a layer above the phases. It is the single statement of that
 // pairing: the effect_* authoring helpers set an Effect's `phase` from it, so a
 // resolved phase can never disagree with the verb that names its consumer.
-ship_verb_phase :: proc(kind: Effect_Kind) -> Maybe(Category) {
-	switch kind {
+ship_verb_phase :: proc(verb: Verb) -> Maybe(Phase) {
+	switch verb {
 	case .Phase_Contribution:
-		return Category.Fire
+		return Phase.Fire
 	case .Repair:
-		return Category.Brace
+		return Phase.Brace
 	case .Modify_Speed:
 		return nil
 	}
@@ -84,7 +84,7 @@ ship_verb_phase :: proc(kind: Effect_Kind) -> Maybe(Category) {
 //
 // **Tag, slot size and effective visibility, and nothing else.** All three are
 // authored constants sitting below the phase layer, so counting them cannot read a
-// quantity the count is itself an input to. A round Category is **not** an axis: a phase
+// quantity the count is itself an input to. A round Phase is **not** an axis: a phase
 // sits above the modifier layer a Modify_Speed count resolves in, and on a Fitting it
 // defaults to Brace, so counting by it would count every cargo hold as a Brace item. There
 // is no "empty slot" axis either: a vacated slot backfills a hold (ship_remove), so
@@ -162,13 +162,17 @@ Timing_Charge :: struct {
 	per_round: int,
 }
 
-// Timing_Reading is what a timing says about one effect in one round: whether it fires at
-// all, and what a ramp has added to it by now. It is a **reading, not state** — the state
-// is the counter effect_timing_advance hands back — and that split is what lets a caller
-// weigh a loadout mid-battle without spending a charge nothing fired.
+// Timing_Reading is what a timing says about one effect in one round: whether the round
+// passed it over, and what a ramp has added to it by now. It is a **reading, not state** —
+// the state is the counter effect_timing_advance hands back — and that split is what lets a
+// caller weigh a loadout mid-battle without spending a charge nothing fired.
+//
+// It reads `dormant` rather than "fires" so its zero value agrees with Timing_Always's,
+// which is the zero Timing: an unwritten reading is a round the effect resolves in
+// normally, and no table of readings can silently disarm an effect by being short.
 Timing_Reading :: struct {
-	fires: bool,
-	ramp:  int,
+	dormant: bool,
+	ramp:    int,
 }
 
 // effect_timing_advance answers `timing` for `round` given that effect's per-battle
@@ -176,30 +180,29 @@ Timing_Reading :: struct {
 // timing's: Once_Per_Battle counts its one firing, Charge holds the charge it has banked,
 // and the three timings that are pure functions of the round number never touch it.
 //
-// Pure arithmetic over `(timing, round, counter)` — no Battle and no Ship — so a timing is
-// tested as the sequence it produces, and a caller that does not store the returned counter
-// has read the round without spending it.
+// Pure arithmetic over `(timing, round, counter)` — no Battle and no Ship, and no check on
+// what it was handed, since a timing is made coherent where it is authored
+// (effect_with_timing). So a timing is tested as the sequence it produces, and a caller
+// that does not store the returned counter has read the round without spending it.
 effect_timing_advance :: proc(timing: Timing, round: int, counter: int) -> (reading: Timing_Reading, next: int) {
 	switch t in timing {
 	case Timing_Always:
-		return Timing_Reading{fires = true}, counter
+		return Timing_Reading{}, counter
 	case Timing_Once_Per_Battle:
 		if counter > 0 {
-			return Timing_Reading{}, counter
+			return Timing_Reading{dormant = true}, counter
 		}
-		return Timing_Reading{fires = true}, counter + 1
+		return Timing_Reading{}, counter + 1
 	case Timing_Every_N:
-		assert(t.n > 0, "Timing_Every_N wants a cadence of at least one round")
-		return Timing_Reading{fires = round % t.n == 0}, counter
+		return Timing_Reading{dormant = round % t.n != 0}, counter
 	case Timing_Ramp:
-		return Timing_Reading{fires = true, ramp = min(t.per_round * max(round - 1, 0), t.cap)}, counter
+		return Timing_Reading{ramp = min(t.per_round * max(round - 1, 0), t.cap)}, counter
 	case Timing_Charge:
-		assert(t.cost > 0 && t.per_round > 0, "Timing_Charge wants a positive cost and a positive gain")
 		charge := counter + t.per_round
 		if charge < t.cost {
-			return Timing_Reading{}, charge
+			return Timing_Reading{dormant = true}, charge
 		}
-		return Timing_Reading{fires = true}, charge - t.cost
+		return Timing_Reading{}, charge - t.cost
 	}
 	unreachable()
 }
@@ -208,7 +211,7 @@ effect_timing_advance :: proc(timing: Timing, round: int, counter: int) -> (read
 // the point of use rather than baked in as a bare constant. It stays plain data — no
 // function pointers, no pointers at all — so a Ghost_Snapshot (ADR-0008) can carry it.
 //
-// `kind` decides what the resolved magnitude does, and `phase` which of the round's two
+// `verb` decides what the resolved magnitude does, and `phase` which of the round's two
 // phases consumes it — absent for the one verb that feeds neither. **Phase rides on the
 // Effect, not on the Fitting**, which is what lets one item feed both phases: an item is
 // up to three effects, and each names its own consumer. Nothing authors the pair by hand;
@@ -228,8 +231,8 @@ effect_timing_advance :: proc(timing: Timing, round: int, counter: int) -> (read
 // is 100; the effect_* authoring helpers are what set it, so a zero-valued literal cannot
 // silently disarm an item.
 Effect :: struct {
-	kind:       Effect_Kind,
-	phase:      Maybe(Category),
+	verb:       Verb,
+	phase:      Maybe(Phase),
 	timing:     Timing,
 	magnitude:  Expr,
 	site_scale: int,
@@ -241,7 +244,7 @@ Effect :: struct {
 EFFECT_SITE_SCALE_AUTHORED :: 100
 
 // effect_phase_contribution / effect_repair / effect_modify_speed are the three ways an
-// Effect is authored — one per Effect_Kind, so the verb is chosen by which proc is called
+// Effect is authored — one per Verb, so the verb is chosen by which proc is called
 // rather than by remembering a field. They exist because two of the Effect's fields have a
 // zero value that lies: a `site_scale` of 0 silently disarms the item, and a `magnitude`
 // left unset is an empty tree worth nothing. A helper cannot forget either — and it is
@@ -273,10 +276,10 @@ effect_modify_speed :: proc(magnitude: Expr, synergy: Maybe(Selector) = nil) -> 
 // effect_of is the shape the three verb helpers share: the verb, the phase it is consumed
 // in, an honest site scale, and Timing_Always by the zero value.
 @(private)
-effect_of :: proc(kind: Effect_Kind, magnitude: Expr, synergy: Maybe(Selector)) -> Effect {
+effect_of :: proc(verb: Verb, magnitude: Expr, synergy: Maybe(Selector)) -> Effect {
 	return Effect {
-		kind = kind,
-		phase = ship_verb_phase(kind),
+		verb = verb,
+		phase = ship_verb_phase(verb),
 		magnitude = magnitude,
 		site_scale = EFFECT_SITE_SCALE_AUTHORED,
 		synergy = synergy,
@@ -292,11 +295,23 @@ effect_of :: proc(kind: Effect_Kind, magnitude: Expr, synergy: Maybe(Selector)) 
 // orders — where there is no Battle to hold a counter and so no answer to "has it fired
 // yet". A timing there would read one number in the fight and another in the hold, so it is
 // rejected at authoring time, exactly as effect_modify_speed rejects a speed-reading tree.
+// The **cadence and the cost are made coherent here too**, at the same seam: a cadence of
+// zero rounds and a charge that never fills are settings the union's shape cannot rule out,
+// so they are rejected where they are written rather than met by the resolver, which stays
+// pure arithmetic over what it is handed.
 effect_with_timing :: proc(effect: Effect, timing: Timing) -> Effect {
 	assert(
-		effect.kind != .Modify_Speed,
+		effect.verb != .Modify_Speed,
 		"a Modify_Speed effect is Always: its consumer is read outside a battle, where no counter exists",
 	)
+	switch t in timing {
+	case Timing_Always, Timing_Once_Per_Battle, Timing_Ramp:
+	// nothing to make coherent: neither a cadence nor a cost
+	case Timing_Every_N:
+		assert(t.n > 0, "Timing_Every_N wants a cadence of at least one round")
+	case Timing_Charge:
+		assert(t.cost > 0 && t.per_round > 0, "Timing_Charge wants a positive cost and a positive gain")
+	}
 	timed := effect
 	timed.timing = timing
 	return timed
@@ -352,20 +367,22 @@ Speeds :: struct {
 // Every magnitude read — combat's phase output, the effective-stat readers — goes through
 // this one seam.
 //
-// A round the effect does not fire in is worth **0**, resolved here rather than skipped by
+// A round the effect is dormant in is worth **0**, resolved here rather than skipped by
 // each consumer, so "when does it fire" has one answer.
 //
 // The site scale rounds half-up so a scale-down cannot silently disarm the smallest
 // fittings (magnitude 1 at 50% is 1, not 0), and lands ahead of the synergy multiply, so
 // scaling stays proportional to what the fitting deals rather than to the build around it:
-// `(m x pct) x count` is `pct x (m x count)`.
+// `(m x pct) x count` is `pct x (m x count)`. **A ramp's growth is scaled with the tree
+// rather than after it**: the site scales what the fitting deals, and by the fourth round a
+// ramp is most of that — scaling only the authored part would make a hostile's ramp the one
+// number a Coastal site could not soften.
 //
-// `timing` defaults to a firing round with no ramp, which is Timing_Always's reading in
-// every round: the readers outside a battle (the effective-stat readers, an item card) have
-// no counter to consult, and the one verb they resolve may not carry a timing at all
-// (effect_with_timing).
-effect_magnitude :: proc(effect: Effect, ctx: Effect_Context, timing := Timing_Reading{fires = true}) -> Magnitude {
-	if !timing.fires {
+// `timing` defaults to the zero reading, which is Timing_Always's in every round: the
+// readers outside a battle (the effective-stat readers, an item card) have no counter to
+// consult, and the one verb they resolve may not carry a timing at all (effect_with_timing).
+effect_magnitude :: proc(effect: Effect, ctx: Effect_Context, timing := Timing_Reading{}) -> Magnitude {
+	if timing.dormant {
 		return 0
 	}
 	value := effect_site_scaled(expr_eval(effect.magnitude, effect_expr_context(ctx)) + timing.ramp, effect)
@@ -602,8 +619,8 @@ ship_fitting_with_effects :: proc(fitting: Fitting, effects: ..Effect) -> Fittin
 // ship_fitting_phases is the set of round phases a fitting feeds: the phase of each of its
 // effects, empty for one that feeds none (a hold, a pure speed item). A fitting may feed
 // both, which is what carrying several effects buys.
-ship_fitting_phases :: proc(fitting: Fitting) -> bit_set[Category] {
-	phases: bit_set[Category]
+ship_fitting_phases :: proc(fitting: Fitting) -> bit_set[Phase] {
+	phases: bit_set[Phase]
 	for i in 0 ..< fitting.effect_count {
 		if phase, feeds := fitting.effects[i].phase.?; feeds {
 			phases += {phase}
@@ -728,16 +745,16 @@ ship_effective_visibility :: proc(layout_slot: Layout_Slot) -> Visibility {
 }
 
 // ship_fitting_stat_contribution sums the resolved magnitude of a fitting's stat-modifier
-// effects of `kind`. Every one of its effects is considered, so a stat modifier may sit at
-// any index; only effects whose Effect_Kind matches count, so a phase verb never leaks into
+// effects of `verb`. Every one of its effects is considered, so a stat modifier may sit at
+// any index; only effects whose Verb matches count, so a phase verb never leaks into
 // a stat total.
 //
 // No timing reading is passed: a stat verb is Always by construction (effect_with_timing),
 // which is what lets a stat be answered off the battlefield at all.
-ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx: Effect_Context) -> int {
+ship_fitting_stat_contribution :: proc(fitting: Fitting, verb: Verb, ctx: Effect_Context) -> int {
 	total := 0
 	for i in 0 ..< fitting.effect_count {
-		if effect := fitting.effects[i]; effect.kind == kind {
+		if effect := fitting.effects[i]; effect.verb == verb {
 			total += int(effect_magnitude(effect, ctx))
 		}
 	}

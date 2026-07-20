@@ -1334,3 +1334,33 @@ breaking_off_spends_no_charge :: proc(t: ^testing.T) {
 	testing.expect(t, battle.ended)
 	testing.expect_value(t, battle.timing[.A], ship.Effect_Counters{})
 }
+
+// A peek answers for the round **about to be resolved**, not the one just finished: the
+// resolver steps `battle.round` before it advances a timing, so a preview that read the
+// battle's own round would answer one round late — and before the first round it would
+// answer for round zero, where every cadence divides.
+@(test)
+weighing_a_loadout_answers_for_the_round_about_to_be_fought :: proc(t: ^testing.T) {
+	a := ship.Ship{
+		hull = 100, max_hull = 100, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Large}, fitting = timed_gun(6, ship.Timing_Every_N{n = 2})},
+		},
+	}
+	b := ship.Ship{hull = 100, max_hull = 100, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	// Round 1 is not on the cadence, so the fight is worth nothing yet.
+	testing.expect_value(t, combat_phase_output_this_round(&battle, .A, .Fire), 0)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+	testing.expect_value(t, b.hull, 100)
+
+	// Standing at the end of round 1, the peek answers for round 2, which is.
+	testing.expect_value(t, combat_phase_output_this_round(&battle, .A, .Fire), 6)
+	combat_resolve_round(&battle, cmds, &events)
+	testing.expect_value(t, b.hull, 100 - 6)
+}

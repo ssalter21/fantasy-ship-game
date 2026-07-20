@@ -16,11 +16,11 @@ The remaining axis for "when" was nothing at all: an effect fired every round of
 
 **A Fitting carries `effects: [FITTING_MAX_EFFECTS]Effect` plus `effect_count`, and the cap is in the type.** Three, because raising the cap later is free and lowering it is not. `passive`/`active` are deleted. `ship_fitting_with_effects` writes the array and the count together, so the two cannot disagree — a count short of what was written silently disarms an effect, and one past it resolves a zero `Effect` as a live one.
 
-**Phase rides on the Effect, not on the Fitting**, as `phase: Maybe(Category)` — absent for the one verb that feeds no phase. `combat_phase_output` routes on it, so **one item may feed both phases in a round**, which is the whole reason a fitting carries a list. `Fitting.category` is deleted: it routes nothing, and a field that only lies is not worth keeping for a ticket.
+**Phase rides on the Effect, not on the Fitting**, as `phase: Maybe(Phase)` — absent for the one verb that feeds no phase. `combat_phase_output` routes on it, so **one item may feed both phases in a round**, which is the whole reason a fitting carries a list. `Fitting.category` is deleted: it routes nothing, and a field that only lies is not worth keeping for a ticket.
 
 **Nothing authors the verb/phase pair by hand.** The `effect_*` helpers set `phase` from `ship_verb_phase` (Phase_Contribution → Fire, Repair → Brace, Modify_Speed → neither), which is ADR-0027's pairing stated in the direction the effect reads. A roster test is the guard that a hand-built literal has not slipped past them.
 
-**Timing is a closed union of exactly five** — `Always | Once_Per_Battle | Every_N{n} | Ramp{per_round, cap} | Charge{cost, per_round}` — declared `#no_nil` so `Timing_Always` is the zero value. An incoherent setting is unrepresentable rather than rejected at runtime, and pricing faces five shapes rather than a knob space. `effect_timing_advance` answers a timing as **pure arithmetic over `(timing, round, counter)`**, so a timing is tested as the sequence it produces, with no Battle and no Ship in reach.
+**Timing is a closed union of exactly five** — `Always | Once_Per_Battle | Every_N{n} | Ramp{per_round, cap} | Charge{cost, per_round}` — declared `#no_nil` so `Timing_Always` is the zero value. An incoherent combination is unrepresentable rather than rejected, and pricing faces five shapes rather than a knob space. The two settings a union cannot rule out — a cadence of zero rounds, a charge that never fills — are made coherent at the authoring seam (`effect_with_timing`), beside the rule that rejects a timed `Modify_Speed`, so the resolver stays arithmetic over what it is handed. `effect_timing_advance` answers a timing as **pure arithmetic over `(timing, round, counter)`**, so a timing is tested as the sequence it produces, with no Battle and no Ship in reach.
 
 **The battle is the hard ceiling for every timing.** What a timing remembers is one int per `(side, slot, effect)`, held on `Battle.timing` and zeroed by the zero Battle. **The Ghost_Snapshot gains no new state**, and out-of-combat timing is killed by construction rather than by a rule: there is nowhere else for a counter to live.
 
@@ -28,14 +28,18 @@ The remaining axis for "when" was nothing at all: an effect fired every round of
 
 **A `Modify_Speed` effect may not carry a timing**, asserted at authoring time beside the existing rejection of a speed-reading tree. Its consumer, `ship_effective_speed`, is read off the battlefield too — the refit screen, the escape check taken before a round's orders — where no Battle holds a counter. A timing there would read one number in the fight and another in the hold.
 
-**A ramp's growth rides beside the tree, exactly as `site_scale` does**, added to what the evaluator returns rather than spliced into the tree: a growth node at the root would tax every tree, and growing a constant leaf would grow a gate's threshold with it.
+**A ramp's growth rides beside the tree, exactly as `site_scale` does**, added to what the evaluator returns rather than spliced into the tree: a growth node at the root would tax every tree, and growing a constant leaf would grow a gate's threshold with it. The site then scales the sum, because by the fourth round the ramp is most of what the fitting deals.
+
+**A `Timing_Reading` reads `dormant`, not "fires"**, so its zero value agrees with the zero `Timing`: a table of readings short of an entry describes a normal round rather than silently disarming an effect.
+
+**The types take the glossary's words**: `Effect_Kind` is `Verb` and `Category` is `Phase`, which is what `CONTEXT.md` and this ADR call them.
 
 ## Consequences
 
 - **Same-cell items stop being clones.** Three effects, each with its own verb, phase, timing and tree, is the axis the power budget ([#408](https://github.com/ssalter21/fantasy-ship-game/issues/408)) prices distinctness along.
 - **Repair can be priced at two rates.** Sustained (`Always`) and burst are opposite demands on one number; the timing axis is what reconciles them, which a price could not.
 - **`Timing` is in the type but not yet in the roster.** No authored item leaves `Timing_Always` until the roster rewrite ([#406](https://github.com/ssalter21/fantasy-ship-game/issues/406)) and the budget ([#408](https://github.com/ssalter21/fantasy-ship-game/issues/408)) land, so the resolver is exercised by tests rather than by content.
-- **A Fitting is a third bigger** — three 12-node trees rather than two. `Node`'s fields are reordered widest-first to claw a quarter of that back; the events that carry a shop's shelf by value are the size ceiling worth watching, and one presentation test had to stop stacking fourteen of them in a frame.
+- **A Fitting is a third bigger** — three 12-node trees rather than two. `Node`'s fields are reordered widest-first (16 -> 12 bytes), which is what keeps the events carrying a shop's shelf by value inside a frame's stack: the un-reordered version overflowed one presentation test that stacks fourteen of them.
 - **The Fight site's scaling guard moves from the category to the verb.** `voyage_stakes_scales_category` is deleted: with no category to ask about, every hostile fitting goes through `ship_fitting_output_scaled`, which moves `Phase_Contribution` effects and leaves Repair and `Modify_Speed` where they were. ADR-0027's "the site does not scale repair" holds unchanged, now by construction rather than by a caller remembering to ask.
 - **`SHIP_MAX_SLOTS` is now a real bound**, since the per-battle timing table is indexed by slot. The one ship template is sized from it.
 - **Presentation reads a phase *set*.** An item's chip says "Brace/Fire" where it feeds both, and "no phase" for a hold or a pure speed item.

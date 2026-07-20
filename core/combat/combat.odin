@@ -29,7 +29,7 @@ Command :: union {
 // ship, this round only, and is available at most once per battle (combat_may_press,
 // ADR-0028).
 Command_Press :: struct {
-	phase: ship.Category,
+	phase: ship.Phase,
 }
 
 // Command_Commit multiplies the submitter's Brace total by COMMIT_MULTIPLIER and
@@ -95,7 +95,7 @@ End_Reason :: enum {
 // combat_resolve_round: the round's Press choice and whether it committed, the
 // round's damage output, and whether the side was sunk this round.
 Round_State :: struct {
-	press_phase: Maybe(ship.Category),
+	press_phase: Maybe(ship.Phase),
 	commit:      bool,
 	damage:      int,
 	sunk:        bool,
@@ -222,12 +222,16 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = heaved}))
 }
 
-// combat_timings answers every effect on `side`'s ship for the round being resolved: the
-// readings the phases resolve against, and that side's counters as the round leaves them.
+// combat_timings answers every effect on `side`'s ship for `round`: the readings the phases
+// resolve against, and that side's counters as that round would leave them.
 //
 // It **writes nothing back**. The caller resolving the round stores the counters; a caller
 // only weighing a loadout drops them, so a peek can never spend a charge it never fired.
-combat_timings :: proc(battle: ^Battle, side: Side) -> (timings: ship.Effect_Timings, counters: ship.Effect_Counters) {
+//
+// `round` is a parameter rather than read off the battle because the two callers stand in
+// different rounds: resolution has already stepped `battle.round` onto the round it is
+// resolving, while a peek is asking about the round that has not begun.
+combat_timings :: proc(battle: ^Battle, side: Side, round: int) -> (timings: ship.Effect_Timings, counters: ship.Effect_Counters) {
 	s := battle.ships[side]
 	assert(len(s.layout) <= ship.SHIP_MAX_SLOTS, "a ship's layout is wider than the battle's timing table")
 	counters = battle.timing[side]
@@ -239,7 +243,7 @@ combat_timings :: proc(battle: ^Battle, side: Side) -> (timings: ship.Effect_Tim
 		for effect_index in 0 ..< fitting.effect_count {
 			timings[slot_index][effect_index], counters[slot_index][effect_index] = ship.effect_timing_advance(
 				fitting.effects[effect_index].timing,
-				battle.round,
+				round,
 				counters[slot_index][effect_index],
 			)
 		}
@@ -261,7 +265,7 @@ combat_timings :: proc(battle: ^Battle, side: Side) -> (timings: ship.Effect_Tim
 combat_phase_output :: proc(
 	battle: ^Battle,
 	side: Side,
-	phase: ship.Category,
+	phase: ship.Phase,
 	round: ship.Round_Facts,
 	speeds: ship.Speeds,
 	timings: ship.Effect_Timings,
@@ -298,13 +302,13 @@ combat_phase_output :: proc(
 // The timing readings it asks for are dropped rather than stored, so weighing a loadout
 // costs the battle nothing — the reading is of the round as it stands, not of a round that
 // happened.
-combat_phase_output_this_round :: proc(battle: ^Battle, side: Side, phase: ship.Category) -> int {
+combat_phase_output_this_round :: proc(battle: ^Battle, side: Side, phase: ship.Phase) -> int {
 	round := combat_round_facts(battle, side, .Hold)
 	speeds := ship.Speeds {
 		own      = combat_effective_speed(battle, side),
 		opponent = combat_effective_speed(battle, combat_opposite_side(side)),
 	}
-	timings, _ := combat_timings(battle, side)
+	timings, _ := combat_timings(battle, side, battle.round + 1)
 	return combat_phase_output(battle, side, phase, round, speeds, timings)
 }
 
@@ -386,7 +390,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// named phase and nothing else (ADR-0006); a Commit multiplies Brace and zeroes Fire.
 	// One proc rather than two because a round carries one order: the two scalings are
 	// alternatives, and composing them is not a case that exists.
-	scaled :: proc(total: int, phase: ship.Category, order: Round_State) -> int {
+	scaled :: proc(total: int, phase: ship.Phase, order: Round_State) -> int {
 		if order.commit {
 			return total * COMMIT_MULTIPLIER if phase == .Brace else 0
 		}
@@ -436,7 +440,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// table, and a round that ended in a Break Off above spent nothing.
 	timings: [Side]ship.Effect_Timings
 	for side in Side {
-		timings[side], battle.timing[side] = combat_timings(battle, side)
+		timings[side], battle.timing[side] = combat_timings(battle, side, battle.round)
 	}
 
 	repair: [Side]int

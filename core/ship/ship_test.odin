@@ -562,7 +562,7 @@ selector_matches_over_each_of_tag_size_and_visibility :: proc(t: ^testing.T) {
 	testing.expect(t, selector_matches(slot, Selector(Tag.Beast)))
 	testing.expect(t, selector_matches(slot, Selector(Tag.Weapon)))
 	testing.expect(t, !selector_matches(slot, Selector(Tag.Crew)))
-	// Size: the fitting's own field. A round Category is not an axis at all — a phase is
+	// Size: the fitting's own field. A round Phase is not an axis at all — a phase is
 	// not a countable constant (see Selector).
 	testing.expect(t, selector_matches(slot, Selector(Slot_Size.Large)))
 	testing.expect(t, !selector_matches(slot, Selector(Slot_Size.Small)))
@@ -853,7 +853,7 @@ an_opponent_count_reads_the_scouting_report_and_concealment_empties_it :: proc(t
 a_modify_speed_tree_that_reads_a_speed_is_rejected_when_it_is_authored :: proc(t: ^testing.T) {
 	// A Modify_Speed effect may read anything below its layer.
 	round_gated := effect_modify_speed(expr_from_round(3, 2))
-	testing.expect_value(t, round_gated.kind, Effect_Kind.Modify_Speed)
+	testing.expect_value(t, round_gated.verb, Verb.Modify_Speed)
 
 	// It may not read either speed — own or opponent. Both readings are refused by
 	// effect_modify_speed's assert; expr_reads_quantity is the question it asks.
@@ -968,9 +968,9 @@ a_fitting_carries_up_to_three_effects_and_names_the_phases_they_feed :: proc(t: 
 	)
 
 	testing.expect_value(t, warship.effect_count, 3)
-	testing.expect_value(t, ship_fitting_phases(warship), bit_set[Category]{.Brace, .Fire})
+	testing.expect_value(t, ship_fitting_phases(warship), bit_set[Phase]{.Brace, .Fire})
 	// The stat verb feeds no phase, so it is in neither of those and in no phase total.
-	testing.expect_value(t, warship.effects[2].phase, Maybe(Category)(nil))
+	testing.expect_value(t, warship.effects[2].phase, Maybe(Phase)(nil))
 }
 
 @(test)
@@ -978,7 +978,7 @@ a_fitting_with_no_effects_feeds_no_phase_and_is_a_hold :: proc(t: ^testing.T) {
 	hold := ship_fitting_hold(.Small)
 
 	testing.expect_value(t, hold.effect_count, 0)
-	testing.expect_value(t, ship_fitting_phases(hold), bit_set[Category]{})
+	testing.expect_value(t, ship_fitting_phases(hold), bit_set[Phase]{})
 	testing.expect(t, ship_fitting_is_hold(hold))
 }
 
@@ -1009,7 +1009,7 @@ timing_always_fires_every_round_and_remembers_nothing :: proc(t: ^testing.T) {
 	for round in 1 ..= 4 {
 		reading: Timing_Reading
 		reading, counter = effect_timing_advance(Timing_Always{}, round, counter)
-		testing.expect(t, reading.fires)
+		testing.expect(t, !reading.dormant)
 		testing.expect_value(t, reading.ramp, 0)
 		testing.expect_value(t, counter, 0)
 	}
@@ -1022,13 +1022,13 @@ timing_once_per_battle_fires_on_the_first_round_and_never_again :: proc(t: ^test
 	for round in 1 ..= 5 {
 		reading: Timing_Reading
 		reading, counter = effect_timing_advance(Timing_Once_Per_Battle{}, round, counter)
-		fired[round - 1] = reading.fires
+		fired[round - 1] = !reading.dormant
 	}
 	testing.expect_value(t, fired, [5]bool{true, false, false, false, false})
 
 	// A fresh battle zeroes the counter, and the one firing is available again.
 	reading, _ := effect_timing_advance(Timing_Once_Per_Battle{}, 1, 0)
-	testing.expect(t, reading.fires)
+	testing.expect(t, !reading.dormant)
 }
 
 @(test)
@@ -1036,7 +1036,7 @@ timing_every_n_fires_on_its_cadence_and_nothing_between :: proc(t: ^testing.T) {
 	fired: [6]bool
 	for round in 1 ..= 6 {
 		reading, _ := effect_timing_advance(Timing_Every_N{n = 3}, round, 0)
-		fired[round - 1] = reading.fires
+		fired[round - 1] = !reading.dormant
 	}
 	testing.expect_value(t, fired, [6]bool{false, false, true, false, false, true})
 }
@@ -1049,7 +1049,7 @@ timing_ramp_grows_by_the_round_and_stops_at_its_cap :: proc(t: ^testing.T) {
 	ramps: [5]int
 	for round in 1 ..= 5 {
 		reading, _ := effect_timing_advance(Timing_Ramp{per_round = 2, cap = 5}, round, 0)
-		testing.expect(t, reading.fires)
+		testing.expect(t, !reading.dormant)
 		ramps[round - 1] = reading.ramp
 	}
 	testing.expect_value(t, ramps, [5]int{0, 2, 4, 5, 5})
@@ -1062,7 +1062,7 @@ timing_charge_banks_its_gain_and_spends_it_on_the_round_it_fires :: proc(t: ^tes
 	for round in 1 ..= 6 {
 		reading: Timing_Reading
 		reading, counter = effect_timing_advance(Timing_Charge{cost = 4, per_round = 2}, round, counter)
-		fired[round - 1] = reading.fires
+		fired[round - 1] = !reading.dormant
 	}
 	// Two rounds of banking pays for the third, and the bank starts over.
 	testing.expect_value(t, fired, [6]bool{false, true, false, true, false, true})
@@ -1076,10 +1076,11 @@ an_effect_that_does_not_fire_resolves_to_nothing :: proc(t: ^testing.T) {
 	s := Ship{hull = 10, max_hull = 10}
 	gun := effect_phase_contribution(expr_const(7))
 
-	testing.expect_value(t, effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{}), Magnitude(0))
-	testing.expect_value(t, effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{fires = true}), Magnitude(7))
+	testing.expect_value(t, effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{dormant = true}), Magnitude(0))
+	// The zero reading is a firing round, so a table short of an entry cannot disarm an effect.
+	testing.expect_value(t, effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{}), Magnitude(7))
 	// A ramp lands beside the tree, and the site scales the sum.
-	ramped := effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{fires = true, ramp = 3})
+	ramped := effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{ramp = 3})
 	testing.expect_value(t, ramped, Magnitude(10))
 }
 
@@ -1099,7 +1100,7 @@ a_timed_effect_keeps_everything_but_its_timing :: proc(t: ^testing.T) {
 	base := effect_repair(expr_const(5))
 	timed := effect_with_timing(base, Timing_Every_N{n = 2})
 
-	testing.expect_value(t, timed.kind, base.kind)
+	testing.expect_value(t, timed.verb, base.verb)
 	testing.expect_value(t, timed.phase, base.phase)
 	testing.expect_value(t, timed.site_scale, base.site_scale)
 	testing.expect_value(t, effect_showcase_magnitude(timed), effect_showcase_magnitude(base))

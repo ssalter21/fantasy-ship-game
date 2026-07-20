@@ -293,7 +293,7 @@ shop_item_cost_rises_strictly_with_tier :: proc(t: ^testing.T) {
 the_item_roster_spans_all_families_sizes_and_phases :: proc(t: ^testing.T) {
 	seen_family: [Tag]bool
 	seen_size: [Slot_Size]bool
-	seen_phase: [Category]bool
+	seen_phase: [Phase]bool
 	for item in ship_item_roster() {
 		f := item.fitting
 		for tag in Tag {
@@ -312,7 +312,7 @@ the_item_roster_spans_all_families_sizes_and_phases :: proc(t: ^testing.T) {
 	for size in Slot_Size {
 		testing.expect(t, seen_size[size])
 	}
-	for phase in Category {
+	for phase in Phase {
 		testing.expect(t, seen_phase[phase])
 	}
 }
@@ -327,7 +327,7 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 		}
 		for i in 0 ..< f.effect_count {
 			effect := f.effects[i]
-			if effect.kind != .Phase_Contribution {
+			if effect.verb != .Phase_Contribution {
 				saw_stat_mod = true
 			}
 			if _, is_synergy := effect.synergy.?; is_synergy {
@@ -336,7 +336,7 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 			if expr_is_conditional(effect.magnitude) {
 				saw_conditional = true
 			}
-			if effect.kind == .Phase_Contribution && effect.synergy == nil && !expr_is_conditional(effect.magnitude) {
+			if effect.verb == .Phase_Contribution && effect.synergy == nil && !expr_is_conditional(effect.magnitude) {
 				saw_flat = true
 			}
 		}
@@ -383,9 +383,9 @@ every_authored_effect_names_its_verbs_phase :: proc(t: ^testing.T) {
 			effect := f.effects[i]
 			testing.expectf(
 				t,
-				effect.phase == ship_verb_phase(effect.kind),
+				effect.phase == ship_verb_phase(effect.verb),
 				"%v carries a %v effect on the wrong phase — nothing resolves it",
-				f.name, effect.kind,
+				f.name, effect.verb,
 			)
 		}
 	}
@@ -404,7 +404,7 @@ the_roster_authors_repair_items_at_every_tier :: proc(t: ^testing.T) {
 	repairs: [Tier]int
 	for item in ship_item_roster() {
 		for i in 0 ..< item.fitting.effect_count {
-			if item.fitting.effects[i].kind == .Repair {
+			if item.fitting.effects[i].verb == .Repair {
 				repairs[item.tier] += 1
 			}
 		}
@@ -545,7 +545,7 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 
 	scaled := ship_fitting_output_scaled(guard, 50).effects[0]
 	testing.expect_value(t, effect_showcase_magnitude(scaled), 2)
-	testing.expect_value(t, scaled.kind, Effect_Kind.Phase_Contribution)
+	testing.expect_value(t, scaled.verb, Verb.Phase_Contribution)
 	testing.expect_value(t, scaled.synergy.?, Selector(Tag.Crew))
 	// The authored tree is the same tree: the 50%-Hull threshold inside it did not move
 	// with the item's strength.

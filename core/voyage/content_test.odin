@@ -203,7 +203,7 @@ the_site_scales_what_a_hostile_deals_and_never_its_brace :: proc(t: ^testing.T) 
 // reason FIGHT_OPPONENT_SPEED was retired onto Hostile_Archetype by #135).
 //
 // This is a live tripwire rather than theoretical: the roster's four Modify_Speed items
-// are filed under Category `.Fire` (Spare Rigging, Copper Sheathing, Outriggers,
+// are filed under Phase `.Fire` (Spare Rigging, Copper Sheathing, Outriggers,
 // Enchanted Keel), and `.Fire` is a category the site scales. Only
 // ship_fitting_output_scaled's refusal to touch anything but an active
 // Phase_Contribution keeps a Deep node from handing Reef Skimmer more Speed than a
@@ -598,7 +598,7 @@ loadout_signature :: proc(s: ship.Ship) -> string {
 // phase. Read off the fittings rather than through combat_phase_output so it needs
 // no Battle — a synergy resolves against the ship alone here, which is all these
 // tests compare.
-phase_magnitude :: proc(s: ship.Ship, phase: ship.Category) -> int {
+phase_magnitude :: proc(s: ship.Ship, phase: ship.Phase) -> int {
 	total := 0
 	for layout_slot in s.layout {
 		fitting, has_fitting := layout_slot.fitting.?

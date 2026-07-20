@@ -566,7 +566,7 @@ draw_build_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, dim: 
 				COLOUR_STEEL,
 			)
 		} else {
-			// Category is a steel chip (no new hue — the guide is silent on category colour
+			// Phase is a steel chip (no new hue — the guide is silent on category colour
 			// and #302 keeps it that way), the effect intent steel beside/under it.
 			chip_w := draw_build_phase_chip(rl.Vector2{x, rect.y + 36}, fitting_phase_label(fitting))
 			rl.DrawTextEx(

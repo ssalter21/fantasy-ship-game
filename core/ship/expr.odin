@@ -78,11 +78,11 @@ Count_Side :: enum u8 {
 // is a Const 0, so a zero-filled array is valid, inert data rather than a trap.
 //
 // Its fields are the **narrowest types that hold them, ordered widest-first**, which is
-// load-bearing rather than fussy: an Effect carries twelve Nodes, a Fitting three Effects
-// and a Ship eight Fittings, so a byte here is ~300 bytes on every ship, every layout copy,
-// every roster and every Ghost_Snapshot — and a padding byte between the i32 and the
-// single-byte fields costs exactly as much as a real one. A literal magnitude is an i32
-// because the whole game is denominated in Hull, which is authored around 100.
+// load-bearing rather than fussy: a Node is multiplied by the tree bound, then by a
+// fitting's effects, then by a ship's slots, on every layout copy, every roster and every
+// Ghost_Snapshot — and a padding byte between the i32 and the single-byte fields costs
+// exactly what a real one does. A literal magnitude is an i32 because the whole game is
+// denominated in Hull, which is authored around 100.
 Node :: struct {
 	value:    i32,
 	selector: Selector,

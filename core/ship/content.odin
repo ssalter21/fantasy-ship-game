@@ -331,7 +331,7 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 ship_fitting_output_scaled :: proc(base: Fitting, percent: int) -> Fitting {
 	f := base
 	for i in 0 ..< f.effect_count {
-		if f.effects[i].kind != .Phase_Contribution {
+		if f.effects[i].verb != .Phase_Contribution {
 			continue
 		}
 		f.effects[i].site_scale = (f.effects[i].site_scale * percent + 50) / 100

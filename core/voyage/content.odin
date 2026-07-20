@@ -261,7 +261,7 @@ Stock_Pool :: enum {
 // #137): subset and size.
 //
 // `families` is the subset: the Tag families the shop stocks. Filtered on Tag (ADR-0012's
-// family axis), not Category, because Category is a combat phase — filtering on it would sort
+// family axis), not Phase, because Phase is a combat phase — filtering on it would sort
 // wares by when they fire, not what they are. A Maybe: nil means *no filter*, not *every
 // family*, so an unfiltered shop keeps stocking a sixth Tag the day one is authored without
 // this table being edited.
