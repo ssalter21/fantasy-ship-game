@@ -22,10 +22,9 @@ Ghost_Progress :: struct {
 }
 
 // voyage_ghost_snapshot_of assembles a Ghost_Snapshot describing ship s at the
-// given run progress without cloning: hull is reset to s's effective max Hull
-// (ADR-0008: a ghost starts at full health; effective so a +Max_Hull fitting
-// counts), but the snapshot's layout *aliases* s.layout rather than owning a
-// copy. It is a borrowed description valid only as long as s and its layout are;
+// given run progress without cloning: hull is reset to s's max Hull (ADR-0008: a
+// ghost starts at full health), but the snapshot's layout *aliases* s.layout rather
+// than owning a copy. It is a borrowed description valid only as long as s and its layout are;
 // a caller that must hand it out past s's lifetime (core/sim, via
 // Event_Encounter_Resolved) owns it with voyage_ghost_snapshot_capture.
 //
@@ -33,7 +32,7 @@ Ghost_Progress :: struct {
 // stage-apply proc returns a snapshot (ADR-0008 as amended; see encounter.odin).
 voyage_ghost_snapshot_of :: proc(s: ^ship.Ship, steps: int, site: Scaling_Site) -> Ghost_Snapshot {
 	snap_ship := s^
-	snap_ship.hull = ship.ship_effective_max_hull(s)
+	snap_ship.hull = s.max_hull
 
 	return Ghost_Snapshot{
 		ship = snap_ship,

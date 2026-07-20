@@ -1740,33 +1740,6 @@ voyage_trade_can_accept_never_lets_a_trade_sink_the_ship :: proc(t: ^testing.T) 
 	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Hull, 1, .Max_Hull, 10)))
 }
 
-// The ADR-0012 constraint the ticket names: a trade reads the **effective** stat,
-// never the raw base field. A fitting granting +3 Max Hull makes a cost of 4
-// affordable on a base of 2 — and paying it out of the base leaves that base
-// negative, which is fine, because effective (1) is the number the rest of the game
-// resolves against and it is still at the floor.
-@(test)
-voyage_trade_measures_the_cost_against_the_effective_stat_not_the_base_field :: proc(t: ^testing.T) {
-	bulkheads := ship.Fitting{
-		name    = "Test Bulkheads",
-		size    = .Small,
-		passive = ship.Effect{kind = .Modify_Max_Hull, magnitude = 3},
-	}
-	s := ship.Ship{
-		hull = 1, max_hull = 2,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = bulkheads}},
-	}
-	testing.expect_value(t, ship.ship_effective_max_hull(&s), 5)
-
-	// The base alone (2) could never pay 4; the fitting's contribution is what
-	// makes it affordable.
-	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Hull, 1, .Max_Hull, 4)))
-	voyage_apply_trade(&s, trade_of(.Hull, 1, .Max_Hull, 4))
-
-	testing.expect_value(t, s.max_hull, -2) // the base field went negative...
-	testing.expect_value(t, ship.ship_effective_max_hull(&s), 1) // ...and effective landed on the floor.
-}
-
 @(test)
 voyage_apply_trade_asserts_on_a_trade_the_ship_cannot_pay_for :: proc(t: ^testing.T) {
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {

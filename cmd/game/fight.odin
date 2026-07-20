@@ -405,24 +405,21 @@ draw_fight_action_row :: proc(state: ^Game_State, mouse: rl.Vector2) {
 // dispatch_battle_event routes one combat round event (#315): a damage hit is accumulated into
 // the round's exchange and drained from the struck hull rather than played on its own, so the
 // whole round lands as one beat (fight_flush_exchange); a Ship_Sunk or Battle_Ended flushes
-// that pending exchange first and then plays as its own beat; a jettison, which lands at round
-// start before any damage, plays immediately. Battle_Ended is where the in-battle UI state is
-// torn down, the job the old play_battle_event_beat did. Called from dispatch, so it runs on
-// the same rawptr-shared Game_State the render loop reads.
+// that pending exchange first and then plays as its own beat; a jettison or a repair, which
+// land at round start before any damage, play immediately. Battle_Ended is where the in-battle
+// UI state is torn down. Called from dispatch, so it runs on the same rawptr-shared Game_State
+// the render loop reads.
 dispatch_battle_event :: proc(state: ^Game_State, event: combat.Event) {
 	switch e in event {
+	case combat.Event_Hull_Repaired:
+		// Repair lands ahead of the round's guns (ADR-0027), so it plays as its own beat
+		// rather than joining the exchange.
+		fight_move_hull(state, e.side, e.amount)
+		play_beat(state, battle_event_text(event))
 	case combat.Event_Damage_Dealt:
 		state.pending_exchange[e.target] += e.damage
 		state.exchange_active = true
-		// Drain the struck hull now so both stat blocks read current when the beat renders.
-		// The opponent's hull has no Event_Ship_Updated to carry it, and the player's is kept
-		// in step with the Sim's authoritative copy that Event_Ship_Updated re-lands after.
-		if e.target == .A {
-			state.player.hull = max(0, state.player.hull - e.damage)
-		} else if opponent, ok := state.sighted_opponent.?; ok {
-			opponent.hull = max(0, opponent.hull - e.damage)
-			state.sighted_opponent = opponent
-		}
+		fight_move_hull(state, e.target, -e.damage)
 	case combat.Event_Ship_Sunk:
 		fight_flush_exchange(state)
 		play_beat(state, battle_event_text(event))
@@ -433,6 +430,19 @@ dispatch_battle_event :: proc(state: ^Game_State, event: combat.Event) {
 		state.sighted_opponent = nil
 	case combat.Event_Cargo_Jettisoned, combat.Event_Cargo_Reallocated:
 		play_beat(state, battle_event_text(event))
+	}
+}
+
+// fight_move_hull applies `delta` to the hull the beat about to render will show, clamped
+// the way the Sim clamps it. Presentation keeps its own copy of both ships: the opponent's
+// hull has no Event_Ship_Updated to carry it, and the player's is kept in step with the
+// Sim's authoritative copy that Event_Ship_Updated re-lands after.
+fight_move_hull :: proc(state: ^Game_State, side: combat.Side, delta: int) {
+	if side == .A {
+		state.player.hull = clamp(state.player.hull + delta, 0, state.player.max_hull)
+	} else if opponent, ok := state.sighted_opponent.?; ok {
+		opponent.hull = clamp(opponent.hull + delta, 0, opponent.max_hull)
+		state.sighted_opponent = opponent
 	}
 }
 

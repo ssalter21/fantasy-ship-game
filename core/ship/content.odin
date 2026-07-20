@@ -6,7 +6,7 @@ package ship
 // the codebase's balance constants — expected to move in playtest.
 
 TOP_CREW_OFFENSE_MAGNITUDE :: 3
-CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE :: 2
+CAPTAINS_QUARTERS_REPAIR_MAGNITUDE :: 2
 GUN_DECK_OFFENSE_MAGNITUDE :: 5
 
 // HOSTILE_FILL_PERCENT is the fraction of each empty slot's capacity a hostile stows
@@ -17,10 +17,10 @@ GUN_DECK_OFFENSE_MAGNITUDE :: 5
 // the floor test is the tripwire.
 HOSTILE_FILL_PERCENT :: 50
 
-// STARTING_HULL is a **scale** (ADR-0017): Hull persists all voyage with no healing
-// across ~5 fights, so a fight must cost enough of the pool to stay expressible at
-// integer granularity over the rounds it lasts. Everything denominated in Hull scales
-// with it — the roster's Modify_Max_Hull items and Trade's Hull-denominated swings
+// STARTING_HULL is a **scale** (ADR-0017): Hull persists all voyage, healed only by
+// in-battle repair, across ~5 fights, so a fight must cost enough of the pool to stay
+// expressible at integer granularity over the rounds it lasts. Everything denominated in
+// Hull scales with it — the roster's Repair items and Trade's Hull-denominated swings
 // (voyage.odin). Since ADR-0026 deleted Durability, Hull is the *only* thing between
 // a fight's raw damage and a sunk ship, so this scale carries the whole exchange.
 STARTING_HULL :: 100
@@ -50,16 +50,16 @@ CAPTAIN_STARTING_CARGO :: 10
 
 // The three starting fittings (issue #23) that fill the ship template's exposed slots.
 // Their category assignment covers both round phases (ADR-0006, amended by ADR-0025):
-// Captain's Quarters braces while Top Crew and Gun Deck both fire. Each sits in exactly
-// one Tag family (#90), so the "crew vs guns" distinction rides on the Tag, not the
-// phase. The upgraded variants inherit these through ship_fitting_upgraded, which copies
-// the base fitting whole.
+// Captain's Quarters braces — repairing, the Brace verb (ADR-0027) — while Top Crew and
+// Gun Deck both fire. Each sits in exactly one Tag family (#90), so the "crew vs guns"
+// distinction rides on the Tag, not the phase. The upgraded variants inherit these
+// through ship_fitting_upgraded, which copies the base fitting whole.
 ship_fitting_top_crew :: proc() -> Fitting {
 	return Fitting{name = "Top Crew", size = .Medium, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = TOP_CREW_OFFENSE_MAGNITUDE}}
 }
 
 ship_fitting_captains_quarters :: proc() -> Fitting {
-	return Fitting{name = "Captain's Quarters", size = .Medium, weight = 18, category = .Brace, tags = {.Crew}, active = Effect{magnitude = CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE}}
+	return Fitting{name = "Captain's Quarters", size = .Medium, weight = 18, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = CAPTAINS_QUARTERS_REPAIR_MAGNITUDE}}
 }
 
 ship_fitting_gun_deck :: proc() -> Fitting {
@@ -75,8 +75,8 @@ ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) 
 	f := base
 	f.name = upgraded_name
 	base_active, _ := base.active.?
-	// Carry the base effect's kind through unchanged (all three starting fittings are
-	// Phase_Contribution) so an upgrade only scales magnitude.
+	// Carry the base effect's kind through unchanged, so an upgrade scales magnitude
+	// and never changes what the fitting does.
 	f.active = Effect{kind = base_active.kind, magnitude = base_active.magnitude + Magnitude(bonus)}
 	return f
 }
@@ -151,9 +151,11 @@ ITEM_ROSTER_SIZE :: 50
 // there is nothing to free.
 //
 // Authoring invariants every entry must satisfy: exactly one effect, a size the template
-// can hold, and a weight in its size band (which decides what the item costs a ship in
-// Speed, via ship_fitting_weight → ship_effective_speed). Magnitudes are placeholders,
-// graded loosely by tier. Read it as a data table, top to bottom per tier.
+// can hold, a weight in its size band (which decides what the item costs a ship in
+// Speed, via ship_fitting_weight → ship_effective_speed), and an effect whose kind
+// matches its category's verb where it carries one (ship_phase_verb — a Brace item
+// repairs, a Fire item deals damage). Magnitudes are placeholders, graded loosely by
+// tier. Read it as a data table, top to bottom per tier.
 ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 	return [ITEM_ROSTER_SIZE]Roster_Item {
 		// ---- Splash ----
@@ -162,12 +164,12 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Splash, fitting = Fitting{name = "Deck Cannon", size = .Medium, weight = 18, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 4}}},
 		{tier = .Splash, fitting = Fitting{name = "Boarding Pikes", size = .Small, weight = 6, category = .Fire, tags = {.Weapon, .Crew}, active = Effect{magnitude = 2}}},
 		{tier = .Splash, fitting = Fitting{name = "Snapping Eels", size = .Small, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3}}},
-		{tier = .Splash, fitting = Fitting{name = "Iron Plating", size = .Medium, weight = 24, category = .Brace, tags = {.Artifact}}},
-		{tier = .Splash, fitting = Fitting{name = "Ballast Stones", size = .Small, weight = 12, category = .Brace, tags = {.Cargo}}},
+		{tier = .Splash, fitting = Fitting{name = "Oakum & Pitch", size = .Medium, weight = 24, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 5}}},
+		{tier = .Splash, fitting = Fitting{name = "Spare Timbers", size = .Small, weight = 12, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 3}}},
 		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, weight = 5, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, weight = 7, category = .Brace, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 8}}},
-		{tier = .Splash, fitting = Fitting{name = "Boarding Nets", size = .Small, weight = 5, category = .Brace, tags = {.Crew}, active = Effect{magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Barricades", size = .Medium, weight = 20, category = .Brace, tags = {.Artifact}, active = Effect{magnitude = 2}}},
+		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, weight = 7, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Carpenter's Mate", size = .Small, weight = 5, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = 2}}},
+		{tier = .Splash, fitting = Fitting{name = "Deck Pumps", size = .Medium, weight = 20, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 4}}},
 		{tier = .Splash, fitting = Fitting{name = "Powder Monkeys", size = .Small, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}},
 		{tier = .Splash, fitting = Fitting{name = "Smuggler's Crates", size = .Small, weight = 7, category = .Fire, tags = {.Cargo}, active = Effect{magnitude = 1, synergy = Selector(Visibility.Concealed)}}},
 		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3, conditional = Condition_Hull_Below{percent = 50}}}},
@@ -182,9 +184,9 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Shallow, fitting = Fitting{name = "Sea Drake", size = .Large, weight = 34, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 7}}},
 		{tier = .Shallow, fitting = Fitting{name = "Ramming Prow", size = .Large, weight = 40, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 7}}},
 		{tier = .Shallow, fitting = Fitting{name = "War Drums", size = .Small, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 3}}},
-		{tier = .Shallow, fitting = Fitting{name = "Reinforced Hull", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}}},
+		{tier = .Shallow, fitting = Fitting{name = "Shipwright's Kit", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 7}}},
 		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, weight = 16, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 2}}},
-		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, weight = 16, category = .Brace, tags = {.Crew}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 16}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, weight = 16, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = 6}}},
 		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, weight = 5, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1, synergy = Selector(Slot_Size.Small)}}},
 		{tier = .Shallow, fitting = Fitting{name = "Gun Captain", size = .Medium, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Tag.Weapon)}}},
 		{tier = .Shallow, fitting = Fitting{name = "Master Gunner", size = .Medium, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Category.Fire)}}},
@@ -197,11 +199,11 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		// ---- Deep ----
 		{tier = .Deep, fitting = Fitting{name = "Great Bombard", size = .Large, weight = 45, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 12}}},
 		{tier = .Deep, fitting = Fitting{name = "Leviathan", size = .Large, weight = 38, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 11}}},
-		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, weight = 40, category = .Brace, tags = {.Beast}}},
-		{tier = .Deep, fitting = Fitting{name = "Adamant Bulwark", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}}},
+		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, weight = 40, category = .Brace, tags = {.Beast}, active = Effect{kind = .Repair, magnitude = 12}}},
+		{tier = .Deep, fitting = Fitting{name = "Adamant Sigil", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 10}}},
 		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, weight = 15, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 3}}},
-		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, weight = 36, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 32}}},
-		{tier = .Deep, fitting = Fitting{name = "Treasure Vault", size = .Medium, weight = 22, category = .Brace, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 24}}},
+		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, weight = 36, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 11}}},
+		{tier = .Deep, fitting = Fitting{name = "Shipwright's Stores", size = .Medium, weight = 22, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 9}}},
 		{tier = .Deep, fitting = Fitting{name = "Admiral's Guard", size = .Medium, weight = 17, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 3, synergy = Selector(Tag.Crew)}}},
 		{tier = .Deep, fitting = Fitting{name = "Broadside Master", size = .Large, weight = 36, category = .Fire, tags = {.Crew, .Weapon}, active = Effect{magnitude = 3, synergy = Selector(Tag.Weapon)}}},
 		{tier = .Deep, fitting = Fitting{name = "Hunter's Pack", size = .Medium, weight = 18, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3, synergy = Selector(Tag.Beast)}}},
@@ -279,13 +281,14 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // ship_fitting_scaled's additive bonus, and the shape core/voyage's Fight stakes reads with
 // (issue #165: an additive bonus can only ever add). 100 returns the fitting as authored.
 //
-// **Only an active Phase_Contribution effect moves** — combat_phase_output sums exactly
-// these, while the Modify_* kinds act through the effective-stat readers, so a fitting's
-// Speed / Max Hull contribution is not output. That distinction is load-bearing
-// for the hostile roster: Category is a combat *phase*, so `.Fire` holds both damage
-// fittings and every Modify_Speed item — yet a hostile's Speed is its archetype's own
-// axis, not a stakes reading. A caller scaling a whole category cannot be trusted to have
-// meant the speed items; this proc is what makes "scale its output" mean only that.
+// **Only an active Phase_Contribution effect moves** — the damage a fitting deals, and
+// nothing else. Modify_Speed acts through ship_effective_speed and Repair restores the
+// owner's own Hull, so neither is output a site can scale. That distinction is
+// load-bearing for the hostile roster: Category is a combat *phase*, so `.Fire` holds
+// both damage fittings and every Modify_Speed item — yet a hostile's Speed is its
+// archetype's own axis, not a stakes reading. A caller scaling a whole category cannot
+// be trusted to have meant the speed items; this proc is what makes "scale its output"
+// mean only that.
 //
 // Rounds half-up, so a scale-down cannot silently disarm the smallest fittings: magnitude 1
 // at 50% is 1, not 0, and any percent >= 50 holds that. The percent lands on the **authored

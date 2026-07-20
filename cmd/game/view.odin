@@ -899,10 +899,9 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 }
 
 // fitting_effect_intent renders a one-line summary of what a fitting's effect does:
-// the magnitude and what it feeds — a combat phase (its Category) or a ship stat —
-// with synergy/conditional context spelled out ("+2 Offense per Weapon", "+8 Offense
-// below 50% Hull"). Reads whichever of active/passive carries the effect; "no effect"
-// for a cargo filler.
+// the magnitude and the verb it carries (Effect_Kind), with synergy/conditional context
+// spelled out ("+2 Offense per Weapon", "+8 Offense below 50% Hull"). Reads whichever of
+// active/passive carries the effect; "no effect" for a cargo filler.
 fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 	effect: ship.Effect
 	if active, ok := f.active.?; ok {
@@ -916,16 +915,11 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 	target: string
 	switch effect.kind {
 	case .Phase_Contribution:
-		switch f.category {
-		case .Brace:
-			target = "Defense"
-		case .Fire:
-			target = "Offense"
-		}
+		target = "Offense"
+	case .Repair:
+		target = "Repair"
 	case .Modify_Speed:
 		target = "Speed"
-	case .Modify_Max_Hull:
-		target = "Max Hull"
 	}
 
 	intent := fmt.tprintf("+%d %s", int(effect.magnitude), target)
