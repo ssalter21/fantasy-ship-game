@@ -111,7 +111,7 @@ build_drop_command_maps_drags_to_loadout_operations :: proc(t: ^testing.T) {
 	// a shelf drop always swaps in (Replace, discarding the occupant). The Install leg of
 	// the mapping survives for a genuinely empty slot, which is unreachable in play.
 	shelf := Build_Drag{active = true, from_slot = nil, fitting = ship.ship_fitting_top_crew()}
-	cmd, ready, wants := build_drop_command(&state, shelf, ship.Slot_Index(3), false)
+	cmd, ready, wants := build_drop_command(&state, shelf, ship.Slot_Index(3), false, false)
 	testing.expect(t, ready)
 	_, no_discard := wants.?
 	testing.expect(t, !no_discard)
@@ -121,7 +121,7 @@ build_drop_command_maps_drags_to_loadout_operations :: proc(t: ^testing.T) {
 	testing.expect_value(t, replace.slot, ship.Slot_Index(3))
 
 	// The same on a berth holding a real fitting: the occupant is discarded.
-	cmd, ready, _ = build_drop_command(&state, shelf, ship.Slot_Index(0), false)
+	cmd, ready, _ = build_drop_command(&state, shelf, ship.Slot_Index(0), false, false)
 	testing.expect(t, ready)
 	refit, _ = cmd.(sim.Command_Refit)
 	replace, is_replace = refit.command.(sim.Refit_Replace)
@@ -129,12 +129,12 @@ build_drop_command_maps_drags_to_loadout_operations :: proc(t: ^testing.T) {
 	testing.expect_value(t, replace.slot, ship.Slot_Index(0))
 
 	// Dropped in open water (no target) it returns to the shelf — no command.
-	_, ready, _ = build_drop_command(&state, shelf, nil, false)
+	_, ready, _ = build_drop_command(&state, shelf, nil, false, false)
 	testing.expect(t, !ready)
 
 	// An installed fitting dragged onto another slot moves it there.
 	slot_drag := Build_Drag{active = true, from_slot = ship.Slot_Index(0), fitting = ship.ship_fitting_captains_quarters()}
-	cmd, ready, _ = build_drop_command(&state, slot_drag, ship.Slot_Index(4), false)
+	cmd, ready, _ = build_drop_command(&state, slot_drag, ship.Slot_Index(4), false, false)
 	testing.expect(t, ready)
 	refit, _ = cmd.(sim.Command_Refit)
 	move, is_move := refit.command.(sim.Refit_Move)
@@ -143,15 +143,83 @@ build_drop_command_maps_drags_to_loadout_operations :: proc(t: ^testing.T) {
 	testing.expect_value(t, move.to, ship.Slot_Index(4))
 
 	// Dropped back on its own slot it cancels — no move.
-	_, ready, _ = build_drop_command(&state, slot_drag, ship.Slot_Index(0), false)
+	_, ready, _ = build_drop_command(&state, slot_drag, ship.Slot_Index(0), false, false)
 	testing.expect(t, !ready)
 
 	// Dragged onto the discard zone it asks for a confirm rather than committing.
-	_, ready, wants = build_drop_command(&state, slot_drag, nil, true)
+	_, ready, wants = build_drop_command(&state, slot_drag, nil, true, false)
 	testing.expect(t, !ready)
-	discard_slot, wants_discard := wants.?
+	discard, wants_discard := wants.?
 	testing.expect(t, wants_discard)
-	testing.expect_value(t, discard_slot, ship.Slot_Index(0))
+	testing.expect_value(t, discard.slot, ship.Slot_Index(0))
+	testing.expect(t, !discard.burn) // the bin takes the whole fitting off the ship
+}
+
+@(test)
+dragging_a_laden_fitting_onto_the_ledger_asks_to_burn_its_cargo :: proc(t: ^testing.T) {
+	// The out-of-combat burn (#401): a drag onto the hold ledger asks to burn one berth's
+	// cargo, the fitting staying put. It is a *different* target from the discard bin, whose
+	// meaning stays "this thing leaves the ship" — so a laden gun is never unremovable.
+	s := ship.ship_starting_ship()
+	defer delete(s.layout)
+	state := Game_State{player = s}
+
+	// Slot 5 (hold 2, Small) carries cargo out of the starting stow; slot 2 (the Gun Deck)
+	// is all bulk and carries nothing.
+	laden, _ := state.player.layout[5].fitting.?
+	drag := Build_Drag{active = true, from_slot = ship.Slot_Index(5), fitting = laden}
+
+	_, ready, wants := build_drop_command(&state, drag, nil, false, true)
+	testing.expect(t, !ready) // a burn is confirmed first, never committed by the drop
+	burn, wants_burn := wants.?
+	testing.expect(t, wants_burn)
+	testing.expect_value(t, burn.slot, ship.Slot_Index(5))
+	testing.expect(t, burn.burn)
+
+	// The bin's meaning is untouched by the load: a *laden* fitting dropped there still
+	// leaves the ship whole, cargo and all. This is what keeps a laden gun removable — if
+	// carrying something rerouted the bin to a burn, a gun with cargo in it could never be
+	// taken off the ship at all.
+	_, ready, wants = build_drop_command(&state, drag, nil, true, false)
+	testing.expect(t, !ready)
+	binned, wants_bin := wants.?
+	testing.expect(t, wants_bin)
+	testing.expect_value(t, binned.slot, ship.Slot_Index(5))
+	testing.expect(t, !binned.burn)
+	testing.expect_value(t, build_confirm_command(binned), sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = 5}}))
+
+	// A fitting carrying nothing has nothing to burn, so the ledger is inert under it.
+	bare, _ := state.player.layout[2].fitting.?
+	empty_drag := Build_Drag{active = true, from_slot = ship.Slot_Index(2), fitting = bare}
+	_, ready, wants = build_drop_command(&state, empty_drag, nil, false, true)
+	testing.expect(t, !ready)
+	_, asks := wants.?
+	testing.expect(t, !asks)
+
+	// The shelf item is not cargo of the ship's, so dropping it on the ledger just returns
+	// it to the shelf.
+	shelf := Build_Drag{active = true, from_slot = nil, fitting = ship.ship_fitting_top_crew()}
+	_, ready, wants = build_drop_command(&state, shelf, nil, false, true)
+	testing.expect(t, !ready)
+	_, shelf_asks := wants.?
+	testing.expect(t, !shelf_asks)
+}
+
+@(test)
+the_confirm_gate_commits_a_burn_and_a_discard_to_different_commands :: proc(t: ^testing.T) {
+	// One confirm gate serves both destructive gestures, and which command it commits is
+	// carried by the pending confirm — a burn empties the berth, a discard removes it.
+	burn := build_confirm_command(Build_Confirm{slot = ship.Slot_Index(5), burn = true})
+	refit, _ := burn.(sim.Command_Refit)
+	jettison, is_jettison := refit.command.(sim.Refit_Jettison_Cargo)
+	testing.expect(t, is_jettison)
+	testing.expect_value(t, jettison.slot, ship.Slot_Index(5))
+
+	discard := build_confirm_command(Build_Confirm{slot = ship.Slot_Index(5), burn = false})
+	refit, _ = discard.(sim.Command_Refit)
+	remove, is_remove := refit.command.(sim.Refit_Remove)
+	testing.expect(t, is_remove)
+	testing.expect_value(t, remove.slot, ship.Slot_Index(5))
 }
 
 // encounter_of bakes a stage list into an Encounter, as generation would from a recipe

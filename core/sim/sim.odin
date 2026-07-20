@@ -191,6 +191,7 @@ Refit_Command :: union {
 	Refit_Replace,
 	Refit_Move,
 	Refit_Remove,
+	Refit_Jettison_Cargo,
 	Refit_Finish,
 }
 
@@ -223,6 +224,15 @@ Refit_Remove :: struct {
 	slot: ship.Slot_Index,
 }
 
+// Refit_Jettison_Cargo burns the cargo out of `slot`, leaving the fitting installed — the
+// out-of-combat face of the captain's Jettison order (ADR-0028), free and repeatable where
+// the order under fire costs a round. It is a *loadout* operation, not a removal: what dies
+// is the cargo, so a laden gun is never made unremovable by carrying something. Rejected —
+// layout untouched — when the slot is empty or its fitting carries nothing.
+Refit_Jettison_Cargo :: struct {
+	slot: ship.Slot_Index,
+}
+
 // Refit_Finish ends the refit and returns Sim to awaiting a travel choice. Any pending
 // incoming fitting still unplaced is discarded.
 Refit_Finish :: struct {}
@@ -247,6 +257,7 @@ Event :: union {
 	Event_Fitting_Installed,
 	Event_Fitting_Moved,
 	Event_Fitting_Removed,
+	Event_Cargo_Jettisoned,
 	Event_Refit_Rejected,
 	Event_Refit_Finished,
 	Event_Encounter_Resolved,
@@ -420,6 +431,16 @@ Event_Fitting_Moved :: struct {
 }
 
 Event_Fitting_Removed :: struct {
+	slot:    ship.Slot_Index,
+	fitting: ship.Fitting,
+}
+
+// Event_Cargo_Jettisoned reports a burn made out of combat: `fitting` is the berth's fitting as
+// it stood, load and all, so presentation can name what went over the side, and `slot` is where
+// it still sits — the fitting is not removed. The in-battle twin is combat's event of the same
+// name, reaching presentation wrapped in an Event_Battle_Event; this is the at-anchor surface's,
+// so the two are told apart by which stream they arrive on.
+Event_Cargo_Jettisoned :: struct {
 	slot:    ship.Slot_Index,
 	fitting: ship.Fitting,
 }

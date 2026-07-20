@@ -633,6 +633,39 @@ ship_stow_spill :: proc(s: Ship, amount: int) -> int {
 	return max(0, amount - ship_cargo_capacity(s))
 }
 
+// ship_jettison_cargo empties the cargo out of `layout`'s fitting at `slot` and
+// re-stows what is left across the whole layout, returning the fitting as it stood
+// with its load so a caller can name what went over the side. The **fitting stays
+// installed**: what is jettisoned is the cargo, not the thing holding it, so a laden
+// gun survives having its load heaved and an emptied hold is still capacity.
+//
+// The re-stow is what makes a heave self-flattening: the remainder is water-filled
+// back over everything that can carry (ship_stow_cargo), the emptied fitting
+// included, so the slot heaved twice holds a smaller share the second time and every
+// heave sheds no more than the one before it. Nothing can spill — the ship is
+// carrying strictly less than it was, into the same capacity.
+//
+// Returns false, layout untouched, for an empty slot or a fitting carrying nothing:
+// a fitting with no load weighs nothing extra, so there is no Speed in heaving it.
+// It is the same act on both surfaces — a captain's order under fire, a free and
+// repeatable burn at anchor — so it lives here once and both callers reach for it.
+ship_jettison_cargo :: proc(layout: []Layout_Slot, slot: Slot_Index) -> (heaved: Fitting, ok: bool) {
+	assert(slot >= 0 && int(slot) < len(layout), "jettison slot index out of range")
+	layout_slot := &layout[slot]
+	fitting, has_fitting := layout_slot.fitting.?
+	if !has_fitting || fitting.cargo_held == 0 {
+		return {}, false
+	}
+
+	heaved = fitting
+	fitting.cargo_held = 0
+	layout_slot.fitting = fitting
+
+	spilled := ship_stow_cargo(layout, ship_cargo(Ship{layout = layout}))
+	assert(spilled == 0, "a jettison re-stow spilled cargo the ship was already carrying")
+	return heaved, true
+}
+
 // ship_remove takes the fitting out of layout_slot and returns it (ADR-0012's
 // manual loadout). There is no inventory: the returned fitting is the caller's to
 // discard. Returns false (and a zero Fitting) when the slot was already empty, so a

@@ -809,3 +809,51 @@ a_conditional_stat_modifier_applies_only_while_its_condition_holds :: proc(t: ^t
 	s.hull = 8 // below the threshold: the +Speed kicks in
 	testing.expect_value(t, ship_effective_speed(&s), 2 + 5)
 }
+
+@(test)
+jettisoning_empties_the_named_fitting_and_re_stows_what_is_left :: proc(t: ^testing.T) {
+	// The heave sheds one fitting's cargo and water-fills the remainder back over the
+	// whole layout, so the ship is lighter by what went over the side and the fitting
+	// itself stays installed.
+	layout := make_held_layout()
+	ship_stow_cargo(layout[:], 50) // Small 10 + Large 40, both brim-full
+
+	heaved, ok := ship_jettison_cargo(layout[:], Slot_Index(1))
+
+	testing.expect(t, ok)
+	testing.expect_value(t, heaved.cargo_held, 40) // what the heave reports going over the side
+	testing.expect_value(t, ship_cargo(Ship{layout = layout[:]}), 10) // the Small's 10 survives
+	_, still_installed := layout[1].fitting.?
+	testing.expect(t, still_installed)
+}
+
+@(test)
+jettisoning_re_stows_across_the_emptied_fitting_too :: proc(t: ^testing.T) {
+	// The remainder is water-filled over everything that can carry, the emptied slot
+	// included, so successive heaves shed less each time.
+	layout := make_held_layout()
+	ship_stow_cargo(layout[:], 50)
+
+	ship_jettison_cargo(layout[:], Slot_Index(1)) // sheds the Large's 40, 10 left
+	first, _ := layout[1].fitting.?
+	testing.expect(t, first.cargo_held > 0) // the survivors flowed back into it
+
+	second, ok := ship_jettison_cargo(layout[:], Slot_Index(1))
+	testing.expect(t, ok)
+	testing.expect(t, second.cargo_held < 40) // a second heave sheds strictly less
+}
+
+@(test)
+jettisoning_a_fitting_carrying_nothing_is_refused :: proc(t: ^testing.T) {
+	// A fitting carrying nothing weighs nothing extra, so there is no Speed in heaving
+	// it — refused rather than silently emptied, and an empty slot likewise.
+	layout := [2]Layout_Slot {
+		{slot = Slot{size = .Small}, fitting = ship_fitting_hold(.Small)},
+		{slot = Slot{size = .Large}},
+	}
+
+	_, laden := ship_jettison_cargo(layout[:], Slot_Index(0))
+	testing.expect(t, !laden)
+	_, filled := ship_jettison_cargo(layout[:], Slot_Index(1))
+	testing.expect(t, !filled)
+}

@@ -2877,3 +2877,99 @@ the_auto_pilot_declines_every_option_list_without_refitting :: proc(t: ^testing.
 	testing.expect(t, is_finish) // no loadout edit
 }
 
+
+@(test)
+a_burn_at_anchor_empties_one_fitting_and_leaves_it_installed :: proc(t: ^testing.T) {
+	// The out-of-combat burn (#401): a captain lightens deliberately before sailing into
+	// hidden water. The named fitting's cargo dies, the fitting itself stays in its slot,
+	// and the Sim comes right back at anchor with the ship re-broadcast.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_tick(&sim, &events) // voyage start → at anchor
+	before := ship.ship_cargo(sim.player)
+	laden, _ := sim.player.layout[5].fitting.? // hold 2 (S), stowed at the start
+	testing.expect(t, laden.cargo_held > 0)
+
+	submit_refit(&sim, Refit_Jettison_Cargo{slot = 5})
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, has_event(ev, Event_Cargo_Jettisoned))
+	testing.expect(t, has_event(ev, Event_Ship_Updated))
+	testing.expect(t, ship.ship_cargo(sim.player) < before) // the run's score really fell
+	_, still_installed := sim.player.layout[5].fitting.?
+	testing.expect(t, still_installed) // the fitting snaps back to its slot
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+	testing.expect(t, has_event(ev, Event_Travel_Options)) // still at anchor, still live
+}
+
+@(test)
+a_burn_at_anchor_re_stows_what_is_left_and_repeats :: proc(t: ^testing.T) {
+	// The burn is free and repeatable out of anchor, and the survivors re-stow after each
+	// one — so a second burn on the same berth sheds strictly less than the first, exactly
+	// as the in-battle heave does.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_tick(&sim, &events)
+
+	submit_refit(&sim, Refit_Jettison_Cargo{slot = 5})
+	refit_tick(&sim, &events)
+	after_first := ship.ship_cargo(sim.player)
+	refilled, _ := sim.player.layout[5].fitting.?
+	testing.expect(t, refilled.cargo_held > 0) // the remainder water-filled back into it
+
+	submit_refit(&sim, Refit_Jettison_Cargo{slot = 5})
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, has_event(ev, Event_Cargo_Jettisoned))
+	testing.expect(t, ship.ship_cargo(sim.player) < after_first)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
+}
+
+@(test)
+a_burn_of_a_fitting_carrying_nothing_is_rejected :: proc(t: ^testing.T) {
+	// A fitting with no load weighs nothing extra, so there is nothing to burn: refused
+	// with the layout untouched, the same soft rejection the fit rule gives.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_tick(&sim, &events)
+	empty, _ := sim.player.layout[2].fitting.? // the Gun Deck: all bulk, so no room to carry
+	testing.expect_value(t, empty.cargo_held, 0)
+	before := ship.ship_cargo(sim.player)
+
+	submit_refit(&sim, Refit_Jettison_Cargo{slot = 2})
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect(t, !has_event(ev, Event_Cargo_Jettisoned))
+	testing.expect_value(t, ship.ship_cargo(sim.player), before)
+}
+
+@(test)
+a_burn_inside_a_granted_refit_applies_and_stays_in_the_refit :: proc(t: ^testing.T) {
+	// The burn is available on both surfaces (#401), so a granted Refit takes it too and
+	// stays open for the next edit like every other loadout operation.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_tick(&sim, &events)
+	sim_open_refit(&sim, ship.ship_fitting_top_crew(), &events)
+	before := ship.ship_cargo(sim.player)
+
+	submit_refit(&sim, Refit_Jettison_Cargo{slot = 5})
+	ev := refit_tick(&sim, &events)
+
+	testing.expect(t, has_event(ev, Event_Cargo_Jettisoned))
+	testing.expect(t, ship.ship_cargo(sim.player) < before)
+	testing.expect_value(t, sim.phase, Phase.Awaiting_Refit)
+}
