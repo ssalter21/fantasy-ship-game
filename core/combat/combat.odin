@@ -158,16 +158,24 @@ combat_may_press :: proc(battle: ^Battle, side: Side) -> bool {
 	return side not_in battle.pressed
 }
 
-// combat_apply_jettison empties the fitting at slot_index on side's ship, shedding
-// its cargo's weight (ADR-0020): zero its cargo_held and emit the event. The freed
-// weight makes the ship faster through ship_effective_speed on its own; the heaved
-// cargo is destroyed, not settled. The assert keeps a fitting that is carrying
-// nothing — and so weighs nothing extra — from being heaved for free Speed.
+// combat_apply_jettison empties the fitting at slot_index on side's ship and re-stows
+// what is left, shedding the emptied cargo's weight (ADR-0020). The freed weight makes
+// the ship faster through ship_effective_speed on its own; the heaved cargo is
+// destroyed, not settled. The assert keeps a fitting that is carrying nothing — and so
+// weighs nothing extra — from being heaved for free Speed.
 //
 // The **fitting stays in its slot**: what is jettisoned is the cargo, not the thing
 // holding it. Under the old model a cargo fitting *was* its cargo, so emptying it and
 // nulling the slot were the same act; now a laden gun must survive having its load
 // heaved, and a hold that has been emptied is still the ship's capacity.
+//
+// The **re-stow is what makes jettison self-flattening**: the remainder is water-filled
+// back across every fitting that can carry (ship_stow_cargo), so the slot a captain heaves
+// twice holds a smaller share the second time. Every heave therefore sheds no more than the
+// one before it — given a hold already water-filled, which every stow leaves it — and the
+// escape window closes as it is used rather than staying open at a flat price per round.
+// Nothing can spill: the ship is carrying strictly less than it did a line ago, into the
+// same capacity.
 combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot_Index, events: ^[dynamic]Event) {
 	s := battle.ships[side]
 	assert(slot_index >= 0 && int(slot_index) < len(s.layout), "Command_Jettison_Cargo slot_index out of range")
@@ -177,6 +185,10 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 	heaved := fitting // the event reports what went over the side, cargo and all
 	fitting.cargo_held = 0
 	layout_slot.fitting = fitting
+
+	spilled := ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^))
+	assert(spilled == 0, "a jettison re-stow spilled cargo the ship was already carrying")
+
 	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = heaved}))
 }
 

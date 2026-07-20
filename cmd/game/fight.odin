@@ -19,11 +19,13 @@ import rl "vendor:raylib"
 //     opponent's concealed slots read "???" and its hold / weight stay hidden, the same gate
 //     draw_ship_panel used; you see your own ship whole.
 //   - The captain action-row, no amber. The one-decision-per-round menu is a bottom row of
-//     steel controls (a Press per phase while the battle's one Press is unspent, Commit, a
-//     Jettison per laden hold, Hold, and Break Off once escape-eligible). A Fight has no single
-//     default move — choosing *is* the game — so none of them takes the reserved amber; hover
-//     is carried by the caret + scrim lift, exactly as the Build surface (amber is assigned,
-//     not tracked).
+//     steel controls (a Press per phase while the battle's one Press is unspent, Commit,
+//     Jettison, Hold, and Break Off once escape-eligible). Jettison is one order that picks
+//     its target in a **second step** — the row is replaced by the laden fittings, and
+//     clicking one heaves it — so the order set stays at ADR-0028's five however many holds
+//     the ship has. A Fight has no single default move — choosing *is* the game — so none of
+//     them takes the reserved amber; hover is carried by the caret + scrim lift, exactly as
+//     the Build surface (amber is assigned, not tracked).
 //   - Per-round-exchange playback. A round's simultaneous exchange lands as one beat through
 //     the shared playback layer (#311): both damage numbers float over their hulls in the
 //     Fight hue and both hulls drain together, one click to the next round (ADR-0006). The
@@ -49,54 +51,95 @@ FIGHT_ACTION_TOP :: 470
 FIGHT_ACTION_H :: 34
 FIGHT_ACTION_MAX :: 16
 
-// Fight_Action is one button of the captain action-row: where it sits, what it reads, the
-// combat.Command it submits, and whether it is takeable this round (Break Off is not until
-// escape-eligible, and a Press is not once the battle's one Press is spent). No amber flag —
-// nothing on the Fight is the default, so the row is drawn uniformly steel and only hover
-// lifts a scrim.
+// Fight_Action_Kind is what clicking a button does. Two of the three submit nothing: the
+// Fight asks for its one order across two steps, and moving between them is a click that the
+// Sim never hears about.
+Fight_Action_Kind :: enum {
+	Submit, // send the carried Command as this round's order
+	Open_Targets, // Jettison: show the laden fittings, which is where it gets its slot index
+	Belay, // leave the target step without heaving anything
+}
+
+// Fight_Action is one button of the captain action-row: where it sits, what it reads, what
+// clicking it does, and whether it is takeable this round (Break Off is not until
+// escape-eligible, and a Press is not once the battle's one Press is spent). `command` is the
+// order a .Submit button sends, and is nil on the other two kinds. No amber flag — nothing on
+// the Fight is the default, so the row is drawn uniformly steel and only hover lifts a scrim.
 Fight_Action :: struct {
 	rect:    rl.Rectangle,
 	label:   string,
+	kind:    Fight_Action_Kind,
 	command: combat.Command,
 	enabled: bool,
 }
 
-// fight_action_commands builds the round's action list — labels, commands, and which are
-// takeable — without laying it out, so the set of moves offered is a pure function of the
-// ship and the two menu flags, unit-tested without a window (fight_action_layout adds the
-// rects). The Presses come from the Category enum so a new phase would appear automatically,
-// each disabled once the battle's one Press is spent; then Commit, one Jettison per laden
-// hold, Hold, and Break Off last, disabled until may_break_off. An untakeable order is
-// offered-but-disabled rather than dropped: the order set is fixed (ADR-0028), so the row
-// is the same length every round.
+// fight_action_commands builds the current step's button list — labels, commands, and which
+// are takeable — without laying it out, so what is offered is a pure function of the ship and
+// the menu flags, unit-tested without a window (fight_action_layout adds the rects). The Fight
+// asks for one order in two steps, and this is the one place that decides which step is
+// showing, so the loop and the draw can't disagree about what the row means.
 fight_action_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX]Fight_Action, n: int) {
-	add :: proc(actions: ^[FIGHT_ACTION_MAX]Fight_Action, n: ^int, label: string, command: combat.Command, enabled: bool) {
-		if n^ >= FIGHT_ACTION_MAX {
-			return
-		}
-		actions[n^] = Fight_Action{label = label, command = command, enabled = enabled}
-		n^ += 1
+	if state.jettison_targeting {
+		return fight_target_commands(state)
 	}
+	return fight_order_commands(state)
+}
 
+// fight_order_commands is the captain's order row: ADR-0028's five and nothing else. The
+// Presses come from the Category enum so a new phase would appear automatically, each
+// disabled once the battle's one Press is spent; then Commit, Jettison, Hold, and Break Off
+// last, disabled until may_break_off. An untakeable order is offered-but-disabled rather than
+// dropped: the order set is fixed, so the row is the same length every round however laden the
+// ship is. Jettison opens a step rather than submitting, which is what keeps a ship's holds
+// from each adding a button here.
+fight_order_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX]Fight_Action, n: int) {
 	for category in ship.Category {
-		add(&actions, &n, fmt.tprintf("Press %v", category), combat.Command(combat.Command_Press{phase = category}), state.may_press)
+		fight_add_action(&actions, &n, fmt.tprintf("Press %v", category), .Submit, combat.Command(combat.Command_Press{phase = category}), state.may_press)
 	}
-	add(&actions, &n, "Commit", combat.Command(combat.Command_Commit{}), true)
+	fight_add_action(&actions, &n, "Commit", .Submit, combat.Command(combat.Command_Commit{}), true)
+	// Nothing aboard to throw over the side means no heave to take, so the order dims rather
+	// than opening a step with no targets in it.
+	fight_add_action(&actions, &n, "Jettison", .Open_Targets, nil, ship.ship_cargo(state.player) > 0)
+	fight_add_action(&actions, &n, "Hold", .Submit, combat.Command(combat.Command_Hold{}), true)
+	fight_add_action(&actions, &n, "Break Off", .Submit, combat.Command(combat.Command_Break_Off{}), state.may_break_off)
+	return actions, n
+}
 
+// fight_target_commands is Jettison's second step: one button per laden fitting, plus a Belay
+// to back out. Picking a target *is* the confirmation, so a heave is never confirmed again.
+fight_target_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX]Fight_Action, n: int) {
 	for layout_slot, i in state.player.layout {
 		fitting, has_fitting := layout_slot.fitting.?
-		// Only a fitting that is actually carrying can be heaved: an empty one weighs
-		// nothing extra, so jettisoning it would be free Speed (combat_apply_jettison
-		// asserts the same thing).
+		// Only a fitting that is actually carrying is a target: an empty one weighs nothing
+		// extra, so heaving it would be free Speed (combat_apply_jettison asserts the same).
 		if !has_fitting || fitting.cargo_held <= 0 {
 			continue
 		}
-		add(&actions, &n, fmt.tprintf("Jettison %s", fitting.name), combat.Command(combat.Command_Jettison_Cargo{slot_index = ship.Slot_Index(i)}), true)
+		// Named by the **slot**, not the fitting: every bare hold is called "Cargo", so a row
+		// labelled by fitting reads as five identical buttons, while the slot names ("hold 2",
+		// "forecastle") are the words the cutaway above is labelled with. A slot too plain to
+		// have a name falls back to what fills it.
+		berth := layout_slot.slot.name if layout_slot.slot.name != "" else fitting.name
+		label := fmt.tprintf("%s (%d)", berth, fitting.cargo_held)
+		fight_add_action(&actions, &n, label, .Submit, combat.Command(combat.Command_Jettison_Cargo{slot_index = ship.Slot_Index(i)}), true)
 	}
-
-	add(&actions, &n, "Hold", combat.Command(combat.Command_Hold{}), true)
-	add(&actions, &n, "Break Off", combat.Command(combat.Command_Break_Off{}), state.may_break_off)
+	fight_add_action(&actions, &n, "Belay that", .Belay, nil, true)
 	return actions, n
+}
+
+fight_add_action :: proc(
+	actions: ^[FIGHT_ACTION_MAX]Fight_Action,
+	n: ^int,
+	label: string,
+	kind: Fight_Action_Kind,
+	command: combat.Command,
+	enabled: bool,
+) {
+	if n^ >= FIGHT_ACTION_MAX {
+		return
+	}
+	actions[n^] = Fight_Action{label = label, kind = kind, command = command, enabled = enabled}
+	n^ += 1
 }
 
 FIGHT_ACTION_PAD :: 16
@@ -161,6 +204,10 @@ fight_action_layout :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX]F
 // and the action row, and returns a Command_Battle_Choice when a takeable button is clicked.
 // The picked command is a value (its Jettison slot index and all) so it survives the per-frame
 // free_all the action labels are torn down by.
+//
+// A button carrying no command changes step rather than ending the round (Jettison opens its
+// targets, Belay closes them), so the loop keeps polling and the row it draws next frame is
+// the other one. Each round opens on the order row, whatever the last one ended on.
 battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 	if !rl.IsWindowReady() {
 		// The Hold is built through a local rather than inlined into the literal:
@@ -172,6 +219,8 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		return sim.Command(sim.Command_Battle_Choice{combat_command = hold})
 	}
 
+	state.jettison_targeting = false
+
 	for {
 		window_quit_if_closed()
 		mouse := rl.GetMousePosition()
@@ -181,19 +230,32 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		rl.EndDrawing()
 
 		actions, n := fight_action_layout(state)
-		picked: Maybe(combat.Command)
+		// Only the picked action's `kind` and `command` are read below, both values that
+		// survive the per-frame free_all — its label does not, having been formatted into
+		// the temp allocator this frame.
+		picked: Maybe(Fight_Action)
 		if rl.IsMouseButtonPressed(.LEFT) {
 			for a in actions[:n] {
 				if a.enabled && rl.CheckCollisionPointRec(mouse, a.rect) {
-					picked = a.command
+					picked = a
 					break
 				}
 			}
 		}
 		free_all(context.temp_allocator)
 
-		if cmd, ok := picked.?; ok {
-			return sim.Command(sim.Command_Battle_Choice{combat_command = cmd})
+		action, clicked := picked.?
+		if !clicked {
+			continue
+		}
+		switch action.kind {
+		case .Open_Targets:
+			state.jettison_targeting = true
+		case .Belay:
+			state.jettison_targeting = false
+		case .Submit:
+			state.jettison_targeting = false
+			return sim.Command(sim.Command_Battle_Choice{combat_command = action.command})
 		}
 	}
 }
@@ -381,10 +443,20 @@ fight_escape_text :: proc(state: ^Game_State) -> string {
 // draw_fight_action_row draws the captain action-row from the laid-out list: each takeable
 // button a steel-bordered translucent control whose scrim lifts and whose caret appears on
 // hover (hover carried by the scrim + caret, not by amber — the amber rule); an untakeable
-// order — Break Off before the escape window, a Press after the battle's one is spent —
-// dimmed to recessive blue and un-hoverable. No amber anywhere, because a Fight has no
-// default move.
+// order — Break Off before the escape window, a Press after the battle's one is spent, a
+// Jettison with nothing aboard to heave — dimmed to recessive blue and un-hoverable. No amber
+// anywhere, because a Fight has no default move.
+//
+// Jettison's target step carries a caption, because the row's meaning changes under it: the
+// same buttons now name what goes over the side, and clicking one does it. It is the only
+// prompt the heave gets — picking the target is the confirmation.
 draw_fight_action_row :: proc(state: ^Game_State, mouse: rl.Vector2) {
+	if state.jettison_targeting {
+		caption: cstring = "Heave what? There is no getting it back."
+		size := rl.MeasureTextEx(ui_font_body, caption, UI_BODY_SIZE, 1)
+		rl.DrawTextEx(ui_font_body, caption, rl.Vector2{(WINDOW_WIDTH - size.x) / 2, FIGHT_ACTION_TOP - UI_BODY_SIZE - 8}, UI_BODY_SIZE, 1, COLOUR_STEEL)
+	}
+
 	actions, n := fight_action_layout(state)
 	for a in actions[:n] {
 		hovered := a.enabled && rl.CheckCollisionPointRec(mouse, a.rect)

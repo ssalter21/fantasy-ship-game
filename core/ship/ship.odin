@@ -158,6 +158,10 @@ Effect_Context :: struct {
 // built by core/combat and carried on Effect_Context.battle. Speeds are captured
 // by combat (combat_effective_speed) rather than recomputed here, so this stays
 // plain data and the comparison can't re-enter effect resolution.
+//
+// The captain's order is **not** in here, and when one is added Jettison stays out
+// of it: a once-a-voyage panic is not a choice an item may be authored to reward
+// (CONTEXT.md, Order / Jettison Cargo).
 Battle_State :: struct {
 	round:          int,
 	own_speed:      int,

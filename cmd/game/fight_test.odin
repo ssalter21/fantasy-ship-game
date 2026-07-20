@@ -16,14 +16,12 @@ fight_action_commands_offers_the_round_menu :: proc(t: ^testing.T) {
 
 	actions, n := fight_action_commands(&state)
 
-	presses, commits, jettisons, break_offs, holds := 0, 0, 0, 0, 0
-	laden_holds := 0
-	for layout_slot in state.player.layout {
-		if fitting, has := layout_slot.fitting.?; has && fitting.cargo_held > 0 {
-			laden_holds += 1
-		}
-	}
+	presses, commits, jettisons, break_offs, holds, steps := 0, 0, 0, 0, 0, 0
 	for a in actions[:n] {
+		if a.kind == .Open_Targets {
+			steps += 1 // Jettison, which opens its target step rather than submitting
+			continue
+		}
 		switch c in a.command {
 		case combat.Command_Press:
 			presses += 1
@@ -39,13 +37,70 @@ fight_action_commands_offers_the_round_menu :: proc(t: ^testing.T) {
 	}
 
 	// The captain's whole order set, and nothing else: a Press per phase, Commit,
-	// Jettison, Break Off, Hold.
+	// Jettison, Break Off, Hold. However laden the ship is, the row stays this length —
+	// Jettison names its target in a second step, so no hold ever adds a button here.
 	testing.expect(t, presses == len(ship.Category)) // one Press per combat phase
 	testing.expect(t, commits == 1)
-	testing.expect(t, jettisons == laden_holds) // one Jettison per laden hold
+	testing.expect(t, steps == 1) // the one Jettison
+	testing.expect(t, jettisons == 0) // no slot index until the second step
 	testing.expect(t, break_offs == 1)
 	testing.expect(t, holds == 1)
-	testing.expect(t, n == presses + commits + jettisons + break_offs + holds)
+	testing.expect(t, n == presses + commits + steps + break_offs + holds)
+}
+
+// Jettison's second step: the row becomes the ship's laden fittings, one button each, and
+// clicking one submits the heave outright — picking the target *is* the confirmation, so
+// nothing further is asked. Belay backs out, carrying no command like the Jettison that
+// opened the step.
+@(test)
+fight_jettison_opens_a_target_step_of_the_laden_fittings :: proc(t: ^testing.T) {
+	state := Game_State{player = ship.ship_starting_ship()}
+	defer delete(state.player.layout)
+
+	laden: [dynamic]int
+	defer delete(laden)
+	for layout_slot, i in state.player.layout {
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.cargo_held > 0 {
+			append(&laden, i)
+		}
+	}
+	testing.expect(t, len(laden) > 0) // the starting ship sails laden
+
+	state.jettison_targeting = true
+	actions, n := fight_action_commands(&state)
+
+	testing.expect_value(t, n, len(laden) + 1) // a target each, plus Belay
+	for slot, i in laden {
+		heave, is_heave := actions[i].command.(combat.Command_Jettison_Cargo)
+		testing.expect(t, is_heave && actions[i].enabled && actions[i].kind == .Submit)
+		testing.expect_value(t, int(heave.slot_index), slot)
+	}
+	testing.expect(t, actions[n - 1].kind == .Belay) // and a way back out that submits nothing
+}
+
+// With nothing aboard to throw over the side there is no heave to take, so the order is
+// offered-but-dimmed rather than opening an empty target step.
+@(test)
+fight_jettison_is_untakeable_with_an_empty_hold :: proc(t: ^testing.T) {
+	state := Game_State{player = ship.ship_starting_ship()}
+	defer delete(state.player.layout)
+
+	jettison_enabled :: proc(state: ^Game_State) -> (enabled: bool, found: bool) {
+		actions, n := fight_action_commands(state)
+		for a in actions[:n] {
+			if a.kind == .Open_Targets {
+				return a.enabled, true
+			}
+		}
+		return false, false
+	}
+
+	enabled, found := jettison_enabled(&state)
+	testing.expect(t, found && enabled)
+
+	ship.ship_stow_cargo(state.player.layout, 0)
+	enabled, found = jettison_enabled(&state)
+	testing.expect(t, found && !enabled)
 }
 
 // The Press ration reads off the menu flag the Sim sends: the button stays on the row once
