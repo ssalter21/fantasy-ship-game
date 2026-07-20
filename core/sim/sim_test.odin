@@ -172,8 +172,7 @@ auto_pilot_dispatch :: proc(data: rawptr, event: Event) {
 // before the Sim's arena is torn down.
 Pilot_Result :: struct {
 	status:      voyage.Voyage_Status,
-	hull:          int,
-	durability:  int,
+	hull:        int,
 	speed:       int,
 	battles_won: int,
 }
@@ -200,10 +199,9 @@ drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Comman
 	run_session(&sim, input, sink)
 
 	res := Pilot_Result {
-		status     = sim.status,
-		hull         = sim.player.hull,
-		durability = sim.player.durability,
-		speed      = sim.player.speed,
+		status = sim.status,
+		hull   = sim.player.hull,
+		speed  = sim.player.speed,
 	}
 	for event in pilot.events {
 		wrapped, is_battle_event := event.(Event_Battle_Event)
@@ -323,7 +321,7 @@ arriving_at_a_trade_presents_the_bargain_instead_of_applying_it :: proc(t: ^test
 	testing.expect(t, len(trade.name) > 0)
 
 	// Nothing is paid or granted until the captain answers.
-	testing.expect_value(t, sim.player.durability, before.durability)
+	testing.expect_value(t, sim.player.max_hull, before.max_hull)
 	testing.expect_value(t, sim.player.speed, before.speed)
 	testing.expect_value(t, sim.player.hull, before.hull)
 	testing.expect_value(t, ship.ship_cargo(sim.player), cargo_before)
@@ -372,7 +370,6 @@ rejecting_a_trade_changes_nothing_and_still_resolves_the_node :: proc(t: ^testin
 
 	testing.expect_value(t, sim.player.hull, before.hull)
 	testing.expect_value(t, sim.player.max_hull, before.max_hull)
-	testing.expect_value(t, sim.player.durability, before.durability)
 	testing.expect_value(t, sim.player.speed, before.speed)
 	testing.expect_value(t, ship.ship_cargo(sim.player), cargo_before)
 	testing.expect(t, sim.resolved[1])
@@ -418,7 +415,7 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	// Re-arriving over the resolved trade presented nothing and changed nothing.
 	_, presented_again := presented_trade(events[:])
 	testing.expect(t, !presented_again)
-	testing.expect_value(t, sim.player.durability, ship_after_trade.durability)
+	testing.expect_value(t, sim.player.max_hull, ship_after_trade.max_hull)
 	testing.expect_value(t, sim.player.speed, ship_after_trade.speed)
 	testing.expect_value(t, sim.player.hull, ship_after_trade.hull)
 	testing.expect_value(t, ship.ship_cargo(sim.player), cargo_after_trade)
@@ -1039,12 +1036,12 @@ an_offers_options_are_presented_free :: proc(t: ^testing.T) {
 // an untested path.
 //
 // They use a Trade as the downstream stage throughout, because a Trade's effect is a
-// plain durability change that either happened or didn't — the clearest possible read
+// plain Max Hull change that either happened or didn't — the clearest possible read
 // on whether the walk reached a stage. It stands in for the Reward that #133 will
 // build; "flee a [Fight, Reward] and get no loot" is the same property.
 
 // trade_stage bakes a Trade with a known gain and a **free** cost, so a test reads
-// "did the walk reach this stage" straight off the ship's durability without the
+// "did the walk reach this stage" straight off the ship's Max Hull without the
 // bargain's own affordability rule (voyage_trade_can_accept, issue #136) entering into
 // it: a zero-amount cost is always payable, so accepting is always a legal answer and
 // the probe measures the walk and nothing else.
@@ -1059,21 +1056,23 @@ trade_stage :: proc() -> voyage.Stage_Trade {
 	return trade_stage_costing(0)
 }
 
-// trade_stage_costing is trade_stage priced: it charges `cost` of Max Hull, the axis a
-// starting ship can always cover, so a scenario about accepting or rejecting names the price
-// it wants rather than hunting a map whose generated bargain happens to be payable.
+// trade_stage_costing is trade_stage priced: it charges `cost` of Hull, the axis a starting
+// ship can always cover, so a scenario about accepting or rejecting names the price it wants
+// rather than hunting a map whose generated bargain happens to be payable. The gain is Max
+// Hull, which nothing else in a walk moves — unlike Hull (combat) or Cargo (loot), either of
+// which would let an unrelated stage forge the "we got here" signal.
 trade_stage_costing :: proc(cost: int) -> voyage.Stage_Trade {
 	return voyage.Stage_Trade {
 		name = "Test Bargain",
-		gain = voyage.Trade_Term{stat = .Durability, amount = TRADE_GAIN},
-		cost = voyage.Trade_Term{stat = .Max_Hull, amount = cost},
+		gain = voyage.Trade_Term{stat = .Max_Hull, amount = TRADE_GAIN},
+		cost = voyage.Trade_Term{stat = .Hull, amount = cost},
 	}
 }
 
 // accept_trade answers the Trade the walk is parked on, taking the bargain (issue
 // #136 gave Trade its accept/reject decision). It asserts the phase first, so a test
 // whose walk never reached the Trade fails here — naming the stage it didn't reach —
-// rather than further down on a durability that silently never moved.
+// rather than further down on a Max Hull that silently never moved.
 accept_trade :: proc(t: ^testing.T, sim: ^Sim, events: ^[dynamic]Event) {
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Trade_Choice)
 	sim_submit_captain_choice(sim, Command(Command_Trade_Choice{accept = true}))
@@ -1139,7 +1138,7 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	events: [dynamic]Event
 	defer delete(events)
 
-	before := sim.player.durability
+	before := sim.player.max_hull
 
 	// Seating enters stage 0, which parks on its bargain.
 	sim_seat_at_stage(&sim, 1, &events, trade_stage(), offer_stage(), trade_stage())
@@ -1148,7 +1147,7 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	// Accepting completes the Trade, and the walk carries straight on to stage 1,
 	// which stops for a decision of its own.
 	accept_trade(t, &sim, &events)
-	testing.expect_value(t, sim.player.durability, before + TRADE_GAIN)
+	testing.expect_value(t, sim.player.max_hull, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
 	testing.expect(t, has_event(events[:], Event_Options_Presented))
 	testing.expect(t, !sim.resolved[1])
@@ -1157,7 +1156,7 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
 	refit_tick(&sim, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Refit)
-	testing.expect_value(t, sim.player.durability, before + TRADE_GAIN) // stage 2 not reached yet
+	testing.expect_value(t, sim.player.max_hull, before + TRADE_GAIN) // stage 2 not reached yet
 
 	submit_refit(&sim, Refit_Finish{})
 	refit_tick(&sim, &events)
@@ -1166,7 +1165,7 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	accept_trade(t, &sim, &events)
 
 	// It ran off the end and resolved.
-	testing.expect_value(t, sim.player.durability, before + 2 * TRADE_GAIN)
+	testing.expect_value(t, sim.player.max_hull, before + 2 * TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
 	testing.expect(t, has_event(events[:], Event_Travel_Options))
@@ -1184,14 +1183,14 @@ skipping_an_offer_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	before := sim.player.durability
+	before := sim.player.max_hull
 	sim_seat_at_stage(&sim, 1, &events, offer_stage(), trade_stage())
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = nil}))
 	refit_tick(&sim, &events)
 
-	testing.expect_value(t, sim.player.durability, before) // the halt stopped the walk short
+	testing.expect_value(t, sim.player.max_hull, before) // the halt stopped the walk short
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1]) // halted encounters resolve too: the walk is over either way
 }
@@ -1303,7 +1302,7 @@ picking_from_an_offer_completes_it_and_the_walk_reaches_the_next_stage :: proc(t
 	events: [dynamic]Event
 	defer delete(events)
 
-	before := sim.player.durability
+	before := sim.player.max_hull
 	sim_seat_at_stage(&sim, 1, &events, offer_stage(), trade_stage())
 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -1312,10 +1311,10 @@ picking_from_an_offer_completes_it_and_the_walk_reaches_the_next_stage :: proc(t
 	refit_tick(&sim, &events)
 
 	// The walk reached the Trade — the thing under test — so answering it is what
-	// turns "reached" into an observable durability change.
+	// turns "reached" into an observable Max Hull change.
 	accept_trade(t, &sim, &events)
 
-	testing.expect_value(t, sim.player.durability, before + TRADE_GAIN)
+	testing.expect_value(t, sim.player.max_hull, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
 }
@@ -1610,7 +1609,7 @@ winning_a_fight_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^tes
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	before := sim.player.durability
+	before := sim.player.max_hull
 	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 1), trade_stage())
 
 	for fight_round(&sim, &events) {
@@ -1622,7 +1621,7 @@ winning_a_fight_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^tes
 	// Victory advanced the cursor onto the Trade; accepting is what makes reaching it
 	// visible on the ship.
 	accept_trade(t, &sim, &events)
-	testing.expect_value(t, sim.player.durability, before + TRADE_GAIN)
+	testing.expect_value(t, sim.player.max_hull, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, sim.resolved[1])
 }
@@ -1639,7 +1638,7 @@ sinking_ends_the_voyage_without_walking_on_to_a_later_stage :: proc(t: ^testing.
 	events: [dynamic]Event
 	defer delete(events)
 
-	before := sim.player.durability
+	before := sim.player.max_hull
 	sim.player.hull = 1 // goes down in the first round
 	sim.player.speed = 50
 	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000), trade_stage())
@@ -1648,7 +1647,7 @@ sinking_ends_the_voyage_without_walking_on_to_a_later_stage :: proc(t: ^testing.
 	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, sim.player.hull <= 0)
-	testing.expect_value(t, sim.player.durability, before) // sank: the Trade was never reached
+	testing.expect_value(t, sim.player.max_hull, before) // sank: the Trade was never reached
 	testing.expect_value(t, sim.status, voyage.Voyage_Status.Lost)
 	testing.expect_value(t, sim.phase, Phase.Ended)
 	testing.expect(t, has_event(ev, Event_Voyage_Ended))

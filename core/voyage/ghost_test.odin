@@ -65,7 +65,7 @@ capture_carries_the_given_progress_fields_through_unchanged :: proc(t: ^testing.
 capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^testing.T) {
 	captain := ship.Captain{name = "Blackheart"}
 	s := ship.Ship{
-		hull = 5, max_hull = 20, durability = 3, speed = 7,
+		hull = 5, max_hull = 20, speed = 7,
 		captain = captain,
 	}
 
@@ -74,8 +74,8 @@ capture_carries_the_ships_other_top_level_stats_through_unchanged :: proc(t: ^te
 
 	// A ship's cargo is no longer a scalar field (ADR-0020) — it rides in the
 	// cloned layout, covered by the cargo-clone test above; the scalars that carry
-	// through are durability, speed, and the captain.
-	testing.expect_value(t, snap.ship.durability, 3)
+	// through are max_hull, speed, and the captain.
+	testing.expect_value(t, snap.ship.max_hull, 20)
 	testing.expect_value(t, snap.ship.speed, 7)
 	testing.expect_value(t, snap.ship.captain, Maybe(ship.Captain)(captain))
 }

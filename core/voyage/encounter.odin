@@ -130,14 +130,14 @@ voyage_option_charge :: proc(s: ^ship.Ship, option: Stage_Option) -> (spent: boo
 }
 
 // voyage_trade_stat_floor is the lowest a stat may be left by paying a trade's cost
-// (issue #136). Durability and Cargo floor at 0 — a ship with none of them is still a
-// valid ship. Hull and Max Hull floor at 1: sinking the ship on a menu would hand
+// (issue #136). Cargo floors at 0 — a ship with no cargo is still a valid ship. Hull
+// and Max Hull floor at 1: sinking the ship on a menu would hand
 // permadeath to a choice stage, duplicating Fight's outcome while dodging its agency.
 voyage_trade_stat_floor :: proc(stat: Trade_Stat) -> int {
 	switch stat {
 	case .Hull, .Max_Hull:
 		return 1
-	case .Durability, .Cargo:
+	case .Cargo:
 		return 0
 	}
 	unreachable()
@@ -148,7 +148,7 @@ voyage_trade_stat_floor :: proc(stat: Trade_Stat) -> int {
 //
 // It reads the effective stat, never the raw base field (ADR-0012): effective is the
 // number combat and escape resolve against, so it is what the ship truly "has" — a
-// +Durability fitting genuinely makes a Durability cost affordable. Hull reads its base
+// +Max_Hull fitting genuinely makes a Max Hull cost affordable. Hull reads its base
 // directly because Ship.hull has no modifier path — fittings move the ceiling
 // (Modify_Max_Hull), not the current value.
 voyage_trade_stat_reading :: proc(s: ^ship.Ship, stat: Trade_Stat) -> int {
@@ -157,8 +157,6 @@ voyage_trade_stat_reading :: proc(s: ^ship.Ship, stat: Trade_Stat) -> int {
 		return s.hull
 	case .Max_Hull:
 		return ship.ship_effective_max_hull(s)
-	case .Durability:
-		return ship.ship_effective_durability(s)
 	case .Cargo:
 		return ship.ship_cargo(s^)
 	}
@@ -215,7 +213,7 @@ voyage_trade_project :: proc(s: ^ship.Ship, trade: Stage_Trade) -> (cost, gain: 
 	case .Cargo:
 		// A gain above the holds' capacity is lost (#157), so the after stalls at capacity.
 		gain.after = min(gain.before + trade.gain.amount, ship.ship_cargo_capacity(s^))
-	case .Max_Hull, .Durability:
+	case .Max_Hull:
 		gain.after = gain.before + trade.gain.amount
 	}
 	return
@@ -240,8 +238,6 @@ voyage_trade_pay :: proc(s: ^ship.Ship, cost: Trade_Term) {
 	case .Max_Hull:
 		s.max_hull -= cost.amount
 		s.hull = min(s.hull, ship.ship_effective_max_hull(s))
-	case .Durability:
-		s.durability -= cost.amount
 	case .Cargo:
 		ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^) - cost.amount)
 	}
@@ -257,8 +253,6 @@ voyage_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 		s.hull = min(s.hull + gain.amount, ship.ship_effective_max_hull(s))
 	case .Max_Hull:
 		s.max_hull += gain.amount
-	case .Durability:
-		s.durability += gain.amount
 	case .Cargo:
 		// Cargo is the holds (ADR-0020): re-stow the raised total, so a gain above
 		// capacity is lost (#157) rather than banked. A Cargo gain can thus burn its own

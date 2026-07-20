@@ -828,7 +828,7 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 	// on the unstyled panel; its real restyle (Pixelify, the tone hierarchy) is the Build
 	// screen's (#302).
 	rl.DrawText(
-		fmt.ctprintf("Hull %d/%d   DUR %d   SPD %d", s.hull, s.max_hull, s.durability, ship.ship_effective_speed(s)),
+		fmt.ctprintf("Hull %d/%d   SPD %d", s.hull, s.max_hull, ship.ship_effective_speed(s)),
 		x,
 		y + 26,
 		16,
@@ -922,8 +922,6 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 		case .Fire:
 			target = "Offense"
 		}
-	case .Modify_Durability:
-		target = "Durability"
 	case .Modify_Speed:
 		target = "Speed"
 	case .Modify_Max_Hull:

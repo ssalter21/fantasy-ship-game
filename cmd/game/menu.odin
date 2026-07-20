@@ -129,7 +129,7 @@ forfeited_stages_label :: proc(state: ^Game_State, e: sim.Event_Encounter_Halted
 battle_event_text :: proc(event: combat.Event) -> string {
 	switch e in event {
 	case combat.Event_Damage_Dealt:
-		return fmt.tprintf("%v takes %d damage!", e.target, e.final_damage)
+		return fmt.tprintf("%v takes %d damage!", e.target, e.damage)
 	case combat.Event_Ship_Sunk:
 		return fmt.tprintf("%v's ship is sunk!", e.side)
 	case combat.Event_Cargo_Jettisoned:

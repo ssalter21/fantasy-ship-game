@@ -207,12 +207,16 @@ the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 		testing.expect(t, len(f.name) > 0)
 		// A roster item is a real placeable fitting, not a cargo filler.
 		testing.expect(t, !f.is_cargo)
-		// Every item carries at least one tag family and exactly one effect
-		// (in either the passive or the active slot, not both).
+		// Every item carries at least one tag family and **at most** one effect (in
+		// either the passive or the active slot, never both). "At most" rather than
+		// "exactly" is ADR-0026's residue: the five items that carried Modify_Durability
+		// are effect-less until #397 re-authors them as repair — pinned by name in
+		// the_items_that_carried_modify_durability_are_inert_until_repair_lands, so this
+		// looser bound cannot quietly cover a sixth.
 		testing.expect(t, f.tags != {})
 		_, has_passive := f.passive.?
 		_, has_active := f.active.?
-		testing.expect(t, has_passive != has_active)
+		testing.expect(t, !(has_passive && has_active))
 		// Names are distinct (the Item Offer presents distinct items by name).
 		for other, j in roster {
 			if i != j {
@@ -336,21 +340,19 @@ splash_powder_monkeys_offense_scales_with_weapons_aboard :: proc(t: ^testing.T) 
 	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&armed)), active.magnitude * 2)
 }
 
+// **Temporarily inert, on purpose.** ADR-0026 deleted Modify_Durability, and the five
+// items that carried it lost their only effect rather than being re-authored on the way
+// past — #397's repair verb is what they are waiting for. This pins the gap so it is a
+// known hole rather than a silent one: when Reinforced Hull says something again, this
+// test should fail and be replaced by one asserting what it now says.
 @(test)
-shallow_reinforced_hull_raises_effective_durability :: proc(t: ^testing.T) {
-	item := roster_item_named("Reinforced Hull")
-	testing.expect_value(t, item.tier, Tier.Shallow)
-	passive, _ := item.fitting.passive.?
-
-	bare := synergy_ship()
-	defer delete(bare.layout)
-	base := ship_effective_durability(&bare)
-
-	hulled := synergy_ship(item.fitting)
-	defer delete(hulled.layout)
-
-	// The stat-modifier lifts effective Durability by its magnitude, not a phase.
-	testing.expect_value(t, ship_effective_durability(&hulled), base + int(passive.magnitude))
+the_items_that_carried_modify_durability_are_inert_until_repair_lands :: proc(t: ^testing.T) {
+	for name in ([]string{"Iron Plating", "Ballast Stones", "Reinforced Hull", "Dragon Turtle", "Adamant Bulwark"}) {
+		item := roster_item_named(name)
+		_, has_passive := item.fitting.passive.?
+		_, has_active := item.fitting.active.?
+		testing.expectf(t, !has_passive && !has_active, "%v carries an effect again — re-point this test at what it says", name)
+	}
 }
 
 @(test)

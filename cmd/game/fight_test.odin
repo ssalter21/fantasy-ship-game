@@ -105,8 +105,8 @@ fight_exchange_batches_a_round_and_drains_both_hulls :: proc(t: ^testing.T) {
 
 	// A round's two hits accumulate into one pending exchange and drain each struck hull as
 	// they land — the opponent's, which no Event_Ship_Updated carries, and the player's.
-	dispatch_battle_event(&state, combat.Event(combat.Event_Damage_Dealt{target = .B, final_damage = 10}))
-	dispatch_battle_event(&state, combat.Event(combat.Event_Damage_Dealt{target = .A, final_damage = 6}))
+	dispatch_battle_event(&state, combat.Event(combat.Event_Damage_Dealt{target = .B, damage = 10}))
+	dispatch_battle_event(&state, combat.Event(combat.Event_Damage_Dealt{target = .A, damage = 6}))
 
 	testing.expect(t, state.exchange_active)
 	testing.expect(t, state.pending_exchange[.A] == 6)
