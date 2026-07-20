@@ -562,8 +562,8 @@ selector_matches_over_each_of_tag_size_and_visibility :: proc(t: ^testing.T) {
 	testing.expect(t, selector_matches(slot, Selector(Tag.Beast)))
 	testing.expect(t, selector_matches(slot, Selector(Tag.Weapon)))
 	testing.expect(t, !selector_matches(slot, Selector(Tag.Crew)))
-	// Size: the fitting's own field. Category is not an axis — a phase is not a countable
-	// constant, and Selector lost it with #404.
+	// Size: the fitting's own field. A round Category is not an axis at all — a phase is
+	// not a countable constant (see Selector).
 	testing.expect(t, selector_matches(slot, Selector(Slot_Size.Large)))
 	testing.expect(t, !selector_matches(slot, Selector(Slot_Size.Small)))
 	// Visibility: the fitting's effective visibility (through the slot), not a raw field.
@@ -704,16 +704,15 @@ a_full_hold_floors_the_starting_ship_speed_at_zero_never_below :: proc(t: ^testi
 	testing.expect(t, ship_effective_speed(&s) > full) // emptiness is what varies
 }
 
-// --- Trees at the magnitude seam (#404) --------------------------------------
+// --- Trees at the magnitude seam ---------------------------------------------
 //
-// The five conditions the Effect used to pick from are now five authored trees
-// (content.odin's item_* shapes), resolved by expr_eval against the flattened context
-// effect_magnitude builds. These pin each of them through that seam — the same behaviour
-// the closed set had, now reached as arithmetic.
+// An effect's magnitude is an authored tree (expr.odin's composed shapes), resolved by
+// expr_eval against the flattened context effect_magnitude builds. These pin each of the
+// readings the roster leans on through that seam.
 
 @(test)
 a_hull_gated_tree_resolves_to_zero_above_the_threshold_and_full_below :: proc(t: ^testing.T) {
-	effect := effect_phase_contribution(item_below_hull_percent(50, 6))
+	effect := effect_phase_contribution(expr_below_hull_percent(50, 6))
 	s := Ship{max_hull = 20}
 
 	s.hull = 20 // full: above the half-Hull threshold
@@ -734,7 +733,7 @@ in_round :: proc(s: ^Ship, round: int) -> Effect_Context {
 
 @(test)
 a_round_gated_tree_is_shut_before_its_round_and_off_the_battlefield :: proc(t: ^testing.T) {
-	effect := effect_phase_contribution(item_from_round(3, 5))
+	effect := effect_phase_contribution(expr_from_round(3, 5))
 	s := Ship{}
 
 	// No round: off the battlefield there is no round number, and the gate reads shut.
@@ -747,7 +746,7 @@ a_round_gated_tree_is_shut_before_its_round_and_off_the_battlefield :: proc(t: ^
 
 @(test)
 a_visibility_reading_tree_reads_the_slot_the_effect_is_resolved_for :: proc(t: ^testing.T) {
-	effect := effect_phase_contribution(item_while_concealed(4))
+	effect := effect_phase_contribution(expr_while_concealed(4))
 	s := Ship{}
 
 	ctx := ship_effect_context(&s)
@@ -764,8 +763,8 @@ a_visibility_reading_tree_reads_the_slot_the_effect_is_resolved_for :: proc(t: ^
 @(test)
 speed_reading_trees_compare_the_speeds_pass_one_computed :: proc(t: ^testing.T) {
 	s := Ship{}
-	faster := effect_phase_contribution(item_while_opponent_faster(3))
-	slower := effect_phase_contribution(item_while_opponent_slower(3))
+	faster := effect_phase_contribution(expr_while_opponent_faster(3))
+	slower := effect_phase_contribution(expr_while_opponent_slower(3))
 
 	// own 5, opponent 8: the opponent is the faster side.
 	quick_foe := ship_effect_context_in_battle(&s, Round_Facts{round = 1}, Speeds{own = 5, opponent = 8})
@@ -853,31 +852,31 @@ an_opponent_count_reads_the_scouting_report_and_concealment_empties_it :: proc(t
 @(test)
 a_modify_speed_tree_that_reads_a_speed_is_rejected_when_it_is_authored :: proc(t: ^testing.T) {
 	// A Modify_Speed effect may read anything below its layer.
-	round_gated := effect_modify_speed(item_from_round(3, 2))
+	round_gated := effect_modify_speed(expr_from_round(3, 2))
 	testing.expect_value(t, round_gated.kind, Effect_Kind.Modify_Speed)
 
 	// It may not read either speed — own or opponent. Both readings are refused by
 	// effect_modify_speed's assert; expr_reads_quantity is the question it asks.
-	testing.expect(t, expr_reads_quantity(item_while_opponent_faster(2), .Own_Speed))
-	testing.expect(t, expr_reads_quantity(item_while_opponent_faster(2), .Opponent_Speed))
+	testing.expect(t, expr_reads_quantity(expr_while_opponent_faster(2), .Own_Speed))
+	testing.expect(t, expr_reads_quantity(expr_while_opponent_faster(2), .Opponent_Speed))
 	testing.expect(t, expr_reads_quantity(expr_quantity(.Own_Speed), .Own_Speed))
-	testing.expect(t, !expr_reads_quantity(item_from_round(3, 2), .Own_Speed))
+	testing.expect(t, !expr_reads_quantity(expr_from_round(3, 2), .Own_Speed))
 
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
 	testing.expect_assert(t, "a Modify_Speed tree cannot read a speed")
-	_ = effect_modify_speed(item_while_opponent_faster(2))
+	_ = effect_modify_speed(expr_while_opponent_faster(2))
 }
 
-// A speed modifier gated on the round used to be resolved with no round at all, so it was
-// unmet in every round of every battle. Pass one is what gives it a round to read.
+// Pass one is what gives a speed modifier a round to read: given none, its gate has no
+// reading to open on and the item is dormant in every round of every battle.
 @(test)
 a_round_gated_speed_modifier_fires_mid_battle_through_pass_one :: proc(t: ^testing.T) {
 	sails := Fitting {
 		name    = "Storm Canvas",
 		size    = .Small,
-		passive = effect_modify_speed(item_from_round(3, 4)),
+		passive = effect_modify_speed(expr_from_round(3, 4)),
 	}
 	s := Ship {
 		speed  = 2,
@@ -900,7 +899,7 @@ a_gated_stat_modifier_applies_only_while_its_gate_is_open :: proc(t: ^testing.T)
 	rigging := Fitting {
 		name    = "Panic Rigging",
 		size    = .Small,
-		passive = effect_modify_speed(item_below_hull_percent(50, 5)),
+		passive = effect_modify_speed(expr_below_hull_percent(50, 5)),
 	}
 	s := Ship {
 		speed  = 2,

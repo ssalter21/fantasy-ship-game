@@ -82,12 +82,12 @@ ship_phase_verb :: proc(phase: Category) -> Effect_Kind {
 //
 // **Tag, slot size and effective visibility, and nothing else.** All three are
 // authored constants sitting below the phase layer, so counting them cannot read a
-// quantity the count is itself an input to. Category left with #404: it is a *phase*,
-// which sits above the modifier layer a Modify_Speed count would be resolved in, and
-// on a Fitting it defaults to Brace — so counting by it counted every cargo hold as a
-// Brace item. There is no "empty slot" axis either: a vacated slot backfills a hold
-// (ship_remove), so `count(empty slots)` and `count(Tag.Cargo)` were always the same
-// fact and the second one is reachable.
+// quantity the count is itself an input to. A round Category is **not** an axis: a phase
+// sits above the modifier layer a Modify_Speed count resolves in, and on a Fitting it
+// defaults to Brace, so counting by it would count every cargo hold as a Brace item. There
+// is no "empty slot" axis either: a vacated slot backfills a hold (ship_remove), so
+// `count(empty slots)` and `count(Tag.Cargo)` are the same fact and only the second is
+// reachable.
 Selector :: union {
 	Tag,
 	Slot_Size,
@@ -118,11 +118,10 @@ Captains_Order :: enum {
 // function pointers, no pointers at all — so a Ghost_Snapshot (ADR-0008) can carry it.
 //
 // `kind` decides what the resolved magnitude does. `magnitude` is that magnitude **as an
-// expression tree** (see expr.odin): what used to be a stored integer optionally gated by
-// one of five fixed conditions is now arithmetic an author writes, so "more while the hull
+// expression tree** (see expr.odin) — arithmetic an author writes, so "more while the hull
 // is low", "from round three", "while the opponent is faster" and everything between them
-// are one mechanism rather than a closed list. `synergy`, when set, scales the resolved
-// magnitude by the count of matching fittings, orthogonal to `kind`.
+// are one mechanism rather than a closed list of conditions. `synergy`, when set, scales
+// the resolved magnitude by the count of matching fittings, orthogonal to `kind`.
 //
 // `site_scale` is a percent riding **beside** the tree, applied to what the evaluator
 // returns: it is how a Fight site makes a hostile's damage bite deeper (ship_fitting_output_scaled)
@@ -224,8 +223,7 @@ Speeds :: struct {
 // scaling stays proportional to what the fitting deals rather than to the build around it:
 // `(m x pct) x count` is `pct x (m x count)`.
 effect_magnitude :: proc(effect: Effect, ctx: Effect_Context) -> Magnitude {
-	value := expr_eval(effect.magnitude, effect_expr_context(ctx))
-	value = (value * effect.site_scale + 50) / 100
+	value := effect_site_scaled(expr_eval(effect.magnitude, effect_expr_context(ctx)), effect)
 	if selector, is_synergy := effect.synergy.?; is_synergy {
 		value *= ship_count_matching(ctx.owner, selector)
 	}
@@ -241,7 +239,16 @@ effect_magnitude :: proc(effect: Effect, ctx: Effect_Context) -> Magnitude {
 //
 // Never called from combat. Resolution goes through effect_magnitude and a real context.
 effect_showcase_magnitude :: proc(effect: Effect) -> int {
-	return (expr_showcase(effect.magnitude) * effect.site_scale + 50) / 100
+	return effect_site_scaled(expr_showcase(effect.magnitude), effect)
+}
+
+// effect_site_scaled takes `value` to the effect's site scale, rounding half-up so a
+// scale-down cannot silently disarm the smallest fittings: magnitude 1 at 50% is 1, not 0,
+// and any percent >= 50 holds that. The one statement of the scaling, so a round and an
+// item card cannot answer it differently.
+@(private)
+effect_site_scaled :: proc(value: int, effect: Effect) -> int {
+	return (value * effect.site_scale + 50) / 100
 }
 
 // effect_expr_context flattens an Effect_Context into the plain-data Expr_Context the
@@ -300,49 +307,39 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 // ship_count_table takes the census a Count node reads: every installed fitting of
 // `layout` bucketed along each Selector axis at once, in one pass. A multi-tag fitting
 // lands under each of its tags, exactly as selector_matches counts it.
-ship_count_table :: proc(layout: []Layout_Slot) -> Count_Table {
+//
+// `seen_as`, when set, counts only the slots reading that effective visibility. It is
+// what makes a scouting report a filtered census rather than a second kind of one.
+ship_count_table :: proc(layout: []Layout_Slot, seen_as: Maybe(Visibility) = nil) -> Count_Table {
 	counts: Count_Table
 	for layout_slot in layout {
 		fitting, has_fitting := layout_slot.fitting.?
 		if !has_fitting {
 			continue
 		}
+		visibility := ship_effective_visibility(layout_slot)
+		if only, filtered := seen_as.?; filtered && visibility != only {
+			continue
+		}
 		for tag in fitting.tags {
 			counts.tag[tag] += 1
 		}
 		counts.size[fitting.size] += 1
-		counts.visibility[ship_effective_visibility(layout_slot)] += 1
+		counts.visibility[visibility] += 1
 	}
 	return counts
 }
 
-// ship_scouting_report is what one ship can see of another: the same census
-// ship_count_table takes, over the **exposed fittings only**. It is the only way the
-// opponent enters an expression at all — a flattened counter block that leaves the ship
-// behind, so no tree can reach a hull, a magnitude or a slot it was not shown.
+// ship_scouting_report is what one ship can see of another: the census over its **exposed
+// fittings only**. It is the only way the opponent enters an expression at all — a
+// flattened counter block that leaves the ship behind, so no tree can reach a hull, a
+// magnitude or a slot it was not shown.
 //
 // Concealment is therefore a real counter to being read, by construction: a concealed
 // fitting is not in the report, so it is not in any count, and an item that pays out per
-// enemy Weapon pays nothing for the guns it never saw. The report still carries a
-// Visibility axis, whose Concealed bucket is always 0 — it is the same Count_Table, and a
-// count of what you cannot see being zero is the honest answer.
+// enemy Weapon pays nothing for the guns it never saw.
 ship_scouting_report :: proc(s: ^Ship) -> Count_Table {
-	report: Count_Table
-	for layout_slot in s.layout {
-		if ship_effective_visibility(layout_slot) != .Exposed {
-			continue
-		}
-		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting {
-			continue
-		}
-		for tag in fitting.tags {
-			report.tag[tag] += 1
-		}
-		report.size[fitting.size] += 1
-		report.visibility[.Exposed] += 1
-	}
-	return report
+	return ship_count_table(s.layout, .Exposed)
 }
 
 // ship_count_matching counts s's installed fittings that satisfy `selector`; the
@@ -369,9 +366,9 @@ ship_effect_context :: proc(s: ^Ship) -> Effect_Context {
 // ship_effect_context_pre_speed is **pass one**: the owning ship plus the round's facts,
 // with no speeds. It is what Modify_Speed effects resolve against, and the absence of
 // `speeds` is the acyclicity rule made structural — the speed layer is being computed, so
-// it is not yet a thing to read. What it *does* carry is why this pass exists at all: a
-// speed modifier gated on the round number or on the captain's order used to be resolved
-// with no round at all, and so was silently dead every round of every battle.
+// it is not yet a thing to read. What it *does* carry is why the pass takes a round at all:
+// a speed modifier gated on the round number, the captain's order or the damage taken last
+// round can only fire if something hands it those.
 ship_effect_context_pre_speed :: proc(s: ^Ship, round: Round_Facts) -> Effect_Context {
 	return Effect_Context{owner = s, round = round}
 }
@@ -573,7 +570,10 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx:
 // so `max(0, …)` is never written.
 ship_effective_speed :: proc(s: ^Ship, round: Maybe(Round_Facts) = nil) -> int {
 	modifiers := 0
-	ctx := Effect_Context{owner = s, round = round}
+	ctx := ship_effect_context(s)
+	if in_round, has_round := round.?; has_round {
+		ctx = ship_effect_context_pre_speed(s, in_round)
+	}
 	for layout_slot in s.layout {
 		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
 			ctx.self_slot = layout_slot

@@ -553,7 +553,7 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 		name     = "Admiral's Guard",
 		size     = .Medium,
 		category = .Fire,
-		active   = effect_phase_contribution(item_below_hull_percent(50, 4), Selector(Tag.Crew)),
+		active   = effect_phase_contribution(expr_below_hull_percent(50, 4), Selector(Tag.Crew)),
 	}
 
 	scaled, _ := ship_fitting_output_scaled(guard, 50).active.?
@@ -562,7 +562,7 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 	testing.expect_value(t, scaled.synergy.?, Selector(Tag.Crew))
 	// The authored tree is the same tree: the 50%-Hull threshold inside it did not move
 	// with the item's strength.
-	testing.expect_value(t, scaled.magnitude, item_below_hull_percent(50, 4))
+	testing.expect_value(t, scaled.magnitude, expr_below_hull_percent(50, 4))
 }
 
 // **Rounds half-up, so a scale-down cannot silently disarm the roster's smallest
@@ -585,4 +585,67 @@ ship_fitting_output_scaled_rounds_half_up_and_is_the_identity_at_a_hundred :: pr
 	// A hold carries no effect at all and is returned untouched.
 	filler := ship_fitting_hold(.Small, "Spoils")
 	testing.expect_value(t, ship_fitting_output_scaled(filler, 50), filler)
+}
+
+// --- The offer bonus against a tree (#404) -----------------------------------
+
+@(test)
+an_offer_bonus_lands_on_a_gates_open_branch_and_never_on_its_fallback :: proc(t: ^testing.T) {
+	// A gated item that pays nothing while its condition is unmet must still pay nothing
+	// once an offer has sweetened it — otherwise every conditional item quietly becomes a
+	// little unconditional, which is a balance change wearing a refactor's clothes.
+	beast := Fitting {
+		name     = "Cornered Beast",
+		size     = .Large,
+		category = .Fire,
+		active   = effect_phase_contribution(expr_below_hull_percent(50, 12)),
+	}
+	sweetened, _ := ship_fitting_scaled(beast, 2).active.?
+
+	s := synergy_ship(beast)
+	defer delete(s.layout)
+	s.max_hull = 20
+
+	s.hull = 20 // above the threshold: the gate is shut, and the bonus is behind it
+	testing.expect_value(t, effect_magnitude(sweetened, ship_effect_context(&s)), Magnitude(0))
+
+	s.hull = 9 // below it: the bonus is on the branch that opened
+	testing.expect_value(t, effect_magnitude(sweetened, ship_effect_context(&s)), Magnitude(14))
+
+	// An ungated item takes it at the root, where there is no branch to prefer.
+	gun := Fitting{name = "Long Nines", size = .Large, category = .Fire, active = effect_phase_contribution(expr_const(8))}
+	plain, _ := ship_fitting_scaled(gun, 2).active.?
+	testing.expect_value(t, effect_showcase_magnitude(plain), 10)
+}
+
+// The bonus costs nodes, and the bound is asserted where a tree is built — so a roster
+// item that could not survive being offered would assert mid-voyage rather than in a test.
+// The offer's largest bonus is a handful of points; this pins the whole roster against a
+// generous one.
+@(test)
+every_roster_item_still_fits_the_node_bound_once_an_offer_has_sweetened_it :: proc(t: ^testing.T) {
+	for item in ship_item_roster() {
+		sweetened := ship_fitting_scaled(item.fitting, 9)
+		base_effects := [2]Maybe(Effect){item.fitting.passive, item.fitting.active}
+		for maybe_effect, i in ([2]Maybe(Effect){sweetened.passive, sweetened.active}) {
+			effect, ok := maybe_effect.?
+			if !ok {
+				continue
+			}
+			base, _ := base_effects[i].?
+			testing.expectf(
+				t,
+				effect.magnitude.count <= EXPR_MAX_NODES,
+				"%s overruns the node bound once bonused: %d nodes",
+				item.fitting.name,
+				effect.magnitude.count,
+			)
+			testing.expectf(
+				t,
+				effect_showcase_magnitude(effect) > effect_showcase_magnitude(base),
+				"%s did not get stronger",
+				item.fitting.name,
+			)
+		}
+	}
 }

@@ -167,15 +167,16 @@ combat_round_facts :: proc(battle: ^Battle, side: Side, order: ship.Captains_Ord
 	}
 }
 
-// combat_order_ordinal names the round's order as an item reads it (ship.Captains_Order).
+// combat_captains_order names a round's submitted order as an item reads it
+// (ship.Captains_Order).
 // Only the orders that shape a round's output have a reading: a round spent on Jettison or
 // Break Off reads as Hold, which is exactly what it was to the phases — the ruling that
 // keeps a once-a-voyage panic from being a thing an item rewards (CONTEXT.md).
-combat_order_ordinal :: proc(order: Round_State) -> ship.Captains_Order {
-	if order.commit {
+combat_captains_order :: proc(submitted: Round_State) -> ship.Captains_Order {
+	if submitted.commit {
 		return .Commit
 	}
-	if phase, pressed := order.press_phase.?; pressed {
+	if phase, pressed := submitted.press_phase.?; pressed {
 		return phase == .Brace ? .Press_Brace : .Press_Fire
 	}
 	return .Hold
@@ -358,6 +359,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// consumed by the death check alone (ADR-0027): a Hull-gated fitting reads the hull
 	// its captain saw when they gave the order, so patching a hull cannot switch off the
 	// desperate ship's own guns mid-round.
+
 	// The round's context is built in **two passes**, and the order is forced by the
 	// layering rule rather than chosen: a tree may read any quantity computed strictly
 	// below its own layer, and Speed is the one stat with a modifier layer. So pass one
@@ -366,13 +368,12 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// against those speeds. Authoring is what guarantees pass one can be answered — a
 	// Modify_Speed tree reading a speed is rejected at authoring time (effect_modify_speed).
 	//
-	// This is also where a whole class of authored intent comes back to life: the facts
-	// pass one reads — the round, the captain's own order, the damage taken last round —
-	// used to reach neither pass, so a speed modifier gated on any of them was unmet in
-	// every round of every battle.
+	// Pass one takes the round's facts rather than nothing at all, which is what makes a
+	// speed modifier gated on the round number, the captain's own order or the damage taken
+	// last round a live item: without them there is no reading for its gate to open on.
 	round_facts: [Side]ship.Round_Facts
 	for side in Side {
-		round_facts[side] = combat_round_facts(battle, side, combat_order_ordinal(round_state[side]))
+		round_facts[side] = combat_round_facts(battle, side, combat_captains_order(round_state[side]))
 	}
 
 	speed: [Side]int

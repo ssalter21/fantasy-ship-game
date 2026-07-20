@@ -906,9 +906,9 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 // The magnitude is the effect read **at showcase** (effect_showcase_magnitude): what the
 // item is worth when what its tree asks for is true. An item held in the hand has no ship,
 // round or opponent to resolve against, and resolving it against nothing would print every
-// conditional item as "+0". Since #404 a magnitude is an arbitrary tree, so what the
-// condition *is* no longer has a closed set of clauses to render — the line says only that
-// there is one, which is the honest reading until the item card is re-cut (#405).
+// conditional item as "+0". A magnitude is an arbitrary tree, so what the condition *is*
+// has no closed set of clauses to render — the line says only that there is one, which is
+// the honest reading until the item card is re-cut (#405).
 fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 	effect: ship.Effect
 	if active, ok := f.active.?; ok {

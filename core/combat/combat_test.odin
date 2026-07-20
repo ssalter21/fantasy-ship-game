@@ -953,7 +953,7 @@ a_below_half_hull_conditional_offense_fitting_contributes_only_below_the_thresho
 	// while the ship is above half Hull and its full magnitude once below.
 	desperado := ship.Fitting{
 		name = "Desperado Cannon", size = .Large, category = .Fire,
-		active = ship.effect_phase_contribution(ship.item_below_hull_percent(50, 10)),
+		active = ship.effect_phase_contribution(ship.expr_below_hull_percent(50, 10)),
 	}
 
 	// Same fitting fired against the same bare target, differing only in the
@@ -987,7 +987,7 @@ a_while_concealed_conditional_offense_fitting_reads_its_own_slot_visibility :: p
 	// concealed slot contributes, in an exposed slot does not.
 	ambush := ship.Fitting{
 		name = "Ambush Cannon", size = .Large, category = .Fire,
-		active = ship.effect_phase_contribution(ship.item_while_concealed(8)),
+		active = ship.effect_phase_contribution(ship.expr_while_concealed(8)),
 	}
 
 	damage_from_slot :: proc(attacker: ship.Fitting, base_visibility: ship.Visibility) -> int {
@@ -1043,7 +1043,7 @@ damage_this_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command)) -> int {
 @(test)
 a_round_gated_item_fires_the_round_it_names_and_not_before :: proc(t: ^testing.T) {
 	a_layout: [1]ship.Layout_Slot
-	a := fire_only(a_layout[:], ship.item_from_round(3, 7))
+	a := fire_only(a_layout[:], ship.expr_from_round(3, 7))
 	b := ship.Ship{hull = 200, max_hull = 200, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	none: [Side]Maybe(Command)
@@ -1059,7 +1059,7 @@ an_opponent_speed_gated_item_reads_the_speeds_pass_one_computed :: proc(t: ^test
 	// Side B is the heavier ship, so A is the faster one and a "vs a faster foe" item
 	// stays quiet; loading A down flips which side is faster and wakes it.
 	a_layout: [1]ship.Layout_Slot
-	a := fire_only(a_layout[:], ship.item_while_opponent_faster(5))
+	a := fire_only(a_layout[:], ship.expr_while_opponent_faster(5))
 	b := ship.Ship{hull = 200, max_hull = 200, speed = 20}
 	battle := combat_battle_create(&a, &b)
 	none: [Side]Maybe(Command)
@@ -1161,7 +1161,7 @@ a_round_gated_speed_modifier_moves_escape_eligibility_mid_battle :: proc(t: ^tes
 	sails := ship.Fitting {
 		name    = "Storm Canvas",
 		size    = .Small,
-		passive = ship.effect_modify_speed(ship.item_from_round(3, 6)),
+		passive = ship.effect_modify_speed(ship.expr_from_round(3, 6)),
 	}
 	a := ship.Ship {
 		hull = 200,

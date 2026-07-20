@@ -383,3 +383,74 @@ an_ordering_comparison_on_the_captains_order_is_rejected_at_authoring :: proc(t:
 		expr_const(0),
 	)
 }
+
+// The arithmetic door the Gate's own guard leaves open: `max(order, 2) == 2` is
+// "order >= Press_Fire" spelled without an ordering operator, and `order - 1` is the same
+// trick with a sign. No binary node may take the encoding as an operand at all, which
+// leaves the Gate as its only reader.
+@(test)
+arithmetic_over_the_captains_order_is_rejected_at_authoring :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	testing.expect_assert(t, "no arithmetic reads it")
+	_ = expr_max(expr_quantity(.Captains_Order), expr_const(2))
+}
+
+@(test)
+a_gate_matching_the_captains_order_wants_the_reading_itself :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	// Ne is legal alongside Eq: "any order but this one" is still a sentence about orders.
+	_ = expr_gate(
+		.Ne,
+		expr_quantity(.Captains_Order),
+		expr_const(int(Captains_Order.Hold)),
+		expr_const(1),
+		expr_const(0),
+	)
+
+	testing.expect_assert(t, "match the reading itself")
+	_ = expr_gate(
+		.Eq,
+		expr_pct(expr_quantity(.Captains_Order), expr_const(100)),
+		expr_const(int(Captains_Order.Commit)),
+		expr_const(1),
+		expr_const(0),
+	)
+}
+
+// The two sets the spec closes, pinned so that widening either is a deliberate act rather
+// than a quiet one. `Count(empty slots)` is absent from both by construction — a vacated
+// slot backfills a hold, so it was always the same fact as `count(Tag.Cargo)` — and being
+// unspellable is the rejection.
+@(test)
+the_countable_axes_and_the_readable_quantities_are_the_closed_sets_the_spec_names :: proc(t: ^testing.T) {
+	// Selector reads Tag, slot size and visibility only: a Selector holding anything else
+	// would fail to compile, and expr_selector_count answers exactly these three.
+	ctx := Expr_Context{}
+	ctx.counts.tag[.Cargo] = 2
+	testing.expect_value(t, expr_selector_count(ctx.counts, Selector(Tag.Cargo)), 2)
+	testing.expect_value(t, expr_selector_count(ctx.counts, Selector(Slot_Size.Small)), 0)
+	testing.expect_value(t, expr_selector_count(ctx.counts, Selector(Visibility.Exposed)), 0)
+
+	testing.expect_value(t, len(Quantity), 8)
+	testing.expect_value(t, len(Node_Kind), 10)
+}
+
+@(test)
+expr_subtree_lifts_a_child_back_out_of_the_tree_it_was_spliced_into :: proc(t: ^testing.T) {
+	// The inverse of splicing, and what lets a caller reach a Gate's branches without
+	// storing child indices in the nodes.
+	lhs := expr_quantity(.Round)
+	then_expr := expr_add(expr_const(4), expr_const(1))
+	tree := expr_gate(.Gte, lhs, expr_const(3), then_expr, expr_const(0))
+
+	op, got_lhs, got_rhs, got_then, got_else := expr_gate_parts(tree)
+	testing.expect_value(t, op, Compare_Op.Gte)
+	testing.expect_value(t, got_lhs, lhs)
+	testing.expect_value(t, got_rhs, expr_const(3))
+	testing.expect_value(t, got_then, then_expr)
+	testing.expect_value(t, got_else, expr_const(0))
+}

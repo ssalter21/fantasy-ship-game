@@ -425,7 +425,7 @@ fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
 	synergy := ship.Fitting{category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(2), ship.Selector(ship.Tag.Weapon))}
 	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Offense per Weapon")
 
-	conditional := ship.Fitting{category = .Fire, active = ship.effect_phase_contribution(ship.item_below_hull_percent(50, 8))}
+	conditional := ship.Fitting{category = .Fire, active = ship.effect_phase_contribution(ship.expr_below_hull_percent(50, 8))}
 	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense when its condition holds")
 
 	hold := ship.ship_fitting_hold(.Small)

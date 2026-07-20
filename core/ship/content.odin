@@ -66,72 +66,6 @@ ship_fitting_gun_deck :: proc() -> Fitting {
 	return Fitting{name = "Gun Deck", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_const(GUN_DECK_OFFENSE_MAGNITUDE))}
 }
 
-// The roster's authored conditional shapes, written once here rather than fifty times as
-// raw trees. Each is an ordinary composition of the expression language — a Gate with the
-// item's magnitude on the open branch and nothing on the other — not a closed set an
-// author must pick from: an item wanting something outside these writes its own tree, and
-// costs the nodes it costs.
-//
-// Both branches are authored as constants, so a bonus applied to the item later
-// (ship_fitting_scaled) lands outside the gate — see that proc for what that means.
-
-// item_below_hull_percent is the "desperate" shape: full magnitude while the owner's Hull
-// is strictly below `percent` percent of its maximum, nothing above it. Written as a
-// cross-multiplication rather than as a percentage of max Hull, so the comparison is exact
-// at every max-Hull value instead of resting on where a division truncates.
-item_below_hull_percent :: proc(percent: int, magnitude: int) -> Expr {
-	return expr_gate(
-		.Lt,
-		expr_mul(expr_quantity(.Own_Hull), expr_const(100)),
-		expr_mul(expr_quantity(.Own_Max_Hull), expr_const(percent)),
-		expr_const(magnitude),
-		expr_const(0),
-	)
-}
-
-// item_from_round is the "warms up" shape: nothing until battle `round`, full magnitude
-// from it on. Round is 1-based, matching Battle.round.
-item_from_round :: proc(round: int, magnitude: int) -> Expr {
-	return expr_gate(.Gte, expr_quantity(.Round), expr_const(round), expr_const(magnitude), expr_const(0))
-}
-
-// item_while_concealed is the "hidden" shape: full magnitude while the slot the effect
-// sits in reads Concealed (ship_effective_visibility), nothing while it is Exposed.
-// Visibility is an ordinal quantity, so the gate is an equality against its value.
-item_while_concealed :: proc(magnitude: int) -> Expr {
-	return expr_gate(
-		.Eq,
-		expr_quantity(.Own_Visibility),
-		expr_const(int(Visibility.Concealed)),
-		expr_const(magnitude),
-		expr_const(0),
-	)
-}
-
-// item_while_opponent_faster / _slower are the "chase" shapes: full magnitude while the
-// opponent's effective Speed is strictly greater / less than the owner's. Both speeds are
-// pass-two quantities, so these are only authorable on effects resolved in a phase — a
-// Modify_Speed item reading them is rejected at authoring time (effect_modify_speed).
-item_while_opponent_faster :: proc(magnitude: int) -> Expr {
-	return expr_gate(
-		.Gt,
-		expr_quantity(.Opponent_Speed),
-		expr_quantity(.Own_Speed),
-		expr_const(magnitude),
-		expr_const(0),
-	)
-}
-
-item_while_opponent_slower :: proc(magnitude: int) -> Expr {
-	return expr_gate(
-		.Lt,
-		expr_quantity(.Opponent_Speed),
-		expr_quantity(.Own_Speed),
-		expr_const(magnitude),
-		expr_const(0),
-	)
-}
-
 // ship_fitting_upgraded is the shared shape behind the three upgraded-variant procs
 // below: an upgraded variant keeps its base's size/category and adds bonus on top of
 // the base magnitude. bonus is a caller-supplied scale (issue #23: a deeper node's
@@ -147,24 +81,23 @@ ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) 
 	return f
 }
 
-// effect_with_bonus adds a flat `bonus` to what an effect's tree yields, by adding it at
-// the tree's root. A zero bonus returns the effect untouched rather than spending two
-// nodes saying nothing.
+// effect_with_bonus adds a flat `bonus` to what an effect's tree yields. A zero bonus
+// returns the effect untouched rather than spending two nodes saying nothing.
 //
-// **On a gated item the bonus therefore lands outside the gate**: a "below half Hull, +12"
-// beast offered at +2 deals 2 while its hull is healthy, where it used to deal nothing.
-// The alternative — pushing the bonus down into whichever branch the author meant as the
-// live one — is a rule about intent that the tree does not record, and the additive offer
-// bonus is on its way out entirely (#393: the offer path is to draw from a depth-gated
-// tier band and hand the roster line over unmodified). Adding at the root is the shape
-// that survives an arbitrary tree without inventing that rule.
+// **The bonus lands on the branch a gate opens onto, never on its fallback**, so a gated
+// item that pays nothing while its condition is unmet still pays nothing after the bonus:
+// a "below half Hull, +12" beast offered at +2 is a +14 beast below half Hull, not a beast
+// that has quietly become useful above it. Adding at the root instead would be one node
+// cheaper and would make every conditional item unconditional by a little, which is a
+// balance change disguised as a refactor. An ungated tree takes it at the root, where
+// there is no branch to prefer.
 effect_with_bonus :: proc(effect: Effect, bonus: int) -> Effect {
 	if bonus == 0 {
 		return effect
 	}
-	scaled := effect
-	scaled.magnitude = expr_add(effect.magnitude, expr_const(bonus))
-	return scaled
+	bonused := effect
+	bonused.magnitude = expr_with_bonus(effect.magnitude, bonus)
+	return bonused
 }
 
 ship_fitting_upgraded_top_crew :: proc(bonus: int) -> Fitting {
@@ -232,9 +165,9 @@ ITEM_ROSTER_SIZE :: 50
 
 // ship_item_roster returns the full roster pool (ADR-0012) as value data. It is built in
 // the proc body (not a top-level constant) so its synergy Selector literals resolve at
-// runtime, sidestepping the const-fold regression the CI pin documents — and since #404
-// every entry's magnitude is built by an authoring proc, which a constant could not be
-// anyway. Caller owns the returned array by value — Fittings hold only value fields and
+// runtime, sidestepping the const-fold regression the CI pin documents. Every entry's
+// magnitude is built by an authoring proc besides, which a top-level constant could not
+// be. Caller owns the returned array by value — Fittings hold only value fields and
 // static-string names, so there is nothing to free.
 //
 // Authoring invariants every entry must satisfy: exactly one effect, a size the template
@@ -266,9 +199,9 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Splash, fitting = Fitting{name = "Deck Pumps", size = .Medium, bulk = 20, weight = 20, category = .Brace, tags = {.Artifact}, active = effect_repair(expr_const(4))}},
 		{tier = .Splash, fitting = Fitting{name = "Powder Monkeys", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(1), Selector(Tag.Weapon))}},
 		{tier = .Splash, fitting = Fitting{name = "Smuggler's Crates", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Cargo}, active = effect_phase_contribution(expr_const(1), Selector(Visibility.Concealed))}},
-		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(item_below_hull_percent(50, 3))}},
-		{tier = .Splash, fitting = Fitting{name = "Lookout Nest", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(item_while_opponent_faster(2))}},
-		{tier = .Splash, fitting = Fitting{name = "Bilge Rats", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(item_from_round(3, 2))}},
+		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_below_hull_percent(50, 3))}},
+		{tier = .Splash, fitting = Fitting{name = "Lookout Nest", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_while_opponent_faster(2))}},
+		{tier = .Splash, fitting = Fitting{name = "Bilge Rats", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_from_round(3, 2))}},
 		{tier = .Splash, fitting = Fitting{name = "Harpoon Line", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Weapon, .Beast}, active = effect_phase_contribution(expr_const(3))}},
 
 		// ---- Shallow ----
@@ -283,15 +216,15 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, bulk = 20, weight = 16, category = .Brace, tags = {.Crew}, active = effect_repair(expr_const(6))}},
 		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, passive = effect_modify_speed(expr_const(1), Selector(Slot_Size.Small))}},
 		{tier = .Shallow, fitting = Fitting{name = "Gun Captain", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(2), Selector(Tag.Weapon))}},
-		// Master Gunner counted by Category.Fire until #404 took that axis off Selector (a
-		// phase is not a countable constant). Medium berths is the nearest reading that is:
-		// a gunner for every gun deck the ship saw fit to build at fighting size.
+		// Master Gunner counts the medium berths — a gunner for every gun deck the ship saw
+		// fit to build at fighting size. A phase is not a countable axis (see Selector), so a
+		// "per Fire fitting" reading is not one an item can be authored against.
 		{tier = .Shallow, fitting = Fitting{name = "Master Gunner", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(2), Selector(Slot_Size.Medium))}},
 		{tier = .Shallow, fitting = Fitting{name = "Contraband Hold", size = .Medium, bulk = 20, weight = 18, category = .Fire, tags = {.Cargo}, active = effect_phase_contribution(expr_const(2), Selector(Tag.Cargo))}},
-		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, bulk = 20, weight = 20, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(item_below_hull_percent(50, 8))}},
-		{tier = .Shallow, fitting = Fitting{name = "Ghost Lantern", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(item_while_concealed(4))}},
-		{tier = .Shallow, fitting = Fitting{name = "Storm Sails", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(item_while_opponent_slower(4))}},
-		{tier = .Shallow, fitting = Fitting{name = "Chain & Bar Shot", size = .Medium, bulk = 20, weight = 21, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(item_while_opponent_faster(7))}},
+		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, bulk = 20, weight = 20, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_below_hull_percent(50, 8))}},
+		{tier = .Shallow, fitting = Fitting{name = "Ghost Lantern", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_while_concealed(4))}},
+		{tier = .Shallow, fitting = Fitting{name = "Storm Sails", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_while_opponent_slower(4))}},
+		{tier = .Shallow, fitting = Fitting{name = "Chain & Bar Shot", size = .Medium, bulk = 20, weight = 21, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_while_opponent_faster(7))}},
 
 		// ---- Deep ----
 		{tier = .Deep, fitting = Fitting{name = "Great Bombard", size = .Large, bulk = 40, weight = 45, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_const(12))}},
@@ -306,10 +239,10 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Deep, fitting = Fitting{name = "Hunter's Pack", size = .Medium, bulk = 20, weight = 18, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_const(3), Selector(Tag.Beast))}},
 		{tier = .Deep, fitting = Fitting{name = "Flagship Colors", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_const(3), Selector(Slot_Size.Large))}},
 		{tier = .Deep, fitting = Fitting{name = "Storm Caller", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_const(3), Selector(Visibility.Concealed))}},
-		{tier = .Deep, fitting = Fitting{name = "Wraith Cannon", size = .Medium, bulk = 20, weight = 22, category = .Fire, tags = {.Artifact, .Weapon}, active = effect_phase_contribution(item_while_concealed(10))}},
-		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(item_below_hull_percent(50, 12))}},
-		{tier = .Deep, fitting = Fitting{name = "Siege Battery", size = .Large, bulk = 40, weight = 44, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(item_from_round(5, 11))}},
-		{tier = .Deep, fitting = Fitting{name = "Sea Witch", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(item_while_opponent_faster(6))}},
+		{tier = .Deep, fitting = Fitting{name = "Wraith Cannon", size = .Medium, bulk = 20, weight = 22, category = .Fire, tags = {.Artifact, .Weapon}, active = effect_phase_contribution(expr_while_concealed(10))}},
+		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_below_hull_percent(50, 12))}},
+		{tier = .Deep, fitting = Fitting{name = "Siege Battery", size = .Large, bulk = 40, weight = 44, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_from_round(5, 11))}},
+		{tier = .Deep, fitting = Fitting{name = "Sea Witch", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_while_opponent_faster(6))}},
 	}
 }
 
