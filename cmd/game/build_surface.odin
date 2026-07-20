@@ -10,7 +10,7 @@ import rlgl "vendor:raylib/rlgl"
 // The Build surface is the ship "always in refit" (#302, ADR-0024): the Cutaway that
 // replaces the modal refit_menu_loop's programmer-art slot list. The ship is drawn as
 // a cross-section — the 4 exposed stations ride the deck, the 4 holds sit in the belly
-// below a drawn waterline — so geography carries the exposed/concealed split (ADR-0005)
+// below a drawn waterline — so geography carries the exposed/concealed split (ADR-0030)
 // rather than a badge, and a card's footprint tracks its slot size so size reads without
 // a number. Refit is drag-first: press-drag-release installs / moves / swaps, the
 // exact-size fit rule left to the Sim (an illegal drop returns Event_Refit_Rejected and
@@ -421,12 +421,14 @@ slot_dragged :: proc(drag: Build_Drag) -> bool {
 	return ok
 }
 
-// build_is_legal_berth is the UI's affordance hint only — same size, and empty for a slot
-// move — highlighting where a fitting can land. It is not the fit rule's authority: the Sim
-// still validates the emitted command (ADR-0004), so this only steers the eye, and a drop
-// on an illegal berth is emitted and bounced rather than silently blocked here.
+// build_is_legal_berth is the UI's affordance hint only — what the fit rule admits
+// (ship_fitting_fits: matching size, and exposed if the fitting requires it), plus free for a
+// slot move — highlighting where a fitting can land. It is not the fit rule's authority: the
+// Sim still validates the emitted command, so this only steers the eye, and a drop on an
+// illegal berth is emitted and bounced rather than silently blocked here. It asks the rule
+// rather than restating it, so the hint cannot drift from what the Sim will accept.
 build_is_legal_berth :: proc(state: ^Game_State, drag: Build_Drag, slot: ship.Slot_Index) -> bool {
-	if drag.fitting.size != state.player.layout[slot].slot.size {
+	if !ship.ship_fitting_fits(state.player.layout[slot].slot, drag.fitting) {
 		return false
 	}
 	from, dragging_slot := drag.from_slot.?
@@ -500,7 +502,7 @@ draw_build_heading :: proc(title: string) {
 }
 
 // draw_build_zone_label draws a zone's name with a supporting eye / eye-off glyph: what a
-// scout can see (Exposed) and can't (Concealed) per ADR-0005. The glyph is supporting, not
+// scout can see (Exposed) and can't (Concealed) per ADR-0030. The glyph is supporting, not
 // load-bearing — geography already carries the split — so it is small and dim.
 draw_build_zone_label :: proc(pos: rl.Vector2, label: string, visibility: ship.Visibility) {
 	eye_c := rl.Vector2{pos.x + 8, pos.y + 9}

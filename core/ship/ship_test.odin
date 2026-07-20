@@ -114,40 +114,55 @@ a_fitting_can_carry_more_than_one_tag :: proc(t: ^testing.T) {
 }
 
 @(test)
-empty_slot_resolves_to_its_own_base_visibility :: proc(t: ^testing.T) {
-	concealed_slot := make_layout_slot("hold", .Small, .Concealed)
-
-	testing.expect_value(t, ship_effective_visibility(concealed_slot), Visibility.Concealed)
-}
-
-@(test)
-fitting_with_no_override_resolves_to_the_slot_base_visibility :: proc(t: ^testing.T) {
-	exposed_slot := Layout_Slot{
-		slot = Slot{name = "top deck", size = .Medium, base_visibility = .Exposed},
-		fitting = Fitting{name = "Crew", size = .Medium},
-	}
-
-	testing.expect_value(t, ship_effective_visibility(exposed_slot), Visibility.Exposed)
-}
-
-@(test)
-fitting_override_forces_an_exposed_slot_to_read_as_concealed :: proc(t: ^testing.T) {
-	exposed_slot := Layout_Slot{
-		slot = Slot{name = "top deck", size = .Medium, base_visibility = .Exposed},
-		fitting = Fitting{name = "Hidden Assassin", size = .Medium, visibility_override = Visibility.Concealed},
-	}
-
-	testing.expect_value(t, ship_effective_visibility(exposed_slot), Visibility.Concealed)
-}
-
-@(test)
-fitting_override_forces_a_concealed_slot_to_read_as_exposed :: proc(t: ^testing.T) {
-	concealed_slot := Layout_Slot{
+a_fittings_visibility_is_the_visibility_of_its_slot :: proc(t: ^testing.T) {
+	// ADR-0030: the fitting-level override is gone, so visibility is the slot's and a
+	// fitting has no say in it — the concealed berth conceals whatever sits in it, and
+	// the exposed one exposes whatever sits in it.
+	concealed := Layout_Slot{
 		slot = Slot{name = "hold", size = .Large, base_visibility = .Concealed},
-		fitting = Fitting{name = "Unmissable Artifact", size = .Large, visibility_override = Visibility.Exposed},
+		fitting = Fitting{name = "Unmissable Artifact", size = .Large},
+	}
+	exposed := Layout_Slot{
+		slot = Slot{name = "top deck", size = .Medium, base_visibility = .Exposed},
+		fitting = Fitting{name = "Hidden Assassin", size = .Medium},
 	}
 
-	testing.expect_value(t, ship_effective_visibility(concealed_slot), Visibility.Exposed)
+	testing.expect(t, selector_matches(concealed, Selector(Visibility.Concealed)))
+	testing.expect(t, !selector_matches(concealed, Selector(Visibility.Exposed)))
+	testing.expect(t, selector_matches(exposed, Selector(Visibility.Exposed)))
+	testing.expect(t, !selector_matches(exposed, Selector(Visibility.Concealed)))
+}
+
+@(test)
+an_exposure_requiring_fitting_is_refused_a_concealed_slot :: proc(t: ^testing.T) {
+	// requires_exposed is checked at fit-legality time beside the size gate (#407), so
+	// an item that must be seen is refused below deck at every seam that installs one.
+	colors := Fitting{name = "Flagship Colors", size = .Small, bulk = 10, requires_exposed = true}
+	concealed := make_layout_slot("hold", .Small, .Concealed)
+	exposed := make_layout_slot("top deck", .Small, .Exposed)
+
+	testing.expect(t, !ship_fitting_fits(concealed.slot, colors))
+	testing.expect(t, ship_fitting_fits(exposed.slot, colors))
+	testing.expect(t, !ship_fit(&concealed, colors))
+	testing.expect(t, !ship_replace_fitting(&concealed, colors))
+	testing.expect(t, ship_fit(&exposed, colors))
+
+	// And a move cannot smuggle it below afterwards: the destination is held to the
+	// same rule the install was.
+	_, moved := ship_move(&exposed, &concealed)
+	testing.expect(t, !moved)
+	still_there, _ := exposed.fitting.?
+	testing.expect_value(t, still_there.name, "Flagship Colors")
+}
+
+@(test)
+a_fitting_with_no_exposure_requirement_fits_either_kind_of_slot :: proc(t: ^testing.T) {
+	// The zero value is the honest default: an item with nothing to say about
+	// visibility goes anywhere its size allows.
+	crew := Fitting{name = "Deckhands", size = .Small, bulk = 10}
+
+	testing.expect(t, ship_fitting_fits(Slot{size = .Small, base_visibility = .Concealed}, crew))
+	testing.expect(t, ship_fitting_fits(Slot{size = .Small, base_visibility = .Exposed}, crew))
 }
 
 @(test)
@@ -566,7 +581,7 @@ selector_matches_over_each_of_tag_size_and_visibility :: proc(t: ^testing.T) {
 	// not a countable constant (see Selector).
 	testing.expect(t, selector_matches(slot, Selector(Slot_Size.Large)))
 	testing.expect(t, !selector_matches(slot, Selector(Slot_Size.Small)))
-	// Visibility: the fitting's effective visibility (through the slot), not a raw field.
+	// Visibility: read off the slot the fitting sits in, never off the fitting.
 	testing.expect(t, selector_matches(slot, Selector(Visibility.Concealed)))
 	testing.expect(t, !selector_matches(slot, Selector(Visibility.Exposed)))
 }
