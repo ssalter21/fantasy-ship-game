@@ -556,9 +556,9 @@ Fitting :: struct {
 	// apart is what makes a gun that also carries authorable at all. An ordinary
 	// item authors its full slot contribution and so carries nothing; a hold
 	// authors 0 and is the degenerate corner of the axis. **Its zero value is the
-	// carrying end**, so every authored fitting must name it — ship_item_roster's
-	// no-capacity assertion is what holds that until the roster moves to per-item
-	// procs with a defaulted parameter.
+	// carrying end**, so every authored fitting must name it — a roster item gets it
+	// from roster_item's default (the size's full contribution) rather than from a
+	// bare literal that could omit it.
 	bulk:                int,
 	// tags is the fitting's family membership (see Tag).
 	tags:                bit_set[Tag],

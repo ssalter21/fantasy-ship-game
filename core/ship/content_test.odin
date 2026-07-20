@@ -204,11 +204,10 @@ roster_item_named :: proc(name: string) -> Roster_Item {
 }
 
 // Every roster item authors its full slot contribution as `bulk`, so none of them
-// carries. This is a guard on a **zero-value hazard**, not a balance rule: an omitted
-// `bulk` reads as zero, which is the *carrying* end of the axis, so a forgotten field
-// silently bolts a free full-slot hold onto a gun and hands the budget capacity it
-// never priced. It also pins the port — the fifty items came across the axis at cost
-// zero, and that is only true while every one of them is at `bulk = full`.
+// carries — which is what makes the roster free of the cargo axis: capacity is an
+// authored power source nothing has yet spent on. roster_item's default supplies it,
+// so this catches the entry that names a `bulk` of its own and lands on the carrying
+// end of the axis, handing the budget capacity it never priced.
 @(test)
 the_roster_carries_nothing :: proc(t: ^testing.T) {
 	for item in ship_item_roster() {
@@ -231,8 +230,12 @@ the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 
 	// ADR-0012 targets "~50"; the pool must clear the offer's option count so an
 	// offer can present that many distinct items (voyage.ITEM_OFFER_OPTION_COUNT).
+	// The size is derived from the item list (ITEM_ROSTER_SIZE), so this line is the
+	// only thing an appended item has to answer to: the fifty-first is a conversation
+	// — about the shop pools and offer draws sized against the count — rather than a
+	// silent widening.
+	testing.expect_value(t, ITEM_ROSTER_SIZE, 50)
 	testing.expect_value(t, len(roster), ITEM_ROSTER_SIZE)
-	testing.expect(t, ITEM_ROSTER_SIZE >= 45)
 
 	for item, i in roster {
 		f := item.fitting
