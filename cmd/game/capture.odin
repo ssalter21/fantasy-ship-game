@@ -44,12 +44,8 @@ capture_main :: proc() {
 
 	ui_fonts_load()
 	defer ui_fonts_unload()
-	menu_art_load()
-	defer menu_art_unload()
-	parchment_art_load()
-	defer parchment_art_unload()
-	ship_art_load()
-	defer ship_art_unload()
+	art_load()
+	defer art_unload()
 
 	if !os.exists(CAPTURE_DIR) {
 		if err := os.make_directory(CAPTURE_DIR); err != nil {
@@ -150,23 +146,21 @@ capture_shot_home :: proc(state: ^Capture_State) {
 		dispatch(&game, e)
 	}
 
-	no_mouse := rl.Vector2{-1, -1}
-
 	// At anchor: the ship in refit as the resting home, no granted item, no amber.
-	draw_home(&game, Build_Drag{}, nil, no_mouse, 0)
-	draw_home(&game, Build_Drag{}, nil, no_mouse, 0)
+	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
+	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
 	capture_write(state, "home")
 
 	// Mid-flip: the chart half-raised, sliding up over a partly-dimmed surface. draw_home
 	// composes any elevation, so the click flip (#329) is photographable at rest — the split #277
 	// asks for. This frame is only reachable through the fixed raise, never a poll.
-	draw_home(&game, Build_Drag{}, nil, no_mouse, 0.5)
-	draw_home(&game, Build_Drag{}, nil, no_mouse, 0.5)
+	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0.5)
+	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0.5)
 	capture_write(state, "home-chart-rising")
 
 	// The chart raised over the surface: the sailable overlay, the between-encounters travel view.
-	draw_home(&game, Build_Drag{}, nil, no_mouse, 1)
-	draw_home(&game, Build_Drag{}, nil, no_mouse, 1)
+	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 1)
+	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 1)
 	capture_write(state, "home-chart")
 }
 
@@ -183,11 +177,9 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 
 	game := Game_State{player = ship.ship_starting_ship()}
 	defer delete(game.player.layout)
-	no_mouse := rl.Vector2{-1, -1}
-
 	// At rest: the ship in refit, no granted item, no amber.
-	draw_build_surface(&game, Build_Drag{}, nil, no_mouse)
-	draw_build_surface(&game, Build_Drag{}, nil, no_mouse)
+	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
+	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
 	capture_write(state, "build")
 
 	// A granted Large item waiting on the shelf — the surface's one amber.
@@ -196,15 +188,15 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 		return
 	}
 	game.refit_incoming = granted.fitting
-	draw_build_surface(&game, Build_Drag{}, nil, no_mouse)
-	draw_build_surface(&game, Build_Drag{}, nil, no_mouse)
+	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
+	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
 	capture_write(state, "build-shelf")
 
 	// Mid-drag: the granted item lifted, its ghost over the empty Large forecastle, legal
 	// berths lit and the rest dimmed. The forecastle is the fourth deck slot.
 	rects, n := build_slot_rects(game.player.layout)
 	drag := Build_Drag{active = true, from_slot = nil, fitting = granted.fitting}
-	over := no_mouse
+	over := NO_MOUSE
 	if n > 3 {
 		over = rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}
 	}
@@ -236,8 +228,8 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 	capture_write(state, "build-burning")
 
 	burn := Build_Confirm{slot = laden_slot, burn = true}
-	draw_build_surface(&game, Build_Drag{}, burn, no_mouse)
-	draw_build_surface(&game, Build_Drag{}, burn, no_mouse)
+	draw_build_surface(&game, Build_Drag{}, burn, NO_MOUSE)
+	draw_build_surface(&game, Build_Drag{}, burn, NO_MOUSE)
 	capture_write(state, "build-burn-confirm")
 }
 
@@ -280,8 +272,6 @@ capture_shot_offer_shop :: proc(state: ^Capture_State) {
 
 	game := Game_State{player = ship.ship_starting_ship()}
 	defer delete(game.player.layout)
-	no_mouse := rl.Vector2{-1, -1}
-
 	names := [?]string{"Long Nines", "Chain & Bar Shot", "Titan's Heart", "Outriggers"}
 	costs := [?]int{18, 34, 120, 26} // the 120 sits above the starting hold, so it dims
 	for name, i in names {
@@ -290,8 +280,8 @@ capture_shot_offer_shop :: proc(state: ^Capture_State) {
 		}
 	}
 
-	draw_offer_shop(&game, Shelf_Drag{}, no_mouse)
-	draw_offer_shop(&game, Shelf_Drag{}, no_mouse)
+	draw_offer_shop(&game, Shelf_Drag{}, NO_MOUSE)
+	draw_offer_shop(&game, Shelf_Drag{}, NO_MOUSE)
 	capture_write(state, "shop")
 
 	item, ok := ship.ship_item_by_name("Long Nines") // Large, so the empty Large forecastle lights
@@ -307,7 +297,7 @@ capture_shot_offer_shop :: proc(state: ^Capture_State) {
 		OFFER_SHOP_HOLD_Y,
 		OFFER_SHOP_SCALE,
 	)
-	over := no_mouse
+	over := NO_MOUSE
 	if n > 3 {
 		over = rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}
 	}
@@ -340,10 +330,8 @@ capture_shot_fight :: proc(state: ^Capture_State) {
 	game.battle_round = 3 // "Round 4", escape still a couple of rounds off
 	game.may_press = true // the fight's one Press still in hand, so the row shows it takeable
 	game.stage_progress = sim.Event_Stage_Entered{kind = .Fight, index = 0, count = 2}
-	no_mouse := rl.Vector2{-1, -1}
-
-	draw_fight(&game, no_mouse)
-	draw_fight(&game, no_mouse)
+	draw_fight(&game, NO_MOUSE)
+	draw_fight(&game, NO_MOUSE)
 	capture_write(state, "fight")
 
 	draw_fight_exchange(&game, 9, 14)
@@ -354,8 +342,8 @@ capture_shot_fight :: proc(state: ^Capture_State) {
 	// captain's orders. Shot here because a player reaches it with a click and capture has no
 	// mouse — without this the second step goes unphotographed.
 	game.jettison_targeting = true
-	draw_fight(&game, no_mouse)
-	draw_fight(&game, no_mouse)
+	draw_fight(&game, NO_MOUSE)
+	draw_fight(&game, NO_MOUSE)
 	capture_write(state, "fight-jettison")
 }
 
@@ -392,15 +380,15 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	#partial switch awaiting {
 	case .Awaiting_Travel_Choice:
-		draw_home(&state.game, Build_Drag{}, nil, rl.Vector2{-1, -1}, 0)
+		draw_home(&state.game, Build_Drag{}, nil, NO_MOUSE, 0)
 	case .Awaiting_Option_Choice:
-		draw_offer_shop(&state.game, Shelf_Drag{}, rl.Vector2{-1, -1})
+		draw_offer_shop(&state.game, Shelf_Drag{}, NO_MOUSE)
 	case .Awaiting_Trade_Choice:
-		draw_trade(&state.game, rl.Vector2{-1, -1})
+		draw_trade(&state.game, NO_MOUSE)
 	case .Awaiting_Battle_Command:
-		draw_fight(&state.game, rl.Vector2{-1, -1})
+		draw_fight(&state.game, NO_MOUSE)
 	case:
-		draw_scene(&state.game, fmt.tprintf("[capture] %s", label), rl.Vector2{-1, -1})
+		draw_scene(&state.game, fmt.tprintf("[capture] %s", label), NO_MOUSE)
 	}
 }
 

@@ -187,7 +187,7 @@ draw_trade :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	arrow_mid := rl.Vector2{(give.x + give.width + get.x) / 2, give.y + give.height / 2}
 	draw_trade_arrow(arrow_mid, get.x - (give.x + give.width) - 24, COLOUR_STEEL)
 
-	draw_trade_accept(state.trade_can_accept, mouse)
+	draw_trade_accept(state.trade_can_accept)
 	draw_trade_decline(mouse)
 
 	// The shortfall hint, only while the bargain can't be paid: the one line that says why Accept
@@ -237,7 +237,7 @@ draw_trade_arrow :: proc(mid: rl.Vector2, length: f32, colour: rl.Color) {
 // recessive-blue outline with a dimmed label: no amber on screen, and the loop won't click it
 // (#310). It never carries a hover scrim, because when it is live it is already the brightest
 // thing here.
-draw_trade_accept :: proc(can_accept: bool, mouse: rl.Vector2) {
+draw_trade_accept :: proc(can_accept: bool) {
 	rect := trade_accept_rect()
 	if can_accept {
 		rl.DrawRectangleRec(rect, COLOUR_AMBER)

@@ -153,23 +153,3 @@ battle_event_text :: proc(event: combat.Event) -> string {
 // playback) is fight.odin, #315. battle_event_text above stays here beside the other
 // beat-text builders, reused by the Fight's Ship_Sunk / Break_Off / Battle_Ended and
 // jettison beats.
-
-// The travel screen (the between-encounters decision) is now Home — the persistent Build
-// surface with the chart raised over it (build_surface.odin, #317, ADR-0024): the modal
-// chart-as-Home retired into home_loop, which does free refit at anchor and offers the same
-// node hit-test over the Sim's emitted travel options. get_captain_choice's
-// Awaiting_Travel_Choice case now enters home_loop.
-
-// The option-list screen (issue #131) is now the Offer/Shop Build surface + shelf
-// (offer_shop.odin, #312): the click-a-box list retired into the Cutaway ship with a
-// right-side shelf you drag cards from. get_captain_choice's Awaiting_Option_Choice case
-// now enters offer_shop_loop.
-
-// The Trade screen (issue #136) is now the two-card stat-swap panel (trade.odin, #318): the
-// programmer-art accept/reject boxes retired into give→get cards in the shared encounter
-// frame, each projecting its stat before→after off Event_Trade_Presented.
-// get_captain_choice's Awaiting_Trade_Choice case now enters trade_menu_loop there.
-
-// The Refit screen has moved to the drag-first Build surface (build_surface.odin, #302):
-// the modal click-a-slot loop retired into a persistent Cutaway the player drags fittings
-// around. get_captain_choice's Awaiting_Refit case now enters build_surface_loop.
