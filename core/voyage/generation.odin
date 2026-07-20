@@ -197,8 +197,8 @@ voyage_map_create :: proc(seed: u64) -> Map {
 
 		// A single-node source (the Start layer) fans out to the whole next layer:
 		// it is the sole route into it, so every child is reachable and no lane
-		// ordering can cross a fan from one point. Exempt from OUT_DEGREE_MAX, like
-		// the old wiring, because it must reach all of layer 1.
+		// ordering can cross a fan from one point. Exempt from OUT_DEGREE_MAX because
+		// it must reach all of layer 1.
 		if wl == 1 {
 			for c in 0 ..< wl1 {
 				voyage_add_edge(adj, a0, b0 + c)

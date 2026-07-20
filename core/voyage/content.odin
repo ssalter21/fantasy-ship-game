@@ -209,8 +209,7 @@ Trade_Axis :: struct {
 // thing a trade can offer, and a trade that damages you is a Fight without the fight. Names
 // are checked against core/ship's roster and must not collide with it — a Trade is not a
 // thing you install. Speed is not tradeable here: it is a derived read-out of weight
-// (ADR-0020), not a stat a Trade can pay out of. Durability is not tradeable either — the
-// stat is gone (ADR-0026), and the Scrapped Armour axis that sold it went with it.
+// (ADR-0020), not a stat a Trade can pay out of.
 @(rodata)
 trade_roster := [?]Trade_Axis {
 	{name = "Cannibalized Timbers", gain = .Hull, cost = .Max_Hull},

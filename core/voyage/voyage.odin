@@ -43,8 +43,7 @@ DEPTH_STEPS :: 3
 // ship.STARTING_HULL (ADR-0017): sized so a hostile's pool lasts past the escape gate at
 // BASELINE_ROUND_COUNT rather than dropping before Break Off can be reached.
 //
-// Hull is now the **whole** of a hostile's staying power: ADR-0026 deleted the
-// durability reading that used to sit beside it, so nothing shortens a fight but this
+// Hull is the **whole** of a hostile's staying power: nothing shortens a fight but this
 // pool against the player's Fire output.
 FIGHT_OPPONENT_HULL_PER_TIER :: 40
 FIGHT_OPPONENT_HULL_PER_DEPTH :: 12
@@ -83,11 +82,9 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // Cargo is anchored the other way, to Reward's payout (#133), and quotes a known
 // residual against the rest (#124's business, not this table's).
 //
-// **Every row quotes in reference-fight Hull swing** (ADR-0026). With Durability deleted
-// the table has no small-integer row left, so the common unit is what a swing is worth in
-// a fight at the same site: a Coastal Hull swing of 16 is roughly a round and a half of a
-// Coastal hostile's output, Max Hull is half that because a ceiling is only worth what
-// you can refill into it, and Cargo quotes across at Reward's payout (#133).
+// **Every row quotes in reference-fight Hull swing**: what a swing is worth in a fight at
+// the same site. Max Hull sits below Hull because a ceiling is only worth what you can
+// refill into it, and Cargo quotes across at Reward's payout.
 //
 // **No PER_DEPTH row, and adding one would break the rate.** Max Hull is the binding row:
 // its Coastal swing is 8 against a 100-Hull ceiling, and depth spans DEPTH_STEPS, so any
