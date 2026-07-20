@@ -119,7 +119,11 @@ Game_State :: struct {
 	player:           ship.Ship,
 	in_battle:        bool,
 	sighted_opponent: Maybe(ship.Ship),
-	may_break_off:        bool,
+	may_break_off:    bool,
+	// may_press is whether the player's one Press this battle is still unspent
+	// (combat_may_press), carried on Event_Battle_Menu: the ration is Battle state, so the
+	// Fight screen is told rather than counting its own clicks.
+	may_press:        bool,
 	// battle_round is the combat.Battle's round counter, carried on Event_Battle_Menu:
 	// the number of rounds already resolved, so the round about to be fought is
 	// battle_round + 1. The Fight screen's rounds-left / escape-window readout (#315)
@@ -246,6 +250,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Battle_Menu:
 		state.may_break_off = e.may_break_off
+		state.may_press = e.may_press
 		state.battle_round = e.round
 
 	case sim.Event_Battle_Event:

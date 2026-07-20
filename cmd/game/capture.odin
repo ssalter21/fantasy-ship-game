@@ -308,6 +308,7 @@ capture_shot_fight :: proc(state: ^Capture_State) {
 	game.sighted_opponent = opponent
 	game.in_battle = true
 	game.battle_round = 3 // "Round 4", escape still a couple of rounds off
+	game.may_press = true // the fight's one Press still in hand, so the row shows it takeable
 	game.stage_progress = sim.Event_Stage_Entered{kind = .Fight, index = 0, count = 2}
 	no_mouse := rl.Vector2{-1, -1}
 

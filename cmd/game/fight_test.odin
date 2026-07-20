@@ -16,7 +16,7 @@ fight_action_commands_offers_the_round_menu :: proc(t: ^testing.T) {
 
 	actions, n := fight_action_commands(&state)
 
-	presses, sails, jettisons, break_offs, reallocs := 0, 0, 0, 0, 0
+	presses, commits, jettisons, break_offs, holds := 0, 0, 0, 0, 0
 	laden_holds := 0
 	for layout_slot in state.player.layout {
 		if fitting, has := layout_slot.fitting.?; has && fitting.cargo_held > 0 {
@@ -27,24 +27,55 @@ fight_action_commands_offers_the_round_menu :: proc(t: ^testing.T) {
 		switch c in a.command {
 		case combat.Command_Press:
 			presses += 1
-		case combat.Command_Man_The_Sails:
-			sails += 1
+		case combat.Command_Commit:
+			commits += 1
 		case combat.Command_Jettison_Cargo:
 			jettisons += 1
 		case combat.Command_Break_Off:
 			break_offs += 1
-		case combat.Command_Reallocate:
-			reallocs += 1
 		case combat.Command_Hold:
-		// not offered on the captain's menu
+			holds += 1
 		}
 	}
 
+	// The captain's whole order set, and nothing else: a Press per phase, Commit,
+	// Jettison, Break Off, Hold.
 	testing.expect(t, presses == len(ship.Category)) // one Press per combat phase
-	testing.expect(t, sails == 1)
+	testing.expect(t, commits == 1)
 	testing.expect(t, jettisons == laden_holds) // one Jettison per laden hold
 	testing.expect(t, break_offs == 1)
-	testing.expect(t, reallocs == 0) // in-battle Reallocate retired (#305)
+	testing.expect(t, holds == 1)
+	testing.expect(t, n == presses + commits + jettisons + break_offs + holds)
+}
+
+// The Press ration reads off the menu flag the Sim sends: the button stays on the row once
+// spent — the order set is fixed — but stops being takeable.
+@(test)
+fight_press_is_offered_but_untakeable_once_the_battles_press_is_spent :: proc(t: ^testing.T) {
+	state := Game_State{player = ship.ship_starting_ship()}
+	defer delete(state.player.layout)
+
+	press_enabled :: proc(state: ^Game_State) -> (offered: int, enabled: int) {
+		actions, n := fight_action_commands(state)
+		for a in actions[:n] {
+			if _, is_press := a.command.(combat.Command_Press); !is_press {
+				continue
+			}
+			offered += 1
+			if a.enabled {
+				enabled += 1
+			}
+		}
+		return
+	}
+
+	state.may_press = true
+	offered, enabled := press_enabled(&state)
+	testing.expect(t, offered == len(ship.Category) && enabled == offered)
+
+	state.may_press = false
+	offered, enabled = press_enabled(&state)
+	testing.expect(t, offered == len(ship.Category) && enabled == 0)
 }
 
 @(test)

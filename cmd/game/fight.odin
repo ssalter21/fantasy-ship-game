@@ -19,19 +19,16 @@ import rl "vendor:raylib"
 //     opponent's concealed slots read "???" and its hold / weight stay hidden, the same gate
 //     draw_ship_panel used; you see your own ship whole.
 //   - The captain action-row, no amber. The one-decision-per-round menu is a bottom row of
-//     steel controls (Press Brace / Fire, Man the Sails, a Jettison per laden hold,
-//     Break Off once escape-eligible). A Fight has no single default move — choosing *is* the
-//     game — so none of them takes the reserved amber; hover is carried by the caret + scrim
-//     lift, exactly as the Build surface (amber is assigned, not tracked).
+//     steel controls (a Press per phase while the battle's one Press is unspent, Commit, a
+//     Jettison per laden hold, Hold, and Break Off once escape-eligible). A Fight has no single
+//     default move — choosing *is* the game — so none of them takes the reserved amber; hover
+//     is carried by the caret + scrim lift, exactly as the Build surface (amber is assigned,
+//     not tracked).
 //   - Per-round-exchange playback. A round's simultaneous exchange lands as one beat through
 //     the shared playback layer (#311): both damage numbers float over their hulls in the
 //     Fight hue and both hulls drain together, one click to the next round (ADR-0006). The
 //     dispatch-side batching that gathers a round into one beat lives in main.odin's
 //     dispatch; the rendering is here.
-//
-// In-battle Reallocate retired with the old modal battle_menu_loop (#305): refit is locked in
-// a Fight (ADR-0024), and pouring cargo between holds shifts no weight and so no Speed — it
-// had no tactical payload. Jettison stays, a real captain move (drop weight, gain Speed to run).
 //
 // Split composition (draw_fight_scene) from polling (battle_menu_loop) like the other stages,
 // so the beat overlay and --capture both draw the scene without a poll loop (#277).
@@ -53,9 +50,10 @@ FIGHT_ACTION_H :: 34
 FIGHT_ACTION_MAX :: 16
 
 // Fight_Action is one button of the captain action-row: where it sits, what it reads, the
-// combat.Command it submits, and whether it is takeable this round (Break Off is not, until
-// escape-eligible). No amber flag — nothing on the Fight is the default, so the row is drawn
-// uniformly steel and only hover lifts a scrim.
+// combat.Command it submits, and whether it is takeable this round (Break Off is not until
+// escape-eligible, and a Press is not once the battle's one Press is spent). No amber flag —
+// nothing on the Fight is the default, so the row is drawn uniformly steel and only hover
+// lifts a scrim.
 Fight_Action :: struct {
 	rect:    rl.Rectangle,
 	label:   string,
@@ -65,10 +63,12 @@ Fight_Action :: struct {
 
 // fight_action_commands builds the round's action list — labels, commands, and which are
 // takeable — without laying it out, so the set of moves offered is a pure function of the
-// ship and the escape flag, unit-tested without a window (fight_action_layout adds the rects).
-// The three Presses come from the Category enum so a new phase would appear automatically;
-// one Jettison per laden hold; Break Off last, disabled until may_break_off. Reallocate is
-// gone (#305).
+// ship and the two menu flags, unit-tested without a window (fight_action_layout adds the
+// rects). The Presses come from the Category enum so a new phase would appear automatically,
+// each disabled once the battle's one Press is spent; then Commit, one Jettison per laden
+// hold, Hold, and Break Off last, disabled until may_break_off. An untakeable order is
+// offered-but-disabled rather than dropped: the order set is fixed (ADR-0028), so the row
+// is the same length every round.
 fight_action_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX]Fight_Action, n: int) {
 	add :: proc(actions: ^[FIGHT_ACTION_MAX]Fight_Action, n: ^int, label: string, command: combat.Command, enabled: bool) {
 		if n^ >= FIGHT_ACTION_MAX {
@@ -79,9 +79,9 @@ fight_action_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX
 	}
 
 	for category in ship.Category {
-		add(&actions, &n, fmt.tprintf("Press %v", category), combat.Command(combat.Command_Press{phase = category}), true)
+		add(&actions, &n, fmt.tprintf("Press %v", category), combat.Command(combat.Command_Press{phase = category}), state.may_press)
 	}
-	add(&actions, &n, "Man the Sails", combat.Command(combat.Command_Man_The_Sails{}), true)
+	add(&actions, &n, "Commit", combat.Command(combat.Command_Commit{}), true)
 
 	for layout_slot, i in state.player.layout {
 		fitting, has_fitting := layout_slot.fitting.?
@@ -94,6 +94,7 @@ fight_action_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX
 		add(&actions, &n, fmt.tprintf("Jettison %s", fitting.name), combat.Command(combat.Command_Jettison_Cargo{slot_index = ship.Slot_Index(i)}), true)
 	}
 
+	add(&actions, &n, "Hold", combat.Command(combat.Command_Hold{}), true)
 	add(&actions, &n, "Break Off", combat.Command(combat.Command_Break_Off{}), state.may_break_off)
 	return actions, n
 }
@@ -379,8 +380,9 @@ fight_escape_text :: proc(state: ^Game_State) -> string {
 
 // draw_fight_action_row draws the captain action-row from the laid-out list: each takeable
 // button a steel-bordered translucent control whose scrim lifts and whose caret appears on
-// hover (hover carried by the scrim + caret, not by amber — the amber rule); a disabled Break
-// Off dimmed to recessive blue and un-hoverable. No amber anywhere, because a Fight has no
+// hover (hover carried by the scrim + caret, not by amber — the amber rule); an untakeable
+// order — Break Off before the escape window, a Press after the battle's one is spent —
+// dimmed to recessive blue and un-hoverable. No amber anywhere, because a Fight has no
 // default move.
 draw_fight_action_row :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	actions, n := fight_action_layout(state)
@@ -431,7 +433,7 @@ dispatch_battle_event :: proc(state: ^Game_State, event: combat.Event) {
 		play_beat(state, battle_event_text(event))
 		state.in_battle = false
 		state.sighted_opponent = nil
-	case combat.Event_Cargo_Jettisoned, combat.Event_Cargo_Reallocated:
+	case combat.Event_Cargo_Jettisoned:
 		play_beat(state, battle_event_text(event))
 	}
 }

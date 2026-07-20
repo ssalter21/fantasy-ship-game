@@ -136,8 +136,6 @@ battle_event_text :: proc(event: combat.Event) -> string {
 		return fmt.tprintf("%v's ship is sunk!", e.side)
 	case combat.Event_Cargo_Jettisoned:
 		return fmt.tprintf("%v jettisons %s!", e.side, e.fitting.name)
-	case combat.Event_Cargo_Reallocated:
-		return fmt.tprintf("%v shifts %d cargo between holds.", e.side, e.amount)
 	case combat.Event_Battle_Ended:
 		switch e.reason {
 		case .Destroyed:
@@ -152,10 +150,9 @@ battle_event_text :: proc(event: combat.Event) -> string {
 }
 
 // The Fight screen (facing cutaways, the captain action-row, and per-round-exchange
-// playback) is fight.odin, #315: battle_menu_loop and the round-beat batching moved there
-// when the modal button list and the in-battle Reallocate retired. battle_event_text above
-// stays here beside the other beat-text builders, reused by the Fight's Ship_Sunk /
-// Break_Off / Battle_Ended and jettison beats.
+// playback) is fight.odin, #315. battle_event_text above stays here beside the other
+// beat-text builders, reused by the Fight's Ship_Sunk / Break_Off / Battle_Ended and
+// jettison beats.
 
 // The travel screen (the between-encounters decision) is now Home — the persistent Build
 // surface with the chart raised over it (build_surface.odin, #317, ADR-0024): the modal
