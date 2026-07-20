@@ -1682,6 +1682,85 @@ a_repair_never_heals_past_the_ships_maximum :: proc(t: ^testing.T) {
 }
 
 @(test)
+jettisoning_sheds_less_every_time_and_never_empties_the_slot :: proc(t: ^testing.T) {
+	// Jettison end to end at the seam presentation actually reads (#400). Three heaves
+	// of the *same* slot, each one asserted off the stream: the event names what went
+	// over the side, the ship the round hands back still has every fitting installed,
+	// and each heave sheds no more than the last because the remainder is re-stowed.
+	// That last property is the whole of what makes the escape window close as it is
+	// used — a captain cannot buy Speed at a flat price per round.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the heaves
+
+	laden := -1
+	for layout_slot, i in sim.player.layout {
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.cargo_held > 0 {
+			laden = i
+			break
+		}
+	}
+	testing.expect(t, laden >= 0) // the starting ship sails laden
+
+	// The opening cargo and Speed are the scenario's setup; every claim after this comes
+	// off the stream.
+	carrying := ship.ship_cargo(sim.player)
+	speed := ship.ship_effective_speed(&sim.player)
+	heave := Command(
+		Command_Battle_Choice {
+			combat_command = combat.Command_Jettison_Cargo{slot_index = ship.Slot_Index(laden)},
+		},
+	)
+
+	previous := max(int)
+	for _ in 0 ..< 3 {
+		sim_submit_captain_choice(&sim, heave)
+		ev := refit_tick(&sim, &events)
+
+		heaves := battle_events(ev, combat.Event_Cargo_Jettisoned)
+		defer delete(heaves)
+		testing.expect_value(t, len(heaves), 1)
+		testing.expect_value(t, heaves[0].side, combat.Side.A)
+
+		shed := heaves[0].fitting.cargo_held // the event names what went over the side
+		testing.expect(t, shed > 0)
+		testing.expect(t, shed <= previous) // self-flattening: never more than the last heave
+		previous = shed
+
+		// The ship the round hands back is lighter by exactly the heave and no more — the
+		// Speed is the lost weight, never a granted bonus — and still carries the fitting
+		// that was heaved, which is carrying again because the remainder was re-stowed.
+		updated, told := last_updated_ship(ev)
+		testing.expect(t, told)
+		testing.expect_value(t, ship.ship_cargo(updated), carrying - shed)
+		testing.expect(t, ship.ship_effective_speed(&updated) > speed)
+		carrying, speed = ship.ship_cargo(updated), ship.ship_effective_speed(&updated)
+
+		emptied, still_occupied := updated.layout[laden].fitting.?
+		testing.expect(t, still_occupied)
+		testing.expect(t, emptied.cargo_held > 0)
+	}
+
+	testing.expect(t, previous < 10) // the last heave shed less than a full starting hold
+}
+
+// last_updated_ship is the player's ship as of the end of the batch, read off the stream
+// rather than out of the Sim: an assertion about what presentation was *told* has to come
+// from the events it was handed (ADR-0001).
+last_updated_ship :: proc(events: []Event) -> (s: ship.Ship, found: bool) {
+	for e in events {
+		if updated, ok := e.(Event_Ship_Updated); ok {
+			s, found = updated.ship, true
+		}
+	}
+	return
+}
+
+@(test)
 a_press_spends_the_battles_one_press_and_the_menu_stops_offering_it :: proc(t: ^testing.T) {
 	// The ration end to end: the Fight menu event carries may_press, so presentation is
 	// told the Press is gone rather than counting its own clicks. A second Press asserts

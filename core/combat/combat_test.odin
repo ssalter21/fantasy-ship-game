@@ -452,6 +452,80 @@ jettison_cargo_empties_the_fitting_and_speeds_the_ship_up_by_shedding_weight :: 
 	testing.expect_value(t, combat_effective_speed(&battle, .A), 5)
 }
 
+// A heave empties one fitting and **re-stows what is left across the whole ship**
+// (#400): the hold the captain picked is not a container that stays empty, it is
+// where this heave was taken from. The ship keeps carrying everything it did not
+// throw away, spread by the same water-fill every out-of-battle cargo change uses.
+@(test)
+jettison_re_stows_the_remaining_cargo_across_the_ship :: proc(t: ^testing.T) {
+	hold :: proc(name: string, cargo: int) -> ship.Fitting {
+		return ship.Fitting{name = name, size = .Small, cargo_held = cargo}
+	}
+	a := ship.Ship{
+		hull = 20, speed = 5,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = hold("Fore hold", 10)},
+			{slot = ship.Slot{size = .Small}, fitting = hold("Aft hold", 10)},
+		},
+	}
+	b := ship.Ship{hull = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	testing.expect_value(t, combat_effective_speed(&battle, .A), 3) // laden: 5 − 20/10
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Jettison_Cargo{slot_index = 0})
+	combat_resolve_round(&battle, cmds, &events)
+
+	// 10 went over the side; the other 10 is now split evenly rather than left
+	// sitting in the untouched hold.
+	fore, _ := a.layout[0].fitting.?
+	aft, _ := a.layout[1].fitting.?
+	testing.expect_value(t, fore.cargo_held, 5)
+	testing.expect_value(t, aft.cargo_held, 5)
+	testing.expect_value(t, ship.ship_cargo(a), 10)
+	testing.expect_value(t, combat_effective_speed(&battle, .A), 4) // lighter by the heave alone
+}
+
+// Re-stowing is what makes jettison **self-flattening**: because the remainder is
+// spread back over every hold, the fitting the captain heaves next holds a smaller
+// share than it did last round. Every heave sheds no more than the one before it, so
+// the escape window closes as it is used and a captain cannot dump their whole hold
+// at a fixed price per round.
+@(test)
+successive_jettisons_shed_monotonically_less :: proc(t: ^testing.T) {
+	hold :: proc(cargo: int) -> ship.Fitting {
+		return ship.Fitting{name = "Hold", size = .Small, cargo_held = cargo}
+	}
+	a := ship.Ship{
+		hull = 20, speed = 20,
+		layout = []ship.Layout_Slot{
+			{slot = ship.Slot{size = .Small}, fitting = hold(10)},
+			{slot = ship.Slot{size = .Small}, fitting = hold(10)},
+			{slot = ship.Slot{size = .Small}, fitting = hold(10)},
+		},
+	}
+	b := ship.Ship{hull = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Jettison_Cargo{slot_index = 0})
+
+	previous := max(int)
+	for _ in 0 ..< 3 {
+		before := ship.ship_cargo(a)
+		combat_resolve_round(&battle, cmds, &events)
+		shed := before - ship.ship_cargo(a)
+		testing.expect(t, shed > 0) // a heave always costs the ship something
+		testing.expect(t, shed <= previous)
+		previous = shed
+	}
+	testing.expect(t, previous < 10) // the last heave shed less than the first
+}
+
 @(test)
 jettison_cargo_on_a_fitting_carrying_nothing_asserts :: proc(t: ^testing.T) {
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {

@@ -130,6 +130,12 @@ Game_State :: struct {
 	// reads it — the UI can't recompute it, since a round that lands no damage emits no
 	// combat event to count.
 	battle_round:     int,
+	// jettison_targeting is which of the Fight's two steps the action row is showing: the
+	// captain's five orders, or the laden fittings a Jettison may be taken from. It is pure
+	// presentation — the Sim is told nothing until a target is picked, since Jettison is one
+	// order that names its target in a second step (ADR-0028's set stays at five). Lives here
+	// rather than in battle_menu_loop because draw_fight_scene has to draw the right row.
+	jettison_targeting: bool,
 	// pending_exchange accumulates a single round's damage per side so the Fight can play
 	// **one** beat for the whole exchange (#315): both hulls drain and both damage numbers
 	// float together, one click to the next round (ADR-0006's simultaneous resolution),

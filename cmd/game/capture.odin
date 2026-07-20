@@ -291,9 +291,10 @@ capture_shot_offer_shop :: proc(state: ^Capture_State) {
 // walk can't linger on (it Holds every round and the battle blurs past in beats). Like the
 // other stage shots it reads only two ships, so it is synthesized here: the starting ship as
 // the player, a second one as a mid-fight opponent (Hull dropped, so a scouted, damaged foe
-// reads) whose concealed holds render "???". Two shots: the fight at rest — both cutaways, the
-// per-slot visibility badges, the round / stage readouts, the no-amber action row — and the
-// round-exchange beat, both damage numbers floating over their hulls under the shared scrim.
+// reads) whose concealed holds render "???". Three shots: the fight at rest — both cutaways, the
+// per-slot visibility badges, the round / stage readouts, the no-amber action row — the
+// round-exchange beat, both damage numbers floating over their hulls under the shared scrim,
+// and Jettison's target step.
 capture_shot_fight :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
 		return
@@ -319,6 +320,14 @@ capture_shot_fight :: proc(state: ^Capture_State) {
 	draw_fight_exchange(&game, 9, 14)
 	draw_fight_exchange(&game, 9, 14)
 	capture_write(state, "fight-exchange")
+
+	// Jettison's target step: the same row, showing what the ship is carrying rather than the
+	// captain's orders. Shot here because a player reaches it with a click and capture has no
+	// mouse — without this the second step goes unphotographed.
+	game.jettison_targeting = true
+	draw_fight(&game, no_mouse)
+	draw_fight(&game, no_mouse)
+	capture_write(state, "fight-jettison")
 }
 
 // capture_write writes the presented frame to CAPTURE_DIR, numbered in walk order so a
