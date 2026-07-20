@@ -1,6 +1,7 @@
 package voyage
 
 import "core:math/rand"
+import "core:slice"
 
 // Procedural map generation: builds the voyage's connected node graph (ADR-0009)
 // from a seed, and tears it down again. The content-producing half of the module —
@@ -133,14 +134,7 @@ voyage_map_create :: proc(seed: u64) -> Map {
 			lane := rand.int_max(layer_width[l], gen)
 			id := layer_start_id[l] + lane
 
-			taken := false
-			for k in 0 ..< count {
-				if placed[k] == id {
-					taken = true
-					break
-				}
-			}
-			if taken {
+			if slice.contains(placed[:count], id) {
 				continue
 			}
 			placed[count] = id
@@ -228,17 +222,8 @@ voyage_map_create :: proc(seed: u64) -> Map {
 		// to OUT_DEGREE_MAX-1 extra), the same shape voyage_partition_layers uses.
 		widths := make([]int, wl)
 		defer delete(widths)
-		for i in 0 ..< wl {
-			widths[i] = 1
-		}
-		surplus := wl1 - 1
-		for surplus > 0 {
-			i := rand.int_max(wl, gen)
-			if widths[i] < OUT_DEGREE_MAX {
-				widths[i] += 1
-				surplus -= 1
-			}
-		}
+		slice.fill(widths, 1)
+		voyage_scatter_surplus(widths, OUT_DEGREE_MAX, wl1 - 1, gen)
 
 		start := 0
 		for p in 0 ..< wl {
@@ -293,18 +278,23 @@ voyage_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 	k := min_layers if max_layers <= min_layers else rand.int_range(min_layers, max_layers + 1, gen)
 
 	widths := make([]int, k)
-	for i in 0 ..< k {
-		widths[i] = LAYER_WIDTH_MIN
-	}
-	surplus := total - k * LAYER_WIDTH_MIN
+	slice.fill(widths, LAYER_WIDTH_MIN)
+	voyage_scatter_surplus(widths, LAYER_WIDTH_MAX, total - k * LAYER_WIDTH_MIN, gen)
+	return widths
+}
+
+// voyage_scatter_surplus hands out `surplus` extra units across `widths`, one at a
+// time to a uniformly-drawn entry, skipping any already at `cap`. Draws until the
+// surplus is spent, so the caller must leave room for it (sum of caps ≥ the total).
+voyage_scatter_surplus :: proc(widths: []int, cap, surplus: int, gen: rand.Generator) {
+	surplus := surplus
 	for surplus > 0 {
-		i := rand.int_max(k, gen)
-		if widths[i] < LAYER_WIDTH_MAX {
+		i := rand.int_max(len(widths), gen)
+		if widths[i] < cap {
 			widths[i] += 1
 			surplus -= 1
 		}
 	}
-	return widths
 }
 
 // voyage_make_recipe_bag deals count recipes from `pool`, split as evenly across
@@ -412,22 +402,11 @@ voyage_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Genera
 // voyage_add_edge records a symmetric edge between u and v (each appears in the
 // other's adjacency), skipping duplicates.
 voyage_add_edge :: proc(adj: [][dynamic]int, u, v: int) {
-	if voyage_contains(adj[u][:], v) {
+	if slice.contains(adj[u][:], v) {
 		return
 	}
 	append(&adj[u], v)
 	append(&adj[v], u)
-}
-
-// voyage_contains reports whether xs holds x — a linear scan, fine for the tiny
-// per-node adjacency lists.
-voyage_contains :: proc(xs: []int, x: int) -> bool {
-	for e in xs {
-		if e == x {
-			return true
-		}
-	}
-	return false
 }
 
 // voyage_map_destroy frees a Map's owned memory: each node's adjacency slice and

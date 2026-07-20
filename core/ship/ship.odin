@@ -475,10 +475,7 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 ship_count_table :: proc(layout: []Layout_Slot, seen_as: Maybe(Visibility) = nil) -> Count_Table {
 	counts: Count_Table
 	for layout_slot in layout {
-		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting {
-			continue
-		}
+		fitting := layout_slot.fitting.? or_continue
 		visibility := ship_effective_visibility(layout_slot)
 		if only, filtered := seen_as.?; filtered && visibility != only {
 			continue
@@ -712,11 +709,7 @@ ship_fit :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
 	if _, occupied := layout_slot.fitting.?; occupied {
 		return false
 	}
-	if !ship_fitting_fits(layout_slot.slot.size, fitting) {
-		return false
-	}
-	layout_slot.fitting = fitting
-	return true
+	return ship_replace_fitting(layout_slot, fitting)
 }
 
 // ship_replace_fitting swaps `fitting` into layout_slot under the same fit rule as
@@ -843,15 +836,14 @@ ship_cargo_capacity :: proc(s: Ship) -> int {
 // since money is weight (ADR-0020), how much a full one weighs. The ×10-and-
 // doubling scale makes weight, capacity, and money one commensurable system.
 ship_cargo_slot_contribution :: proc(size: Slot_Size) -> int {
-	switch size {
-	case .Small:
-		return 10
-	case .Medium:
-		return 20
-	case .Large:
-		return 40
-	}
-	return 0
+	return CARGO_SLOT_CONTRIBUTION[size]
+}
+
+@(rodata)
+CARGO_SLOT_CONTRIBUTION := [Slot_Size]int {
+	.Small  = 10,
+	.Medium = 20,
+	.Large  = 40,
 }
 
 // ship_cargo is what a ship carries: the cargo summed across every installed
@@ -919,10 +911,7 @@ ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) -> (spilled: int) {
 			break
 		}
 		for &layout_slot in layout {
-			fitting, has_fitting := layout_slot.fitting.?
-			if !has_fitting {
-				continue
-			}
+			fitting := layout_slot.fitting.? or_continue
 			stow := min(share, ship_fitting_capacity(fitting) - fitting.cargo_held)
 			if stow <= 0 {
 				continue

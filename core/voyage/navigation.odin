@@ -1,5 +1,7 @@
 package voyage
 
+import "core:slice"
+
 // Travel legality: which of a Node's edges a ship may traverse from where it
 // stands, given where it has already been. The voyage's single legal-move
 // authority — shared by the Sim's travel gate, the UI's reachable-next
@@ -34,10 +36,8 @@ voyage_travel_options :: proc(m: Map, current: Node_ID, visited: []bool) -> []No
 // voyage_travel_options for a single destination: dest must share an edge with
 // current and pass voyage_neighbor_is_legal.
 voyage_can_travel_to :: proc(m: Map, current: Node_ID, visited: []bool, dest: Node_ID) -> bool {
-	for neighbor in m.edges[current] {
-		if neighbor == dest {
-			return voyage_neighbor_is_legal(m, current, dest, visited)
-		}
-	}
-	return false
+	return(
+		slice.contains(m.edges[current], dest) &&
+		voyage_neighbor_is_legal(m, current, dest, visited) \
+	)
 }

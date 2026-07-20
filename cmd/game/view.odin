@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:slice"
 import voyage "../../core/voyage"
 import ship "../../core/ship"
 import rl "vendor:raylib"
@@ -503,19 +504,10 @@ draw_ink_bloom :: proc(centre: rl.Vector2, now, started: f64) {
 // dashes mark precisely the edges a click will sail.
 edge_is_sailable :: proc(current, a, b: voyage.Node_ID, options: []voyage.Node_ID) -> bool {
 	if a == current {
-		return option_contains(options, b)
+		return slice.contains(options, b)
 	}
 	if b == current {
-		return option_contains(options, a)
-	}
-	return false
-}
-
-option_contains :: proc(options: []voyage.Node_ID, id: voyage.Node_ID) -> bool {
-	for o in options {
-		if o == id {
-			return true
-		}
+		return slice.contains(options, a)
 	}
 	return false
 }

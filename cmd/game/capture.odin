@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import combat "../../core/combat"
 import ship "../../core/ship"
@@ -465,10 +466,5 @@ capture_next_node :: proc(state: ^Capture_State) -> sim.Node_ID {
 
 // capture_requested reports whether the process was started as a capture run.
 capture_requested :: proc() -> bool {
-	for arg in os.args[1:] {
-		if arg == "--capture" {
-			return true
-		}
-	}
-	return false
+	return slice.contains(os.args[1:], "--capture")
 }
