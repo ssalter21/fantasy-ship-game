@@ -64,6 +64,12 @@ Battle :: struct {
 	pressed: bit_set[Side],
 	// which side(s) have taken Command_Break_Off this battle
 	escaped: bit_set[Side],
+	// damage_taken_last_round is what each side's hull lost in the round before the one
+	// being resolved — a Quantity an item may read (ship.Quantity.Damage_Taken_Last_Round),
+	// so "the round after you were hit hard" is authorable. Battle-scoped and zeroed by the
+	// zero Battle, which is what keeps it out of the Ghost_Snapshot: no voyage-scoped
+	// counter exists to snapshot.
+	damage_taken_last_round: [Side]int,
 	ended:   bool,
 	// reason/winner mirror the Event_Battle_Ended, so a caller holding only the
 	// Battle can read *how* it ended without replaying the event stream. Meaningful
@@ -145,11 +151,47 @@ combat_opposite_side :: proc(side: Side) -> Side {
 	return .B if side == .A else .A
 }
 
+// combat_round_facts flattens the battle into the plain data an expression may read for
+// `side` this round (ship.Round_Facts): the round number, the side's own order, the damage
+// it took last round, and the opponent as a **scouting report** — a counter block filtered
+// to what concealment leaves visible, so no tree is ever handed the other ship.
+//
+// It is the input to both passes of the round's context build, and carries no speed: the
+// speeds are computed *from* it.
+combat_round_facts :: proc(battle: ^Battle, side: Side, order: ship.Captains_Order) -> ship.Round_Facts {
+	return ship.Round_Facts {
+		round                   = battle.round,
+		captains_order          = order,
+		damage_taken_last_round = battle.damage_taken_last_round[side],
+		opponent                = ship.ship_scouting_report(battle.ships[combat_opposite_side(side)]),
+	}
+}
+
+// combat_captains_order names a round's submitted order as an item reads it
+// (ship.Captains_Order).
+// Only the orders that shape a round's output have a reading: a round spent on Jettison or
+// Break Off reads as Hold, which is exactly what it was to the phases — the ruling that
+// keeps a once-a-voyage panic from being a thing an item rewards (CONTEXT.md).
+combat_captains_order :: proc(submitted: Round_State) -> ship.Captains_Order {
+	if submitted.commit {
+		return .Commit
+	}
+	if phase, pressed := submitted.press_phase.?; pressed {
+		return phase == .Brace ? .Press_Brace : .Press_Fire
+	}
+	return .Hold
+}
+
 // combat_effective_speed is a side's Speed for escape/tiebreak purposes. Nothing in a
 // battle grants Speed: it is emergent from weight (ADR-0020), so a jettisoned hold
 // reads faster only because ship_effective_speed weighs less.
+//
+// It reads the ship **against the round it is standing in**, so a speed modifier gated on
+// the round number or on the damage it took last round is live for escape and tie-break
+// too. The order it passes is Hold: an escape check is asked before the round's orders
+// are given, so there is no order yet to read.
 combat_effective_speed :: proc(battle: ^Battle, side: Side) -> int {
-	return ship.ship_effective_speed(battle.ships[side])
+	return ship.ship_effective_speed(battle.ships[side], combat_round_facts(battle, side, .Hold))
 }
 
 // combat_may_press reports whether side still holds its one Press this battle: the
@@ -180,19 +222,15 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 // whose active effect carries that phase's verb (ship_phase_verb — damage for Fire,
 // repair for Brace) triggers once per round, no cooldown. Modify_Speed never
 // contributes here — it acts through ship_effective_speed, not the phase totals.
-// Takes the whole battle, not a bare ship, so a conditional effect resolves against
-// live battle state: the round and both sides' effective speeds go into the context,
-// and self_slot is set per fitting so an own-concealment trigger reads the slot the
-// effect sits in.
-combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category) -> int {
+//
+// Takes the round's completed context — pass two, `round` plus both sides' `speeds` — so
+// every quantity a magnitude tree may read is answered against live battle state. self_slot
+// is set per fitting so a tree reading its own visibility reads the slot the effect sits in.
+combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category, round: ship.Round_Facts, speeds: ship.Speeds) -> int {
 	s := battle.ships[side]
 	verb := ship.ship_phase_verb(phase)
 	total := 0
-	ctx := ship.ship_effect_context_in_battle(s, ship.Battle_State{
-		round          = battle.round,
-		own_speed      = combat_effective_speed(battle, side),
-		opponent_speed = combat_effective_speed(battle, combat_opposite_side(side)),
-	})
+	ctx := ship.ship_effect_context_in_battle(s, round, speeds)
 	for layout_slot in s.layout {
 		fitting, has_fitting := layout_slot.fitting.?
 		if !has_fitting || fitting.category != phase {
@@ -206,6 +244,23 @@ combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category) -
 		total += int(ship.effect_magnitude(active, ctx))
 	}
 	return total
+}
+
+// combat_phase_output_this_round is combat_phase_output for the round the battle is
+// standing in, building the two-pass context itself: pass one's Round_Facts with **no
+// order given**, then both sides' speeds off it. It answers "what is this side's phase
+// worth right now" for a caller outside the round loop — the content and sim tests that
+// weigh a loadout, where there is no order to name because none has been submitted.
+//
+// combat_resolve_round does not use it: a resolving round has orders, and it builds the
+// two passes once for both phases rather than per phase.
+combat_phase_output_this_round :: proc(battle: ^Battle, side: Side, phase: ship.Category) -> int {
+	round := combat_round_facts(battle, side, .Hold)
+	speeds := ship.Speeds {
+		own      = combat_effective_speed(battle, side),
+		opponent = combat_effective_speed(battle, combat_opposite_side(side)),
+	}
+	return combat_phase_output(battle, side, phase, round, speeds)
 }
 
 // combat_apply_repair restores `amount` Hull to side's ship, capped at its maximum
@@ -304,10 +359,37 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// consumed by the death check alone (ADR-0027): a Hull-gated fitting reads the hull
 	// its captain saw when they gave the order, so patching a hull cannot switch off the
 	// desperate ship's own guns mid-round.
+
+	// The round's context is built in **two passes**, and the order is forced by the
+	// layering rule rather than chosen: a tree may read any quantity computed strictly
+	// below its own layer, and Speed is the one stat with a modifier layer. So pass one
+	// resolves every Modify_Speed effect against the round's facts *with no speeds in the
+	// context at all* (ship_effect_context_pre_speed), and pass two resolves the phases
+	// against those speeds. Authoring is what guarantees pass one can be answered — a
+	// Modify_Speed tree reading a speed is rejected at authoring time (effect_modify_speed).
+	//
+	// Pass one takes the round's facts rather than nothing at all, which is what makes a
+	// speed modifier gated on the round number, the captain's own order or the damage taken
+	// last round a live item: without them there is no reading for its gate to open on.
+	round_facts: [Side]ship.Round_Facts
+	for side in Side {
+		round_facts[side] = combat_round_facts(battle, side, combat_captains_order(round_state[side]))
+	}
+
+	speed: [Side]int
+	for side in Side {
+		speed[side] = ship.ship_effective_speed(battle.ships[side], round_facts[side])
+	}
+
+	speeds: [Side]ship.Speeds
+	for side in Side {
+		speeds[side] = ship.Speeds{own = speed[side], opponent = speed[combat_opposite_side(side)]}
+	}
+
 	repair: [Side]int
 	for side in Side {
-		repair[side] = scaled(combat_phase_output(battle, side, .Brace), .Brace, round_state[side])
-		round_state[side].damage = scaled(combat_phase_output(battle, side, .Fire), .Fire, round_state[side])
+		repair[side] = scaled(combat_phase_output(battle, side, .Brace, round_facts[side], speeds[side]), .Brace, round_state[side])
+		round_state[side].damage = scaled(combat_phase_output(battle, side, .Fire, round_facts[side], speeds[side]), .Fire, round_state[side])
 	}
 
 	// Brace lands first — ahead of the damage below and the death check under it — which
@@ -324,6 +406,9 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		// Damage lands whole (ADR-0026): nothing is subtracted from a side's Fire total
 		// on its way to the target's hull — a Brace phase adds to its own hull instead.
 		damage := round_state[side].damage
+		// What the target's hull actually lost, which is what it will read next round as
+		// Damage_Taken_Last_Round: overkill against a hull already at 0 is not damage taken.
+		battle.damage_taken_last_round[target] = min(damage, target_ship.hull)
 		if damage > 0 {
 			target_ship.hull = max(0, target_ship.hull-damage)
 			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, damage = damage}))

@@ -1,5 +1,6 @@
 package ship
 
+import "../testutil"
 import "core:testing"
 
 make_layout_slot :: proc(name: string, size: Slot_Size, base_visibility: Visibility) -> Layout_Slot {
@@ -65,7 +66,7 @@ a_fitting_may_both_carry_and_fire :: proc(t: ^testing.T) {
 	// slot spent on offence was automatically a slot spent against the purse. A gun
 	// that authors less than its full slot in bulk carries the remainder.
 	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
-	armed_trader := Fitting{name = "Armed Trader", size = .Large, bulk = 30, active = Effect{magnitude = 4}}
+	armed_trader := Fitting{name = "Armed Trader", size = .Large, bulk = 30, active = effect_phase_contribution(expr_const(4))}
 
 	testing.expect(t, ship_fit(&layout_slot, armed_trader))
 	testing.expect_value(t, ship_fitting_capacity(armed_trader), 10) // the Large's 40, less its bulk
@@ -536,8 +537,8 @@ effect_magnitude_resolves_a_flat_effect_to_its_stored_constant :: proc(t: ^testi
 	s := Ship{}
 	ctx := Effect_Context{owner = &s}
 
-	testing.expect_value(t, effect_magnitude(Effect{magnitude = 7}, ctx), Magnitude(7))
-	testing.expect_value(t, effect_magnitude(Effect{kind = .Repair, magnitude = 4}, ctx), Magnitude(4))
+	testing.expect_value(t, effect_magnitude(effect_phase_contribution(expr_const(7)), ctx), Magnitude(7))
+	testing.expect_value(t, effect_magnitude(effect_repair(expr_const(4)), ctx), Magnitude(4))
 }
 
 // synergy_ship builds a ship whose layout holds the given fittings in bare
@@ -551,7 +552,7 @@ synergy_ship :: proc(fittings: ..Fitting) -> Ship {
 }
 
 @(test)
-selector_matches_over_each_of_tag_size_visibility_and_category :: proc(t: ^testing.T) {
+selector_matches_over_each_of_tag_size_and_visibility :: proc(t: ^testing.T) {
 	slot := Layout_Slot{
 		slot    = Slot{size = .Large, base_visibility = .Concealed},
 		fitting = Fitting{name = "War Kraken", size = .Large, category = .Fire, tags = {.Beast, .Weapon}},
@@ -561,11 +562,10 @@ selector_matches_over_each_of_tag_size_visibility_and_category :: proc(t: ^testi
 	testing.expect(t, selector_matches(slot, Selector(Tag.Beast)))
 	testing.expect(t, selector_matches(slot, Selector(Tag.Weapon)))
 	testing.expect(t, !selector_matches(slot, Selector(Tag.Crew)))
-	// Size / Category: the fitting's own field.
+	// Size: the fitting's own field. A round Category is not an axis at all — a phase is
+	// not a countable constant (see Selector).
 	testing.expect(t, selector_matches(slot, Selector(Slot_Size.Large)))
 	testing.expect(t, !selector_matches(slot, Selector(Slot_Size.Small)))
-	testing.expect(t, selector_matches(slot, Selector(Category.Fire)))
-	testing.expect(t, !selector_matches(slot, Selector(Category.Brace)))
 	// Visibility: the fitting's effective visibility (through the slot), not a raw field.
 	testing.expect(t, selector_matches(slot, Selector(Visibility.Concealed)))
 	testing.expect(t, !selector_matches(slot, Selector(Visibility.Exposed)))
@@ -611,27 +611,8 @@ effect_magnitude_scales_a_synergy_effect_by_the_matching_count :: proc(t: ^testi
 	ctx := ship_effect_context(&s)
 
 	// +2 per Weapon aboard, over the two Weapon fittings.
-	synergy := Effect{magnitude = 2, synergy = Selector(Tag.Weapon)}
+	synergy := effect_phase_contribution(expr_const(2), Selector(Tag.Weapon))
 	testing.expect_value(t, effect_magnitude(synergy, ctx), Magnitude(4))
-}
-
-@(test)
-count_matching_on_a_category_selector_counts_by_the_fittings_category_field :: proc(t: ^testing.T) {
-	// A Category selector reads Fitting.category directly. That field's zero value is
-	// .Brace, and cargo / effect-less fittings never set it, so a Selector(Category.Brace)
-	// counts every such fitting as a Brace. This test pins that behavior down
-	// (ship_count_matching's doc caveat): a content author selecting on .Brace must expect
-	// zero-value fittings in the count.
-	s := synergy_ship(
-		Fitting{name = "Iron Plating", size = .Medium, category = .Brace},
-		Fitting{name = "Gun Deck", size = .Large, category = .Fire},
-		Fitting{name = "Cargo", size = .Small, tags = {.Cargo}, cargo_held = 1},
-	)
-	defer delete(s.layout)
-
-	// Iron Plating (explicit .Brace) and Cargo (zero-value .Brace) both count.
-	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Brace)), 2)
-	testing.expect_value(t, ship_count_matching(&s, Selector(Category.Fire)), 1)
 }
 
 @(test)
@@ -640,13 +621,13 @@ effect_magnitude_of_a_synergy_with_no_matches_is_zero :: proc(t: ^testing.T) {
 	defer delete(s.layout)
 	ctx := ship_effect_context(&s)
 
-	synergy := Effect{magnitude = 5, synergy = Selector(Tag.Weapon)}
+	synergy := effect_phase_contribution(expr_const(5), Selector(Tag.Weapon))
 	testing.expect_value(t, effect_magnitude(synergy, ctx), Magnitude(0))
 }
 
 @(test)
 effective_speed_is_the_raw_field_less_weight_when_no_modifier_is_installed :: proc(t: ^testing.T) {
-	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Fire, active = Effect{magnitude = 10}}
+	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Fire, active = effect_phase_contribution(expr_const(10))}
 	s := Ship{
 		speed = 4, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},
@@ -663,8 +644,8 @@ only_a_modify_speed_effect_moves_effective_speed :: proc(t: ^testing.T) {
 	// Speed is the one stat a fitting can modify, and it reads exactly the effects that
 	// name it: a Brace fitting's Repair magnitude resolves through combat's phase totals,
 	// never into a stat, so it must not leak here.
-	sails := Fitting{name = "Fast Sails", size = .Small, passive = Effect{kind = .Modify_Speed, magnitude = 3}}
-	surgeon := Fitting{name = "Ship's Surgeon", size = .Small, category = .Brace, active = Effect{kind = .Repair, magnitude = 6}}
+	sails := Fitting{name = "Fast Sails", size = .Small, passive = effect_modify_speed(expr_const(3))}
+	surgeon := Fitting{name = "Ship's Surgeon", size = .Small, category = .Brace, active = effect_repair(expr_const(6))}
 	s := Ship{
 		speed = 4, max_hull = 20,
 		layout = []Layout_Slot{
@@ -678,9 +659,9 @@ only_a_modify_speed_effect_moves_effective_speed :: proc(t: ^testing.T) {
 
 @(test)
 speed_modifiers_stack_across_slots :: proc(t: ^testing.T) {
-	sails := Fitting{name = "Fast Sails", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 4}}
-	rigging := Fitting{name = "Spare Rigging", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 2}}
-	timbers := Fitting{name = "Spare Timbers", size = .Small, weight = 8, category = .Brace, active = Effect{kind = .Repair, magnitude = 3}}
+	sails := Fitting{name = "Fast Sails", size = .Small, weight = 8, passive = effect_modify_speed(expr_const(4))}
+	rigging := Fitting{name = "Spare Rigging", size = .Small, weight = 8, passive = effect_modify_speed(expr_const(2))}
+	timbers := Fitting{name = "Spare Timbers", size = .Small, weight = 8, category = .Brace, active = effect_repair(expr_const(3))}
 	s := Ship{
 		speed = 5, max_hull = 20,
 		layout = []Layout_Slot{
@@ -723,41 +704,53 @@ a_full_hold_floors_the_starting_ship_speed_at_zero_never_below :: proc(t: ^testi
 	testing.expect(t, ship_effective_speed(&s) > full) // emptiness is what varies
 }
 
+// --- Trees at the magnitude seam ---------------------------------------------
+//
+// An effect's magnitude is an authored tree (expr.odin's composed shapes), resolved by
+// expr_eval against the flattened context effect_magnitude builds. These pin each of the
+// readings the roster leans on through that seam.
+
 @(test)
-hull_below_conditional_resolves_to_zero_above_the_threshold_and_full_below :: proc(t: ^testing.T) {
-	effect := Effect{magnitude = 6, conditional = Condition_Hull_Below{percent = 50}}
+a_hull_gated_tree_resolves_to_zero_above_the_threshold_and_full_below :: proc(t: ^testing.T) {
+	effect := effect_phase_contribution(expr_below_hull_percent(50, 6))
 	s := Ship{max_hull = 20}
 
 	s.hull = 20 // full: above the half-Hull threshold
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
 
-	s.hull = 10 // exactly half: strictly-below means still unmet
+	s.hull = 10 // exactly half: strictly-below means still shut
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
 
 	s.hull = 9 // below half: full magnitude
 	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(6))
 }
 
-@(test)
-round_at_least_conditional_is_unmet_before_the_round_and_off_the_battlefield :: proc(t: ^testing.T) {
-	effect := Effect{magnitude = 5, conditional = Condition_Round_At_Least{round = 3}}
-	s := Ship{}
-
-	// No battle state: a battle-state trigger is simply unmet off the battlefield.
-	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
-
-	testing.expect_value(t, effect_magnitude(effect, ship_effect_context_in_battle(&s, Battle_State{round = 2})), Magnitude(0))
-	testing.expect_value(t, effect_magnitude(effect, ship_effect_context_in_battle(&s, Battle_State{round = 3})), Magnitude(5))
-	testing.expect_value(t, effect_magnitude(effect, ship_effect_context_in_battle(&s, Battle_State{round = 9})), Magnitude(5))
+// in_round builds a complete two-pass context for a bare ship at `round`, with no speeds
+// worth naming — the shape the tests that only care about the round number want.
+in_round :: proc(s: ^Ship, round: int) -> Effect_Context {
+	return ship_effect_context_in_battle(s, Round_Facts{round = round}, Speeds{})
 }
 
 @(test)
-self_visibility_conditional_reads_the_slot_the_effect_is_resolved_for :: proc(t: ^testing.T) {
-	effect := Effect{magnitude = 4, conditional = Condition_Self_Visibility{visibility = .Concealed}}
+a_round_gated_tree_is_shut_before_its_round_and_off_the_battlefield :: proc(t: ^testing.T) {
+	effect := effect_phase_contribution(expr_from_round(3, 5))
+	s := Ship{}
+
+	// No round: off the battlefield there is no round number, and the gate reads shut.
+	testing.expect_value(t, effect_magnitude(effect, ship_effect_context(&s)), Magnitude(0))
+
+	testing.expect_value(t, effect_magnitude(effect, in_round(&s, 2)), Magnitude(0))
+	testing.expect_value(t, effect_magnitude(effect, in_round(&s, 3)), Magnitude(5))
+	testing.expect_value(t, effect_magnitude(effect, in_round(&s, 9)), Magnitude(5))
+}
+
+@(test)
+a_visibility_reading_tree_reads_the_slot_the_effect_is_resolved_for :: proc(t: ^testing.T) {
+	effect := effect_phase_contribution(expr_while_concealed(4))
 	s := Ship{}
 
 	ctx := ship_effect_context(&s)
-	// No self slot: unmet.
+	// No self slot: the quantity reads Exposed, the ordinal's zero.
 	testing.expect_value(t, effect_magnitude(effect, ctx), Magnitude(0))
 
 	ctx.self_slot = Layout_Slot{slot = Slot{base_visibility = .Exposed}}
@@ -768,38 +761,149 @@ self_visibility_conditional_reads_the_slot_the_effect_is_resolved_for :: proc(t:
 }
 
 @(test)
-opponent_speed_conditionals_compare_the_live_battle_speeds :: proc(t: ^testing.T) {
+speed_reading_trees_compare_the_speeds_pass_one_computed :: proc(t: ^testing.T) {
 	s := Ship{}
-	faster := Effect{magnitude = 3, conditional = Condition_Opponent_Faster{}}
-	slower := Effect{magnitude = 3, conditional = Condition_Opponent_Slower{}}
+	faster := effect_phase_contribution(expr_while_opponent_faster(3))
+	slower := effect_phase_contribution(expr_while_opponent_slower(3))
 
-	// own_speed 5, opponent_speed 8: opponent is the faster side.
-	quick_foe := ship_effect_context_in_battle(&s, Battle_State{round = 1, own_speed = 5, opponent_speed = 8})
+	// own 5, opponent 8: the opponent is the faster side.
+	quick_foe := ship_effect_context_in_battle(&s, Round_Facts{round = 1}, Speeds{own = 5, opponent = 8})
 	testing.expect_value(t, effect_magnitude(faster, quick_foe), Magnitude(3))
 	testing.expect_value(t, effect_magnitude(slower, quick_foe), Magnitude(0))
 
-	// own_speed 8, opponent_speed 5: opponent is the slower side.
-	slow_foe := ship_effect_context_in_battle(&s, Battle_State{round = 1, own_speed = 8, opponent_speed = 5})
+	// own 8, opponent 5: the opponent is the slower side.
+	slow_foe := ship_effect_context_in_battle(&s, Round_Facts{round = 1}, Speeds{own = 8, opponent = 5})
 	testing.expect_value(t, effect_magnitude(faster, slow_foe), Magnitude(0))
 	testing.expect_value(t, effect_magnitude(slower, slow_foe), Magnitude(3))
 
 	// Equal speed: neither strict comparison holds.
-	tie := ship_effect_context_in_battle(&s, Battle_State{round = 1, own_speed = 6, opponent_speed = 6})
+	tie := ship_effect_context_in_battle(&s, Round_Facts{round = 1}, Speeds{own = 6, opponent = 6})
 	testing.expect_value(t, effect_magnitude(faster, tie), Magnitude(0))
 	testing.expect_value(t, effect_magnitude(slower, tie), Magnitude(0))
 }
 
+// The captain's own order is one ordinal quantity an item may read, so "pays off on the
+// round you commit" is authorable — and the opponent's order is nowhere in the context to
+// be read at all.
 @(test)
-a_conditional_stat_modifier_applies_only_while_its_condition_holds :: proc(t: ^testing.T) {
-	// A "below half Hull, run for it" rigging: the effective-stat readers gate it
-	// through the same conditional seam, self_slot filled per slot. Speed rather than
-	// Max Hull, so the condition's own reading cannot move underneath it.
-	rigging := Fitting{
-		name = "Panic Rigging", size = .Small,
-		passive = Effect{kind = .Modify_Speed, magnitude = 5, conditional = Condition_Hull_Below{percent = 50}},
+a_tree_reads_the_captains_own_order_as_one_ordinal :: proc(t: ^testing.T) {
+	s := Ship{}
+	on_commit := effect_phase_contribution(
+		expr_gate(.Eq, expr_quantity(.Captains_Order), expr_const(int(Captains_Order.Commit)), expr_const(9), expr_const(0)),
+	)
+
+	held := ship_effect_context_in_battle(&s, Round_Facts{round = 1, captains_order = .Hold}, Speeds{})
+	testing.expect_value(t, effect_magnitude(on_commit, held), Magnitude(0))
+
+	pressed := ship_effect_context_in_battle(&s, Round_Facts{round = 1, captains_order = .Press_Fire}, Speeds{})
+	testing.expect_value(t, effect_magnitude(on_commit, pressed), Magnitude(0))
+
+	committed := ship_effect_context_in_battle(&s, Round_Facts{round = 1, captains_order = .Commit}, Speeds{})
+	testing.expect_value(t, effect_magnitude(on_commit, committed), Magnitude(9))
+}
+
+// The damage a ship took last round is the second momentary quantity (the captain's order
+// is the first): it can turn off again inside one fight.
+@(test)
+a_tree_reads_the_damage_taken_last_round :: proc(t: ^testing.T) {
+	s := Ship{}
+	vengeful := effect_phase_contribution(expr_quantity(.Damage_Taken_Last_Round))
+
+	untouched := ship_effect_context_in_battle(&s, Round_Facts{round = 2}, Speeds{})
+	testing.expect_value(t, effect_magnitude(vengeful, untouched), Magnitude(0))
+
+	mauled := ship_effect_context_in_battle(&s, Round_Facts{round = 2, damage_taken_last_round = 7}, Speeds{})
+	testing.expect_value(t, effect_magnitude(vengeful, mauled), Magnitude(7))
+}
+
+// The opponent enters as a **flattened, visibility-filtered counter block** and nothing
+// else: a Count over it reads what the lookouts could see, and concealment deletes a
+// fitting from the report rather than hiding it behind a check.
+@(test)
+an_opponent_count_reads_the_scouting_report_and_concealment_empties_it :: proc(t: ^testing.T) {
+	foe := synergy_ship(
+		Fitting{name = "Long Nines", size = .Large, tags = {.Weapon}},
+		Fitting{name = "Swivel Guns", size = .Small, tags = {.Weapon}},
+	)
+	defer delete(foe.layout)
+
+	s := Ship{}
+	per_enemy_gun := effect_phase_contribution(expr_mul(expr_const(2), expr_count_opponent(Selector(Tag.Weapon))))
+
+	exposed := ship_effect_context_in_battle(
+		&s,
+		Round_Facts{round = 1, opponent = ship_scouting_report(&foe)},
+		Speeds{},
+	)
+	testing.expect_value(t, effect_magnitude(per_enemy_gun, exposed), Magnitude(4))
+
+	// Hide one gun below decks: the report loses it, so the count does too.
+	foe.layout[1].slot.base_visibility = .Concealed
+	half_seen := ship_effect_context_in_battle(
+		&s,
+		Round_Facts{round = 1, opponent = ship_scouting_report(&foe)},
+		Speeds{},
+	)
+	testing.expect_value(t, effect_magnitude(per_enemy_gun, half_seen), Magnitude(2))
+}
+
+// The layering rule, enforced where the spec says it must be: at authoring time. A
+// runtime zero here would *be* the dead-conditions defect, in a new place.
+@(test)
+a_modify_speed_tree_that_reads_a_speed_is_rejected_when_it_is_authored :: proc(t: ^testing.T) {
+	// A Modify_Speed effect may read anything below its layer.
+	round_gated := effect_modify_speed(expr_from_round(3, 2))
+	testing.expect_value(t, round_gated.kind, Effect_Kind.Modify_Speed)
+
+	// It may not read either speed — own or opponent. Both readings are refused by
+	// effect_modify_speed's assert; expr_reads_quantity is the question it asks.
+	testing.expect(t, expr_reads_quantity(expr_while_opponent_faster(2), .Own_Speed))
+	testing.expect(t, expr_reads_quantity(expr_while_opponent_faster(2), .Opponent_Speed))
+	testing.expect(t, expr_reads_quantity(expr_quantity(.Own_Speed), .Own_Speed))
+	testing.expect(t, !expr_reads_quantity(expr_from_round(3, 2), .Own_Speed))
+
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
 	}
-	s := Ship{
-		speed = 2, max_hull = 20,
+	testing.expect_assert(t, "a Modify_Speed tree cannot read a speed")
+	_ = effect_modify_speed(expr_while_opponent_faster(2))
+}
+
+// Pass one is what gives a speed modifier a round to read: given none, its gate has no
+// reading to open on and the item is dormant in every round of every battle.
+@(test)
+a_round_gated_speed_modifier_fires_mid_battle_through_pass_one :: proc(t: ^testing.T) {
+	sails := Fitting {
+		name    = "Storm Canvas",
+		size    = .Small,
+		passive = effect_modify_speed(expr_from_round(3, 4)),
+	}
+	s := Ship {
+		speed  = 2,
+		max_hull = 20,
+		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = sails}},
+	}
+
+	// Outside a battle there is no round, and the modifier is dormant.
+	testing.expect_value(t, ship_effective_speed(&s), 2)
+
+	testing.expect_value(t, ship_effective_speed(&s, Round_Facts{round = 2}), 2)
+	testing.expect_value(t, ship_effective_speed(&s, Round_Facts{round = 3}), 2 + 4)
+}
+
+@(test)
+a_gated_stat_modifier_applies_only_while_its_gate_is_open :: proc(t: ^testing.T) {
+	// A "below half Hull, run for it" rigging: the effective-stat readers resolve it
+	// through the same magnitude seam, self_slot filled per slot. Speed rather than
+	// Max Hull, so the gate's own reading cannot move underneath it.
+	rigging := Fitting {
+		name    = "Panic Rigging",
+		size    = .Small,
+		passive = effect_modify_speed(expr_below_hull_percent(50, 5)),
+	}
+	s := Ship {
+		speed  = 2,
+		max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = rigging}},
 	}
 

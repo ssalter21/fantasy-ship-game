@@ -16,7 +16,7 @@ import "core:math/rand"
 // Order is authoring: items are placed first-empty-fit (ship_fit_first_empty_slot) into a
 // template whose slots are exposed-first within each size, so an item's position decides
 // whether it lands on deck or in the concealed hold — which decides whether a
-// Condition_Self_Visibility or Selector(Visibility.Concealed) effect fires.
+// Own_Visibility-reading or Selector(Visibility.Concealed) effect fires.
 Hostile_Archetype :: struct {
 	name:  string,
 	items: []string,

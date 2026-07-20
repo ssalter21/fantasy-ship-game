@@ -46,7 +46,7 @@ hostile_output :: proc(hostile: ^ship.Ship, round: int = 1) -> int {
 
 	battle := combat.combat_battle_create(&player, hostile)
 	battle.round = round
-	return combat.combat_phase_output(&battle, .B, .Fire)
+	return combat.combat_phase_output_this_round(&battle, .B, .Fire)
 }
 
 // hostile_at_power builds an archetype at an explicit power percent, off a site that
@@ -606,7 +606,7 @@ phase_magnitude :: proc(s: ship.Ship, phase: ship.Category) -> int {
 			continue
 		}
 		if active, ok := fitting.active.?; ok {
-			total += int(active.magnitude)
+			total += ship.effect_showcase_magnitude(active)
 		}
 	}
 	return total
@@ -802,10 +802,10 @@ every_trade_roster_entry_is_takeable_by_a_starting_ship_outside_the_deep :: proc
 // (passive/active) the item's one effect sits in.
 effect_strength :: proc(f: ship.Fitting) -> int {
 	if active, ok := f.active.?; ok {
-		return int(active.magnitude)
+		return ship.effect_showcase_magnitude(active)
 	}
 	if passive, ok := f.passive.?; ok {
-		return int(passive.magnitude)
+		return ship.effect_showcase_magnitude(passive)
 	}
 	return 0
 }
