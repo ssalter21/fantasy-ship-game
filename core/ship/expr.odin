@@ -1,36 +1,29 @@
 package ship
 
 // The expression language an Effect's magnitude is written in: a bounded,
-// allocation-free, POD arithmetic language of ten node kinds. A tree is a *value* —
-// an inline fixed array, no pool, no pointers — so it costs a Ghost_Snapshot
-// (ADR-0008) nothing beyond its bytes.
+// allocation-free, POD arithmetic language (see CONTEXT.md for the vocabulary and
+// the rulings behind the node set). A tree is a *value* — an inline fixed array, no
+// pool and no pointers — so a Ghost_Snapshot (ADR-0008) carries one for its bytes.
 //
-// The evaluator is pure and reads nothing but its nodes and an Expr_Context: no
-// Ship, no layout, no Battle. Everything a tree may read arrives pre-flattened in
-// that context, which is what lets the language be tested as arithmetic.
-//
-// There is no division, no boolean value and no RNG. Comparison exists only inside
-// Gate, so "multiply by a comparison" and "select on a comparison" cannot be the
-// same item at two prices.
+// The evaluator is pure: it reads its nodes and an Expr_Context and nothing else —
+// no Ship, no layout, no Battle. That is what lets the language be answered as
+// arithmetic. It has no division outside Pct, no boolean value, and no RNG.
 
-// EXPR_MAX_NODES bounds a single effect's tree. There is no separate depth bound:
-// depth cannot exceed node count, so one rule locks the door. Evaluation's worst
-// case — recursion depth and the node budget a helper proc may spend — is measured
-// against this constant rather than a literal.
+// EXPR_MAX_NODES bounds a single effect's tree. Depth needs no separate bound: it
+// cannot exceed node count.
 //
-// Every arity is even, so every well-formed tree has an odd node count (a leaf is
-// 1; an interior node adds itself to an even number of odd children). The largest
-// tree this bound admits is therefore 11 nodes, not 12.
+// Every arity is even, so every well-formed tree has an odd node count — a leaf is
+// 1, and an interior node adds itself to an even number of odd-sized children. The
+// largest tree this bound admits is therefore 11 nodes, not 12.
 EXPR_MAX_NODES :: 12
 
-// Node_Kind is the closed set of ten. Arity is fixed per kind (expr_node_arity), so
-// prefix order alone implies a tree's structure and no child indices are stored.
-//
-// Deliberately absent: Div (a subtree divisor can be zero, and truncation makes it
-// non-associative, so calibration would be against a rounding artifact — Pct
-// replaces it with the divisor pinned at a literal 100); Clamp, Sat_Sub, Abs and
-// Sign (each saves a node or two and costs a permanent calibration row plus a
-// second spelling of one intent).
+// EXPR_MAX_ARITY is the widest node's child count, and so the size of the scratch a
+// single evaluation step needs.
+EXPR_MAX_ARITY :: 4
+
+// Node_Kind is a node's operation. Arity is fixed per kind (expr_node_arity), which
+// is what lets prefix order alone imply a tree's structure: no node stores a child
+// index.
 Node_Kind :: enum {
 	Const,
 	Quantity,
@@ -44,15 +37,11 @@ Node_Kind :: enum {
 	Gate,
 }
 
-// Quantity is the closed set of scalars a tree may read off the round. Values are
-// supplied flat in Expr_Context.quantities; what fills them is the resolution
-// wiring's business, not the evaluator's.
-//
-// Captains_Order is a single ordinal (Hold = 0, Press_Brace = 1, Press_Fire = 2,
-// Commit = 3), never four boolean-valued quantities — those would spell one intent
-// twice at two prices. Own_Visibility is likewise an ordinal, matching Visibility's
-// own member order.
-Quantity_Kind :: enum {
+// Quantity is the closed set of scalars a tree may read off the round. Values
+// arrive flat in Expr_Context.quantities; filling them is the resolution wiring's
+// job, not the evaluator's. Captains_Order and Own_Visibility are ordinals, so a
+// Gate compares them like any other quantity.
+Quantity :: enum {
 	Own_Hull,
 	Own_Max_Hull,
 	Own_Speed,
@@ -64,7 +53,7 @@ Quantity_Kind :: enum {
 }
 
 // Compare_Op is the comparison a Gate selects on. Comparisons appear nowhere else:
-// there is no boolean value in the language, so an op cannot escape its Gate.
+// with no boolean value in the language, one cannot escape the Gate that made it.
 Compare_Op :: enum {
 	Eq,
 	Ne,
@@ -74,37 +63,37 @@ Compare_Op :: enum {
 	Gte,
 }
 
-// Node is one entry of a prefix-ordered tree. Its payload fields are read only by
-// the kinds that own them (`value` by Const, `quantity` by Quantity, `selector` by
-// Count, `compare` by Gate) and are inert otherwise; the helper procs below are the
-// only way to set them, so no caller sees the unused combinations. The zero Node is
-// a Const 0, so a zero-filled array is a valid, meaningless tree rather than a trap.
+// Node is one entry of a prefix-ordered tree. Each payload field is read only by
+// the kind that owns it (`value` by Const, `quantity` by Quantity, `selector` by
+// Count, `compare` by Gate) and is inert otherwise; the authoring helpers below set
+// them, so no caller assembles the meaningless combinations. The zero Node is a
+// Const 0, so a zero-filled array is valid, inert data rather than a trap.
 Node :: struct {
 	kind:     Node_Kind,
 	value:    int,
-	quantity: Quantity_Kind,
+	quantity: Quantity,
 	selector: Selector,
 	compare:  Compare_Op,
 }
 
-// Expr is a whole authored tree: nodes in prefix order plus how many of them are
-// live. Inline POD, so it copies by assignment and allocates nothing.
+// Expr is a whole authored tree: its nodes in prefix order, plus how many of them
+// are live. Inline POD — it copies by assignment and allocates nothing.
 Expr :: struct {
 	nodes: [EXPR_MAX_NODES]Node,
 	count: int,
 }
 
-// Expr_Context is everything a tree may read, flattened: scalar quantities and the
-// counts a Count node selects over. No Ship, no layout, no Battle — every field is
-// plain data a caller fills in, which is what makes the evaluator pure arithmetic.
+// Expr_Context is everything a tree may read, flattened to plain data: one scalar
+// per Quantity, and the census a Count selects over. It holds no Ship, layout or
+// Battle, which is what keeps the evaluator pure arithmetic.
 Expr_Context :: struct {
-	quantities: [Quantity_Kind]int,
+	quantities: [Quantity]int,
 	counts:     Count_Table,
 }
 
 // Count_Table is the pre-counted fitting census a Count node reads, one array per
-// Selector axis. Counting is the caller's job precisely so the evaluator never
-// walks a layout.
+// Selector axis. Counting is the caller's job, so the evaluator never walks a
+// layout.
 Count_Table :: struct {
 	tag:        [Tag]int,
 	size:       [Slot_Size]int,
@@ -112,8 +101,10 @@ Count_Table :: struct {
 	category:   [Category]int,
 }
 
-// expr_node_arity is how many child subtrees a kind consumes. Gate takes four —
-// lhs, rhs, then, else — with its comparison op stored on the node itself.
+// expr_node_arity is how many child subtrees a kind consumes, and the single
+// statement of that: evaluation reads its children through this, so prefix
+// structure has one source of truth. Gate's four are lhs, rhs, then and else — its
+// comparison op rides on the node itself.
 expr_node_arity :: proc(kind: Node_Kind) -> int {
 	switch kind {
 	case .Const, .Quantity, .Count:
@@ -126,8 +117,8 @@ expr_node_arity :: proc(kind: Node_Kind) -> int {
 	unreachable()
 }
 
-// expr_eval resolves `e` against `ctx`. Pure: it reads nothing but its arguments,
-// writes nothing, and allocates nothing. An empty tree evaluates to 0.
+// expr_eval resolves `e` against `ctx`. Pure: it reads only its arguments, writes
+// nothing, and allocates nothing. An empty tree evaluates to 0.
 expr_eval :: proc(e: Expr, ctx: Expr_Context) -> int {
 	if e.count == 0 {
 		return 0
@@ -139,17 +130,22 @@ expr_eval :: proc(e: Expr, ctx: Expr_Context) -> int {
 	return value
 }
 
-// expr_eval_node evaluates the subtree rooted at `index` and returns its value
-// together with the index just past it, which is how a prefix walk finds its next
-// sibling. Recursion depth is bounded by node count, hence by EXPR_MAX_NODES.
+// expr_eval_node evaluates the subtree rooted at `index`, returning its value and
+// the index just past it — which is how a prefix walk finds its next sibling.
+// Recursion depth is bounded by node count, hence by EXPR_MAX_NODES.
 //
-// A Gate evaluates both branches and selects between them. The language has no side
-// effects, so evaluating the untaken branch is indistinguishable from skipping it,
-// and skipping would need a second walk that duplicates this one's arity rules.
+// A node's children are evaluated before its kind is dispatched on, so a Gate
+// evaluates both branches and selects between them. The language has no side
+// effects, so that is indistinguishable from taking one branch.
 expr_eval_node :: proc(nodes: []Node, ctx: Expr_Context, index: int) -> (value: int, next: int) {
 	assert(index < len(nodes), "expression tree is truncated: a node is missing a child")
 	node := nodes[index]
 	next = index + 1
+
+	children: [EXPR_MAX_ARITY]int
+	for i in 0 ..< expr_node_arity(node.kind) {
+		children[i], next = expr_eval_node(nodes, ctx, next)
+	}
 
 	switch node.kind {
 	case .Const:
@@ -159,28 +155,20 @@ expr_eval_node :: proc(nodes: []Node, ctx: Expr_Context, index: int) -> (value: 
 	case .Count:
 		return expr_selector_count(ctx.counts, node.selector), next
 	case .Add, .Sub, .Mul, .Min, .Max, .Pct:
-		lhs, rhs: int
-		lhs, next = expr_eval_node(nodes, ctx, next)
-		rhs, next = expr_eval_node(nodes, ctx, next)
-		return expr_apply(node.kind, lhs, rhs), next
+		return expr_apply(node.kind, children[0], children[1]), next
 	case .Gate:
-		lhs, rhs, then_value, else_value: int
-		lhs, next = expr_eval_node(nodes, ctx, next)
-		rhs, next = expr_eval_node(nodes, ctx, next)
-		then_value, next = expr_eval_node(nodes, ctx, next)
-		else_value, next = expr_eval_node(nodes, ctx, next)
-		if expr_compare(node.compare, lhs, rhs) {
-			return then_value, next
+		if expr_compare(node.compare, children[0], children[1]) {
+			return children[2], next
 		}
-		return else_value, next
+		return children[3], next
 	}
 	unreachable()
 }
 
-// expr_apply is the arithmetic of the six binary kinds. Pct multiplies by a percent
-// whose divisor is a pinned literal 100 — the language's only division, and the
-// reason no subtree can ever be a divisor. It truncates toward zero, the single
-// rounding rule in the language.
+// expr_apply is the arithmetic of the binary kinds. Pct multiplies by a percent
+// against a divisor pinned to the literal 100 — the language's only division, so no
+// subtree can ever be a divisor. It truncates toward zero, which is the language's
+// one rounding rule.
 expr_apply :: proc(kind: Node_Kind, lhs: int, rhs: int) -> int {
 	switch kind {
 	case .Add:
@@ -201,8 +189,8 @@ expr_apply :: proc(kind: Node_Kind, lhs: int, rhs: int) -> int {
 	unreachable()
 }
 
-// expr_compare answers a Gate's comparison. Its result is consumed on the spot and
-// never becomes a value, so the language stays boolean-free.
+// expr_compare answers a Gate's comparison. Its result is consumed where it is
+// made and never becomes a value, which is what keeps the language boolean-free.
 expr_compare :: proc(op: Compare_Op, lhs: int, rhs: int) -> bool {
 	switch op {
 	case .Eq:
@@ -236,19 +224,17 @@ expr_selector_count :: proc(counts: Count_Table, selector: Selector) -> int {
 	return 0
 }
 
-// Authoring helpers. Every tree shape is built by composing these, so a tree of the
-// wrong arity — a Gate missing a branch, a Sub with one operand — is a compile
-// error at the call site rather than a runtime surprise. They are the only writers
-// of Node's payload fields.
-//
-// Composition splices whole subtrees, so the node budget is spent as the tree is
-// built and overrunning EXPR_MAX_NODES asserts here, at authoring time.
+// Authoring helpers. Composing these is how a tree is written: arity lives in a
+// helper's signature, so a tree of the wrong shape — a Gate missing a branch, a Sub
+// with one operand — is a compile error at the call site rather than a runtime
+// surprise. Composition splices whole subtrees, so the node budget is spent as the
+// tree is built and an overrun asserts here, at authoring time.
 
 expr_const :: proc(value: int) -> Expr {
 	return expr_leaf(Node{kind = .Const, value = value})
 }
 
-expr_quantity :: proc(quantity: Quantity_Kind) -> Expr {
+expr_quantity :: proc(quantity: Quantity) -> Expr {
 	return expr_leaf(Node{kind = .Quantity, quantity = quantity})
 }
 
@@ -276,8 +262,7 @@ expr_max :: proc(lhs: Expr, rhs: Expr) -> Expr {
 	return expr_binary(.Max, lhs, rhs)
 }
 
-// expr_pct is `value` taken to `percent` percent: the divisor is a pinned literal
-// 100 and cannot be authored.
+// expr_pct is `value` taken to `percent` percent. The divisor cannot be authored.
 expr_pct :: proc(value: Expr, percent: Expr) -> Expr {
 	return expr_binary(.Pct, value, percent)
 }

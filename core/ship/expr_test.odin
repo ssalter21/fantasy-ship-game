@@ -61,6 +61,9 @@ pct_divides_by_a_pinned_hundred_and_truncates :: proc(t: ^testing.T) {
 	testing.expect_value(t, expr_eval(expr_pct(expr_const(7), expr_const(150)), ctx), 10)
 	testing.expect_value(t, expr_eval(expr_pct(expr_const(9), expr_const(99)), ctx), 8)
 	testing.expect_value(t, expr_eval(expr_pct(expr_const(1), expr_const(1)), ctx), 0)
+
+	// Truncation is toward zero, so a negative value rounds up rather than down.
+	testing.expect_value(t, expr_eval(expr_pct(expr_const(-9), expr_const(99)), ctx), -8)
 }
 
 @(test)
@@ -168,7 +171,7 @@ nesting_a_gate_in_a_branch_is_how_the_language_spells_and :: proc(t: ^testing.T)
 }
 
 @(test)
-an_untaken_branch_does_not_reach_the_result :: proc(t: ^testing.T) {
+only_the_selected_branch_reaches_the_result :: proc(t: ^testing.T) {
 	ctx := Expr_Context{}
 	ctx.quantities[.Own_Speed] = 5
 	ctx.quantities[.Opponent_Speed] = 2
@@ -210,26 +213,23 @@ a_tree_is_inline_pod_that_copies_by_assignment :: proc(t: ^testing.T) {
 }
 
 @(test)
-arity_is_fixed_per_kind_and_gate_alone_takes_four :: proc(t: ^testing.T) {
+the_node_set_is_closed_at_ten_and_gate_alone_takes_four_children :: proc(t: ^testing.T) {
+	testing.expect_value(t, len(Node_Kind), 10)
+	testing.expect_value(t, expr_node_arity(.Gate), EXPR_MAX_ARITY)
+
+	widest := 0
 	for kind in Node_Kind {
-		arity := expr_node_arity(kind)
-		switch kind {
-		case .Const, .Quantity, .Count:
-			testing.expect_value(t, arity, 0)
-		case .Add, .Sub, .Mul, .Min, .Max, .Pct:
-			testing.expect_value(t, arity, 2)
-		case .Gate:
-			testing.expect_value(t, arity, 4)
+		if kind != .Gate {
+			widest = max(widest, expr_node_arity(kind))
 		}
 	}
-	testing.expect_value(t, len(Node_Kind), 10)
+	testing.expect_value(t, widest, 2)
 }
 
-// expr_test_node_counts_are_odd derives, from the arity table alone, that every
-// well-formed tree has an odd node count: a leaf is 1, and an interior node adds
-// itself to an even number of odd-sized children. So the worst case a 12-node bound
-// can actually hold is 11, and asserting against 12 would be asserting against a
-// literal the language cannot reach.
+// Derives, from the arity table alone, that every well-formed tree has an odd node
+// count: a leaf is 1, and an interior node adds itself to an even number of
+// odd-sized children. So the worst case a 12-node bound can hold is 11 — asserting
+// against 12 would assert against a size the language cannot reach.
 @(test)
 every_arity_is_even_so_a_trees_node_count_is_odd :: proc(t: ^testing.T) {
 	for kind in Node_Kind {
@@ -260,6 +260,25 @@ the_largest_tree_the_bound_admits_evaluates :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, tree.count, largest)
 	testing.expect_value(t, expr_eval(tree, Expr_Context{}), 11)
+}
+
+@(test)
+the_deepest_tree_the_bound_admits_evaluates :: proc(t: ^testing.T) {
+	// The other worst case the bound covers is recursion depth. The deepest shape
+	// is the narrowest interior node nested as far as the budget allows: each
+	// nesting spends its own node plus a leaf, so the chain runs until fewer than
+	// two nodes are left. Depth needs no bound of its own because this is where
+	// the node bound already stops it.
+	tree := expr_const(10)
+	depth := 1
+	for tree.count + 2 <= EXPR_MAX_NODES {
+		tree = expr_sub(tree, expr_const(1))
+		depth += 1
+	}
+
+	testing.expect_value(t, depth, 6)
+	testing.expect_value(t, tree.count, 11)
+	testing.expect_value(t, expr_eval(tree, Expr_Context{}), 5)
 }
 
 @(test)
