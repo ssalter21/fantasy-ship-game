@@ -178,6 +178,7 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 
 	game := Game_State{player = ship.ship_starting_ship()}
 	defer delete(game.player.layout)
+
 	// At rest: the ship in refit, no granted item, no amber.
 	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
 	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
@@ -423,7 +424,12 @@ capture_phase_slug :: proc(awaiting: sim.Phase) -> string {
 capture_scripted_command :: proc(state: ^Capture_State, awaiting: sim.Phase) -> sim.Command {
 	switch awaiting {
 	case .Awaiting_Travel_Choice:
-		return sim.Command(sim.Command_Travel_To{node_id = voyage.voyage_forward_option(state.game.voyage_map, state.game.current_node_id, state.game.travel_options)})
+		next := voyage.voyage_forward_option(
+			state.game.voyage_map,
+			state.game.current_node_id,
+			state.game.travel_options,
+		)
+		return sim.Command(sim.Command_Travel_To{node_id = next})
 	case .Awaiting_Battle_Command:
 		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command_Hold{}})
 	case .Awaiting_Option_Choice:

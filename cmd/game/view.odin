@@ -23,7 +23,7 @@ MAP_PAD_X :: 85
 MAP_PAD_Y :: 34
 
 // The parchment Chart's ink palette (spec 0001 §8). The reskin drops the blue
-// nautical-chart tones on this surface — steel rings, CHART_INK routes, the amber
+// nautical-chart tones on this surface — steel rings, blue chart routes, the amber
 // snap — for a cartographer's-hand ink language over the sourced parchment page. Two
 // registers carry identity vs. recession: node identity and the road behind you ink
 // in strong sepia; the fog ahead (unexplored ? buoys, charted-not-yet routes) recedes

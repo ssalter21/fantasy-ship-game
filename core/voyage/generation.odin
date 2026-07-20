@@ -284,13 +284,13 @@ voyage_partition_layers :: proc(total: int, gen: rand.Generator) -> []int {
 }
 
 // voyage_scatter_surplus hands out `surplus` extra units across `widths`, one at a
-// time to a uniformly-drawn entry, skipping any already at `cap`. Draws until the
-// surplus is spent, so the caller must leave room for it (sum of caps ≥ the total).
-voyage_scatter_surplus :: proc(widths: []int, cap, surplus: int, gen: rand.Generator) {
+// time to a uniformly-drawn entry, skipping any already at `limit`. Draws until the
+// surplus is spent, so the caller must leave room for it (sum of limits ≥ the total).
+voyage_scatter_surplus :: proc(widths: []int, limit, surplus: int, gen: rand.Generator) {
 	surplus := surplus
 	for surplus > 0 {
 		i := rand.int_max(len(widths), gen)
-		if widths[i] < cap {
+		if widths[i] < limit {
 			widths[i] += 1
 			surplus -= 1
 		}

@@ -1282,9 +1282,13 @@ voyage_forward_option_falls_back_to_the_first_option :: proc(t: ^testing.T) {
 	m := voyage_map_create(0)
 	defer voyage_map_destroy(&m)
 
-	// Every option on the ship's own layer: nothing is deeper, so the first one stands.
-	backward := []Node_ID{0}
-	testing.expect_value(t, voyage_forward_option(m, 0, backward), Node_ID(0))
+	// Stand on a node deeper than every option, so nothing on offer is forward and the
+	// fallback is the only thing that can answer. Picked so the first option is *not* the
+	// only one, or the assert would pass however the fallback chose.
+	deep := Node_ID(len(m.nodes) - 1)
+	shallow := []Node_ID{1, 2}
+	testing.expect(t, m.nodes[1].layer < m.nodes[deep].layer, "fixture: option 1 must be shallower")
+	testing.expect_value(t, voyage_forward_option(m, deep, shallow), Node_ID(1))
 }
 
 // --- Traversal legality (voyage_travel_options) --------------------------------

@@ -270,8 +270,8 @@ ship_starting_captain :: proc() -> Captain {
 // ship_fit_starting_loadout fits the fixed combat loadout into the exposed slots, fills
 // the five slots it leaves with holds, and stows `cargo` across them (ship_stow_cargo).
 // The holds are what give the ship its capacity at all — an empty slot carries nothing
-// (ship_cargo_capacity). The
-// or_return chain means a false return signals the template and its starting fittings
+// (ship_cargo_capacity), and they total 90: the Large forecastle's 40, hold 1's 20, and 10
+// apiece from the three Smalls. The or_return chain means a false return signals the template and its starting fittings
 // have drifted out of sync — a content bug this package's tests catch, not a real runtime
 // condition. Slot-name pairing is flavor only: names impose no restriction on what fills
 // them (ADR-0004).

@@ -665,10 +665,9 @@ Ship :: struct {
 
 // ship_fitting_fits reports whether `fitting` may occupy a slot of `size` under
 // ADR-0004's fit rule, independent of current occupancy: an exact size match, no
-// downsizing. Carrying is an axis every fitting sits on, so there is no kind of
-// fitting held to a different standard. It is
-// the single statement of the fit rule that both ship_fit and ship_replace_fitting
-// share, so the two admit exactly the same fittings.
+// downsizing. Carrying is an axis every fitting sits on, so there is no kind of fitting
+// held to a different standard. It is the single statement of the fit rule that both
+// ship_fit and ship_replace_fitting share, so the two admit exactly the same fittings.
 ship_fitting_fits :: proc(size: Slot_Size, fitting: Fitting) -> bool {
 	return fitting.size == size
 }
@@ -787,8 +786,8 @@ ship_effective_speed :: proc(s: ^Ship, round: Maybe(Round_Facts) = nil) -> int {
 }
 
 // ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): its
-// own authored mass plus the cargo stowed in it, 1:1. Because any fitting can carry,
-// the two are terms of one sum: a bare hold
+// own authored mass plus the cargo stowed in it, 1:1. Because any fitting can carry, the
+// two are terms of one sum: a bare hold
 // contributes only its cargo (mass 0), a gun only its mass (it carries nothing), and
 // a laden gun both. Guns are permanently heavy and cargo heavy only while stowed, so
 // emptiness — not loadout — is still what varies a ship's weight.

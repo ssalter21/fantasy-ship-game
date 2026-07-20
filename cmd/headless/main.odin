@@ -22,12 +22,11 @@ main :: proc() {
 // the auto-player cooperate through — each callback receives only its own rawptr,
 // so shared state has nowhere else to live.
 //
-// It counts events rather than keeping them: the run's whole log was held to serve one
-// total and one last-event read, and an Event borrows from the Sim's run arena, so a
-// kept copy is only valid as long as the Sim is.
+// It counts events rather than keeping them: an Event borrows from the Sim's run arena,
+// so a kept copy is only valid as long as the Sim is.
 Headless_State :: struct {
 	event_count:    int,
-	last_event:     sim.Event,
+	last_event:     sim.Event, // borrowed from the Sim's run arena; valid only while it lives
 	voyage_map:     voyage.Map, // borrowed from Event_Voyage_Started
 	current:        sim.Node_ID,
 	travel_options: []sim.Node_ID, // borrowed from the latest Event_Travel_Options
@@ -51,7 +50,8 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 		// rejecting keeps the voyage a pure function of the graph.
 		return sim.Command(sim.Command_Trade_Choice{accept = false})
 	case .Awaiting_Travel_Choice:
-		return sim.Command(sim.Command_Travel_To{node_id = voyage.voyage_forward_option(state.voyage_map, state.current, state.travel_options)})
+		next := voyage.voyage_forward_option(state.voyage_map, state.current, state.travel_options)
+		return sim.Command(sim.Command_Travel_To{node_id = next})
 	case .Awaiting_Refit:
 		// The auto-player declines every option list, so a refit never opens; if one did,
 		// this just finishes it rather than editing the loadout.

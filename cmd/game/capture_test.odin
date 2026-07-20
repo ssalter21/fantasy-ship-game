@@ -1,7 +1,6 @@
 package main
 
 import "core:testing"
-import voyage "../../core/voyage"
 import sim "../../core/sim"
 
 // These cover the scripted half of capture — the half that has no window in it.
