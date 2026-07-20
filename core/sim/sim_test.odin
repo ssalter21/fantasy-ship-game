@@ -1538,9 +1538,6 @@ winning_a_fight_surfaces_the_wreck_cargo_that_overflows_the_hold :: proc(t: ^tes
 	testing.expect(t, found) // the overflow is surfaced, not silent
 }
 
-// battle_events collects the combat Events of variant T wrapped in this batch, in the
-// order the round emitted them — the seam a battle scenario asserts on (ADR-0001: what
-// presentation learns is the stream, not the hull field).
 // battle_menu picks the last Event_Battle_Menu out of a batch — the flags the Fight screen
 // is holding when it asks for the next round's order. Asserts rather than reporting absence:
 // a batch that asked for no decision is a scenario that didn't set itself up.
@@ -1555,6 +1552,9 @@ battle_menu :: proc(events: []Event) -> (menu: Event_Battle_Menu) {
 	return
 }
 
+// battle_events collects the combat Events of variant T wrapped in this batch, in the
+// order the round emitted them — the seam a battle scenario asserts on (ADR-0001: what
+// presentation learns is the stream, not the hull field).
 battle_events :: proc(events: []Event, $T: typeid) -> (found: [dynamic]T) {
 	for e in events {
 		wrapped, is_battle := e.(Event_Battle_Event)

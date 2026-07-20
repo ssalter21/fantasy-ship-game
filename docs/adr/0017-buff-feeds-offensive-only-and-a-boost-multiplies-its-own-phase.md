@@ -4,6 +4,8 @@
 
 Accepted — amends ADR-0006 (combat resolution). Does not supersede it: the phase order, simultaneous resolution, Speed-gated escape, permadeath and determinism all stand unchanged.
 
+**Both decisions below are retired.** The first went with its phase — ADR-0025 folded Muster into Fire, so there is no Buff category left to feed anything. The second — a Press multiplies its own phase's total and nothing else, because nesting would make one Press dominate the other — is **superseded by ADR-0028**, which adds Commit as a second phase-total multiplier and settles the question differently: one order per round means the two can never compose.
+
 ## Context
 
 Issue #151 asked whether the Fight "band" should widen. The band is the range of hostile builds a starting ship can meet and have a real fight with, and issue #135 had found it about two points wide: authoring the hostile roster discovered that **an archetype could afford roughly two Offensive fittings**, that the roster's own headline weapon-synergy build (Broadside Company) could not carry the third gun its name promises, and that any `Selector`-based item — most of what ADR-0012's roster is *for* — was unusable on a hostile, because Admiral's Guard (+3 per Crew aboard) on a four-Crew build read +12 **defence** and made the fight arithmetically unwinnable.

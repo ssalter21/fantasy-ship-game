@@ -26,18 +26,15 @@ Command :: union {
 }
 
 // Command_Press multiplies the named phase's total output for the submitter's own
-// ship, this round only, and is available **at most once per battle**
-// (combat_may_press). The ration is what the order is for: unlimited, the question is
-// only whether to press; rationed, it is *when*.
+// ship, this round only, and is available at most once per battle (combat_may_press,
+// ADR-0028).
 Command_Press :: struct {
 	phase: ship.Category,
 }
 
-// Command_Commit is Press's every-round sibling, paid for out of the same round: the
-// submitter's Brace total is multiplied by COMMIT_MULTIPLIER and its Fire total is
-// zeroed. One-directional by construction — the mirrored form (double Fire, zero
-// Brace) would strictly dominate it — and because a committing ship deals no damage
-// that round, Commit can never win a fight, only survive one.
+// Command_Commit multiplies the submitter's Brace total by COMMIT_MULTIPLIER and
+// zeroes its Fire total, for the round it is taken; unrationed. There is no mirrored
+// form (ADR-0028) — the direction is the whole of what the order costs.
 Command_Commit :: struct {}
 
 // Command_Jettison_Cargo empties the cargo fitting at slot_index, shedding its
@@ -52,10 +49,9 @@ Command_Jettison_Cargo :: struct {
 Command_Break_Off :: struct {}
 
 // Command_Hold is the stance of taking no other order: a formal no-op that resolves
-// nothing. It is a named variant rather than a nil Command because nil says "no
-// decision was submitted", a different fact — and because "the captain held" is
-// something an effect can read. A scripted (non-player-controlled) ship submits it
-// every round it isn't taking Break Off (ADR-0008).
+// nothing. It is a named variant, not a nil Command — a nil says the driver submitted
+// nothing, which is a different fact (ADR-0028). A scripted (non-player-controlled)
+// ship submits it every round it isn't taking Break Off (ADR-0008).
 Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
@@ -151,9 +147,7 @@ combat_opposite_side :: proc(side: Side) -> Side {
 
 // combat_effective_speed is a side's Speed for escape/tiebreak purposes. Nothing in a
 // battle grants Speed: it is emergent from weight (ADR-0020), so a jettisoned hold
-// reads faster only because ship_effective_speed weighs less. Taking the battle and a
-// side rather than a bare ship is what lets every call site — the escape gate, the
-// tiebreaks, the effect context — ask the question the way it holds the state.
+// reads faster only because ship_effective_speed weighs less.
 combat_effective_speed :: proc(battle: ^Battle, side: Side) -> int {
 	return ship.ship_effective_speed(battle.ships[side])
 }
@@ -293,33 +287,23 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		return
 	}
 
-	pressed :: proc(total: int, phase: ship.Category, press_phase: Maybe(ship.Category)) -> int {
-		if p, ok := press_phase.?; ok && p == phase {
+	// scaled applies the round's order to one phase's total. A Press multiplies its own
+	// named phase and nothing else (ADR-0006); a Commit multiplies Brace and zeroes Fire.
+	// One proc rather than two because a round carries one order: the two scalings are
+	// alternatives, and composing them is not a case that exists.
+	scaled :: proc(total: int, phase: ship.Category, order: Round_State) -> int {
+		if order.commit {
+			return total * COMMIT_MULTIPLIER if phase == .Brace else 0
+		}
+		if p, ok := order.press_phase.?; ok && p == phase {
 			return total * PRESS_MULTIPLIER
 		}
 		return total
 	}
 
-	// Commit buys Brace with Fire, in one direction only: the round's repair is
-	// multiplied and the round's damage is nothing.
-	committed :: proc(total: int, phase: ship.Category, commit: bool) -> int {
-		if !commit {
-			return total
-		}
-		switch phase {
-		case .Brace:
-			return total * COMMIT_MULTIPLIER
-		case .Fire:
-			return 0
-		}
-		unreachable()
-	}
-
 	// Both phases are **totalled off the hull the round opened with**, before either
-	// writes to it. A Press multiplies its own phase's fittings and nothing else
-	// (ADR-0006), so with both phases feeding a consumer either Press reads: Fire
-	// multiplies the damage dealt, Brace the Hull restored. A round carries one order,
-	// so Press and Commit never both land on a side and the two scalings cannot compose.
+	// writes to it, so with both feeding a consumer either Press reads: Fire multiplies
+	// the damage dealt, Brace the Hull restored.
 	//
 	// Summing here rather than at each phase's write is what keeps repair's ordering
 	// consumed by the death check alone (ADR-0027): a Hull-gated fitting reads the hull
@@ -327,11 +311,8 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// desperate ship's own guns mid-round.
 	repair: [Side]int
 	for side in Side {
-		press_phase, commit := round_state[side].press_phase, round_state[side].commit
-		brace := pressed(combat_phase_output(battle, side, .Brace), .Brace, press_phase)
-		fire := pressed(combat_phase_output(battle, side, .Fire), .Fire, press_phase)
-		repair[side] = committed(brace, .Brace, commit)
-		round_state[side].damage = committed(fire, .Fire, commit)
+		repair[side] = scaled(combat_phase_output(battle, side, .Brace), .Brace, round_state[side])
+		round_state[side].damage = scaled(combat_phase_output(battle, side, .Fire), .Fire, round_state[side])
 	}
 
 	// Brace lands first — ahead of the damage below and the death check under it — which

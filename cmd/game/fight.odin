@@ -66,9 +66,9 @@ Fight_Action :: struct {
 // ship and the two menu flags, unit-tested without a window (fight_action_layout adds the
 // rects). The Presses come from the Category enum so a new phase would appear automatically,
 // each disabled once the battle's one Press is spent; then Commit, one Jettison per laden
-// hold, Hold, and Break Off last, disabled until may_break_off. The two disabled orders stay
-// *on* the row rather than vanishing: the captain's order set is fixed, and a rationed order
-// that disappears reads as one the game forgot.
+// hold, Hold, and Break Off last, disabled until may_break_off. An untakeable order is
+// offered-but-disabled rather than dropped: the order set is fixed (ADR-0028), so the row
+// is the same length every round.
 fight_action_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX]Fight_Action, n: int) {
 	add :: proc(actions: ^[FIGHT_ACTION_MAX]Fight_Action, n: ^int, label: string, command: combat.Command, enabled: bool) {
 		if n^ >= FIGHT_ACTION_MAX {
