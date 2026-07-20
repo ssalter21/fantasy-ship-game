@@ -290,7 +290,7 @@ Event_Arrived_At_Node :: struct {
 }
 
 // Event_Ship_Battle_Sighted is dispatched once, when a Ship Battle starts: the opponent's full
-// ship data. The UI applies ship.ship_effective_visibility per slot itself when rendering it
+// ship data. The UI reads each slot's base visibility itself when rendering it
 // (see Event_Voyage_Started for why Sim doesn't gate this).
 Event_Ship_Battle_Sighted :: struct {
 	opponent: ship.Ship,

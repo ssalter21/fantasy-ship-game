@@ -13,10 +13,10 @@ import rl "vendor:raylib"
 //   - Facing cutaways. Each ship is the same Cutaway as the Build surface (#308) — the
 //     deck's exposed stations above a drawn waterline, the belly's holds below — reusing
 //     build_slot_rects / draw_build_hull at a reduced scale so the two ships share the width.
-//   - Per-slot concealment (ADR-0005). Each slot carries its own seen / concealed badge from
-//     ship_effective_visibility, decoupled from the waterline (a ship can carry a concealed
-//     deck station or a forced-visible hold, and the screen renders exactly that). A scouted
-//     opponent's concealed slots read "???" and its hold / weight stay hidden, the same gate
+//   - Per-slot concealment (ADR-0030). Each slot carries its own seen / concealed badge from
+//     its base visibility, decoupled from the waterline (a layout may put a concealed station
+//     above the line or an exposed hold below it, and the screen renders exactly that). A
+//     scouted opponent's concealed slots read "???" and its hold / weight stay hidden, the same gate
 //     draw_ship_panel used; you see your own ship whole.
 //   - The captain action-row, no amber. The one-decision-per-round menu is a bottom row of
 //     steel controls (a Press per phase while the battle's one Press is unspent, Commit,
@@ -301,7 +301,7 @@ draw_fight_scene :: proc(state: ^Game_State, mouse: rl.Vector2) {
 }
 
 // draw_fight_ship_body draws one ship's cutaway — the faint hull, then each slot's card — in
-// its region. `gate` is the ADR-0005 concealment gate: true for a scouted opponent, whose
+// its region. `gate` is the ADR-0030 concealment gate: true for a scouted opponent, whose
 // concealed fittings read "???"; false for your own ship, seen whole.
 draw_fight_ship_body :: proc(s: ^ship.Ship, area_x: f32, gate: bool) {
 	draw_build_hull(area_x, FIGHT_REGION_W, FIGHT_HULL_TOP_Y, FIGHT_WATERLINE_Y, FIGHT_KEEL_Y)
@@ -313,12 +313,12 @@ draw_fight_ship_body :: proc(s: ^ship.Ship, area_x: f32, gate: bool) {
 
 // draw_fight_card draws one slot at fight scale: an empty berth as a dashed outline, a masked
 // opponent slot as "???", an own or exposed fitting as its name and category chip. Every slot,
-// filled or not, carries its per-slot visibility badge (ship_effective_visibility) — the #305
-// refinement that a concealed deck station and a forced-visible hold each read for what they
-// are, decoupled from which row they sit in. The name is clipped to the card (a small card can
+// filled or not, carries its per-slot visibility badge (the slot's base visibility), so a
+// concealed deck station and an exposed hold each read for what they are, decoupled from
+// which row they sit in. The name is clipped to the card (a small card can
 // hold "Gun Deck" but not "Captain's Quarters"), keeping text from bleeding into its neighbour.
 draw_fight_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, gate: bool) {
-	visibility := ship.ship_effective_visibility(layout_slot)
+	visibility := layout_slot.slot.base_visibility
 	fitting, has_fitting := layout_slot.fitting.?
 
 	if !has_fitting {
@@ -355,7 +355,7 @@ draw_fight_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, gate:
 	draw_fight_visibility_badge(rect, visibility)
 }
 
-// draw_fight_visibility_badge marks a slot's effective visibility with a small eye (seen) or
+// draw_fight_visibility_badge marks a slot's visibility with a small eye (seen) or
 // struck-through eye (concealed) — a shape, not a font glyph (the guide: glyphs are shapes),
 // the same eye idiom draw_build_zone_label uses for the whole zone, here narrowed to the one
 // slot because a Fight reads visibility per slot (#305). It sits bottom-right, clear of the
@@ -373,7 +373,7 @@ draw_fight_visibility_badge :: proc(rect: rl.Rectangle, visibility: ship.Visibil
 
 // draw_fight_statblock names a ship and prints its own stats over its cutaway — the source the
 // Fight uses instead of the shared frame's one stat line (#305). Your ship shows its hold; a
-// scouted opponent's hold / weight stay behind the concealment gate (ADR-0005), so its block
+// scouted opponent's hold / weight stay behind the concealment gate (ADR-0030), so its block
 // stops at Hull · SPD. Centred over the ship's region, title cream, stats steel.
 draw_fight_statblock :: proc(s: ^ship.Ship, area_x: f32, title: string, gate: bool) {
 	centre_x := area_x + FIGHT_REGION_W / 2

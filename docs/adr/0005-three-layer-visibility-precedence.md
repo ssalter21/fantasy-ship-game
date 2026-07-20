@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (layers 1-2 implemented in the vertical slice; layer 3 is a documented extensibility point only, not implemented)
+**Superseded by [ADR-0030](0030-visibility-is-the-slots-and-an-item-may-require-exposure.md)** (#407). The three-layer chain below is retired: layer 2 (the fitting-level override) is deleted with the `Fitting.visibility_override` field, and layer 3 is withdrawn as an anticipated extension point. A fitting's visibility is its slot's base visibility and nothing else; what a fitting may state instead is a *requirement* to be exposed, checked at fit-legality time. Read what follows as a model that existed and was replaced.
+
+Was: Accepted (layers 1-2 implemented in the vertical slice; layer 3 is a documented extensibility point only, not implemented)
 
 ## Context
 

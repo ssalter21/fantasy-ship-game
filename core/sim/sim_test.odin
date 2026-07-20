@@ -748,6 +748,44 @@ a_refit_replace_swaps_a_matching_fitting_and_rejects_a_size_mismatch :: proc(t: 
 }
 
 @(test)
+a_refit_refuses_to_install_an_exposure_requiring_fitting_below_deck :: proc(t: ^testing.T) {
+	// requires_exposed is a fit-legality check standing beside the size gate (#407): an
+	// item that must be seen to work cannot be installed below deck, whatever its size.
+	// That is what makes concealment scarce and contested — the captain who wants a
+	// concealed build pays for it in the items they can no longer fly. Starting slots:
+	// 0 top deck (M) Exposed, 4 hold 1 (M) Concealed.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	colors := ship.Fitting{name = "Flagship Colors", size = .Medium, bulk = 20, requires_exposed = true}
+	sim_open_refit(&sim, colors, &events)
+
+	// The concealed Medium hold: the size matches and the placement is still refused.
+	submit_refit(&sim, Refit_Replace{slot = 4})
+	ev := refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect_value(t, fitting_name_at(&sim, 4), "Cargo")
+	_, still_pending := sim.refit_pending.?
+	testing.expect(t, still_pending)
+
+	// The exposed Medium top deck: same item, same size, accepted.
+	submit_refit(&sim, Refit_Replace{slot = 0})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Fitting_Installed))
+	testing.expect_value(t, fitting_name_at(&sim, 0), "Flagship Colors")
+
+	// And it cannot be smuggled below deck after the fact: a Move into the concealed
+	// hold is refused on the same gate, leaving both slots as they stood.
+	submit_refit(&sim, Refit_Move{from = 0, to = 4})
+	ev = refit_tick(&sim, &events)
+	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect_value(t, fitting_name_at(&sim, 0), "Flagship Colors")
+	testing.expect_value(t, fitting_name_at(&sim, 4), "Cargo")
+}
+
+@(test)
 finishing_a_refit_discards_an_unplaced_incoming_fitting :: proc(t: ^testing.T) {
 	// No inventory (ADR-0012): an incoming fitting never installed is gone once
 	// the refit finishes — the Sim holds nothing that could re-offer it.

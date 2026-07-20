@@ -75,13 +75,15 @@ offer_shop_kind :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) 
 	return .Offer
 }
 
-// offer_shop_legal_berth is the drag's affordance rule: a shelf card can land on any
-// same-size berth — installing into an empty one, swapping into a filled one — mirroring the
-// Build surface's shelf-item rule (build_is_legal_berth). It is a hint, not the fit
-// authority: the Sim still validates the emitted Refit (ADR-0004), but because the drop is
-// gated on this the install never bounces, which is what lets the bridge auto-finish.
+// offer_shop_legal_berth is the drag's affordance rule: a shelf card can land on any berth
+// the fit rule admits — installing into an empty one, swapping into a filled one — mirroring
+// the Build surface's shelf-item rule (build_is_legal_berth). It is a hint, not the fit
+// authority: the Sim still validates the emitted Refit, but because the drop is gated on
+// this the install never bounces, which is what lets the bridge auto-finish. That is why it
+// asks ship_fitting_fits rather than comparing sizes itself — a second copy of the rule
+// would go stale against the Sim's and start bouncing drops the UI promised.
 offer_shop_legal_berth :: proc(fitting: ship.Fitting, layout_slot: ship.Layout_Slot) -> bool {
-	return fitting.size == layout_slot.slot.size
+	return ship.ship_fitting_fits(layout_slot.slot, fitting)
 }
 
 // offer_shop_shelf_rects lays the option cards into a vertical stack down the shelf panel,

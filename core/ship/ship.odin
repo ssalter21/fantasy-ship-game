@@ -82,11 +82,11 @@ ship_verb_phase :: proc(verb: Verb) -> Maybe(Phase) {
 // *is* the criterion value and whose type is the discriminant. Plain data, so it
 // round-trips through a Ghost_Snapshot (ADR-0008).
 //
-// **Tag, slot size and effective visibility, and nothing else.** All three are
-// authored constants sitting below the phase layer, so counting them cannot read a
-// quantity the count is itself an input to. A round Phase is **not** an axis: a phase
-// sits above the modifier layer a Modify_Speed count resolves in, and on a Fitting it
-// defaults to Brace, so counting by it would count every cargo hold as a Brace item. There
+// **Tag, slot size and slot visibility, and nothing else.** All three are authored
+// constants sitting below the phase layer, so counting them cannot read a quantity the
+// count is itself an input to. A round Phase is **not** an axis: a phase rides on each
+// effect and sits above the modifier layer a Modify_Speed count resolves in, so counting
+// by it would read across that layer. There
 // is no "empty slot" axis either: a vacated slot backfills a hold (ship_remove), so
 // `count(empty slots)` and `count(Tag.Cargo)` are the same fact and only the second is
 // reachable.
@@ -430,7 +430,7 @@ effect_expr_context :: proc(ctx: Effect_Context) -> Expr_Context {
 		out.counts = ship_count_table(ctx.owner.layout)
 	}
 	if self_slot, has_self := ctx.self_slot.?; has_self {
-		out.quantities[.Own_Visibility] = int(ship_effective_visibility(self_slot))
+		out.quantities[.Own_Visibility] = int(self_slot.slot.base_visibility)
 	}
 	if round, in_round := ctx.round.?; in_round {
 		out.quantities[.Round] = round.round
@@ -446,10 +446,10 @@ effect_expr_context :: proc(ctx: Effect_Context) -> Expr_Context {
 }
 
 // selector_matches reports whether layout_slot's installed fitting satisfies
-// `selector`. Tag matches on each of a multi-tag fitting's tags; Visibility tests
-// the fitting's *effective* visibility (ship_effective_visibility, ADR-0005) —
-// which is why this takes the whole Layout_Slot, not a bare Fitting. An empty slot
-// matches nothing, so callers may pass every slot without pre-filtering.
+// `selector`. Tag matches on each of a multi-tag fitting's tags; Visibility is the
+// **slot's** base visibility (ADR-0030 — a fitting has no say in it) — which is why
+// this takes the whole Layout_Slot, not a bare Fitting. An empty slot matches nothing,
+// so callers may pass every slot without pre-filtering.
 selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 	fitting, has_fitting := layout_slot.fitting.?
 	if !has_fitting {
@@ -461,7 +461,7 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 	case Slot_Size:
 		return fitting.size == criterion
 	case Visibility:
-		return ship_effective_visibility(layout_slot) == criterion
+		return layout_slot.slot.base_visibility == criterion
 	}
 	return false
 }
@@ -470,13 +470,13 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 // `layout` bucketed along each Selector axis at once, in one pass. A multi-tag fitting
 // lands under each of its tags, exactly as selector_matches counts it.
 //
-// `seen_as`, when set, counts only the slots reading that effective visibility. It is
-// what makes a scouting report a filtered census rather than a second kind of one.
+// `seen_as`, when set, counts only the slots of that visibility. It is what makes a
+// scouting report a filtered census rather than a second kind of one.
 ship_count_table :: proc(layout: []Layout_Slot, seen_as: Maybe(Visibility) = nil) -> Count_Table {
 	counts: Count_Table
 	for layout_slot in layout {
 		fitting := layout_slot.fitting.? or_continue
-		visibility := ship_effective_visibility(layout_slot)
+		visibility := layout_slot.slot.base_visibility
 		if only, filtered := seen_as.?; filtered && visibility != only {
 			continue
 		}
@@ -559,7 +559,12 @@ Fitting :: struct {
 	bulk:                int,
 	// tags is the fitting's family membership (see Tag).
 	tags:                bit_set[Tag],
-	visibility_override: Maybe(Visibility),
+	// requires_exposed is the fitting's demand to be *seen*: an item that only works
+	// where an opponent can see it may only be installed in an exposed slot, checked
+	// beside the size gate (ship_fitting_fits). A fitting states a requirement and never
+	// an override — it cannot make itself concealed, which is what keeps concealment
+	// scarce and contested rather than free. Exposure requirement: ADR-0030.
+	requires_exposed:    bool,
 	// effects are what the fitting *does*, and effect_count how many of the array
 	// are live — a fixed array, so the cap is in the type and a Fitting stays plain
 	// data a Ghost_Snapshot copies for its bytes. Each effect names its own verb and
@@ -663,13 +668,20 @@ Ship :: struct {
 	captain: Maybe(Captain),
 }
 
-// ship_fitting_fits reports whether `fitting` may occupy a slot of `size` under
-// ADR-0004's fit rule, independent of current occupancy: an exact size match, no
-// downsizing. Carrying is an axis every fitting sits on, so there is no kind of fitting
-// held to a different standard. It is the single statement of the fit rule that both
-// ship_fit and ship_replace_fitting share, so the two admit exactly the same fittings.
-ship_fitting_fits :: proc(size: Slot_Size, fitting: Fitting) -> bool {
-	return fitting.size == size
+// ship_fitting_fits reports whether `fitting` may occupy `slot`, independent of current
+// occupancy: an exact size match (ADR-0004's fit rule, no downsizing) and — beside it —
+// the fitting's own exposure requirement, which an item that must be seen to work uses
+// to refuse a concealed slot (ADR-0030). Carrying is an axis every fitting sits on, so
+// there is no kind of fitting held to a different standard.
+//
+// It takes the whole Slot rather than its size because the second gate reads the slot's
+// base visibility, and it is the single statement of the fit rule that ship_fit,
+// ship_replace_fitting and ship_move share, so all three admit exactly the same fittings.
+ship_fitting_fits :: proc(slot: Slot, fitting: Fitting) -> bool {
+	if fitting.requires_exposed && slot.base_visibility != .Exposed {
+		return false
+	}
+	return fitting.size == slot.size
 }
 
 // ship_fitting_is_hold reports whether `fitting` is a bare hold — the degenerate
@@ -713,26 +725,14 @@ ship_fit :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
 // ship_replace_fitting swaps `fitting` into layout_slot under the same fit rule as
 // ship_fit (ship_fitting_fits, ADR-0004) but — unlike install — accepts an
 // occupied slot, discarding whatever it held (place-or-swap; there is no inventory,
-// ADR-0012, so the displaced fitting is the caller's to announce removed). A size-
-// or cargo-rule mismatch is refused and leaves the slot untouched.
+// ADR-0012, so the displaced fitting is the caller's to announce removed). A size
+// mismatch or an unmet exposure requirement is refused and leaves the slot untouched.
 ship_replace_fitting :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
-	if !ship_fitting_fits(layout_slot.slot.size, fitting) {
+	if !ship_fitting_fits(layout_slot.slot, fitting) {
 		return false
 	}
 	layout_slot.fitting = fitting
 	return true
-}
-
-// ship_effective_visibility resolves a fitting's visibility as an opponent would
-// actually observe it (ADR-0005): the slot's base visibility, overridden by the
-// fitting's own override when it has one.
-ship_effective_visibility :: proc(layout_slot: Layout_Slot) -> Visibility {
-	if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
-		if override, has_override := fitting.visibility_override.?; has_override {
-			return override
-		}
-	}
-	return layout_slot.slot.base_visibility
 }
 
 // ship_fitting_stat_contribution sums the resolved magnitude of a fitting's stat-modifier
@@ -1009,9 +1009,10 @@ ship_remove :: proc(layout_slot: ^Layout_Slot) -> (Fitting, bool) {
 	return fitting, true
 }
 
-// ship_move relocates the fitting in `from` into `to` under ADR-0004's exact-size
-// fit rule: the source must hold a fitting, the destination must be free, and the
-// two slots must be the same size. Any of those unmet leaves both slots untouched
+// ship_move relocates the fitting in `from` into `to` under the same fit rule
+// installing goes through (ship_fitting_fits): the source must hold a fitting, the
+// destination must be free, and the destination must admit the fitting — matching size,
+// and exposed if the fitting requires it. Any of those unmet leaves both slots untouched
 // and returns false. On success the moved fitting is returned and the source is
 // backfilled with a size-matched hold, exactly as ship_remove does.
 //
@@ -1032,7 +1033,7 @@ ship_move :: proc(from, to: ^Layout_Slot) -> (Fitting, bool) {
 	if dest, dest_occupied := to.fitting.?; dest_occupied && !ship_fitting_is_hold(dest) {
 		return {}, false
 	}
-	if fitting.size != to.slot.size {
+	if !ship_fitting_fits(to.slot, fitting) {
 		return {}, false
 	}
 	from.fitting = ship_fitting_hold(from.slot.size)

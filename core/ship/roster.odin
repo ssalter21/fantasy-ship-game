@@ -21,6 +21,10 @@ package ship
 // omits it bolts a free full-slot hold onto a gun and hands the power budget capacity it
 // never priced. An item that means to carry names the bulk it means.
 //
+// `requires_exposed` is the item's demand to be seen: set, it may only be installed in an
+// exposed slot (ADR-0030). It defaults off, and unlike bulk its zero value costs nobody
+// anything — an item with nothing to say about visibility fits anywhere its size allows.
+//
 // Its other authoring invariants: a size the ship template can hold, and a weight in its
 // size band — which is what the item costs its ship in Speed (ship_fitting_weight →
 // ship_effective_speed).
@@ -32,6 +36,7 @@ roster_item :: proc(
 	tags: bit_set[Tag],
 	effects: []Effect,
 	bulk: Maybe(int) = nil,
+	requires_exposed := false,
 ) -> Roster_Item {
 	return Roster_Item {
 		tier = tier,
@@ -42,6 +47,7 @@ roster_item :: proc(
 				weight = weight,
 				tags = tags,
 				bulk = bulk.? or_else ship_cargo_slot_contribution(size),
+				requires_exposed = requires_exposed,
 			},
 			..effects,
 		),

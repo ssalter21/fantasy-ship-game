@@ -479,7 +479,7 @@ expr_from_round :: proc(round: int, magnitude: int) -> Expr {
 }
 
 // expr_while_concealed is the "hidden" shape: full magnitude while the slot the effect
-// sits in reads Concealed (ship_effective_visibility), nothing while it is Exposed.
+// sits in is Concealed, nothing while it is Exposed.
 // Visibility is an ordinal quantity, so the gate is an equality against its value.
 expr_while_concealed :: proc(magnitude: int) -> Expr {
 	return expr_gate(

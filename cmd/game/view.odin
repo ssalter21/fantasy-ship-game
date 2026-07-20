@@ -801,7 +801,7 @@ draw_danger_tick :: proc(pos: rl.Vector2, tint := INK_CORAL) {
 
 // draw_ship_panel renders a ship readout at origin. When gate_visibility is true
 // (an opponent scouted before a Ship Battle), a concealed slot's fitting is hidden
-// per ADR-0005; the player's own ship is always rendered ungated.
+// per ADR-0030; the player's own ship is always rendered ungated.
 draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_visibility: bool) {
 	x := i32(origin.x)
 	y := i32(origin.y)
@@ -822,7 +822,7 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 		rl.DARKGRAY,
 	)
 	// Hold and Weight, drawn own-ship only: a scouted opponent's wealth stays behind the
-	// concealment gate (ADR-0005), the same reason its fittings read "???" below. "Hold X/Y"
+	// concealment gate (ADR-0030), the same reason its fittings read "???" below. "Hold X/Y"
 	// is cargo against hull capacity; Weight is the term ship_effective_speed reads down
 	// from Speed.
 	if !gate_visibility {
@@ -848,7 +848,7 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 		switch {
 		case !has_fitting:
 			label = fmt.tprintf("%s: (empty)", layout_slot.slot.name)
-		case gate_visibility && ship.ship_effective_visibility(layout_slot) == .Concealed:
+		case gate_visibility && layout_slot.slot.base_visibility == .Concealed:
 			label = fmt.tprintf("%s: ???", layout_slot.slot.name)
 		case:
 			magnitude := 0
