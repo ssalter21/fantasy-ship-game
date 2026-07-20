@@ -38,14 +38,16 @@ DEPTH_STEPS :: 3
 // it is. Shop has no per-tier/per-depth constants: it prices by item tier
 // (ship_item_cost), and lands here if that stops being enough.
 
-// Fight's opponent-Hull and durability baselines, scaled by tier and depth via
-// voyage_fight_opponent_hull/_durability below. Hull is denominated against
+// Fight's opponent-Hull baseline, scaled by tier and depth via
+// voyage_fight_opponent_hull below. Hull is denominated against
 // ship.STARTING_HULL (ADR-0017): sized so a hostile's pool lasts past the escape gate at
 // BASELINE_ROUND_COUNT rather than dropping before Break Off can be reached.
+//
+// Hull is now the **whole** of a hostile's staying power: ADR-0026 deleted the
+// durability reading that used to sit beside it, so nothing shortens a fight but this
+// pool against the player's Fire output.
 FIGHT_OPPONENT_HULL_PER_TIER :: 40
 FIGHT_OPPONENT_HULL_PER_DEPTH :: 12
-FIGHT_OPPONENT_DURABILITY_PER_TIER :: 1
-FIGHT_OPPONENT_DURABILITY_PER_DEPTH :: 1
 
 // The power reading is a **percent**, not a bonus — the one reading in this group that
 // multiplies rather than adds (ADR-0019). Every other primitive's reading is a quantity
@@ -81,15 +83,20 @@ OFFER_ITEM_QUALITY_PER_DEPTH :: 5
 // Cargo is anchored the other way, to Reward's payout (#133), and quotes a known
 // residual against the rest (#124's business, not this table's).
 //
-// **No PER_DEPTH row, and adding one would break the rate.** A swing must be payable out
-// of the stat, and Durability is costed against a starting Durability of 2 — its Coastal
-// swing can be at most 2, but depth spans DEPTH_STEPS, so any per-depth constant adds 3
-// across a zone, wider than the stat itself. One frozen row freezes the table: a rate is
-// only a rate if every row scales together. Trade keeps its gradient in the tier ladder's
-// 3x spread; voyage_trade_swing takes a Zone, not a Scaling_Site, for the same reason.
+// **Every row quotes in reference-fight Hull swing** (ADR-0026). With Durability deleted
+// the table has no small-integer row left, so the common unit is what a swing is worth in
+// a fight at the same site: a Coastal Hull swing of 16 is roughly a round and a half of a
+// Coastal hostile's output, Max Hull is half that because a ceiling is only worth what
+// you can refill into it, and Cargo quotes across at Reward's payout (#133).
+//
+// **No PER_DEPTH row, and adding one would break the rate.** Max Hull is the binding row:
+// its Coastal swing is 8 against a 100-Hull ceiling, and depth spans DEPTH_STEPS, so any
+// per-depth constant large enough to read at all compounds across a zone faster than the
+// tier ladder it is meant to refine. One frozen row freezes the table: a rate is only a
+// rate if every row scales together. Trade keeps its gradient in the tier ladder's 3x
+// spread; voyage_trade_swing takes a Zone, not a Scaling_Site, for the same reason.
 TRADE_SWING_HULL_PER_TIER :: 16
 TRADE_SWING_MAX_HULL_PER_TIER :: 8
-TRADE_SWING_DURABILITY_PER_TIER :: 1
 TRADE_SWING_CARGO_PER_TIER :: 15
 
 // The Reward primitive's stakes constant is its cargo payout (issue #132) — the whole of
@@ -137,14 +144,13 @@ voyage_normalize_depth :: proc(raw_depth: int, zone_layer_count: int) -> int {
 	return int(math.round(fraction * f64(DEPTH_STEPS)))
 }
 
-// The Fight primitive reads the site's stakes as opponent power across three stats, so a
-// deeper fight isn't Hull-pool-only: voyage_fight_opponent_hull is the opponent's Hull
-// baseline, voyage_fight_opponent_durability its flat incoming-damage reduction
-// (core/combat's durability stat), and voyage_fight_opponent_power the percent its
-// archetype's output is scaled to (issue #23). All three rise by zone tier and by
-// depth-within-zone.
+// The Fight primitive reads the site's stakes as opponent power across two readings:
+// voyage_fight_opponent_hull is the opponent's Hull baseline and
+// voyage_fight_opponent_power the percent its archetype's output is scaled to (issue
+// #23). Both rise by zone tier and by depth-within-zone. The third reading, a flat
+// incoming-damage reduction, died with Durability (ADR-0026).
 //
-// These three are the whole of what stakes says about a hostile. Its loadout is its
+// These two are the whole of what stakes says about a hostile. Its loadout is its
 // **archetype's** (content.odin's Hostile_Archetype) and its Speed derives from that
 // loadout's weight (ADR-0020) — neither is a site reading, so the site decides how much
 // hostile there is and the roster decides which one it is.
@@ -152,12 +158,8 @@ voyage_fight_opponent_hull :: proc(site: Scaling_Site) -> int {
 	return voyage_zone_depth_scaled(site, FIGHT_OPPONENT_HULL_PER_TIER, FIGHT_OPPONENT_HULL_PER_DEPTH)
 }
 
-voyage_fight_opponent_durability :: proc(site: Scaling_Site) -> int {
-	return voyage_zone_depth_scaled(site, FIGHT_OPPONENT_DURABILITY_PER_TIER, FIGHT_OPPONENT_DURABILITY_PER_DEPTH)
-}
-
 // voyage_fight_opponent_power is a **percent** — 100 means "the archetype exactly as
-// authored" — where the other two readings are quantities (see the constant above).
+// authored" — where the Hull reading beside it is a quantity (see the constant above).
 voyage_fight_opponent_power :: proc(site: Scaling_Site) -> int {
 	return voyage_zone_depth_scaled(site, FIGHT_OPPONENT_POWER_PERCENT_PER_TIER, FIGHT_OPPONENT_POWER_PERCENT_PER_DEPTH)
 }
@@ -177,16 +179,14 @@ voyage_offer_item_quality :: proc(site: Scaling_Site) -> int {
 //
 // It takes a Zone rather than a Scaling_Site because Trade reads half the gradient: the
 // swing table is an exchange rate with no room for a depth axis (see TRADE_SWING_* above,
-// where the depth axis would span more than a starting ship's entire Durability), so a
-// `site` here would be a parameter the proc had to ignore.
+// where a depth axis would outrun the tier ladder it refines), so a `site` here would be
+// a parameter the proc had to ignore.
 voyage_trade_swing :: proc(zone: Zone, stat: Trade_Stat) -> int {
 	switch stat {
 	case .Hull:
 		return zone_tier[zone] * TRADE_SWING_HULL_PER_TIER
 	case .Max_Hull:
 		return zone_tier[zone] * TRADE_SWING_MAX_HULL_PER_TIER
-	case .Durability:
-		return zone_tier[zone] * TRADE_SWING_DURABILITY_PER_TIER
 	case .Cargo:
 		return zone_tier[zone] * TRADE_SWING_CARGO_PER_TIER
 	}

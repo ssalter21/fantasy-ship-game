@@ -87,7 +87,7 @@ Stage_Option :: struct {
 // (permadeath), which is why [Fight, Reward] needs no authored gate. The
 // opponent is baked at generation from two independent axes: an archetype drawn
 // from the hostile roster for its loadout — from whose weight its Speed derives
-// (ADR-0020) — scaled at this node's stakes for its hull, durability and fire.
+// (ADR-0020) — scaled at this node's stakes for its hull and fire.
 Stage_Fight :: struct {
 	opponent: ship.Ship,
 }
@@ -107,16 +107,16 @@ Stage_Offer :: struct {
 // (ADR-0012), so a baked Trade stays copyable into a Ghost_Snapshot like every
 // other stage's content.
 //
-// Closed at four: these are the stats a trade can move and have the move mean
+// Closed at three: these are the stats a trade can move and have the move mean
 // something. Speed is absent (ADR-0020) — it is a derived read-out of a ship's
 // weight, not a stored stat, so a Trade cannot pay it out of a field or bank it
 // into one. Cargo capacity is absent too: ship_cargo_capacity is structural, so
-// both halves of a cargo-capacity trade would be no-ops. Cargo itself carries
-// the stat-for-cargo axis — the resource a Shop spends and a Reward grants.
+// both halves of a cargo-capacity trade would be no-ops. Durability is absent
+// because the stat no longer exists (ADR-0026). Cargo itself carries the
+// stat-for-cargo axis — the resource a Shop spends and a Reward grants.
 Trade_Stat :: enum {
 	Hull,
 	Max_Hull,
-	Durability,
 	Cargo,
 }
 

@@ -612,7 +612,7 @@ draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%v", fitting.size), rl.Vector2{rect.x + 12, rect.y + 38}, UI_BODY_SIZE, 1, COLOUR_INK)
 }
 
-// draw_build_ledger is the stats strip along the bottom, always visible: Hull · DUR · SPD ·
+// draw_build_ledger is the stats strip along the bottom, always visible: Hull · SPD ·
 // Hold · Weight, the derived reads (ADR-0020) not the raw fields. A recessive-blue-bordered
 // translucent panel — inert chrome, framed by its role tone.
 draw_build_ledger :: proc(state: ^Game_State) {
@@ -622,10 +622,9 @@ draw_build_ledger :: proc(state: ^Game_State) {
 
 	s := &state.player
 	text := fmt.ctprintf(
-		"Hull %d/%d   ·   DUR %d   ·   SPD %d   ·   Hold %d/%d   ·   Weight %d",
+		"Hull %d/%d   ·   SPD %d   ·   Hold %d/%d   ·   Weight %d",
 		s.hull,
 		s.max_hull,
-		ship.ship_effective_durability(s),
 		ship.ship_effective_speed(s),
 		ship.ship_cargo(s^),
 		ship.ship_cargo_capacity(s^),

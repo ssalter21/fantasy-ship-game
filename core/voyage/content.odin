@@ -4,8 +4,8 @@ import "../ship"
 import "core:math/rand"
 
 // Hostile_Archetype is one authored entry in the Fight roster (ADR-0014): a named hostile
-// build — just the items it carries. No Hull, Durability, or Speed: the node's stakes supply
-// hull and durability, and Speed derives from what the build weighs (ADR-0020). An archetype
+// build — just the items it carries. No Hull or Speed: the node's stakes supply hull, and
+// Speed derives from what the build weighs (ADR-0020). An archetype
 // says *what kind of ship this is*; the site decides how much.
 //
 // `items` names roster items by their authored name (ship_item_by_name), so a hostile is
@@ -79,26 +79,25 @@ voyage_hostile_roster :: proc() -> []Hostile_Archetype {
 	return hostile_roster[:]
 }
 
-// voyage_make_opponent_ship computes a PvE opponent's stakes-scaled hull and durability from
-// the node's Scaling_Site (issue #23), and sets the uniform BASE_SPEED base (ADR-0020); a
+// voyage_make_opponent_ship computes a PvE opponent's stakes-scaled hull from the node's
+// Scaling_Site (issue #23), and sets the uniform BASE_SPEED base (ADR-0020); a
 // hostile's actual Speed derives from what it carries (ship_effective_speed).
 // voyage_pve_opponent layers the archetype's loadout on top — this ship has no layout or
 // captain of its own and is not a complete opponent.
 voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 	hull := voyage_fight_opponent_hull(site)
 	return ship.Ship{
-		hull         = hull,
-		max_hull     = hull,
-		durability = voyage_fight_opponent_durability(site),
-		speed      = ship.BASE_SPEED,
+		hull     = hull,
+		max_hull = hull,
+		speed    = ship.BASE_SPEED,
 	}
 }
 
 // voyage_stakes_scales_category reports whether the site's power reading scales a fitting of
-// this Category. The rule: stakes scales what a hostile deals, never its bulwark. raw_damage
-// is a side's Fire output, so scaling Fire makes a deep hostile hit harder; Brace is excluded
-// because bulwark is subtracted from raw — a site that scaled it would eventually make a
-// hostile impossible to hurt at any magnitude.
+// this Category. The rule: stakes scales what a hostile deals, and Fire is the only thing it
+// deals. raw_damage is a side's Fire output, so scaling Fire makes a deep hostile hit harder;
+// Brace is excluded because since ADR-0026 it feeds nothing at all — there is no bulwark left
+// to scale, and its repair verb (#397) will be scaled on its own terms if at all.
 //
 // This is the *category* half of the rule. Category is a combat phase, and .Fire also holds
 // every Modify_Speed item; ship_fitting_output_scaled is what declines to touch those, for
@@ -108,7 +107,7 @@ voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	case .Fire:
 		return true // raw_damage is Fire output
 	case .Brace:
-		return false // bulwark: subtracted from raw, never scaled
+		return false // no consumer since ADR-0026; nothing to scale
 	}
 	return false
 }
@@ -139,7 +138,7 @@ voyage_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostil
 
 // voyage_pve_opponent builds a full Ship Battle opponent: it draws one archetype from the
 // hostile roster and bakes it at the node's stakes — the archetype supplies the loadout (and,
-// through its weight, its Speed), the site supplies hull, durability, and the fire bonus.
+// through its weight, its Speed), the site supplies hull and the fire bonus.
 // Draws off the map generator's RNG, so which hostile a node holds is reproducible per seed
 // yet varies node to node; called from voyage_bake_stage at generation time (ADR-0013:
 // nothing rolls on arrival).
@@ -224,11 +223,11 @@ Trade_Axis :: struct {
 // thing a trade can offer, and a trade that damages you is a Fight without the fight. Names
 // are checked against core/ship's roster and must not collide with it — a Trade is not a
 // thing you install. Speed is not tradeable here: it is a derived read-out of weight
-// (ADR-0020), not a stat a Trade can pay out of.
+// (ADR-0020), not a stat a Trade can pay out of. Durability is not tradeable either — the
+// stat is gone (ADR-0026), and the Scrapped Armour axis that sold it went with it.
 @(rodata)
 trade_roster := [?]Trade_Axis {
 	{name = "Cannibalized Timbers", gain = .Hull, cost = .Max_Hull},
-	{name = "Scrapped Armour", gain = .Cargo, cost = .Durability},
 	{name = "Shipwright's Bargain", gain = .Max_Hull, cost = .Cargo},
 }
 

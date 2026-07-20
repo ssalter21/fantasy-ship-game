@@ -308,7 +308,7 @@ draw_fight_visibility_badge :: proc(rect: rl.Rectangle, visibility: ship.Visibil
 // draw_fight_statblock names a ship and prints its own stats over its cutaway — the source the
 // Fight uses instead of the shared frame's one stat line (#305). Your ship shows its hold; a
 // scouted opponent's hold / weight stay behind the concealment gate (ADR-0005), so its block
-// stops at Hull · DUR · SPD. Centred over the ship's region, title cream, stats steel.
+// stops at Hull · SPD. Centred over the ship's region, title cream, stats steel.
 draw_fight_statblock :: proc(s: ^ship.Ship, area_x: f32, title: string, gate: bool) {
 	centre_x := area_x + FIGHT_REGION_W / 2
 
@@ -318,13 +318,12 @@ draw_fight_statblock :: proc(s: ^ship.Ship, area_x: f32, title: string, gate: bo
 
 	stats: string
 	if gate {
-		stats = fmt.tprintf("Hull %d/%d · DUR %d · SPD %d", s.hull, s.max_hull, ship.ship_effective_durability(s), ship.ship_effective_speed(s))
+		stats = fmt.tprintf("Hull %d/%d · SPD %d", s.hull, s.max_hull, ship.ship_effective_speed(s))
 	} else {
 		stats = fmt.tprintf(
-			"Hull %d/%d · DUR %d · SPD %d · Hold %d/%d",
+			"Hull %d/%d · SPD %d · Hold %d/%d",
 			s.hull,
 			s.max_hull,
-			ship.ship_effective_durability(s),
 			ship.ship_effective_speed(s),
 			ship.ship_cargo(s^),
 			ship.ship_cargo_capacity(s^),

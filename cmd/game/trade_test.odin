@@ -12,8 +12,8 @@ import rl "vendor:raylib"
 trade_delta_headline_signs_the_give_and_get_sides :: proc(t: ^testing.T) {
 	// The give card loses its cost; the get card gains its amount. A Trade_Term stores only the
 	// magnitude, so the sign is the side's, not the term's.
-	give := trade_delta_headline(voyage.Trade_Term{stat = .Durability, amount = 3}, false)
-	testing.expect(t, give == "Durability -3")
+	give := trade_delta_headline(voyage.Trade_Term{stat = .Max_Hull, amount = 3}, false)
+	testing.expect(t, give == "Max Hull -3")
 
 	get := trade_delta_headline(voyage.Trade_Term{stat = .Cargo, amount = 30}, true)
 	testing.expect(t, get == "Cargo +30")
@@ -37,7 +37,7 @@ trade_consequence_text_reads_before_to_after :: proc(t: ^testing.T) {
 
 @(test)
 trade_shortfall_text_names_the_short_stat :: proc(t: ^testing.T) {
-	testing.expect(t, trade_shortfall_text(.Durability) == "Not enough Durability")
+	testing.expect(t, trade_shortfall_text(.Max_Hull) == "Not enough Max Hull")
 }
 
 @(test)

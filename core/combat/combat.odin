@@ -62,7 +62,7 @@ Command_Break_Off :: struct {}
 Command_Hold :: struct {}
 
 // Battle is a single encounter's transient state: the two ships being
-// fought (their voyage-persistent Hull/Durability/Speed live on *ship.Ship and
+// fought (their voyage-persistent Hull/Speed live on *ship.Ship and
 // are mutated in place) plus this-battle-only bookkeeping.
 Battle :: struct {
 	ships:      [Side]^ship.Ship,
@@ -87,13 +87,12 @@ End_Reason :: enum {
 }
 
 // Round_State is the per-side working state threaded through one call to
-// combat_resolve_round: the round's Press choice, each phase's resolved
-// output, and whether the side was sunk this round.
+// combat_resolve_round: the round's Press choice, the round's damage output,
+// and whether the side was sunk this round.
 Round_State :: struct {
-	press_phase:   Maybe(ship.Category),
-	defense_bonus: int,
-	raw_damage:    int,
-	sunk:          bool,
+	press_phase: Maybe(ship.Category),
+	raw_damage:  int,
+	sunk:        bool,
 }
 
 // Event is the only way a caller learns what happened inside a resolved
@@ -327,27 +326,30 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		return total
 	}
 
-	// Brace and Fire are the two phases a round resolves (ADR-0006, amended by ADR-0025):
-	// each is its own fittings' output, pressed. raw_damage is a side's own Fire output;
-	// defense_bonus is its own Brace output, the only active lever on the *subtracted*
-	// side of `final = max(0, raw − bulwark)`.
+	// Fire is the only phase a round still resolves into a number (ADR-0006,
+	// amended by ADR-0025 and ADR-0026): raw_damage is a side's own Fire output,
+	// pressed. Brace has **no consumer** — ADR-0026 deleted the subtracted side of
+	// the exchange entirely, so a hit lands at its full weight and there is nothing
+	// left to sum a Brace phase into. Its repair verb arrives with #397.
 	//
-	// A Press multiplies its own phase's fittings and nothing else (ADR-0006). Press Fire
-	// (double the damage) is the live choice; Press Brace doubles a bulwark total the
-	// roster barely fills, so Press has effectively decayed to "Press Fire, or waste it".
-	// The {phase} shape is kept against a future second damage axis (ADR-0025).
+	// A Press multiplies its own phase's fittings and nothing else (ADR-0006), and
+	// with no Brace consumer Press Fire is for now the only Press that reads.
+	// The {phase} shape is kept against that repair verb and a future second damage
+	// axis (ADR-0025).
 	for side in Side {
-		press_phase := round_state[side].press_phase
-		round_state[side].defense_bonus = pressed(combat_phase_output(battle, side, .Brace), .Brace, press_phase)
-		round_state[side].raw_damage = pressed(combat_phase_output(battle, side, .Fire), .Fire, press_phase)
+		round_state[side].raw_damage = pressed(
+			combat_phase_output(battle, side, .Fire),
+			.Fire,
+			round_state[side].press_phase,
+		)
 	}
 
 	for side in Side {
 		target := combat_opposite_side(side)
 		target_ship := battle.ships[target]
-		// Effective Durability: base plus any Stat_Modifier fittings, so a
-		// +Durability fitting reduces damage taken.
-		final := max(0, round_state[side].raw_damage-(ship.ship_effective_durability(target_ship) + round_state[target].defense_bonus))
+		// Damage lands whole (ADR-0026): no Durability, no Brace output, nothing
+		// else stands between a side's Fire total and the target's hull.
+		final := round_state[side].raw_damage
 		if final > 0 {
 			target_ship.hull = max(0, target_ship.hull-final)
 			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, raw_damage = round_state[side].raw_damage, final_damage = final}))

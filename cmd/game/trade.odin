@@ -14,8 +14,8 @@ import rl "vendor:raylib"
 //
 // Each card projects its stat before→after off Event_Trade_Presented (trade_cost_read /
 // trade_gain_read), so the view never recomputes effective stats: a bright delta headline
-// (`Durability -3`) over a dim-cyan consequence (`5 -> 2`). That consequence is where the
-// Durability / Max Hull the top-right stat line hides becomes visible, and where a Cargo gain
+// (`Max Hull -8`) over a dim-cyan consequence (`100 -> 92`). That consequence is where the
+// Max Hull the top-right stat line hides becomes visible, and where a Cargo gain
 // above capacity shows its #157 waste as an after that stalls short of before+amount.
 //
 // Accept (left) is the one amber on the screen — but only when the ship can pay; an unaffordable
@@ -95,8 +95,6 @@ trade_stat_label :: proc(stat: voyage.Trade_Stat) -> string {
 		return "Hull"
 	case .Max_Hull:
 		return "Max Hull"
-	case .Durability:
-		return "Durability"
 	case .Cargo:
 		return "Cargo"
 	}
@@ -104,7 +102,7 @@ trade_stat_label :: proc(stat: voyage.Trade_Stat) -> string {
 }
 
 // trade_delta_headline is a card's bright top line: the stat and the signed swing it takes
-// (`Durability -3` on the give side, `+15 Cargo` read as `Cargo +15` on the get side). A
+// (`Max Hull -8` on the give side, `+15 Cargo` read as `Cargo +15` on the get side). A
 // Trade_Term stores only the positive magnitude — the side supplies the sign — so `gain` picks
 // "+" for the get card, "-" for the give card.
 trade_delta_headline :: proc(term: voyage.Trade_Term, gain: bool) -> string {

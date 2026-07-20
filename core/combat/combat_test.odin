@@ -6,8 +6,8 @@ import "core:testing"
 
 @(test)
 round_with_no_fittings_and_no_commands_deals_no_damage :: proc(t: ^testing.T) {
-	a := ship.Ship{hull = 20, durability = 0, speed = 5}
-	b := ship.Ship{hull = 20, durability = 0, speed = 5}
+	a := ship.Ship{hull = 20, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -22,14 +22,16 @@ round_with_no_fittings_and_no_commands_deals_no_damage :: proc(t: ^testing.T) {
 	testing.expect(t, !battle.ended)
 }
 
+// A hit lands at its full weight (ADR-0026): nothing stands between a side's Fire total
+// and the target's hull, so raw and final are the same number in every event.
 @(test)
-fire_fitting_deals_damage_reduced_by_target_durability :: proc(t: ^testing.T) {
+fire_fitting_deals_its_full_magnitude_to_the_target :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hull = 20, durability = 3, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hull = 20, durability = 3, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -37,45 +39,26 @@ fire_fitting_deals_damage_reduced_by_target_durability :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	testing.expect_value(t, b.hull, 20 - (10 - 3))
+	testing.expect_value(t, b.hull, 20 - 10)
 	testing.expect_value(t, a.hull, 20)
 	testing.expect_value(t, len(events), 1)
 	dealt, ok := events[0].(Event_Damage_Dealt)
 	testing.expect(t, ok)
 	testing.expect_value(t, dealt.target, Side.B)
 	testing.expect_value(t, dealt.raw_damage, 10)
-	testing.expect_value(t, dealt.final_damage, 7)
+	testing.expect_value(t, dealt.final_damage, 10)
 }
 
 @(test)
-damage_is_floored_at_zero_when_durability_exceeds_raw_damage :: proc(t: ^testing.T) {
-	dagger := ship.Fitting{name = "Dagger", category = .Fire, active = ship.Effect{magnitude = 2}}
-	a := ship.Ship{
-		hull = 20, durability = 10, speed = 5,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = dagger}},
-	}
-	b := ship.Ship{hull = 20, durability = 10, speed = 5}
-	battle := combat_battle_create(&a, &b)
-
-	events: [dynamic]Event
-	defer delete(events)
-	cmds: [Side]Maybe(Command)
-	combat_resolve_round(&battle, cmds, &events)
-
-	testing.expect_value(t, b.hull, 20)
-	testing.expect_value(t, len(events), 0)
-}
-
-@(test)
-brace_fitting_adds_a_temporary_damage_reduction_stacking_with_durability :: proc(t: ^testing.T) {
+a_brace_fitting_no_longer_reduces_incoming_damage :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
 	a := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	b := ship.Ship{
-		hull = 20, durability = 1, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = shield}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -85,8 +68,8 @@ brace_fitting_adds_a_temporary_damage_reduction_stacking_with_durability :: proc
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// 10 raw, minus durability(1) + this-round defense bonus(4) = 5 final.
-	testing.expect_value(t, b.hull, 15)
+	// 10 raw, and 10 lands: the shield's 4 is summed by nothing.
+	testing.expect_value(t, b.hull, 10)
 }
 
 // A Crew-tagged Fire fitting and a gun of equal magnitude contribute to raw
@@ -100,13 +83,13 @@ a_former_crew_fitting_and_a_gun_of_equal_magnitude_contribute_to_raw_identically
 		crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = crew_mag}}
 		gun := ship.Fitting{name = "Cannon", category = .Fire, tags = {.Weapon}, active = ship.Effect{magnitude = gun_mag}}
 		a := ship.Ship{
-			hull = 40, durability = 0, speed = 5,
+			hull = 40, speed = 5,
 			layout = []ship.Layout_Slot{
 				{slot = ship.Slot{size = .Small}, fitting = crew},
 				{slot = ship.Slot{size = .Large}, fitting = gun},
 			},
 		}
-		b := ship.Ship{hull = 40, durability = 0, speed = 5}
+		b := ship.Ship{hull = 40, speed = 5}
 		battle := combat_battle_create(&a, &b)
 		events: [dynamic]Event
 		defer delete(events)
@@ -120,23 +103,23 @@ a_former_crew_fitting_and_a_gun_of_equal_magnitude_contribute_to_raw_identically
 	testing.expect_value(t, fire_both(10, 3), 40-13)
 }
 
-// A Fire fitting never reduces incoming damage: raw and bulwark are disjoint, so a
-// Crew-tagged Fire fitting adds to what its ship deals and nothing to what it soaks.
-// Bulwark is only Durability plus own Brace output.
+// A Fire fitting never reduces incoming damage — trivially true since ADR-0026 deleted
+// the subtracted side of the exchange, but kept as the standing guard that a Crew-tagged
+// Fire fitting adds to what its ship *deals* and nothing else.
 @(test)
 a_fire_fitting_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
 	a := ship.Ship{
-		hull = 40, durability = 1, speed = 5,
+		hull = 40, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = crew},
 			{slot = ship.Slot{size = .Small}, fitting = shield},
 		},
 	}
 	b := ship.Ship{
-		hull = 40, durability = 0, speed = 5,
+		hull = 40, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -146,20 +129,20 @@ a_fire_fitting_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's bulwark = durability(1) + brace(4) = 5 — the Top Crew's 3 is *not* in it.
-	// B's raw damage = 20, so final = 20 - 5 = 15.
-	testing.expect_value(t, a.hull, 40-15)
+	// Neither the Top Crew's 3 nor the Shield Charm's 4 stands in the way: B's raw
+	// damage is 20, and 20 lands.
+	testing.expect_value(t, a.hull, 40-20)
 }
 
 @(test)
 press_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	b := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -181,13 +164,13 @@ press_fire_multiplies_the_whole_fire_pile_including_former_crew :: proc(t: ^test
 	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = 2}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, tags = {.Weapon}, active = ship.Effect{magnitude = 5}}
 	a := ship.Ship{
-		hull = 40, durability = 0, speed = 5,
+		hull = 40, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = crew},
 			{slot = ship.Slot{size = .Large}, fitting = cannon},
 		},
 	}
-	b := ship.Ship{hull = 40, durability = 0, speed = 5}
+	b := ship.Ship{hull = 40, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -200,22 +183,24 @@ press_fire_multiplies_the_whole_fire_pile_including_former_crew :: proc(t: ^test
 	testing.expect_value(t, b.hull, 40-(2+5)*PRESS_MULTIPLIER)
 }
 
-// Press Brace doubles the Brace fittings alone. Fire fittings never reach bulwark, so
-// the crew-tagged Fire fitting on the pressing ship changes nothing about the soak.
+// Press Brace is inert (ADR-0026). It still parses, still costs the round, and still
+// multiplies the Brace phase's total — but nothing reads that total, so the damage the
+// pressing ship takes is identical to the damage it takes holding. Press Fire is for now
+// the only Press that reads; #397's repair verb is what gives this one its consumer back.
 @(test)
-press_brace_multiplies_only_the_brace_fittings :: proc(t: ^testing.T) {
+press_brace_changes_nothing_while_brace_has_no_consumer :: proc(t: ^testing.T) {
 	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = 3}}
 	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
 	a := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{
 			{slot = ship.Slot{size = .Small}, fitting = crew},
 			{slot = ship.Slot{size = .Small}, fitting = shield},
 		},
 	}
 	b := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	battle := combat_battle_create(&a, &b)
@@ -226,42 +211,8 @@ press_brace_multiplies_only_the_brace_fittings :: proc(t: ^testing.T) {
 	cmds[.A] = Command(Command_Press{phase = .Brace})
 	combat_resolve_round(&battle, cmds, &events)
 
-	// A's pressed bulwark = shield(4) * PRESS_MULTIPLIER = 8, the Top Crew's 3 excluded;
-	// B's raw damage = 20, so final = 20 - 8 = 12.
-	testing.expect_value(t, a.hull, 20-12)
-}
-
-@(test)
-a_durability_stat_modifier_fitting_measurably_reduces_damage_taken :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", size = .Large, category = .Fire, active = ship.Effect{magnitude = 10}}
-	reinforced := ship.Fitting{
-		name = "Reinforced Hull", size = .Small,
-		passive = ship.Effect{kind = .Modify_Durability, magnitude = 4},
-	}
-
-	// Same attack against the same base ship, with and without the +Durability
-	// fitting installed on the target.
-	fire_once :: proc(target_layout: []ship.Layout_Slot, attacker: ship.Fitting) -> int {
-		a := ship.Ship{
-			hull = 20, durability = 0, speed = 5,
-			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = attacker}},
-		}
-		b := ship.Ship{hull = 20, durability = 1, speed = 5, layout = target_layout}
-		battle := combat_battle_create(&a, &b)
-		events: [dynamic]Event
-		defer delete(events)
-		cmds: [Side]Maybe(Command)
-		combat_resolve_round(&battle, cmds, &events)
-		return b.hull
-	}
-
-	bare_hull := fire_once(nil, cannon)
-	reinforced_hull := fire_once([]ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = reinforced}}, cannon)
-
-	// Bare: 10 raw - durability(1) = 9 -> hull 11. Reinforced: 10 - (1+4) = 5 -> hull 15.
-	testing.expect_value(t, bare_hull, 20 - 9)
-	testing.expect_value(t, reinforced_hull, 20 - 5)
-	testing.expect(t, reinforced_hull > bare_hull) // the +Durability fitting measurably reduced damage
+	// B's raw damage = 20, and 20 lands regardless of what A pressed.
+	testing.expect_value(t, a.hull, 0)
 }
 
 @(test)
@@ -304,10 +255,10 @@ the_three_starting_fittings_phase_output_matches_their_magnitude_constants :: pr
 hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hull = 20, durability = 0, speed = 5,
+		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hull = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 
 	events: [dynamic]Event
@@ -737,10 +688,10 @@ break_off_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testi
 an_escape_eligible_side_declining_to_break_off_lets_combat_continue_normally :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
 	a := ship.Ship{
-		hull = 20, durability = 0, speed = 10,
+		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
-	b := ship.Ship{hull = 20, durability = 0, speed = 5}
+	b := ship.Ship{hull = 20, speed = 5}
 	battle := combat_battle_create(&a, &b)
 	battle.round = BASELINE_ROUND_COUNT
 
@@ -994,11 +945,11 @@ identical_ships_and_commands_produce_identical_results_every_time :: proc(t: ^te
 	make_ships :: proc() -> (ship.Ship, ship.Ship) {
 		cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 7}}
 		a := ship.Ship{
-			hull = 30, durability = 1, speed = 5,
+			hull = 30, speed = 5,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 		}
 		b := ship.Ship{
-			hull = 30, durability = 2, speed = 6,
+			hull = 30, speed = 6,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 		}
 		return a, b
@@ -1086,10 +1037,10 @@ a_below_half_hull_conditional_offense_fitting_contributes_only_below_the_thresho
 	// attacker's current Hull relative to its half-Hull threshold.
 	damage_dealt_at_hull :: proc(attacker: ship.Fitting, attacker_hull: int) -> int {
 		a := ship.Ship{
-			hull = attacker_hull, max_hull = 20, durability = 0, speed = 5,
+			hull = attacker_hull, max_hull = 20, speed = 5,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = attacker}},
 		}
-		b := ship.Ship{hull = 20, max_hull = 20, durability = 0, speed = 5}
+		b := ship.Ship{hull = 20, max_hull = 20, speed = 5}
 		battle := combat_battle_create(&a, &b)
 		events: [dynamic]Event
 		defer delete(events)
@@ -1118,12 +1069,12 @@ a_while_concealed_conditional_offense_fitting_reads_its_own_slot_visibility :: p
 
 	damage_from_slot :: proc(attacker: ship.Fitting, base_visibility: ship.Visibility) -> int {
 		a := ship.Ship{
-			hull = 20, max_hull = 20, durability = 0, speed = 5,
+			hull = 20, max_hull = 20, speed = 5,
 			layout = []ship.Layout_Slot{
 				{slot = ship.Slot{size = .Large, base_visibility = base_visibility}, fitting = attacker},
 			},
 		}
-		b := ship.Ship{hull = 20, max_hull = 20, durability = 0, speed = 5}
+		b := ship.Ship{hull = 20, max_hull = 20, speed = 5}
 		battle := combat_battle_create(&a, &b)
 		events: [dynamic]Event
 		defer delete(events)

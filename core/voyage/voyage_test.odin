@@ -97,11 +97,6 @@ fight_opponent_hull_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 }
 
 @(test)
-fight_opponent_durability_rises_by_zone_and_depth :: proc(t: ^testing.T) {
-	expect_rises_by_zone_and_depth(t, voyage_fight_opponent_durability)
-}
-
-@(test)
 fight_opponent_offense_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 	expect_rises_by_zone_and_depth(t, voyage_fight_opponent_power)
 }
@@ -187,12 +182,14 @@ a_reward_outpays_selling_a_stat_at_the_same_site :: proc(t: ^testing.T) {
 }
 
 @(test)
-voyage_make_opponent_ship_sets_both_hull_and_durability_from_zone_and_depth :: proc(t: ^testing.T) {
+voyage_make_opponent_ship_sets_hull_from_zone_and_depth :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Deep, depth = 2}
 	opponent := voyage_make_opponent_ship(site)
 
+	// Hull is the whole of the stakes-scaled ship since ADR-0026 deleted the
+	// durability reading that used to sit beside it.
 	testing.expect_value(t, opponent.hull, voyage_fight_opponent_hull(site))
-	testing.expect_value(t, opponent.durability, voyage_fight_opponent_durability(site))
+	testing.expect_value(t, opponent.max_hull, voyage_fight_opponent_hull(site))
 }
 
 // The primitives all read one gradient, so their readings must stay
@@ -202,8 +199,8 @@ voyage_make_opponent_ship_sets_both_hull_and_durability_from_zone_and_depth :: p
 the_primitives_readings_of_one_site_land_on_distinguishable_magnitudes :: proc(t: ^testing.T) {
 	coastal := Scaling_Site{zone = .Coastal, depth = 0}
 	testing.expect(t, voyage_fight_opponent_hull(coastal) != voyage_offer_item_quality(coastal))
-	testing.expect(t, voyage_fight_opponent_hull(coastal) != voyage_trade_swing(coastal.zone, .Durability))
-	testing.expect(t, voyage_offer_item_quality(coastal) != voyage_trade_swing(coastal.zone, .Durability))
+	testing.expect(t, voyage_fight_opponent_hull(coastal) != voyage_trade_swing(coastal.zone, .Max_Hull))
+	testing.expect(t, voyage_offer_item_quality(coastal) != voyage_trade_swing(coastal.zone, .Max_Hull))
 }
 
 // --- Depth normalization: stable endpoints regardless of layer count -------
@@ -1547,11 +1544,11 @@ trade_of :: proc(gain: Trade_Stat, gain_amount: int, cost: Trade_Stat, cost_amou
 
 @(test)
 voyage_apply_trade_permanently_swaps_the_cost_stat_for_the_gain_stat :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 20, max_hull = 20, durability = 2}
+	s := ship.Ship{hull = 20, max_hull = 20}
 
-	voyage_apply_trade(&s, trade_of(.Durability, 3, .Max_Hull, 1))
+	voyage_apply_trade(&s, trade_of(.Hull, 3, .Max_Hull, 1))
 
-	testing.expect_value(t, s.durability, 5)
+	testing.expect_value(t, s.hull, 19) // capped at the lowered ceiling
 	testing.expect_value(t, s.max_hull, 19)
 }
 
@@ -1559,12 +1556,12 @@ voyage_apply_trade_permanently_swaps_the_cost_stat_for_the_gain_stat :: proc(t: 
 // — that's the whole of what unwelding bought.
 @(test)
 voyage_apply_trade_runs_an_axis_in_either_direction :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 20, max_hull = 20, durability = 5}
+	s := ship.Ship{hull = 20, max_hull = 20}
 
-	voyage_apply_trade(&s, trade_of(.Max_Hull, 2, .Durability, 3))
+	voyage_apply_trade(&s, trade_of(.Max_Hull, 2, .Hull, 3))
 
 	testing.expect_value(t, s.max_hull, 22)
-	testing.expect_value(t, s.durability, 2)
+	testing.expect_value(t, s.hull, 17)
 }
 
 @(test)
@@ -1573,27 +1570,26 @@ voyage_apply_trade_moves_cargo :: proc(t: ^testing.T) {
 	// starting ship carries its 50 cargo in real slots (capacity 90, room to gain).
 	s := ship.ship_starting_ship()
 	defer delete(s.layout)
-	s.durability = 4
 	testing.expect_value(t, ship.ship_cargo(s), 50)
 
-	voyage_apply_trade(&s, trade_of(.Cargo, 15, .Durability, 2))
+	voyage_apply_trade(&s, trade_of(.Cargo, 15, .Max_Hull, 2))
 
 	testing.expect_value(t, ship.ship_cargo(s), 65)
-	testing.expect_value(t, s.durability, 2)
+	testing.expect_value(t, s.max_hull, ship.STARTING_HULL - 2)
 }
 
 // voyage_trade_project feeds the Trade view's two cards (#318): both stats' effective reading
 // before the swap and after it, computed without touching the ship.
 @(test)
 voyage_trade_project_reads_both_sides_before_and_after :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 20, max_hull = 20, durability = 2}
+	s := ship.Ship{hull = 20, max_hull = 40}
 
-	cost, gain := voyage_trade_project(&s, trade_of(.Durability, 3, .Max_Hull, 1))
+	cost, gain := voyage_trade_project(&s, trade_of(.Hull, 3, .Max_Hull, 1))
 
-	testing.expect_value(t, cost.before, 20) // Max Hull paid
-	testing.expect_value(t, cost.after, 19)
-	testing.expect_value(t, gain.before, 2) // Durability gained
-	testing.expect_value(t, gain.after, 5)
+	testing.expect_value(t, cost.before, 40) // Max Hull paid
+	testing.expect_value(t, cost.after, 39)
+	testing.expect_value(t, gain.before, 20) // Hull gained
+	testing.expect_value(t, gain.after, 23)
 }
 
 // A Cargo gain projects capped at capacity, so the view surfaces #157 overflow as an after that
@@ -1602,9 +1598,8 @@ voyage_trade_project_reads_both_sides_before_and_after :: proc(t: ^testing.T) {
 voyage_trade_project_caps_a_cargo_gain_at_capacity :: proc(t: ^testing.T) {
 	s := ship.ship_starting_ship() // 50 cargo, capacity 90
 	defer delete(s.layout)
-	s.durability = 4
 
-	_, gain := voyage_trade_project(&s, trade_of(.Cargo, 60, .Durability, 2))
+	_, gain := voyage_trade_project(&s, trade_of(.Cargo, 60, .Max_Hull, 2))
 
 	testing.expect_value(t, gain.before, 50)
 	testing.expect_value(t, gain.after, 90) // 110 would overflow; the extra 20 is lost (#157)
@@ -1614,7 +1609,7 @@ voyage_trade_project_caps_a_cargo_gain_at_capacity :: proc(t: ^testing.T) {
 // pay-before-grant order voyage_apply_trade uses.
 @(test)
 voyage_trade_project_repairs_against_the_sold_ceiling :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 18, max_hull = 20, durability = 5}
+	s := ship.Ship{hull = 18, max_hull = 20}
 
 	_, gain := voyage_trade_project(&s, trade_of(.Hull, 5, .Max_Hull, 3))
 
@@ -1626,18 +1621,20 @@ voyage_trade_project_repairs_against_the_sold_ceiling :: proc(t: ^testing.T) {
 // stat's floor — the below-floor read the view draws when can_accept is false.
 @(test)
 voyage_trade_project_shows_an_unaffordable_cost_below_its_floor :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 10, max_hull = 10, durability = 2}
+	s := ship.Ship{hull = 10, max_hull = 10}
 
-	cost, _ := voyage_trade_project(&s, trade_of(.Max_Hull, 1, .Durability, 5))
+	cost, _ := voyage_trade_project(&s, trade_of(.Hull, 1, .Max_Hull, 15))
 
-	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Max_Hull, 1, .Durability, 5)))
-	testing.expect_value(t, cost.before, 2)
-	testing.expect_value(t, cost.after, -3) // below the Durability floor of 0
+	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Hull, 1, .Max_Hull, 15)))
+	testing.expect_value(t, cost.before, 10)
+	testing.expect_value(t, cost.after, -5) // below the Max Hull floor of 1
 }
 
-// Scrapped Armour (gain .Cargo, cost .Durability) picked up two side effects
-// when cargo became weight (ADR-0020, #199), and both are the honest, intended
-// cost of the axis rather than a bug to guard:
+// A Cargo-gaining axis picks up two side effects from cargo being weight (ADR-0020,
+// #199), and both are the honest, intended cost of such an axis rather than a bug to
+// guard. No roster entry gains Cargo today — Scrapped Armour, the one that did, went
+// with Durability (ADR-0026) — so this asserts the *model's* rule against a synthetic
+// trade, ready for the next axis that gains cargo:
 //
 //   - Its Cargo gain can **overflow the hold and be silently lost** — a Trade
 //     that burns its own payout. That is #157's rule with no special case (cargo
@@ -1651,18 +1648,18 @@ voyage_trade_project_shows_an_unaffordable_cost_below_its_floor :: proc(t: ^test
 // letting the player *read* that risk off the hold before accepting is the UI pass's
 // job (#201/#202), not a model guard here.
 @(test)
-voyage_apply_trade_scrapped_armour_gain_above_capacity_is_lost :: proc(t: ^testing.T) {
+voyage_apply_trade_a_cargo_gain_above_capacity_is_lost :: proc(t: ^testing.T) {
 	s := ship.ship_starting_ship() // capacity 90, cargo 50, effective Speed 4
 	defer delete(s.layout)
-	s.durability = 4
+	max_hull_before := s.max_hull
 	speed_before := ship.ship_effective_speed(&s)
 
-	// Sell armour for 60 cargo against a 90 ceiling with only 40 of room: 20 of
+	// Sell the ceiling for 60 cargo against a 90 hold with only 40 of room: 20 of
 	// the payout has no slot to land in and is dropped, not banked in a scalar.
-	voyage_apply_trade(&s, trade_of(.Cargo, 60, .Durability, 2))
+	voyage_apply_trade(&s, trade_of(.Cargo, 60, .Max_Hull, 2))
 
 	testing.expect_value(t, ship.ship_cargo(s), 90) // capped at capacity, not the 110 gained
-	testing.expect_value(t, s.durability, 2)            // yet the cost is still paid in full
+	testing.expect_value(t, s.max_hull, max_hull_before - 2) // yet the cost is still paid in full
 	// The heavier hold is slower: the incidental Speed swing is intentional (ADR-0020).
 	testing.expect(t, ship.ship_effective_speed(&s) < speed_before)
 }
@@ -1683,9 +1680,9 @@ voyage_apply_trade_pays_before_granting_so_a_repair_caps_against_the_sold_ceilin
 
 @(test)
 voyage_apply_trade_never_overheals :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 18, max_hull = 20, durability = 4}
+	s := ship.Ship{hull = 18, max_hull = 20}
 
-	voyage_apply_trade(&s, trade_of(.Hull, 10, .Durability, 1))
+	voyage_apply_trade(&s, trade_of(.Hull, 10, .Max_Hull, 0))
 
 	testing.expect_value(t, s.hull, 20)
 }
@@ -1710,9 +1707,9 @@ voyage_apply_trade_gaining_max_hull_raises_the_ceiling_without_filling_it :: pro
 // can now hold.
 @(test)
 voyage_apply_trade_paying_max_hull_pulls_current_hull_down_to_the_new_ceiling :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 20, max_hull = 20, durability = 1}
+	s := ship.Ship{hull = 20, max_hull = 20}
 
-	voyage_apply_trade(&s, trade_of(.Durability, 2, .Max_Hull, 8))
+	voyage_apply_trade(&s, trade_of(.Hull, 2, .Max_Hull, 8))
 
 	testing.expect_value(t, s.max_hull, 12)
 	testing.expect_value(t, s.hull, 12)
@@ -1722,52 +1719,52 @@ voyage_apply_trade_paying_max_hull_pulls_current_hull_down_to_the_new_ceiling ::
 
 @(test)
 voyage_trade_can_accept_refuses_a_cost_that_would_break_the_floor :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 20, max_hull = 20, durability = 4}
+	s := ship.ship_starting_ship() // 50 cargo aboard
+	defer delete(s.layout)
 
-	// Durability floors at 0, so spending exactly all of it is still a trade...
-	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Max_Hull, 8, .Durability, 4)))
+	// Cargo floors at 0, so spending exactly all of it is still a trade...
+	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Max_Hull, 8, .Cargo, 50)))
 	// ...but one more than the ship has is not.
-	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Max_Hull, 8, .Durability, 5)))
+	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Max_Hull, 8, .Cargo, 51)))
 }
 
 // Hull and Max Hull floor at 1: a trade is a bargain on a menu and must not be able
 // to sink the ship there.
 @(test)
 voyage_trade_can_accept_never_lets_a_trade_sink_the_ship :: proc(t: ^testing.T) {
-	s := ship.Ship{hull = 10, max_hull = 10, durability = 1}
+	s := ship.Ship{hull = 10, max_hull = 10}
 
-	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Durability, 1, .Hull, 9)))
-	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Durability, 1, .Hull, 10)))
-	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Durability, 1, .Max_Hull, 9)))
-	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Durability, 1, .Max_Hull, 10)))
+	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Max_Hull, 1, .Hull, 9)))
+	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Max_Hull, 1, .Hull, 10)))
+	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Hull, 1, .Max_Hull, 9)))
+	testing.expect(t, !voyage_trade_can_accept(&s, trade_of(.Hull, 1, .Max_Hull, 10)))
 }
 
 // The ADR-0012 constraint the ticket names: a trade reads the **effective** stat,
-// never the raw base field. A fitting granting +3 Durability makes a cost of 5
+// never the raw base field. A fitting granting +3 Max Hull makes a cost of 4
 // affordable on a base of 2 — and paying it out of the base leaves that base
-// negative, which is fine, because effective (0) is the number combat resolves
-// against and it is still at the floor.
+// negative, which is fine, because effective (1) is the number the rest of the game
+// resolves against and it is still at the floor.
 @(test)
 voyage_trade_measures_the_cost_against_the_effective_stat_not_the_base_field :: proc(t: ^testing.T) {
-	plating := ship.Fitting{
-		name    = "Test Plating",
+	bulkheads := ship.Fitting{
+		name    = "Test Bulkheads",
 		size    = .Small,
-		passive = ship.Effect{kind = .Modify_Durability, magnitude = 3},
+		passive = ship.Effect{kind = .Modify_Max_Hull, magnitude = 3},
 	}
 	s := ship.Ship{
-		hull = 20, max_hull = 20, durability = 2,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = plating}},
+		hull = 1, max_hull = 2,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = bulkheads}},
 	}
-	testing.expect_value(t, ship.ship_effective_durability(&s), 5)
+	testing.expect_value(t, ship.ship_effective_max_hull(&s), 5)
 
-	// The base alone (2) could never pay 5; the fitting's contribution is what
+	// The base alone (2) could never pay 4; the fitting's contribution is what
 	// makes it affordable.
-	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Max_Hull, 1, .Durability, 5)))
-	voyage_apply_trade(&s, trade_of(.Max_Hull, 1, .Durability, 5))
+	testing.expect(t, voyage_trade_can_accept(&s, trade_of(.Hull, 1, .Max_Hull, 4)))
+	voyage_apply_trade(&s, trade_of(.Hull, 1, .Max_Hull, 4))
 
-	testing.expect_value(t, s.durability, -3) // the base field went negative...
-	testing.expect_value(t, ship.ship_effective_durability(&s), 0) // ...and effective landed on the floor.
-	testing.expect_value(t, s.max_hull, 21)
+	testing.expect_value(t, s.max_hull, -2) // the base field went negative...
+	testing.expect_value(t, ship.ship_effective_max_hull(&s), 1) // ...and effective landed on the floor.
 }
 
 @(test)
@@ -1775,9 +1772,9 @@ voyage_apply_trade_asserts_on_a_trade_the_ship_cannot_pay_for :: proc(t: ^testin
 	when testutil.SKIP_WINDOWS_ASSERT_BUG {
 		return
 	}
-	s := ship.Ship{hull = 20, max_hull = 20, durability = 2}
+	s := ship.Ship{hull = 20, max_hull = 20}
 
-	voyage_apply_trade(&s, trade_of(.Max_Hull, 8, .Durability, 5))
+	voyage_apply_trade(&s, trade_of(.Hull, 8, .Max_Hull, 25))
 
 	testing.expect_assert(t, "voyage_apply_trade on a trade the ship cannot pay for")
 }

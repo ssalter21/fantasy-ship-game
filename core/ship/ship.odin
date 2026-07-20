@@ -46,11 +46,11 @@ Magnitude :: distinct int
 // Effect_Kind is what an Effect's resolved magnitude does. The zero value,
 // Phase_Contribution, feeds the owning fitting's combat phase (its Category,
 // ADR-0006); the Modify_* kinds instead adjust one of the owning ship's
-// effective stats (ship_effective_durability / _speed / _max_hull), so a fitting
-// can raise a stat without contributing to a phase.
+// effective stats (ship_effective_speed / _max_hull), so a fitting can raise a
+// stat without contributing to a phase. Modify_Durability died with the
+// Durability stat itself (ADR-0026).
 Effect_Kind :: enum {
 	Phase_Contribution,
-	Modify_Durability,
 	Modify_Speed,
 	Modify_Max_Hull,
 }
@@ -282,29 +282,28 @@ Layout_Slot :: struct {
 // core/combat).
 Slot_Index :: distinct int
 
-// Ship holds the voyage-persistent top-level stats (Hull, Durability, Speed) plus
+// Ship holds the voyage-persistent top-level stats (Hull, Speed) plus
 // the fixed layout of slots that carries its combat power. A ship's money is *not*
 // a field: the cargo it carries is stowed in its cargo fittings (ship_cargo), so no
 // number on a ship represents money (ADR-0020, ADR-0004).
 Ship :: struct {
-	hull:                  int,
+	hull:     int,
 	// max_hull is the ship's undamaged Hull ceiling (ADR-0008): hull is the voyage-
 	// persistent value combat depletes, max_hull never changes during a voyage and
 	// is what a Ghost_Snapshot resets hull to on capture.
-	max_hull:              int,
-	durability:          int,
+	max_hull: int,
 	// speed is the `base` term of the derived Speed reading (ADR-0020): effective
 	// Speed is `speed + Σ Modify_Speed − weight/10` (ship_effective_speed), not this
 	// field alone. Set to BASE_SPEED uniformly across ships (a ship's character is
 	// its items and cargo, not a per-hull base); kept as a field so Modify_Speed
 	// modifiers have a base to act on.
-	speed:               int,
-	layout:              []Layout_Slot,
+	speed:  int,
+	layout: []Layout_Slot,
 	// captain is the voyage-start ship<->captain relationship: a captain can
 	// influence a ship's slot limits/structure and grants additional manual per-
 	// round captain actions. The vertical slice's one concrete captain is
 	// ship_starting_captain in content.odin.
-	captain:             Maybe(Captain),
+	captain: Maybe(Captain),
 }
 
 // ship_fitting_fits reports whether `fitting` may occupy a slot of `size` under
@@ -381,8 +380,8 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx:
 	return total
 }
 
-// ship_effective_stat is the shared shape behind ship_effective_durability /
-// _speed / _max_hull: the raw base stat plus every installed fitting's matching
+// ship_effective_stat is the shared shape behind ship_effective_speed /
+// _max_hull: the raw base stat plus every installed fitting's matching
 // stat-modifier contribution. `base` is the ship's own field and `kind` the
 // Modify_* kind that targets it. self_slot is set per iteration so a conditional
 // stat modifier gated on its own concealment resolves against the slot it actually
@@ -400,14 +399,11 @@ ship_effective_stat :: proc(s: ^Ship, base: int, kind: Effect_Kind) -> int {
 	return total
 }
 
-// ship_effective_durability / _speed / _max_hull return a ship's stat after its
-// installed fittings' stat-modifier effects apply on top of the raw Ship field.
-// Combat reads these rather than the raw fields (ADR-0008's ghost capture resets
-// hull to effective max Hull), so a fitting can raise Durability / Speed / Max Hull.
-ship_effective_durability :: proc(s: ^Ship) -> int {
-	return ship_effective_stat(s, s.durability, .Modify_Durability)
-}
-
+// ship_effective_speed / _max_hull return a ship's stat after its installed
+// fittings' stat-modifier effects apply on top of the raw Ship field. Combat reads
+// these rather than the raw fields (ADR-0008's ghost capture resets hull to
+// effective max Hull), so a fitting can raise Speed / Max Hull.
+//
 // ship_effective_speed derives a ship's Speed from its weight (ADR-0020):
 // `base + Σ Modify_Speed − weight/10`, so no ship's Speed can be read without
 // asking what it carries. The `/10` divisor is the money↔Speed exchange rate (a

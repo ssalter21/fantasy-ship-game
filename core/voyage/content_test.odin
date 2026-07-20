@@ -80,7 +80,6 @@ voyage_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_fight_formula
 	defer delete(opponent.layout)
 
 	testing.expect_value(t, opponent.hull, voyage_fight_opponent_hull(site))
-	testing.expect_value(t, opponent.durability, voyage_fight_opponent_durability(site))
 }
 
 @(test)
@@ -169,27 +168,20 @@ a_deeper_node_gives_the_opponent_harder_hitting_fire_fittings :: proc(t: ^testin
 	testing.expect_value(t, loadout_signature(coastal), loadout_signature(deep)) // same build
 	testing.expect(t, phase_magnitude(deep, .Fire) > phase_magnitude(coastal, .Fire))
 	testing.expect(t, deep.hull > coastal.hull)
-	testing.expect(t, deep.durability > coastal.durability)
 }
 
-// **Stakes scales what a hostile deals, never its bulwark** — the surviving half
-// of #135's rule (voyage_stakes_scales_category), and the half whose reason is still
-// alive: bulwark is subtracted from raw damage, so a site that scaled it would make a
-// deep hostile impossible to *hurt* rather than harder to fight.
+// **Stakes scales what a hostile deals, and Fire is all it deals** — what is left of
+// #135's rule (voyage_stakes_scales_category) once ADR-0026 deleted the subtracted side
+// of the exchange. Brace's old reason for exemption (scaling a subtrahend walls the
+// player) died with bulwark; the exemption survives on a plainer one — Brace feeds
+// nothing at all until its repair verb lands (#397), so there is nothing there to scale.
 //
 // Only Brace is exempt. Every other category — Fire, and the Modify_Speed passives
-// filed under it — the site scales, because everything but bulwark is what a hostile
-// deals. That is why this test names the *property* (bulwark is never scaled) rather
-// than a category list that would drift each time the categories move.
-//
-// Both of a Brace fitting's routes into bulwark are checked, since the roster uses
-// both: `Barricades` is an active that feeds the Brace phase, and `Reinforced
-// Hull` is a passive Modify_Durability that never enters a phase at all. The site's
-// own durability reading is subtracted off so this asks about the *archetype's*
-// contribution rather than voyage_make_opponent_ship's baseline, which is a stakes
-// reading and is meant to move.
+// filed under it — the site scales. This names the *property* (Brace output never moves
+// with the site) rather than a category list that would drift each time the categories
+// move.
 @(test)
-the_site_scales_what_a_hostile_deals_and_never_its_bulwark :: proc(t: ^testing.T) {
+the_site_scales_what_a_hostile_deals_and_never_its_brace :: proc(t: ^testing.T) {
 	shallow_site := Scaling_Site{zone = .Coastal, depth = 0}
 	deep_site := Scaling_Site{zone = .Deep, depth = DEPTH_STEPS}
 
@@ -202,14 +194,7 @@ the_site_scales_what_a_hostile_deals_and_never_its_bulwark :: proc(t: ^testing.T
 		testing.expectf(
 			t,
 			phase_magnitude(deep, .Brace) == phase_magnitude(shallow, .Brace),
-			"%v's brace output moved with the site — bulwark is subtracted from raw, so scaling it walls the player",
-			archetype.name,
-		)
-		testing.expectf(
-			t,
-			ship.ship_effective_durability(&deep) - voyage_fight_opponent_durability(deep_site) ==
-			ship.ship_effective_durability(&shallow) - voyage_fight_opponent_durability(shallow_site),
-			"%v's fittings contributed more Durability in The Deep — the site scaled a Modify_Durability passive",
+			"%v's brace output moved with the site — Brace has no consumer, so the site must not scale it",
 			archetype.name,
 		)
 	}
@@ -430,10 +415,9 @@ every_hostile_reads_a_nonnegative_speed_at_its_reachable_fill :: proc(t: ^testin
 // the state the player is actually in when they meet their first hostile, and (since
 // the draw reads no zone) any archetype can be that first hostile.
 //
-// Both failure directions are one-line mistakes in the table: damage is
-// `raw - (effective_durability + defense_bonus)`, so a few points of stacked
-// +Durability makes a hostile undentable, and overshooting the other way one-shots
-// the player. This test is what keeps the eight entries inside the band.
+// Both failure directions are one-line mistakes in the table: since ADR-0026 damage is
+// simply `raw`, so an over-armed entry one-shots the player and an under-armed one
+// cannot finish a fight. This test is what keeps the eight entries inside the band.
 //
 // **The floor is BASELINE_ROUND_COUNT, and #151 made that a real number rather than
 // a hopeful one.** It used to be 4 — *below* the escape gate — and it was never
@@ -483,9 +467,8 @@ a_starting_player_can_fight_every_archetype_at_coastal :: proc(t: ^testing.T) {
 		testing.expectf(
 			t,
 			hostile.hull < hostile.max_hull,
-			"a starting player cannot scratch %v at Coastal (durability %d) — see the both-walls note on hostile_roster",
+			"a starting player cannot scratch %v at Coastal — see the both-walls note on hostile_roster",
 			archetype.name,
-			ship.ship_effective_durability(&hostile),
 		)
 		// And the fight actually ends, rather than grinding on the damage floor.
 		testing.expectf(t, battle.ended, "%v and a starting player cannot finish a fight at Coastal", archetype.name)
@@ -545,7 +528,7 @@ a_starting_player_takes_real_damage_from_every_archetype_at_coastal :: proc(t: ^
 		testing.expectf(
 			t,
 			player.hull < player.max_hull,
-			"%v cannot scratch a starting player at Coastal — half of its authored output is under a starting ship's bulwark, so the fight has no risk in it",
+			"%v cannot scratch a starting player at Coastal — it deals nothing at all at half its authored output, so the fight has no risk in it",
 			archetype.name,
 		)
 	}
@@ -588,7 +571,7 @@ a_selector_offense_fitting_can_sit_on_a_hostile_without_walling_the_player :: pr
 	testing.expectf(
 		t,
 		hostile.hull < hostile.max_hull,
-		"a starting player cannot scratch a four-Crew Admiral's Guard build — a Selector attacker is feeding bulwark again, and every Selector item is barred from half the game",
+		"a starting player cannot scratch a four-Crew Admiral's Guard build — a Selector attacker is feeding the defensive side again, and every Selector item is barred from half the game",
 	)
 }
 
@@ -754,14 +737,14 @@ every_trade_roster_entry_swaps_two_different_stats_and_is_named :: proc(t: ^test
 	}
 }
 
-// The roster's coverage after the #180 cut (content.odin): Speed left the Trade
-// vocabulary, dropping the roster to three rows, so coverage is deliberately
-// partial. Hull is gain-only (nothing else heals), Durability is now cost-only (it
-// lost its gainer when Braced Bulkheads left), and Max Hull / Cargo sit on both
-// sides. This pins that exact shape so a re-widening of the roster is a conscious
-// edit here rather than a silent drift.
+// The roster's coverage after ADR-0026 (content.odin): Speed left with the #180 cut and
+// Durability left with the stat itself, dropping the roster to two rows, so coverage is
+// deliberately partial. Hull is gain-only (nothing else heals), Cargo is cost-only (its
+// gainer was Scrapped Armour, which sold Durability), and Max Hull sits on both sides.
+// This pins that exact shape so a re-widening of the roster is a conscious edit here
+// rather than a silent drift.
 @(test)
-the_trade_roster_covers_the_stats_the_surviving_three_rows_can :: proc(t: ^testing.T) {
+the_trade_roster_covers_the_stats_the_surviving_two_rows_can :: proc(t: ^testing.T) {
 	gained: bit_set[Trade_Stat]
 	cost: bit_set[Trade_Stat]
 	for axis in voyage_trade_roster() {
@@ -769,8 +752,8 @@ the_trade_roster_covers_the_stats_the_surviving_three_rows_can :: proc(t: ^testi
 		cost += {axis.cost}
 	}
 
-	testing.expect_value(t, gained, bit_set[Trade_Stat]{.Hull, .Max_Hull, .Cargo})
-	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_Hull, .Durability, .Cargo})
+	testing.expect_value(t, gained, bit_set[Trade_Stat]{.Hull, .Max_Hull})
+	testing.expect_value(t, cost, bit_set[Trade_Stat]{.Max_Hull, .Cargo})
 }
 
 // baked_trade is a roster axis priced at a zone — exactly what voyage_make_trade
@@ -785,7 +768,8 @@ baked_trade :: proc(axis: Trade_Axis, zone: Zone) -> Stage_Trade {
 // cannot reach.** Two of the six were exactly that before the retune — Stripped
 // Spars and Scrapped Armour cost 8 Durability at Coastal against a hull that has
 // 2, so a Bargain node's only answer was reject, in a run that traverses ~3-4
-// nodes per zone.
+// nodes per zone. Both are gone now (#180, ADR-0026), but the claim outlives them:
+// it is asserted of whatever the roster holds.
 //
 // Asserted against a **bare starting ship**, which is the strongest form of the
 // claim and the honest one for these two zones: a Bargain is a 1-stage recipe, so
@@ -808,48 +792,6 @@ every_trade_roster_entry_is_takeable_by_a_starting_ship_outside_the_deep :: proc
 				axis.cost,
 			)
 		}
-	}
-}
-
-// The residue of the retune, pinned rather than papered over (#146). A Deep
-// Durability swing is 3 against a bare hull's 2, so the two Durability-costing
-// entries ask for one bought point of armour before The Deep will take them — one
-// Iron Plating, 10 cargo, the cheapest item in the game, against four
-// guaranteed Ports and a zone of Rewards behind you.
-//
-// That is content rather than a dead node: you cannot strip armour you never
-// bought, and Scrapped Armour's whole proposition is selling the armour you have.
-// It is also the last of the starting-Durability-of-2 problem — the stat's range
-// is set by combat's single-digit band (#135), which is #151's to widen, not this
-// table's. **If #151 raises the base, this test should fail**, and the right
-// response is to delete it: it exists to say that the gap is one plating wide and
-// known, not that it should stay.
-@(test)
-the_deep_asks_one_point_of_armour_before_it_will_buy_a_ships_armour :: proc(t: ^testing.T) {
-	for axis in voyage_trade_roster() {
-		if axis.cost != .Durability {
-			continue
-		}
-
-		bare := ship.ship_starting_ship()
-		defer delete(bare.layout)
-		testing.expectf(
-			t,
-			!voyage_trade_can_accept(&bare, baked_trade(axis, .Deep)),
-			"%v is takeable in The Deep by a bare hull — the residue this test documents is gone, so delete it",
-			axis.name,
-		)
-
-		plated := ship.ship_starting_ship()
-		defer delete(plated.layout)
-		plated.durability += 1 // what one Iron Plating buys
-
-		testing.expectf(
-			t,
-			voyage_trade_can_accept(&plated, baked_trade(axis, .Deep)),
-			"%v needs more than a single plating in The Deep",
-			axis.name,
-		)
 	}
 }
 

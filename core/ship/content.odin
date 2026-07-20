@@ -21,10 +21,9 @@ HOSTILE_FILL_PERCENT :: 50
 // across ~5 fights, so a fight must cost enough of the pool to stay expressible at
 // integer granularity over the rounds it lasts. Everything denominated in Hull scales
 // with it — the roster's Modify_Max_Hull items and Trade's Hull-denominated swings
-// (voyage.odin). **Durability does not** — it is denominated in raw damage, which is
-// why STARTING_DURABILITY stays small and independent of this.
+// (voyage.odin). Since ADR-0026 deleted Durability, Hull is the *only* thing between
+// a fight's raw damage and a sunk ship, so this scale carries the whole exchange.
 STARTING_HULL :: 100
-STARTING_DURABILITY :: 2
 
 // STARTING_SPEED is the Speed the starting ship **reads**, not a field it carries
 // (ADR-0020): Speed is derived — `base + Σ modifiers − weight/10`. It is the
@@ -163,8 +162,8 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Splash, fitting = Fitting{name = "Deck Cannon", size = .Medium, weight = 18, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 4}}},
 		{tier = .Splash, fitting = Fitting{name = "Boarding Pikes", size = .Small, weight = 6, category = .Fire, tags = {.Weapon, .Crew}, active = Effect{magnitude = 2}}},
 		{tier = .Splash, fitting = Fitting{name = "Snapping Eels", size = .Small, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3}}},
-		{tier = .Splash, fitting = Fitting{name = "Iron Plating", size = .Medium, weight = 24, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Ballast Stones", size = .Small, weight = 12, category = .Brace, tags = {.Cargo}, passive = Effect{kind = .Modify_Durability, magnitude = 1}}},
+		{tier = .Splash, fitting = Fitting{name = "Iron Plating", size = .Medium, weight = 24, category = .Brace, tags = {.Artifact}}},
+		{tier = .Splash, fitting = Fitting{name = "Ballast Stones", size = .Small, weight = 12, category = .Brace, tags = {.Cargo}}},
 		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, weight = 5, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1}}},
 		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, weight = 7, category = .Brace, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 8}}},
 		{tier = .Splash, fitting = Fitting{name = "Boarding Nets", size = .Small, weight = 5, category = .Brace, tags = {.Crew}, active = Effect{magnitude = 1}}},
@@ -183,7 +182,7 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		{tier = .Shallow, fitting = Fitting{name = "Sea Drake", size = .Large, weight = 34, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 7}}},
 		{tier = .Shallow, fitting = Fitting{name = "Ramming Prow", size = .Large, weight = 40, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 7}}},
 		{tier = .Shallow, fitting = Fitting{name = "War Drums", size = .Small, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 3}}},
-		{tier = .Shallow, fitting = Fitting{name = "Reinforced Hull", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 2}}},
+		{tier = .Shallow, fitting = Fitting{name = "Reinforced Hull", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}}},
 		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, weight = 16, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 2}}},
 		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, weight = 16, category = .Brace, tags = {.Crew}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 16}}},
 		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, weight = 5, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1, synergy = Selector(Slot_Size.Small)}}},
@@ -198,8 +197,8 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 		// ---- Deep ----
 		{tier = .Deep, fitting = Fitting{name = "Great Bombard", size = .Large, weight = 45, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 12}}},
 		{tier = .Deep, fitting = Fitting{name = "Leviathan", size = .Large, weight = 38, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 11}}},
-		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, weight = 40, category = .Brace, tags = {.Beast}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
-		{tier = .Deep, fitting = Fitting{name = "Adamant Bulwark", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Durability, magnitude = 3}}},
+		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, weight = 40, category = .Brace, tags = {.Beast}}},
+		{tier = .Deep, fitting = Fitting{name = "Adamant Bulwark", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}}},
 		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, weight = 15, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 3}}},
 		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, weight = 36, category = .Brace, tags = {.Artifact}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 32}}},
 		{tier = .Deep, fitting = Fitting{name = "Treasure Vault", size = .Medium, weight = 22, category = .Brace, tags = {.Cargo}, passive = Effect{kind = .Modify_Max_Hull, magnitude = 24}}},
@@ -282,7 +281,7 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 //
 // **Only an active Phase_Contribution effect moves** — combat_phase_output sums exactly
 // these, while the Modify_* kinds act through the effective-stat readers, so a fitting's
-// Speed / Durability / Max Hull contribution is not output. That distinction is load-bearing
+// Speed / Max Hull contribution is not output. That distinction is load-bearing
 // for the hostile roster: Category is a combat *phase*, so `.Fire` holds both damage
 // fittings and every Modify_Speed item — yet a hostile's Speed is its archetype's own
 // axis, not a stakes reading. A caller scaling a whole category cannot be trusted to have
@@ -383,11 +382,10 @@ ship_starting_ship :: proc() -> Ship {
 	)
 
 	return Ship{
-		hull         = STARTING_HULL,
-		max_hull     = STARTING_HULL,
-		durability = STARTING_DURABILITY,
-		speed      = BASE_SPEED,
-		layout     = layout,
-		captain    = captain,
+		hull     = STARTING_HULL,
+		max_hull = STARTING_HULL,
+		speed    = BASE_SPEED,
+		layout   = layout,
+		captain  = captain,
 	}
 }
