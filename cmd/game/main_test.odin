@@ -416,16 +416,16 @@ only_a_stage_with_no_screen_of_its_own_gets_an_entry_beat :: proc(t: ^testing.T)
 
 @(test)
 fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
-	flat := ship.Fitting{category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(5))}
+	flat := ship.ship_fitting_with_effects(ship.Fitting{}, ship.effect_phase_contribution(ship.expr_const(5)))
 	testing.expect_value(t, fitting_effect_intent(flat), "+5 Offense")
 
-	repair := ship.Fitting{category = .Brace, active = ship.effect_repair(ship.expr_const(2))}
+	repair := ship.ship_fitting_with_effects(ship.Fitting{}, ship.effect_repair(ship.expr_const(2)))
 	testing.expect_value(t, fitting_effect_intent(repair), "+2 Repair")
 
-	synergy := ship.Fitting{category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(2), ship.Selector(ship.Tag.Weapon))}
+	synergy := ship.ship_fitting_with_effects(ship.Fitting{}, ship.effect_phase_contribution(ship.expr_const(2), ship.Selector(ship.Tag.Weapon)))
 	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Offense per Weapon")
 
-	conditional := ship.Fitting{category = .Fire, active = ship.effect_phase_contribution(ship.expr_below_hull_percent(50, 8))}
+	conditional := ship.ship_fitting_with_effects(ship.Fitting{}, ship.effect_phase_contribution(ship.expr_below_hull_percent(50, 8)))
 	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense when its condition holds")
 
 	hold := ship.ship_fitting_hold(.Small)

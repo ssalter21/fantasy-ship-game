@@ -70,6 +70,11 @@ Battle :: struct {
 	// zero Battle, which is what keeps it out of the Ghost_Snapshot: no voyage-scoped
 	// counter exists to snapshot.
 	damage_taken_last_round: [Side]int,
+	// timing is each side's per-effect timing bookkeeping, indexed by slot and effect
+	// (ship.Effect_Counters): what a Once_Per_Battle remembers and what a Charge has
+	// banked. Zeroed by the zero Battle, so every counter starts a battle empty and no
+	// timing policy has any voyage-scoped state to leak into a Ghost_Snapshot.
+	timing:  [Side]ship.Effect_Counters,
 	ended:   bool,
 	// reason/winner mirror the Event_Battle_Ended, so a caller holding only the
 	// Battle can read *how* it ended without replaying the event stream. Meaningful
@@ -217,31 +222,66 @@ combat_apply_jettison :: proc(battle: ^Battle, side: Side, slot_index: ship.Slot
 	append(events, Event(Event_Cargo_Jettisoned{round = battle.round, side = side, fitting = heaved}))
 }
 
-// combat_phase_output sums the active-effect magnitude of every fitting of
-// `phase`'s Category on `side`'s ship in fixed slot order (ADR-0006): each fitting
-// whose active effect carries that phase's verb (ship_phase_verb — damage for Fire,
-// repair for Brace) triggers once per round, no cooldown. Modify_Speed never
-// contributes here — it acts through ship_effective_speed, not the phase totals.
+// combat_timings answers every effect on `side`'s ship for the round being resolved: the
+// readings the phases resolve against, and that side's counters as the round leaves them.
 //
-// Takes the round's completed context — pass two, `round` plus both sides' `speeds` — so
-// every quantity a magnitude tree may read is answered against live battle state. self_slot
-// is set per fitting so a tree reading its own visibility reads the slot the effect sits in.
-combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category, round: ship.Round_Facts, speeds: ship.Speeds) -> int {
+// It **writes nothing back**. The caller resolving the round stores the counters; a caller
+// only weighing a loadout drops them, so a peek can never spend a charge it never fired.
+combat_timings :: proc(battle: ^Battle, side: Side) -> (timings: ship.Effect_Timings, counters: ship.Effect_Counters) {
 	s := battle.ships[side]
-	verb := ship.ship_phase_verb(phase)
-	total := 0
-	ctx := ship.ship_effect_context_in_battle(s, round, speeds)
-	for layout_slot in s.layout {
+	assert(len(s.layout) <= ship.SHIP_MAX_SLOTS, "a ship's layout is wider than the battle's timing table")
+	counters = battle.timing[side]
+	for layout_slot, slot_index in s.layout {
 		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting || fitting.category != phase {
+		if !has_fitting {
 			continue
 		}
-		active, has_active := fitting.active.?
-		if !has_active || active.kind != verb {
+		for effect_index in 0 ..< fitting.effect_count {
+			timings[slot_index][effect_index], counters[slot_index][effect_index] = ship.effect_timing_advance(
+				fitting.effects[effect_index].timing,
+				battle.round,
+				counters[slot_index][effect_index],
+			)
+		}
+	}
+	return timings, counters
+}
+
+// combat_phase_output sums the magnitude of every effect on `side`'s ship whose phase is
+// `phase`, in fixed slot order and then in authored effect order (ADR-0006). Routing is on
+// the **effect's own phase**, so one fitting may feed both phases and a Modify_Speed effect
+// feeds neither — it acts through ship_effective_speed, above the phase totals.
+//
+// Takes the round's completed context — pass two, `round` plus both sides' `speeds` — so
+// every quantity a magnitude tree may read is answered against live battle state, plus
+// `timings`, the round's already-advanced timing readings: an effect that does not fire
+// this round resolves to 0 (ship.effect_magnitude), and a ramp's growth arrives with it.
+// self_slot is set per fitting so a tree reading its own visibility reads the slot the
+// effect sits in.
+combat_phase_output :: proc(
+	battle: ^Battle,
+	side: Side,
+	phase: ship.Category,
+	round: ship.Round_Facts,
+	speeds: ship.Speeds,
+	timings: ship.Effect_Timings,
+) -> int {
+	s := battle.ships[side]
+	total := 0
+	ctx := ship.ship_effect_context_in_battle(s, round, speeds)
+	for layout_slot, slot_index in s.layout {
+		fitting, has_fitting := layout_slot.fitting.?
+		if !has_fitting {
 			continue
 		}
 		ctx.self_slot = layout_slot
-		total += int(ship.effect_magnitude(active, ctx))
+		for effect_index in 0 ..< fitting.effect_count {
+			effect := fitting.effects[effect_index]
+			if effect_phase, feeds := effect.phase.?; !feeds || effect_phase != phase {
+				continue
+			}
+			total += int(ship.effect_magnitude(effect, ctx, timings[slot_index][effect_index]))
+		}
 	}
 	return total
 }
@@ -254,13 +294,18 @@ combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category, r
 //
 // combat_resolve_round does not use it: a resolving round has orders, and it builds the
 // two passes once for both phases rather than per phase.
+//
+// The timing readings it asks for are dropped rather than stored, so weighing a loadout
+// costs the battle nothing — the reading is of the round as it stands, not of a round that
+// happened.
 combat_phase_output_this_round :: proc(battle: ^Battle, side: Side, phase: ship.Category) -> int {
 	round := combat_round_facts(battle, side, .Hold)
 	speeds := ship.Speeds {
 		own      = combat_effective_speed(battle, side),
 		opponent = combat_effective_speed(battle, combat_opposite_side(side)),
 	}
-	return combat_phase_output(battle, side, phase, round, speeds)
+	timings, _ := combat_timings(battle, side)
+	return combat_phase_output(battle, side, phase, round, speeds, timings)
 }
 
 // combat_apply_repair restores `amount` Hull to side's ship, capped at its maximum
@@ -386,10 +431,26 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		speeds[side] = ship.Speeds{own = speed[side], opponent = speed[combat_opposite_side(side)]}
 	}
 
+	// Timings are advanced once per side for the whole round, ahead of both phases, and the
+	// counters stored — so an effect fires at most once a round however many phases read the
+	// table, and a round that ended in a Break Off above spent nothing.
+	timings: [Side]ship.Effect_Timings
+	for side in Side {
+		timings[side], battle.timing[side] = combat_timings(battle, side)
+	}
+
 	repair: [Side]int
 	for side in Side {
-		repair[side] = scaled(combat_phase_output(battle, side, .Brace, round_facts[side], speeds[side]), .Brace, round_state[side])
-		round_state[side].damage = scaled(combat_phase_output(battle, side, .Fire, round_facts[side], speeds[side]), .Fire, round_state[side])
+		repair[side] = scaled(
+			combat_phase_output(battle, side, .Brace, round_facts[side], speeds[side], timings[side]),
+			.Brace,
+			round_state[side],
+		)
+		round_state[side].damage = scaled(
+			combat_phase_output(battle, side, .Fire, round_facts[side], speeds[side], timings[side]),
+			.Fire,
+			round_state[side],
+		)
 	}
 
 	// Brace lands first — ahead of the damage below and the death check under it — which

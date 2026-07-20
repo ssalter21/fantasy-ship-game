@@ -159,39 +159,33 @@ an_upgraded_fitting_inherits_its_base_fittings_families :: proc(t: ^testing.T) {
 }
 
 @(test)
-upgraded_top_crew_keeps_size_and_category_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
+upgraded_top_crew_keeps_size_and_phase_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
 	base := ship_fitting_top_crew()
 	upgraded := ship_fitting_upgraded_top_crew(1)
 
 	testing.expect_value(t, upgraded.size, base.size)
-	testing.expect_value(t, upgraded.category, base.category)
-	base_active, _ := base.active.?
-	upgraded_active, _ := upgraded.active.?
-	testing.expect(t, effect_showcase_magnitude(upgraded_active) > effect_showcase_magnitude(base_active))
+	testing.expect_value(t, ship_fitting_phases(upgraded), ship_fitting_phases(base))
+	testing.expect(t, effect_showcase_magnitude(upgraded.effects[0]) > effect_showcase_magnitude(base.effects[0]))
 }
 
 @(test)
-upgraded_captains_quarters_keeps_size_and_category_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
+upgraded_captains_quarters_keeps_size_and_phase_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
 	base := ship_fitting_captains_quarters()
 	upgraded := ship_fitting_upgraded_captains_quarters(1)
 
 	testing.expect_value(t, upgraded.size, base.size)
-	testing.expect_value(t, upgraded.category, base.category)
-	base_active, _ := base.active.?
-	upgraded_active, _ := upgraded.active.?
-	testing.expect(t, effect_showcase_magnitude(upgraded_active) > effect_showcase_magnitude(base_active))
+	testing.expect_value(t, ship_fitting_phases(upgraded), ship_fitting_phases(base))
+	testing.expect(t, effect_showcase_magnitude(upgraded.effects[0]) > effect_showcase_magnitude(base.effects[0]))
 }
 
 @(test)
-upgraded_gun_deck_keeps_size_and_category_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
+upgraded_gun_deck_keeps_size_and_phase_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
 	base := ship_fitting_gun_deck()
 	upgraded := ship_fitting_upgraded_gun_deck(1)
 
 	testing.expect_value(t, upgraded.size, base.size)
-	testing.expect_value(t, upgraded.category, base.category)
-	base_active, _ := base.active.?
-	upgraded_active, _ := upgraded.active.?
-	testing.expect(t, effect_showcase_magnitude(upgraded_active) > effect_showcase_magnitude(base_active))
+	testing.expect_value(t, ship_fitting_phases(upgraded), ship_fitting_phases(base))
+	testing.expect(t, effect_showcase_magnitude(upgraded.effects[0]) > effect_showcase_magnitude(base.effects[0]))
 }
 
 // --- The ~50-item roster (issue #97, ADR-0012) ---
@@ -245,12 +239,16 @@ the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 		testing.expect(t, len(f.name) > 0)
 		// A roster item is authored, so it arrives carrying nothing.
 		testing.expect_value(t, f.cargo_held, 0)
-		// Every item carries at least one tag family and exactly one effect, in either
-		// the passive or the active slot, never both.
+		// Every item carries at least one tag family and between one effect and the cap.
 		testing.expect(t, f.tags != {})
-		_, has_passive := f.passive.?
-		_, has_active := f.active.?
-		testing.expectf(t, has_passive != has_active, "%v carries %v effects, not one", f.name, int(has_passive) + int(has_active))
+		testing.expectf(
+			t,
+			f.effect_count > 0 && f.effect_count <= FITTING_MAX_EFFECTS,
+			"%v carries %v effects, outside 1..%v",
+			f.name,
+			f.effect_count,
+			FITTING_MAX_EFFECTS,
+		)
 		// Names are distinct (the Item Offer presents distinct items by name).
 		for other, j in roster {
 			if i != j {
@@ -304,7 +302,9 @@ the_item_roster_spans_all_families_sizes_and_phases :: proc(t: ^testing.T) {
 			}
 		}
 		seen_size[f.size] = true
-		seen_phase[f.category] = true
+		for phase in ship_fitting_phases(f) {
+			seen_phase[phase] = true
+		}
 	}
 	for tag in Tag {
 		testing.expect(t, seen_family[tag])
@@ -325,11 +325,8 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 		if card(f.tags) > 1 {
 			saw_multi_tag = true
 		}
-		for maybe_effect in ([2]Maybe(Effect){f.passive, f.active}) {
-			effect, ok := maybe_effect.?
-			if !ok {
-				continue
-			}
+		for i in 0 ..< f.effect_count {
+			effect := f.effects[i]
 			if effect.kind != .Phase_Contribution {
 				saw_stat_mod = true
 			}
@@ -361,7 +358,7 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 splash_powder_monkeys_offense_scales_with_weapons_aboard :: proc(t: ^testing.T) {
 	item := roster_item_named("Powder Monkeys")
 	testing.expect_value(t, item.tier, Tier.Splash)
-	active, _ := item.fitting.active.?
+	active := item.fitting.effects[0]
 
 	// No Weapons aboard (Powder Monkeys itself is Crew): the synergy is 0.
 	alone := synergy_ship(item.fitting)
@@ -374,24 +371,21 @@ splash_powder_monkeys_offense_scales_with_weapons_aboard :: proc(t: ^testing.T) 
 	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&armed)), Magnitude(effect_showcase_magnitude(active) * 2))
 }
 
-// **A fitting's phase is its verb's phase** (ADR-0027). Category says when a fitting
-// resolves and Effect_Kind says what it does, and combat only reads an effect through the
-// phase whose verb it carries (combat_phase_output) — so an item authored with a
-// Phase_Contribution on a Brace fitting, or a Repair on a Fire one, is silently inert. The
-// stat-modifier kind is exempt: it feeds no phase and rides on either category.
+// **An effect's phase is its verb's phase** (ADR-0027). Combat routes on the phase an
+// effect names (combat_phase_output), so an effect whose phase disagreed with its verb
+// would repair in the damage phase or be silently inert — which is why nothing authors the
+// pair by hand and every effect_* helper sets it from ship_verb_phase. This is the guard
+// that a hand-built literal has not slipped past them.
 @(test)
-every_roster_item_carries_its_categorys_verb :: proc(t: ^testing.T) {
+every_authored_effect_names_its_verbs_phase :: proc(t: ^testing.T) {
 	check :: proc(t: ^testing.T, f: Fitting) {
-		for slot in ([2]Maybe(Effect){f.passive, f.active}) {
-			effect, has_effect := slot.?
-			if !has_effect || effect.kind == .Modify_Speed {
-				continue
-			}
+		for i in 0 ..< f.effect_count {
+			effect := f.effects[i]
 			testing.expectf(
 				t,
-				effect.kind == ship_phase_verb(f.category),
-				"%v is a %v fitting carrying a %v effect — nothing resolves it",
-				f.name, f.category, effect.kind,
+				effect.phase == ship_verb_phase(effect.kind),
+				"%v carries a %v effect on the wrong phase — nothing resolves it",
+				f.name, effect.kind,
 			)
 		}
 	}
@@ -409,8 +403,10 @@ every_roster_item_carries_its_categorys_verb :: proc(t: ^testing.T) {
 the_roster_authors_repair_items_at_every_tier :: proc(t: ^testing.T) {
 	repairs: [Tier]int
 	for item in ship_item_roster() {
-		if active, ok := item.fitting.active.?; ok && active.kind == .Repair {
-			repairs[item.tier] += 1
+		for i in 0 ..< item.fitting.effect_count {
+			if item.fitting.effects[i].kind == .Repair {
+				repairs[item.tier] += 1
+			}
 		}
 	}
 	for tier in Tier {
@@ -422,7 +418,7 @@ the_roster_authors_repair_items_at_every_tier :: proc(t: ^testing.T) {
 deep_cornered_beast_only_bites_below_half_hull :: proc(t: ^testing.T) {
 	item := roster_item_named("Cornered Beast")
 	testing.expect_value(t, item.tier, Tier.Deep)
-	active, _ := item.fitting.active.?
+	active := item.fitting.effects[0]
 
 	s := synergy_ship(item.fitting)
 	defer delete(s.layout)
@@ -485,7 +481,7 @@ ship_fit_first_empty_slot_falls_back_from_exposed_slots_to_the_concealed_hold ::
 	defer delete(layout)
 
 	medium :: proc(name: string) -> Fitting {
-		return Fitting{name = name, size = .Medium, category = .Fire, active = effect_phase_contribution(expr_const(1))}
+		return ship_fitting_with_effects(Fitting{name = name, size = .Medium}, effect_phase_contribution(expr_const(1)))
 	}
 	testing.expect(t, ship_fit_first_empty_slot(layout, medium("first")))
 	testing.expect(t, ship_fit_first_empty_slot(layout, medium("second")))
@@ -530,16 +526,12 @@ occupant_name :: proc(layout: []Layout_Slot, slot_name: string) -> string {
 // who is allowed to break off (combat_may_break_off is *strictly faster*).
 @(test)
 ship_fitting_output_scaled_moves_phase_contributions_and_leaves_stat_modifiers_alone :: proc(t: ^testing.T) {
-	rigging := Fitting{name = "Spare Rigging", size = .Small, category = .Fire, passive = effect_modify_speed(expr_const(2))}
+	rigging := ship_fitting_with_effects(Fitting{name = "Spare Rigging", size = .Small}, effect_modify_speed(expr_const(2)))
 	halved := ship_fitting_output_scaled(rigging, 50)
-	passive, has_passive := halved.passive.?
-	testing.expect(t, has_passive)
-	testing.expect_value(t, effect_showcase_magnitude(passive), 2) // a stat modifier is not output
+	testing.expect_value(t, effect_showcase_magnitude(halved.effects[0]), 2) // a stat modifier is not output
 
-	gun := Fitting{name = "Long Nines", size = .Large, category = .Fire, active = effect_phase_contribution(expr_const(8))}
-	active, has_active := ship_fitting_output_scaled(gun, 50).active.?
-	testing.expect(t, has_active)
-	testing.expect_value(t, effect_showcase_magnitude(active), 4)
+	gun := ship_fitting_with_effects(Fitting{name = "Long Nines", size = .Large}, effect_phase_contribution(expr_const(8)))
+	testing.expect_value(t, effect_showcase_magnitude(ship_fitting_output_scaled(gun, 50).effects[0]), 4)
 }
 
 // A scaling preserves everything about an effect except its strength — the selector, the
@@ -549,14 +541,9 @@ ship_fitting_output_scaled_moves_phase_contributions_and_leaves_stat_modifiers_a
 // build around it: `(m x pct) x count`.
 @(test)
 ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strength :: proc(t: ^testing.T) {
-	guard := Fitting {
-		name     = "Admiral's Guard",
-		size     = .Medium,
-		category = .Fire,
-		active   = effect_phase_contribution(expr_below_hull_percent(50, 4), Selector(Tag.Crew)),
-	}
+	guard := ship_fitting_with_effects(Fitting{name = "Admiral's Guard", size = .Medium}, effect_phase_contribution(expr_below_hull_percent(50, 4), Selector(Tag.Crew)))
 
-	scaled, _ := ship_fitting_output_scaled(guard, 50).active.?
+	scaled := ship_fitting_output_scaled(guard, 50).effects[0]
 	testing.expect_value(t, effect_showcase_magnitude(scaled), 2)
 	testing.expect_value(t, scaled.kind, Effect_Kind.Phase_Contribution)
 	testing.expect_value(t, scaled.synergy.?, Selector(Tag.Crew))
@@ -572,12 +559,12 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 // the zone they are authored for (ADR-0019).
 @(test)
 ship_fitting_output_scaled_rounds_half_up_and_is_the_identity_at_a_hundred :: proc(t: ^testing.T) {
-	monkeys := Fitting{name = "Powder Monkeys", size = .Small, category = .Fire, active = effect_phase_contribution(expr_const(1), Selector(Tag.Weapon))}
-	halved, _ := ship_fitting_output_scaled(monkeys, 50).active.?
+	monkeys := ship_fitting_with_effects(Fitting{name = "Powder Monkeys", size = .Small}, effect_phase_contribution(expr_const(1), Selector(Tag.Weapon)))
+	halved := ship_fitting_output_scaled(monkeys, 50).effects[0]
 	testing.expect_value(t, effect_showcase_magnitude(halved), 1) // 0.5 rounds up, not away
 
-	swivel := Fitting{name = "Swivel Guns", size = .Small, category = .Fire, active = effect_phase_contribution(expr_const(3))}
-	up, _ := ship_fitting_output_scaled(swivel, 50).active.?
+	swivel := ship_fitting_with_effects(Fitting{name = "Swivel Guns", size = .Small}, effect_phase_contribution(expr_const(3)))
+	up := ship_fitting_output_scaled(swivel, 50).effects[0]
 	testing.expect_value(t, effect_showcase_magnitude(up), 2) // 1.5 rounds up
 
 	testing.expect_value(t, ship_fitting_output_scaled(swivel, 100), swivel)
@@ -594,13 +581,8 @@ an_offer_bonus_lands_on_a_gates_open_branch_and_never_on_its_fallback :: proc(t:
 	// A gated item that pays nothing while its condition is unmet must still pay nothing
 	// once an offer has sweetened it — otherwise every conditional item quietly becomes a
 	// little unconditional, which is a balance change wearing a refactor's clothes.
-	beast := Fitting {
-		name     = "Cornered Beast",
-		size     = .Large,
-		category = .Fire,
-		active   = effect_phase_contribution(expr_below_hull_percent(50, 12)),
-	}
-	sweetened, _ := ship_fitting_scaled(beast, 2).active.?
+	beast := ship_fitting_with_effects(Fitting{name = "Cornered Beast", size = .Large}, effect_phase_contribution(expr_below_hull_percent(50, 12)))
+	sweetened := ship_fitting_scaled(beast, 2).effects[0]
 
 	s := synergy_ship(beast)
 	defer delete(s.layout)
@@ -613,8 +595,8 @@ an_offer_bonus_lands_on_a_gates_open_branch_and_never_on_its_fallback :: proc(t:
 	testing.expect_value(t, effect_magnitude(sweetened, ship_effect_context(&s)), Magnitude(14))
 
 	// An ungated item takes it at the root, where there is no branch to prefer.
-	gun := Fitting{name = "Long Nines", size = .Large, category = .Fire, active = effect_phase_contribution(expr_const(8))}
-	plain, _ := ship_fitting_scaled(gun, 2).active.?
+	gun := ship_fitting_with_effects(Fitting{name = "Long Nines", size = .Large}, effect_phase_contribution(expr_const(8)))
+	plain := ship_fitting_scaled(gun, 2).effects[0]
 	testing.expect_value(t, effect_showcase_magnitude(plain), 10)
 }
 
@@ -626,13 +608,9 @@ an_offer_bonus_lands_on_a_gates_open_branch_and_never_on_its_fallback :: proc(t:
 every_roster_item_still_fits_the_node_bound_once_an_offer_has_sweetened_it :: proc(t: ^testing.T) {
 	for item in ship_item_roster() {
 		sweetened := ship_fitting_scaled(item.fitting, 9)
-		base_effects := [2]Maybe(Effect){item.fitting.passive, item.fitting.active}
-		for maybe_effect, i in ([2]Maybe(Effect){sweetened.passive, sweetened.active}) {
-			effect, ok := maybe_effect.?
-			if !ok {
-				continue
-			}
-			base, _ := base_effects[i].?
+		for i in 0 ..< sweetened.effect_count {
+			effect := sweetened.effects[i]
+			base := item.fitting.effects[i]
 			testing.expectf(
 				t,
 				effect.magnitude.count <= EXPR_MAX_NODES,

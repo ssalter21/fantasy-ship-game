@@ -26,7 +26,7 @@ round_with_no_fittings_and_no_commands_deals_no_damage :: proc(t: ^testing.T) {
 // and the target's hull, so raw and final are the same number in every event.
 @(test)
 fire_fitting_deals_its_full_magnitude_to_the_target :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(10))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(10)))
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -52,8 +52,8 @@ fire_fitting_deals_its_full_magnitude_to_the_target :: proc(t: ^testing.T) {
 // the damage still lands whole, and the repair that met it is a separate, earlier fact.
 @(test)
 a_brace_fitting_repairs_instead_of_reducing_the_incoming_damage :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(10))}
-	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.effect_repair(ship.expr_const(4))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(10)))
+	surgeon := ship.ship_fitting_with_effects(ship.Fitting{name = "Ship's Surgeon"}, ship.effect_repair(ship.expr_const(4)))
 	a := ship.Ship{
 		hull = 20, max_hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -88,8 +88,8 @@ a_brace_fitting_repairs_instead_of_reducing_the_incoming_damage :: proc(t: ^test
 a_former_crew_fitting_and_a_gun_of_equal_magnitude_contribute_to_raw_identically :: proc(t: ^testing.T) {
 	// Same two magnitudes, swapped between the Crew fitting and the gun. Both are `.Fire`.
 	fire_both :: proc(crew_mag, gun_mag: ship.Magnitude) -> int {
-		crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.effect_phase_contribution(ship.expr_const(int(crew_mag)))}
-		gun := ship.Fitting{name = "Cannon", category = .Fire, tags = {.Weapon}, active = ship.effect_phase_contribution(ship.expr_const(int(gun_mag)))}
+		crew := ship.ship_fitting_with_effects(ship.Fitting{name = "Top Crew", tags = {.Crew}}, ship.effect_phase_contribution(ship.expr_const(int(crew_mag))))
+		gun := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon", tags = {.Weapon}}, ship.effect_phase_contribution(ship.expr_const(int(gun_mag))))
 		a := ship.Ship{
 			hull = 40, speed = 5,
 			layout = []ship.Layout_Slot{
@@ -116,9 +116,9 @@ a_former_crew_fitting_and_a_gun_of_equal_magnitude_contribute_to_raw_identically
 // Fire fitting adds to what its ship *deals* and nothing else.
 @(test)
 a_fire_fitting_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
-	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.effect_phase_contribution(ship.expr_const(3))}
-	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.effect_phase_contribution(ship.expr_const(4))}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(20))}
+	crew := ship.ship_fitting_with_effects(ship.Fitting{name = "Top Crew", tags = {.Crew}}, ship.effect_phase_contribution(ship.expr_const(3)))
+	shield := ship.ship_fitting_with_effects(ship.Fitting{name = "Shield Charm"}, ship.effect_phase_contribution(ship.expr_const(4)))
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(20)))
 	a := ship.Ship{
 		hull = 40, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -144,7 +144,7 @@ a_fire_fitting_does_not_reduce_incoming_damage :: proc(t: ^testing.T) {
 
 @(test)
 press_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(10))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(10)))
 	// Hulls deep enough to outlast a pressed broadside, so the round reads as a
 	// comparison of the two sides' output rather than as a sinking.
 	a := ship.Ship{
@@ -171,8 +171,8 @@ press_fire_multiplies_only_the_submitters_fire_output :: proc(t: ^testing.T) {
 // alike — since they share the one Fire phase (ADR-0025). No seam splits the pile.
 @(test)
 press_fire_multiplies_the_whole_fire_pile_including_former_crew :: proc(t: ^testing.T) {
-	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.effect_phase_contribution(ship.expr_const(2))}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, tags = {.Weapon}, active = ship.effect_phase_contribution(ship.expr_const(5))}
+	crew := ship.ship_fitting_with_effects(ship.Fitting{name = "Top Crew", tags = {.Crew}}, ship.effect_phase_contribution(ship.expr_const(2)))
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon", tags = {.Weapon}}, ship.effect_phase_contribution(ship.expr_const(5)))
 	a := ship.Ship{
 		hull = 40, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -198,8 +198,8 @@ press_fire_multiplies_the_whole_fire_pile_including_former_crew :: proc(t: ^test
 // repairs better off than the one that held.
 @(test)
 press_brace_multiplies_the_repair_the_round_restores :: proc(t: ^testing.T) {
-	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.effect_repair(ship.expr_const(4))}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(20))}
+	surgeon := ship.ship_fitting_with_effects(ship.Fitting{name = "Ship's Surgeon"}, ship.effect_repair(ship.expr_const(4)))
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(20)))
 
 	// Damaged, with headroom for both runs' repair: a full hull would cap them equal and
 	// the comparison would prove nothing.
@@ -242,10 +242,7 @@ press_brace_multiplies_the_repair_the_round_restores :: proc(t: ^testing.T) {
 
 @(test)
 a_speed_stat_modifier_fitting_raises_effective_speed_for_escape_eligibility :: proc(t: ^testing.T) {
-	fast_sails := ship.Fitting{
-		name = "Fast Sails", size = .Small,
-		passive = ship.effect_modify_speed(ship.expr_const(3)),
-	}
+	fast_sails := ship.ship_fitting_with_effects(ship.Fitting{name = "Fast Sails", size = .Small}, ship.effect_modify_speed(ship.expr_const(3)))
 	// Equal base Speed (5), but A carries a +3 Speed fitting: past the baseline
 	// round count only the strictly-faster side may break off, so A is eligible.
 	a := ship.Ship{
@@ -278,7 +275,7 @@ the_three_starting_fittings_phase_output_matches_their_magnitude_constants :: pr
 
 @(test)
 hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(10))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(10)))
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -307,7 +304,7 @@ hold_is_a_no_op_identical_to_submitting_no_command :: proc(t: ^testing.T) {
 // battle, and the flag the Fight menu reads says so from the round after it lands.
 @(test)
 press_is_available_once_per_battle :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(5))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(5)))
 	a := ship.Ship{
 		hull = 200, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -361,8 +358,8 @@ a_second_press_in_the_same_battle_asserts :: proc(t: ^testing.T) {
 // nothing, so a committing captain can survive a round but never win on it.
 @(test)
 commit_multiplies_the_brace_total_and_zeroes_the_fire_total :: proc(t: ^testing.T) {
-	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.effect_repair(ship.expr_const(4))}
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(10))}
+	surgeon := ship.ship_fitting_with_effects(ship.Fitting{name = "Ship's Surgeon"}, ship.effect_repair(ship.expr_const(4)))
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(10)))
 	a := ship.Ship{
 		hull = 50, max_hull = 100, speed = 5,
 		layout = []ship.Layout_Slot{
@@ -386,7 +383,7 @@ commit_multiplies_the_brace_total_and_zeroes_the_fire_total :: proc(t: ^testing.
 // Unlike Press, Commit is unrationed: it can be taken every round of a battle.
 @(test)
 commit_is_available_every_round :: proc(t: ^testing.T) {
-	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.effect_repair(ship.expr_const(4))}
+	surgeon := ship.ship_fitting_with_effects(ship.Fitting{name = "Ship's Surgeon"}, ship.effect_repair(ship.expr_const(4)))
 	a := ship.Ship{
 		hull = 50, max_hull = 100, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = surgeon}},
@@ -532,7 +529,7 @@ jettison_cargo_on_a_fitting_carrying_nothing_asserts :: proc(t: ^testing.T) {
 		return
 	}
 
-	cannon := ship.Fitting{name = "Cannon", category = .Fire}
+	cannon := ship.Fitting{name = "Cannon"}
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -602,7 +599,7 @@ scripted_command_breaks_off_once_escape_eligible :: proc(t: ^testing.T) {
 
 @(test)
 break_off_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(10))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(10)))
 	a := ship.Ship{
 		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -636,7 +633,7 @@ break_off_ends_the_battle_immediately_with_no_phase_resolution :: proc(t: ^testi
 
 @(test)
 an_escape_eligible_side_declining_to_break_off_lets_combat_continue_normally :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(10))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(10)))
 	a := ship.Ship{
 		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -661,7 +658,7 @@ an_escape_eligible_side_declining_to_break_off_lets_combat_continue_normally :: 
 
 @(test)
 a_ship_reduced_to_zero_hull_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(25))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(25)))
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -703,7 +700,7 @@ a_ship_reduced_to_zero_hull_is_sunk_and_the_opponent_wins :: proc(t: ^testing.T)
 
 @(test)
 a_mutual_kill_in_the_same_round_is_won_by_the_higher_speed_side :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(25))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(25)))
 	a := ship.Ship{
 		hull = 20, speed = 10,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -733,7 +730,7 @@ a_mutual_kill_in_the_same_round_is_won_by_the_higher_speed_side :: proc(t: ^test
 
 @(test)
 a_mutual_kill_with_equal_speed_has_no_winner :: proc(t: ^testing.T) {
-	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(25))}
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(25)))
 	a := ship.Ship{
 		hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -866,7 +863,7 @@ jettisoned_cargo_is_destroyed_with_nothing_to_settle :: proc(t: ^testing.T) {
 @(test)
 identical_ships_and_commands_produce_identical_results_every_time :: proc(t: ^testing.T) {
 	make_ships :: proc() -> (ship.Ship, ship.Ship) {
-		cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.effect_phase_contribution(ship.expr_const(7))}
+		cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(7)))
 		a := ship.Ship{
 			hull = 30, speed = 5,
 			layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
@@ -908,13 +905,7 @@ identical_ships_and_commands_produce_identical_results_every_time :: proc(t: ^te
 @(test)
 synergy_offense_rises_and_falls_with_the_weapon_count_aboard :: proc(t: ^testing.T) {
 	OFFENSE_PER_WEAPON :: 3
-	synergy_gun := ship.Fitting{
-		name     = "Runic Battery",
-		size     = .Large,
-		category = .Fire,
-		tags     = {.Artifact},
-		active   = ship.effect_phase_contribution(ship.expr_const(OFFENSE_PER_WEAPON), ship.Selector(ship.Tag.Weapon)),
-	}
+	synergy_gun := ship.ship_fitting_with_effects(ship.Fitting{name = "Runic Battery", size = .Large, tags = {.Artifact}}, ship.effect_phase_contribution(ship.expr_const(OFFENSE_PER_WEAPON), ship.Selector(ship.Tag.Weapon)))
 	cannon := ship.Fitting{name = "Cannon", size = .Large, tags = {.Weapon}}
 	ballista := ship.Fitting{name = "Ballista", size = .Small, tags = {.Weapon}}
 
@@ -951,10 +942,7 @@ a_below_half_hull_conditional_offense_fitting_contributes_only_below_the_thresho
 	// Demo for issue #94: a "below half Hull, +Offense" fitting resolves its
 	// Fire phase output through the conditional seam, so it adds nothing
 	// while the ship is above half Hull and its full magnitude once below.
-	desperado := ship.Fitting{
-		name = "Desperado Cannon", size = .Large, category = .Fire,
-		active = ship.effect_phase_contribution(ship.expr_below_hull_percent(50, 10)),
-	}
+	desperado := ship.ship_fitting_with_effects(ship.Fitting{name = "Desperado Cannon", size = .Large}, ship.effect_phase_contribution(ship.expr_below_hull_percent(50, 10)))
 
 	// Same fitting fired against the same bare target, differing only in the
 	// attacker's current Hull relative to its half-Hull threshold.
@@ -985,10 +973,7 @@ a_while_concealed_conditional_offense_fitting_reads_its_own_slot_visibility :: p
 	// The own-concealment trigger resolves against the slot the fitting sits in
 	// (combat_phase_output fills self_slot per fitting): the same fitting in a
 	// concealed slot contributes, in an exposed slot does not.
-	ambush := ship.Fitting{
-		name = "Ambush Cannon", size = .Large, category = .Fire,
-		active = ship.effect_phase_contribution(ship.expr_while_concealed(8)),
-	}
+	ambush := ship.ship_fitting_with_effects(ship.Fitting{name = "Ambush Cannon", size = .Large}, ship.effect_phase_contribution(ship.expr_while_concealed(8)))
 
 	damage_from_slot :: proc(attacker: ship.Fitting, base_visibility: ship.Visibility) -> int {
 		a := ship.Ship{
@@ -1021,12 +1006,7 @@ a_while_concealed_conditional_offense_fitting_reads_its_own_slot_visibility :: p
 // authored tree, ready to be fought as side A. The caller owns the slot it lives in, so
 // the layout outlives the call.
 fire_only :: proc(layout: []ship.Layout_Slot, magnitude: ship.Expr) -> ship.Ship {
-	gun := ship.Fitting {
-		name     = "Authored Gun",
-		size     = .Large,
-		category = .Fire,
-		active   = ship.effect_phase_contribution(magnitude),
-	}
+	gun := ship.ship_fitting_with_effects(ship.Fitting{name = "Authored Gun", size = .Large}, ship.effect_phase_contribution(magnitude))
 	layout[0] = ship.Layout_Slot{slot = ship.Slot{size = .Large}, fitting = gun}
 	return ship.Ship{hull = 200, max_hull = 200, speed = 5, layout = layout}
 }
@@ -1127,12 +1107,7 @@ damage_taken_last_round_is_what_the_hull_lost_and_starts_a_battle_at_zero :: pro
 	// nothing in round one and mirrors the incoming damage from round two on.
 	a_layout: [1]ship.Layout_Slot
 	a := fire_only(a_layout[:], ship.expr_quantity(.Damage_Taken_Last_Round))
-	hitter := ship.Fitting {
-		name     = "Cannon",
-		size     = .Large,
-		category = .Fire,
-		active   = ship.effect_phase_contribution(ship.expr_const(6)),
-	}
+	hitter := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon", size = .Large}, ship.effect_phase_contribution(ship.expr_const(6)))
 	b := ship.Ship {
 		hull = 200,
 		max_hull = 200,
@@ -1158,11 +1133,7 @@ a_round_gated_speed_modifier_moves_escape_eligibility_mid_battle :: proc(t: ^tes
 	// break off becomes the strictly-faster one and can. Resolved with no round at all —
 	// which is what happened before #404 — it would never fire and the escape would never
 	// open.
-	sails := ship.Fitting {
-		name    = "Storm Canvas",
-		size    = .Small,
-		passive = ship.effect_modify_speed(ship.expr_from_round(3, 6)),
-	}
+	sails := ship.ship_fitting_with_effects(ship.Fitting{name = "Storm Canvas", size = .Small}, ship.effect_modify_speed(ship.expr_from_round(3, 6)))
 	a := ship.Ship {
 		hull = 200,
 		max_hull = 200,
@@ -1207,4 +1178,159 @@ an_item_reading_the_opponent_counts_only_what_is_exposed :: proc(t: ^testing.T) 
 
 	// Two guns aboard, one of them out of sight: only the exposed one is counted.
 	testing.expect_value(t, damage_this_round(&battle, none), 2)
+}
+
+// --- Phase rides on the effect, and timing rides on the Battle (#405) ---
+
+@(test)
+one_fitting_can_feed_both_phases_in_the_same_round :: proc(t: ^testing.T) {
+	// Phase is a field of the Effect, not of the Fitting, so a single item repairs its
+	// own hull and deals damage in one round — which is the whole reason a fitting
+	// carries a list of effects rather than one.
+	flagship := ship.ship_fitting_with_effects(
+		ship.Fitting{name = "Flagship", size = .Large},
+		ship.effect_phase_contribution(ship.expr_const(6)),
+		ship.effect_repair(ship.expr_const(4)),
+	)
+	a := ship.Ship{
+		hull = 10, max_hull = 20, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = flagship}},
+	}
+	b := ship.Ship{hull = 20, max_hull = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+
+	testing.expect_value(t, a.hull, 10 + 4)
+	testing.expect_value(t, b.hull, 20 - 6)
+}
+
+// timed_gun is a Large Fire fitting of `magnitude` firing on `timing` — the shape every
+// timing test below fights with.
+timed_gun :: proc(magnitude: int, timing: ship.Timing) -> ship.Fitting {
+	return ship.ship_fitting_with_effects(
+		ship.Fitting{name = "Timed Gun", size = .Large},
+		ship.effect_with_timing(ship.effect_phase_contribution(ship.expr_const(magnitude)), timing),
+	)
+}
+
+// damage_per_round resolves `rounds` rounds of a one-gun attacker against a target with
+// hull to spare, reporting what the target lost each round.
+damage_per_round :: proc(gun: ship.Fitting, rounds: int) -> [dynamic]int {
+	a := ship.Ship{
+		hull = 500, max_hull = 500, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = gun}},
+	}
+	b := ship.Ship{hull = 500, max_hull = 500, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	dealt: [dynamic]int
+	for _ in 0 ..< rounds {
+		before := b.hull
+		combat_resolve_round(&battle, cmds, &events)
+		append(&dealt, before - b.hull)
+	}
+	return dealt
+}
+
+@(test)
+a_once_per_battle_effect_fires_on_the_first_round_and_is_spent :: proc(t: ^testing.T) {
+	dealt := damage_per_round(timed_gun(9, ship.Timing_Once_Per_Battle{}), 3)
+	defer delete(dealt)
+
+	testing.expect_value(t, dealt[0], 9)
+	testing.expect_value(t, dealt[1], 0)
+	testing.expect_value(t, dealt[2], 0)
+}
+
+@(test)
+a_charging_effect_fires_only_on_the_rounds_its_charge_pays_for :: proc(t: ^testing.T) {
+	dealt := damage_per_round(timed_gun(10, ship.Timing_Charge{cost = 4, per_round = 2}), 4)
+	defer delete(dealt)
+
+	testing.expect_value(t, dealt[0], 0)
+	testing.expect_value(t, dealt[1], 10)
+	testing.expect_value(t, dealt[2], 0)
+	testing.expect_value(t, dealt[3], 10)
+}
+
+@(test)
+a_ramping_effect_grows_with_the_round_and_stops_at_its_cap :: proc(t: ^testing.T) {
+	dealt := damage_per_round(timed_gun(3, ship.Timing_Ramp{per_round = 2, cap = 4}), 4)
+	defer delete(dealt)
+
+	testing.expect_value(t, dealt[0], 3)
+	testing.expect_value(t, dealt[1], 5)
+	testing.expect_value(t, dealt[2], 7)
+	testing.expect_value(t, dealt[3], 7)
+}
+
+// **The battle is the hard ceiling for any charge.** Every counter lives on the Battle and
+// is zeroed by the zero Battle, so nothing a timing remembers survives into the next fight
+// — which is what keeps timing out of the Ghost_Snapshot and out of the voyage.
+@(test)
+a_second_battle_starts_every_timing_counter_at_zero :: proc(t: ^testing.T) {
+	gun := timed_gun(9, ship.Timing_Once_Per_Battle{})
+	first := damage_per_round(gun, 2)
+	defer delete(first)
+	second := damage_per_round(gun, 2)
+	defer delete(second)
+
+	testing.expect_value(t, first[0], 9)
+	testing.expect_value(t, first[1], 0)
+	testing.expect_value(t, second[0], 9) // a fresh battle, a fresh charge
+}
+
+// Weighing a loadout is a *reading*, not a round: combat_phase_output_this_round advances
+// no counter, so asking what a side is worth cannot spend the charge it is asking about.
+@(test)
+weighing_a_loadout_spends_no_charge :: proc(t: ^testing.T) {
+	gun := timed_gun(9, ship.Timing_Once_Per_Battle{})
+	a := ship.Ship{
+		hull = 100, max_hull = 100, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = gun}},
+	}
+	b := ship.Ship{hull = 100, max_hull = 100, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	// Asked three times before a round resolves, and answered the same each time.
+	for _ in 0 ..< 3 {
+		testing.expect_value(t, combat_phase_output_this_round(&battle, .A, .Fire), 9)
+	}
+	testing.expect_value(t, battle.timing[.A], ship.Effect_Counters{})
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+	testing.expect_value(t, b.hull, 100 - 9) // the one firing was still there to spend
+}
+
+// A round that ends in a Break Off resolves no phase, so it spends no charge either: the
+// counters are advanced after the escape check, not before it.
+@(test)
+breaking_off_spends_no_charge :: proc(t: ^testing.T) {
+	gun := timed_gun(9, ship.Timing_Once_Per_Battle{})
+	a := ship.Ship{
+		hull = 100, max_hull = 100, speed = 9,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = gun}},
+	}
+	b := ship.Ship{hull = 100, max_hull = 100, speed = 5}
+	battle := combat_battle_create(&a, &b)
+	battle.round = BASELINE_ROUND_COUNT // escape-eligible: past the baseline and strictly faster
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	cmds[.A] = Command(Command_Break_Off{})
+	combat_resolve_round(&battle, cmds, &events)
+
+	testing.expect(t, battle.ended)
+	testing.expect_value(t, battle.timing[.A], ship.Effect_Counters{})
 }

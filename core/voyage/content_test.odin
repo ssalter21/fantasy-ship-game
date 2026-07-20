@@ -602,11 +602,13 @@ phase_magnitude :: proc(s: ship.Ship, phase: ship.Category) -> int {
 	total := 0
 	for layout_slot in s.layout {
 		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting || fitting.category != phase {
+		if !has_fitting {
 			continue
 		}
-		if active, ok := fitting.active.?; ok {
-			total += ship.effect_showcase_magnitude(active)
+		for i in 0 ..< fitting.effect_count {
+			if fitting.effects[i].phase == phase {
+				total += ship.effect_showcase_magnitude(fitting.effects[i])
+			}
 		}
 	}
 	return total
@@ -797,15 +799,12 @@ every_trade_roster_entry_is_takeable_by_a_starting_ship_outside_the_deep :: proc
 	}
 }
 
-// effect_strength reads the magnitude of whichever effect a roster item carries,
-// so a test can assert the quality scaling lifted it without caring which slot
-// (passive/active) the item's one effect sits in.
+// effect_strength totals the magnitudes of every effect a roster item carries, so a test
+// can assert the quality scaling lifted the item without naming which effect moved.
 effect_strength :: proc(f: ship.Fitting) -> int {
-	if active, ok := f.active.?; ok {
-		return ship.effect_showcase_magnitude(active)
+	total := 0
+	for i in 0 ..< f.effect_count {
+		total += ship.effect_showcase_magnitude(f.effects[i])
 	}
-	if passive, ok := f.passive.?; ok {
-		return ship.effect_showcase_magnitude(passive)
-	}
-	return 0
+	return total
 }

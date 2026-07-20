@@ -1599,13 +1599,11 @@ damage_to :: proc(hits: []combat.Event_Damage_Dealt, side: combat.Side) -> int {
 // stow) — the shape the roster's defensive items are authored in. It **replaces**
 // rather than installs: no slot is ever empty, so ship_fit would refuse every one.
 arm_with_repair :: proc(sim: ^Sim, magnitude: int) {
-	fitting := ship.Fitting{
-		name     = "Shipwright's Kit",
-		size     = .Large,
-		category = .Brace,
-		bulk     = 40, // its own machinery fills the slot: an armed forecastle carries nothing
-		active   = ship.effect_repair(ship.expr_const(magnitude)),
-	}
+	// bulk 40: its own machinery fills the slot, so an armed forecastle carries nothing.
+	fitting := ship.ship_fitting_with_effects(
+		ship.Fitting{name = "Shipwright's Kit", size = .Large, bulk = 40},
+		ship.effect_repair(ship.expr_const(magnitude)),
+	)
 	ship.ship_replace_fitting(&sim.player.layout[3], fitting)
 }
 

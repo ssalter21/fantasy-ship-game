@@ -49,35 +49,40 @@ STARTING_CARGO :: 40
 CAPTAIN_STARTING_CARGO :: 10
 
 // The three starting fittings (issue #23) that fill the ship template's exposed slots.
-// Their category assignment covers both round phases (ADR-0006, amended by ADR-0025):
-// Captain's Quarters braces — repairing, the Brace verb (ADR-0027) — while Top Crew and
-// Gun Deck both fire. Each sits in exactly one Tag family (#90), so the "crew vs guns"
-// distinction rides on the Tag, not the phase. The upgraded variants inherit these
-// through ship_fitting_upgraded, which copies the base fitting whole.
+// Their effects cover both round phases (ADR-0006, amended by ADR-0025): Captain's Quarters
+// braces — repairing, the Brace verb (ADR-0027) — while Top Crew and Gun Deck both fire.
+// Each sits in exactly one Tag family (#90), so the "crew vs guns" distinction rides on the
+// Tag, not the phase. The upgraded variants inherit these through ship_fitting_upgraded,
+// which copies the base fitting whole.
 ship_fitting_top_crew :: proc() -> Fitting {
-	return Fitting{name = "Top Crew", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(TOP_CREW_OFFENSE_MAGNITUDE))}
+	return ship_fitting_with_effects(
+		Fitting{name = "Top Crew", size = .Medium, bulk = 20, weight = 16, tags = {.Crew}},
+		effect_phase_contribution(expr_const(TOP_CREW_OFFENSE_MAGNITUDE)),
+	)
 }
 
 ship_fitting_captains_quarters :: proc() -> Fitting {
-	return Fitting{name = "Captain's Quarters", size = .Medium, bulk = 20, weight = 18, category = .Brace, tags = {.Crew}, active = effect_repair(expr_const(CAPTAINS_QUARTERS_REPAIR_MAGNITUDE))}
+	return ship_fitting_with_effects(
+		Fitting{name = "Captain's Quarters", size = .Medium, bulk = 20, weight = 18, tags = {.Crew}},
+		effect_repair(expr_const(CAPTAINS_QUARTERS_REPAIR_MAGNITUDE)),
+	)
 }
 
 ship_fitting_gun_deck :: proc() -> Fitting {
-	return Fitting{name = "Gun Deck", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_const(GUN_DECK_OFFENSE_MAGNITUDE))}
+	return ship_fitting_with_effects(
+		Fitting{name = "Gun Deck", size = .Large, bulk = 40, weight = 38, tags = {.Weapon}},
+		effect_phase_contribution(expr_const(GUN_DECK_OFFENSE_MAGNITUDE)),
+	)
 }
 
 // ship_fitting_upgraded is the shared shape behind the three upgraded-variant procs
-// below: an upgraded variant keeps its base's size/category and adds bonus on top of
-// the base magnitude. bonus is a caller-supplied scale (issue #23: a deeper node's
+// below: an upgraded variant keeps its base's size and effects and adds bonus on top of
+// their magnitudes. bonus is a caller-supplied scale (issue #23: a deeper node's
 // upgrade is worth more, and a PvE opponent's gun deck scales the same way), not a
 // fixed constant.
 ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) -> Fitting {
-	f := base
+	f := ship_fitting_scaled(base, bonus)
 	f.name = upgraded_name
-	base_active, _ := base.active.?
-	// Carry the base effect through whole and move only its magnitude, so an upgrade
-	// scales what the fitting deals and never changes what it does.
-	f.active = effect_with_bonus(base_active, bonus)
 	return f
 }
 
@@ -170,12 +175,13 @@ ITEM_ROSTER_SIZE :: 50
 // be. Caller owns the returned array by value — Fittings hold only value fields and
 // static-string names, so there is nothing to free.
 //
-// Authoring invariants every entry must satisfy: exactly one effect, a size the template
-// can hold, a weight in its size band (which decides what the item costs a ship in
-// Speed, via ship_fitting_weight → ship_effective_speed), and an effect whose kind
-// matches its category's verb where it carries one (ship_phase_verb — a Brace item
-// repairs, a Fire item deals damage). Magnitudes are placeholders, graded loosely by
-// tier. Read it as a data table, top to bottom per tier.
+// Authoring invariants every entry must satisfy: at least one and at most
+// FITTING_MAX_EFFECTS effects, written through ship_fitting_with_effects; a size the
+// template can hold; and a weight in its size band (which decides what the item costs a
+// ship in Speed, via ship_fitting_weight → ship_effective_speed). Each effect names its own
+// phase through the verb helper that builds it, so the roster no longer states a phase per
+// item. Magnitudes are placeholders, graded loosely by tier. Read it as a data table, top
+// to bottom per tier.
 //
 // Every entry also names a `bulk` equal to its size's full slot contribution, so no
 // roster item carries anything: cargo capacity is an authored power source nothing has
@@ -186,63 +192,63 @@ ITEM_ROSTER_SIZE :: 50
 ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 	return [ITEM_ROSTER_SIZE]Roster_Item {
 		// ---- Splash ----
-		{tier = .Splash, fitting = Fitting{name = "Deckhands", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(1))}},
-		{tier = .Splash, fitting = Fitting{name = "Swivel Guns", size = .Small, bulk = 10, weight = 8, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_const(3))}},
-		{tier = .Splash, fitting = Fitting{name = "Deck Cannon", size = .Medium, bulk = 20, weight = 18, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_const(4))}},
-		{tier = .Splash, fitting = Fitting{name = "Boarding Pikes", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Weapon, .Crew}, active = effect_phase_contribution(expr_const(2))}},
-		{tier = .Splash, fitting = Fitting{name = "Snapping Eels", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_const(3))}},
-		{tier = .Splash, fitting = Fitting{name = "Oakum & Pitch", size = .Medium, bulk = 20, weight = 24, category = .Brace, tags = {.Artifact}, active = effect_repair(expr_const(5))}},
-		{tier = .Splash, fitting = Fitting{name = "Spare Timbers", size = .Small, bulk = 10, weight = 12, category = .Brace, tags = {.Cargo}, active = effect_repair(expr_const(3))}},
-		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, passive = effect_modify_speed(expr_const(1))}},
-		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, bulk = 10, weight = 7, category = .Brace, tags = {.Cargo}, active = effect_repair(expr_const(3))}},
-		{tier = .Splash, fitting = Fitting{name = "Carpenter's Mate", size = .Small, bulk = 10, weight = 5, category = .Brace, tags = {.Crew}, active = effect_repair(expr_const(2))}},
-		{tier = .Splash, fitting = Fitting{name = "Deck Pumps", size = .Medium, bulk = 20, weight = 20, category = .Brace, tags = {.Artifact}, active = effect_repair(expr_const(4))}},
-		{tier = .Splash, fitting = Fitting{name = "Powder Monkeys", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(1), Selector(Tag.Weapon))}},
-		{tier = .Splash, fitting = Fitting{name = "Smuggler's Crates", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Cargo}, active = effect_phase_contribution(expr_const(1), Selector(Visibility.Concealed))}},
-		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_below_hull_percent(50, 3))}},
-		{tier = .Splash, fitting = Fitting{name = "Lookout Nest", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_while_opponent_faster(2))}},
-		{tier = .Splash, fitting = Fitting{name = "Bilge Rats", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_from_round(3, 2))}},
-		{tier = .Splash, fitting = Fitting{name = "Harpoon Line", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Weapon, .Beast}, active = effect_phase_contribution(expr_const(3))}},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Deckhands", size = .Small, bulk = 10, weight = 6, tags = {.Crew}}, effect_phase_contribution(expr_const(1)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Swivel Guns", size = .Small, bulk = 10, weight = 8, tags = {.Weapon}}, effect_phase_contribution(expr_const(3)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Deck Cannon", size = .Medium, bulk = 20, weight = 18, tags = {.Weapon}}, effect_phase_contribution(expr_const(4)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Boarding Pikes", size = .Small, bulk = 10, weight = 6, tags = {.Weapon, .Crew}}, effect_phase_contribution(expr_const(2)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Snapping Eels", size = .Small, bulk = 10, weight = 7, tags = {.Beast}}, effect_phase_contribution(expr_const(3)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Oakum & Pitch", size = .Medium, bulk = 20, weight = 24, tags = {.Artifact}}, effect_repair(expr_const(5)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Spare Timbers", size = .Small, bulk = 10, weight = 12, tags = {.Cargo}}, effect_repair(expr_const(3)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Spare Rigging", size = .Small, bulk = 10, weight = 5, tags = {.Artifact}}, effect_modify_speed(expr_const(1)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Salt Provisions", size = .Small, bulk = 10, weight = 7, tags = {.Cargo}}, effect_repair(expr_const(3)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Carpenter's Mate", size = .Small, bulk = 10, weight = 5, tags = {.Crew}}, effect_repair(expr_const(2)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Deck Pumps", size = .Medium, bulk = 20, weight = 20, tags = {.Artifact}}, effect_repair(expr_const(4)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Powder Monkeys", size = .Small, bulk = 10, weight = 6, tags = {.Crew}}, effect_phase_contribution(expr_const(1), Selector(Tag.Weapon)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Smuggler's Crates", size = .Small, bulk = 10, weight = 7, tags = {.Cargo}}, effect_phase_contribution(expr_const(1), Selector(Visibility.Concealed)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "War Hound", size = .Small, bulk = 10, weight = 7, tags = {.Beast}}, effect_phase_contribution(expr_below_hull_percent(50, 3)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Lookout Nest", size = .Small, bulk = 10, weight = 5, tags = {.Crew}}, effect_phase_contribution(expr_while_opponent_faster(2)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Bilge Rats", size = .Small, bulk = 10, weight = 5, tags = {.Beast}}, effect_phase_contribution(expr_from_round(3, 2)))},
+		{tier = .Splash, fitting = ship_fitting_with_effects(Fitting{name = "Harpoon Line", size = .Small, bulk = 10, weight = 6, tags = {.Weapon, .Beast}}, effect_phase_contribution(expr_const(3)))},
 
 		// ---- Shallow ----
-		{tier = .Shallow, fitting = Fitting{name = "Long Nines", size = .Large, bulk = 40, weight = 42, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_const(8))}},
-		{tier = .Shallow, fitting = Fitting{name = "Carronade", size = .Medium, bulk = 20, weight = 22, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_const(6))}},
-		{tier = .Shallow, fitting = Fitting{name = "Naval Gun Crew", size = .Medium, bulk = 20, weight = 20, category = .Fire, tags = {.Crew, .Weapon}, active = effect_phase_contribution(expr_const(6))}},
-		{tier = .Shallow, fitting = Fitting{name = "Sea Drake", size = .Large, bulk = 40, weight = 34, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_const(7))}},
-		{tier = .Shallow, fitting = Fitting{name = "Ramming Prow", size = .Large, bulk = 40, weight = 40, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_const(7))}},
-		{tier = .Shallow, fitting = Fitting{name = "War Drums", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(3))}},
-		{tier = .Shallow, fitting = Fitting{name = "Shipwright's Kit", size = .Medium, bulk = 20, weight = 25, category = .Brace, tags = {.Artifact}, active = effect_repair(expr_const(7))}},
-		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Artifact}, passive = effect_modify_speed(expr_const(2))}},
-		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, bulk = 20, weight = 16, category = .Brace, tags = {.Crew}, active = effect_repair(expr_const(6))}},
-		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, passive = effect_modify_speed(expr_const(1), Selector(Slot_Size.Small))}},
-		{tier = .Shallow, fitting = Fitting{name = "Gun Captain", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(2), Selector(Tag.Weapon))}},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Long Nines", size = .Large, bulk = 40, weight = 42, tags = {.Weapon}}, effect_phase_contribution(expr_const(8)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Carronade", size = .Medium, bulk = 20, weight = 22, tags = {.Weapon}}, effect_phase_contribution(expr_const(6)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Naval Gun Crew", size = .Medium, bulk = 20, weight = 20, tags = {.Crew, .Weapon}}, effect_phase_contribution(expr_const(6)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Sea Drake", size = .Large, bulk = 40, weight = 34, tags = {.Beast}}, effect_phase_contribution(expr_const(7)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Ramming Prow", size = .Large, bulk = 40, weight = 40, tags = {.Artifact}}, effect_phase_contribution(expr_const(7)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "War Drums", size = .Small, bulk = 10, weight = 6, tags = {.Crew}}, effect_phase_contribution(expr_const(3)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Shipwright's Kit", size = .Medium, bulk = 20, weight = 25, tags = {.Artifact}}, effect_repair(expr_const(7)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Copper Sheathing", size = .Medium, bulk = 20, weight = 16, tags = {.Artifact}}, effect_modify_speed(expr_const(2)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Ship's Surgeon", size = .Medium, bulk = 20, weight = 16, tags = {.Crew}}, effect_repair(expr_const(6)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Outriggers", size = .Small, bulk = 10, weight = 5, tags = {.Artifact}}, effect_modify_speed(expr_const(1), Selector(Slot_Size.Small)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Gun Captain", size = .Medium, bulk = 20, weight = 16, tags = {.Crew}}, effect_phase_contribution(expr_const(2), Selector(Tag.Weapon)))},
 		// Master Gunner counts the medium berths — a gunner for every gun deck the ship saw
 		// fit to build at fighting size. A phase is not a countable axis (see Selector), so a
 		// "per Fire fitting" reading is not one an item can be authored against.
-		{tier = .Shallow, fitting = Fitting{name = "Master Gunner", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(2), Selector(Slot_Size.Medium))}},
-		{tier = .Shallow, fitting = Fitting{name = "Contraband Hold", size = .Medium, bulk = 20, weight = 18, category = .Fire, tags = {.Cargo}, active = effect_phase_contribution(expr_const(2), Selector(Tag.Cargo))}},
-		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, bulk = 20, weight = 20, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_below_hull_percent(50, 8))}},
-		{tier = .Shallow, fitting = Fitting{name = "Ghost Lantern", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_while_concealed(4))}},
-		{tier = .Shallow, fitting = Fitting{name = "Storm Sails", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_while_opponent_slower(4))}},
-		{tier = .Shallow, fitting = Fitting{name = "Chain & Bar Shot", size = .Medium, bulk = 20, weight = 21, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_while_opponent_faster(7))}},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Master Gunner", size = .Medium, bulk = 20, weight = 16, tags = {.Crew}}, effect_phase_contribution(expr_const(2), Selector(Slot_Size.Medium)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Contraband Hold", size = .Medium, bulk = 20, weight = 18, tags = {.Cargo}}, effect_phase_contribution(expr_const(2), Selector(Tag.Cargo)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Kraken Spawn", size = .Medium, bulk = 20, weight = 20, tags = {.Beast}}, effect_phase_contribution(expr_below_hull_percent(50, 8)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Ghost Lantern", size = .Small, bulk = 10, weight = 5, tags = {.Artifact}}, effect_phase_contribution(expr_while_concealed(4)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Storm Sails", size = .Medium, bulk = 20, weight = 15, tags = {.Artifact}}, effect_phase_contribution(expr_while_opponent_slower(4)))},
+		{tier = .Shallow, fitting = ship_fitting_with_effects(Fitting{name = "Chain & Bar Shot", size = .Medium, bulk = 20, weight = 21, tags = {.Weapon}}, effect_phase_contribution(expr_while_opponent_faster(7)))},
 
 		// ---- Deep ----
-		{tier = .Deep, fitting = Fitting{name = "Great Bombard", size = .Large, bulk = 40, weight = 45, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_const(12))}},
-		{tier = .Deep, fitting = Fitting{name = "Leviathan", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_const(11))}},
-		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, bulk = 40, weight = 40, category = .Brace, tags = {.Beast}, active = effect_repair(expr_const(12))}},
-		{tier = .Deep, fitting = Fitting{name = "Adamant Sigil", size = .Medium, bulk = 20, weight = 25, category = .Brace, tags = {.Artifact}, active = effect_repair(expr_const(10))}},
-		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, passive = effect_modify_speed(expr_const(3))}},
-		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, bulk = 40, weight = 36, category = .Brace, tags = {.Artifact}, active = effect_repair(expr_const(11))}},
-		{tier = .Deep, fitting = Fitting{name = "Shipwright's Stores", size = .Medium, bulk = 20, weight = 22, category = .Brace, tags = {.Cargo}, active = effect_repair(expr_const(9))}},
-		{tier = .Deep, fitting = Fitting{name = "Admiral's Guard", size = .Medium, bulk = 20, weight = 17, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_const(3), Selector(Tag.Crew))}},
-		{tier = .Deep, fitting = Fitting{name = "Broadside Master", size = .Large, bulk = 40, weight = 36, category = .Fire, tags = {.Crew, .Weapon}, active = effect_phase_contribution(expr_const(3), Selector(Tag.Weapon))}},
-		{tier = .Deep, fitting = Fitting{name = "Hunter's Pack", size = .Medium, bulk = 20, weight = 18, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_const(3), Selector(Tag.Beast))}},
-		{tier = .Deep, fitting = Fitting{name = "Flagship Colors", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_const(3), Selector(Slot_Size.Large))}},
-		{tier = .Deep, fitting = Fitting{name = "Storm Caller", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Artifact}, active = effect_phase_contribution(expr_const(3), Selector(Visibility.Concealed))}},
-		{tier = .Deep, fitting = Fitting{name = "Wraith Cannon", size = .Medium, bulk = 20, weight = 22, category = .Fire, tags = {.Artifact, .Weapon}, active = effect_phase_contribution(expr_while_concealed(10))}},
-		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Beast}, active = effect_phase_contribution(expr_below_hull_percent(50, 12))}},
-		{tier = .Deep, fitting = Fitting{name = "Siege Battery", size = .Large, bulk = 40, weight = 44, category = .Fire, tags = {.Weapon}, active = effect_phase_contribution(expr_from_round(5, 11))}},
-		{tier = .Deep, fitting = Fitting{name = "Sea Witch", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = effect_phase_contribution(expr_while_opponent_faster(6))}},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Great Bombard", size = .Large, bulk = 40, weight = 45, tags = {.Weapon}}, effect_phase_contribution(expr_const(12)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Leviathan", size = .Large, bulk = 40, weight = 38, tags = {.Beast}}, effect_phase_contribution(expr_const(11)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Dragon Turtle", size = .Large, bulk = 40, weight = 40, tags = {.Beast}}, effect_repair(expr_const(12)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Adamant Sigil", size = .Medium, bulk = 20, weight = 25, tags = {.Artifact}}, effect_repair(expr_const(10)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Enchanted Keel", size = .Medium, bulk = 20, weight = 15, tags = {.Artifact}}, effect_modify_speed(expr_const(3)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Titan's Heart", size = .Large, bulk = 40, weight = 36, tags = {.Artifact}}, effect_repair(expr_const(11)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Shipwright's Stores", size = .Medium, bulk = 20, weight = 22, tags = {.Cargo}}, effect_repair(expr_const(9)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Admiral's Guard", size = .Medium, bulk = 20, weight = 17, tags = {.Crew}}, effect_phase_contribution(expr_const(3), Selector(Tag.Crew)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Broadside Master", size = .Large, bulk = 40, weight = 36, tags = {.Crew, .Weapon}}, effect_phase_contribution(expr_const(3), Selector(Tag.Weapon)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Hunter's Pack", size = .Medium, bulk = 20, weight = 18, tags = {.Beast}}, effect_phase_contribution(expr_const(3), Selector(Tag.Beast)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Flagship Colors", size = .Medium, bulk = 20, weight = 15, tags = {.Artifact}}, effect_phase_contribution(expr_const(3), Selector(Slot_Size.Large)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Storm Caller", size = .Small, bulk = 10, weight = 6, tags = {.Artifact}}, effect_phase_contribution(expr_const(3), Selector(Visibility.Concealed)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Wraith Cannon", size = .Medium, bulk = 20, weight = 22, tags = {.Artifact, .Weapon}}, effect_phase_contribution(expr_while_concealed(10)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Cornered Beast", size = .Large, bulk = 40, weight = 38, tags = {.Beast}}, effect_phase_contribution(expr_below_hull_percent(50, 12)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Siege Battery", size = .Large, bulk = 40, weight = 44, tags = {.Weapon}}, effect_phase_contribution(expr_from_round(5, 11)))},
+		{tier = .Deep, fitting = ship_fitting_with_effects(Fitting{name = "Sea Witch", size = .Medium, bulk = 20, weight = 16, tags = {.Crew}}, effect_phase_contribution(expr_while_opponent_faster(6)))},
 	}
 }
 
@@ -287,20 +293,15 @@ ship_fit_first_empty_slot :: proc(layout: []Layout_Slot, fitting: Fitting) -> bo
 	return false
 }
 
-// ship_fitting_scaled returns a copy of base with `bonus` added to its effect magnitude —
-// the Item Offer's zone-and-depth quality knob applied to a roster item (issue #96), the
-// additive analogue of ship_fitting_upgraded's per-node scaling. bonus lands on whichever
-// of the passive/active effect the item carries (roster items carry exactly one), leaving
-// the effect's kind and selector intact so only its strength moves. A cargo filler (no
-// effect) is returned unchanged. See effect_with_bonus for where the bonus lands inside a
-// gated item's tree.
+// ship_fitting_scaled returns a copy of base with `bonus` added to every one of its effect
+// magnitudes — the Item Offer's zone-and-depth quality knob applied to a roster item (issue
+// #96). Each effect keeps its verb, phase, timing and selector, so only strength moves. A
+// cargo filler (no effects) is returned unchanged. See effect_with_bonus for where the
+// bonus lands inside a gated item's tree.
 ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 	f := base
-	if effect, ok := f.passive.?; ok {
-		f.passive = effect_with_bonus(effect, bonus)
-	}
-	if effect, ok := f.active.?; ok {
-		f.active = effect_with_bonus(effect, bonus)
+	for i in 0 ..< f.effect_count {
+		f.effects[i] = effect_with_bonus(f.effects[i], bonus)
 	}
 	return f
 }
@@ -310,14 +311,11 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // ship_fitting_scaled's additive bonus, and the shape core/voyage's Fight stakes reads with
 // (issue #165: an additive bonus can only ever add). 100 returns the fitting as authored.
 //
-// **Only an active Phase_Contribution effect moves** — the damage a fitting deals, and
-// nothing else. Modify_Speed acts through ship_effective_speed and Repair restores the
-// owner's own Hull, so neither is output a site can scale. That distinction is
-// load-bearing for the hostile roster: Category is a combat *phase*, so `.Fire` holds
-// both damage fittings and every Modify_Speed item — yet a hostile's Speed is its
-// archetype's own axis, not a stakes reading. A caller scaling a whole category cannot
-// be trusted to have meant the speed items; this proc is what makes "scale its output"
-// mean only that.
+// **Only a Phase_Contribution effect moves** — the damage a fitting deals, and nothing
+// else. Modify_Speed acts through ship_effective_speed and Repair restores the owner's own
+// Hull, so neither is output a site can scale. The guard is on the **verb**, which is what
+// makes it exact: a hostile's Speed is its archetype's own axis, not a stakes reading, and
+// a fitting that both fires and hastens has only the firing half scaled.
 //
 // The scale lands on the effect's `site_scale`, **beside** its tree rather than inside it:
 // an authored number is never rewritten, and a gate's threshold — which is a constant like
@@ -332,9 +330,11 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // rather than replacing what came before.
 ship_fitting_output_scaled :: proc(base: Fitting, percent: int) -> Fitting {
 	f := base
-	if effect, ok := f.active.?; ok && effect.kind == .Phase_Contribution {
-		effect.site_scale = (effect.site_scale * percent + 50) / 100
-		f.active = effect
+	for i in 0 ..< f.effect_count {
+		if f.effects[i].kind != .Phase_Contribution {
+			continue
+		}
+		f.effects[i].site_scale = (f.effects[i].site_scale * percent + 50) / 100
 	}
 	return f
 }
@@ -357,12 +357,12 @@ ship_fitting_hold :: proc(size: Slot_Size, name := "Cargo") -> Fitting {
 	return Fitting{name = name, size = size, tags = {.Cargo}}
 }
 
-// ship_template_layout is the vertical slice's one ship template (issue #91): 8 slots split
-// 4 exposed / 4 concealed, in the three sizes the roster is authored against, with the
-// three exposed combat slots sized so the starting loadout fits. Caller owns the returned
-// slice.
+// ship_template_layout is the vertical slice's one ship template (issue #91): SHIP_MAX_SLOTS
+// slots split half exposed / half concealed, in the three sizes the roster is authored
+// against, with the three exposed combat slots sized so the starting loadout fits. Caller
+// owns the returned slice.
 ship_template_layout :: proc() -> []Layout_Slot {
-	layout := make([]Layout_Slot, 8)
+	layout := make([]Layout_Slot, SHIP_MAX_SLOTS)
 	layout[0] = Layout_Slot{slot = Slot{name = "top deck", size = .Medium, base_visibility = .Exposed}}
 	layout[1] = Layout_Slot{slot = Slot{name = "top crew", size = .Medium, base_visibility = .Exposed}}
 	layout[2] = Layout_Slot{slot = Slot{name = "gun deck", size = .Large, base_visibility = .Exposed}}

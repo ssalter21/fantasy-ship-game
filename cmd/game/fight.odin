@@ -348,7 +348,7 @@ draw_fight_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, gate:
 	if is_hold {
 		rl.DrawTextEx(ui_font_body, fmt.ctprintf("holds %d", fitting.cargo_held), rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, UI_BODY_SIZE, 1, COLOUR_STEEL)
 	} else {
-		draw_build_category_chip(rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, fitting.category)
+		draw_build_phase_chip(rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, fitting_phase_label(fitting))
 	}
 	rl.EndScissorMode()
 
