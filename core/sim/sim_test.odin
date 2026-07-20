@@ -1604,7 +1604,7 @@ arm_with_repair :: proc(sim: ^Sim, magnitude: int) {
 		size     = .Large,
 		category = .Brace,
 		bulk     = 40, // its own machinery fills the slot: an armed forecastle carries nothing
-		active   = ship.Effect{kind = .Repair, magnitude = ship.Magnitude(magnitude)},
+		active   = ship.effect_repair(ship.expr_const(magnitude)),
 	}
 	ship.ship_replace_fitting(&sim.player.layout[3], fitting)
 }
@@ -1626,7 +1626,7 @@ a_repair_lands_before_the_guns_and_saves_a_ship_that_would_have_sunk :: proc(t: 
 	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the round
 
 	arm_with_repair(&sim, 5)
-	incoming := combat.combat_phase_output(&sim.battle, .B, .Fire)
+	incoming := combat.combat_phase_output_this_round(&sim.battle, .B, .Fire)
 	testing.expect(t, incoming > 0)
 	sim.player.hull = incoming // one round's damage and not a point more
 
@@ -1803,7 +1803,7 @@ committing_in_battle_multiplies_the_repair_and_lands_no_damage :: proc(t: ^testi
 	arm_with_repair(&sim, 5)
 	sim.player.hull = 100 // room for the repair to land in full
 	// The whole Brace phase is what Commit multiplies, not just the fitting armed above.
-	unpressed_repair := combat.combat_phase_output(&sim.battle, .A, .Brace)
+	unpressed_repair := combat.combat_phase_output_this_round(&sim.battle, .A, .Brace)
 	testing.expect(t, unpressed_repair > 0)
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Commit{}}))

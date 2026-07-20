@@ -167,7 +167,7 @@ upgraded_top_crew_keeps_size_and_category_but_out_magnitudes_the_base_fitting ::
 	testing.expect_value(t, upgraded.category, base.category)
 	base_active, _ := base.active.?
 	upgraded_active, _ := upgraded.active.?
-	testing.expect(t, upgraded_active.magnitude > base_active.magnitude)
+	testing.expect(t, effect_showcase_magnitude(upgraded_active) > effect_showcase_magnitude(base_active))
 }
 
 @(test)
@@ -179,7 +179,7 @@ upgraded_captains_quarters_keeps_size_and_category_but_out_magnitudes_the_base_f
 	testing.expect_value(t, upgraded.category, base.category)
 	base_active, _ := base.active.?
 	upgraded_active, _ := upgraded.active.?
-	testing.expect(t, upgraded_active.magnitude > base_active.magnitude)
+	testing.expect(t, effect_showcase_magnitude(upgraded_active) > effect_showcase_magnitude(base_active))
 }
 
 @(test)
@@ -191,7 +191,7 @@ upgraded_gun_deck_keeps_size_and_category_but_out_magnitudes_the_base_fitting ::
 	testing.expect_value(t, upgraded.category, base.category)
 	base_active, _ := base.active.?
 	upgraded_active, _ := upgraded.active.?
-	testing.expect(t, upgraded_active.magnitude > base_active.magnitude)
+	testing.expect(t, effect_showcase_magnitude(upgraded_active) > effect_showcase_magnitude(base_active))
 }
 
 // --- The ~50-item roster (issue #97, ADR-0012) ---
@@ -336,10 +336,10 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 			if _, is_synergy := effect.synergy.?; is_synergy {
 				saw_synergy = true
 			}
-			if _, is_conditional := effect.conditional.?; is_conditional {
+			if expr_is_conditional(effect.magnitude) {
 				saw_conditional = true
 			}
-			if effect.kind == .Phase_Contribution && effect.synergy == nil && effect.conditional == nil {
+			if effect.kind == .Phase_Contribution && effect.synergy == nil && !expr_is_conditional(effect.magnitude) {
 				saw_flat = true
 			}
 		}
@@ -371,7 +371,7 @@ splash_powder_monkeys_offense_scales_with_weapons_aboard :: proc(t: ^testing.T) 
 	// Each Weapon aboard lifts it by the per-unit magnitude.
 	armed := synergy_ship(item.fitting, roster_item_named("Swivel Guns").fitting, roster_item_named("Deck Cannon").fitting)
 	defer delete(armed.layout)
-	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&armed)), active.magnitude * 2)
+	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&armed)), Magnitude(effect_showcase_magnitude(active) * 2))
 }
 
 // **A fitting's phase is its verb's phase** (ADR-0027). Category says when a fitting
@@ -434,7 +434,7 @@ deep_cornered_beast_only_bites_below_half_hull :: proc(t: ^testing.T) {
 	s.hull = s.max_hull
 	testing.expect_value(t, effect_magnitude(active, ctx), Magnitude(0))
 	s.hull = s.max_hull / 2 - 1
-	testing.expect_value(t, effect_magnitude(active, ctx), active.magnitude)
+	testing.expect_value(t, effect_magnitude(active, ctx), Magnitude(effect_showcase_magnitude(active)))
 }
 
 // --- Roster lookup and first-empty fitting (issue #135) ----------------------
@@ -485,7 +485,7 @@ ship_fit_first_empty_slot_falls_back_from_exposed_slots_to_the_concealed_hold ::
 	defer delete(layout)
 
 	medium :: proc(name: string) -> Fitting {
-		return Fitting{name = name, size = .Medium, category = .Fire, active = Effect{magnitude = 1}}
+		return Fitting{name = name, size = .Medium, category = .Fire, active = effect_phase_contribution(expr_const(1))}
 	}
 	testing.expect(t, ship_fit_first_empty_slot(layout, medium("first")))
 	testing.expect(t, ship_fit_first_empty_slot(layout, medium("second")))
@@ -530,36 +530,39 @@ occupant_name :: proc(layout: []Layout_Slot, slot_name: string) -> string {
 // who is allowed to break off (combat_may_break_off is *strictly faster*).
 @(test)
 ship_fitting_output_scaled_moves_phase_contributions_and_leaves_stat_modifiers_alone :: proc(t: ^testing.T) {
-	rigging := Fitting{name = "Spare Rigging", size = .Small, category = .Fire, passive = Effect{kind = .Modify_Speed, magnitude = 2}}
+	rigging := Fitting{name = "Spare Rigging", size = .Small, category = .Fire, passive = effect_modify_speed(expr_const(2))}
 	halved := ship_fitting_output_scaled(rigging, 50)
 	passive, has_passive := halved.passive.?
 	testing.expect(t, has_passive)
-	testing.expect_value(t, passive.magnitude, Magnitude(2)) // a stat modifier is not output
+	testing.expect_value(t, effect_showcase_magnitude(passive), 2) // a stat modifier is not output
 
-	gun := Fitting{name = "Long Nines", size = .Large, category = .Fire, active = Effect{magnitude = 8}}
+	gun := Fitting{name = "Long Nines", size = .Large, category = .Fire, active = effect_phase_contribution(expr_const(8))}
 	active, has_active := ship_fitting_output_scaled(gun, 50).active.?
 	testing.expect(t, has_active)
-	testing.expect_value(t, active.magnitude, Magnitude(4))
+	testing.expect_value(t, effect_showcase_magnitude(active), 4)
 }
 
-// A scaling preserves everything about an effect except its strength — the selector,
-// the condition and the kind all ride through — so a synergy stays a synergy and only
-// its per-match magnitude moves. That is what makes the scaling proportional to what
-// a fitting deals rather than to the build around it: `(m x pct) x count`.
+// A scaling preserves everything about an effect except its strength — the selector, the
+// tree and the kind all ride through untouched, with the scale riding beside them — so a
+// synergy stays a synergy and a gate's threshold is still the number it was authored as.
+// That is what makes the scaling proportional to what a fitting deals rather than to the
+// build around it: `(m x pct) x count`.
 @(test)
 ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strength :: proc(t: ^testing.T) {
 	guard := Fitting {
 		name     = "Admiral's Guard",
 		size     = .Medium,
 		category = .Fire,
-		active   = Effect{magnitude = 4, synergy = Selector(Tag.Crew), conditional = Condition_Hull_Below{percent = 50}},
+		active   = effect_phase_contribution(item_below_hull_percent(50, 4), Selector(Tag.Crew)),
 	}
 
 	scaled, _ := ship_fitting_output_scaled(guard, 50).active.?
-	testing.expect_value(t, scaled.magnitude, Magnitude(2))
+	testing.expect_value(t, effect_showcase_magnitude(scaled), 2)
 	testing.expect_value(t, scaled.kind, Effect_Kind.Phase_Contribution)
 	testing.expect_value(t, scaled.synergy.?, Selector(Tag.Crew))
-	testing.expect_value(t, scaled.conditional.?, Condition(Condition_Hull_Below{percent = 50}))
+	// The authored tree is the same tree: the 50%-Hull threshold inside it did not move
+	// with the item's strength.
+	testing.expect_value(t, scaled.magnitude, item_below_hull_percent(50, 4))
 }
 
 // **Rounds half-up, so a scale-down cannot silently disarm the roster's smallest
@@ -569,13 +572,13 @@ ship_fitting_output_scaled_keeps_an_effects_character_and_moves_only_its_strengt
 // the zone they are authored for (ADR-0019).
 @(test)
 ship_fitting_output_scaled_rounds_half_up_and_is_the_identity_at_a_hundred :: proc(t: ^testing.T) {
-	monkeys := Fitting{name = "Powder Monkeys", size = .Small, category = .Fire, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}
+	monkeys := Fitting{name = "Powder Monkeys", size = .Small, category = .Fire, active = effect_phase_contribution(expr_const(1), Selector(Tag.Weapon))}
 	halved, _ := ship_fitting_output_scaled(monkeys, 50).active.?
-	testing.expect_value(t, halved.magnitude, Magnitude(1)) // 0.5 rounds up, not away
+	testing.expect_value(t, effect_showcase_magnitude(halved), 1) // 0.5 rounds up, not away
 
-	swivel := Fitting{name = "Swivel Guns", size = .Small, category = .Fire, active = Effect{magnitude = 3}}
+	swivel := Fitting{name = "Swivel Guns", size = .Small, category = .Fire, active = effect_phase_contribution(expr_const(3))}
 	up, _ := ship_fitting_output_scaled(swivel, 50).active.?
-	testing.expect_value(t, up.magnitude, Magnitude(2)) // 1.5 rounds up
+	testing.expect_value(t, effect_showcase_magnitude(up), 2) // 1.5 rounds up
 
 	testing.expect_value(t, ship_fitting_output_scaled(swivel, 100), swivel)
 

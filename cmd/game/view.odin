@@ -866,7 +866,7 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 		case:
 			magnitude := 0
 			if active, has_active := fitting.active.?; has_active {
-				magnitude = int(active.magnitude)
+				magnitude = ship.effect_showcase_magnitude(active)
 			}
 			label = fmt.tprintf("%s: %s (%d)", layout_slot.slot.name, fitting.name, magnitude)
 		}
@@ -899,9 +899,16 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 }
 
 // fitting_effect_intent renders a one-line summary of what a fitting's effect does:
-// the magnitude and the verb it carries (Effect_Kind), with synergy/conditional context
-// spelled out ("+2 Offense per Weapon", "+8 Offense below 50% Hull"). Reads whichever of
-// active/passive carries the effect; "no effect" for a cargo filler.
+// the magnitude and the verb it carries (Effect_Kind), with synergy and conditionality
+// spelled out ("+2 Offense per Weapon", "+8 Offense when its condition holds"). Reads
+// whichever of active/passive carries the effect; "no effect" for a cargo filler.
+//
+// The magnitude is the effect read **at showcase** (effect_showcase_magnitude): what the
+// item is worth when what its tree asks for is true. An item held in the hand has no ship,
+// round or opponent to resolve against, and resolving it against nothing would print every
+// conditional item as "+0". Since #404 a magnitude is an arbitrary tree, so what the
+// condition *is* no longer has a closed set of clauses to render — the line says only that
+// there is one, which is the honest reading until the item card is re-cut (#405).
 fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 	effect: ship.Effect
 	if active, ok := f.active.?; ok {
@@ -922,32 +929,14 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 		target = "Speed"
 	}
 
-	intent := fmt.tprintf("+%d %s", int(effect.magnitude), target)
+	intent := fmt.tprintf("+%d %s", ship.effect_showcase_magnitude(effect), target)
 	if selector, ok := effect.synergy.?; ok {
 		intent = fmt.tprintf("%s per %v", intent, selector)
 	}
-	if condition, ok := effect.conditional.?; ok {
-		intent = fmt.tprintf("%s %s", intent, condition_intent(condition))
+	if ship.expr_is_conditional(effect.magnitude) {
+		intent = fmt.tprintf("%s when its condition holds", intent)
 	}
 	return intent
-}
-
-// condition_intent renders a conditional effect's trigger as a short clause the
-// Item Offer / Refit UI appends to the effect intent.
-condition_intent :: proc(condition: ship.Condition) -> string {
-	switch c in condition {
-	case ship.Condition_Hull_Below:
-		return fmt.tprintf("below %d%% Hull", c.percent)
-	case ship.Condition_Round_At_Least:
-		return fmt.tprintf("from round %d", c.round)
-	case ship.Condition_Self_Visibility:
-		return fmt.tprintf("while %v", c.visibility)
-	case ship.Condition_Opponent_Faster:
-		return "vs a faster foe"
-	case ship.Condition_Opponent_Slower:
-		return "vs a slower foe"
-	}
-	return ""
 }
 
 // fitting_summary_lines renders the two detail lines shown under an item's name on

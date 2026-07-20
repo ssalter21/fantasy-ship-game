@@ -291,3 +291,95 @@ the_node_bound_rejects_a_tree_that_overruns_it :: proc(t: ^testing.T) {
 	testing.expect_assert(t, "expression tree exceeds the node bound")
 	_ = expr_gate(.Lt, branch, branch, branch, branch)
 }
+
+// --- The opponent, the readings, and the rejections (#404) --------------------
+
+@(test)
+a_count_reads_the_opposing_census_when_it_names_the_opponent :: proc(t: ^testing.T) {
+	ctx := Expr_Context{}
+	ctx.counts.tag[.Weapon] = 3
+	ctx.opponent.tag[.Weapon] = 1
+
+	// The same selector, two censuses: the side rides on the node, not on the criterion.
+	testing.expect_value(t, expr_eval(expr_count(Tag.Weapon), ctx), 3)
+	testing.expect_value(t, expr_eval(expr_count_opponent(Tag.Weapon), ctx), 1)
+
+	// An opponent census that was never filled — outside a battle — reads 0 rather than
+	// falling back to one's own.
+	bare := Expr_Context{}
+	bare.counts.tag[.Weapon] = 3
+	testing.expect_value(t, expr_eval(expr_count_opponent(Tag.Weapon), bare), 0)
+}
+
+@(test)
+expr_reads_quantity_finds_a_reading_anywhere_in_a_tree :: proc(t: ^testing.T) {
+	// The question the layering rule is enforced with, so it must see through nesting and
+	// into both of a Gate's branches.
+	buried := expr_gate(
+		.Gt,
+		expr_const(1),
+		expr_const(2),
+		expr_add(expr_const(1), expr_quantity(.Opponent_Speed)),
+		expr_const(0),
+	)
+	testing.expect(t, expr_reads_quantity(buried, .Opponent_Speed))
+	testing.expect(t, !expr_reads_quantity(buried, .Own_Speed))
+	testing.expect(t, !expr_reads_quantity(Expr{}, .Round))
+}
+
+@(test)
+expr_is_conditional_is_true_of_exactly_the_trees_that_gate :: proc(t: ^testing.T) {
+	testing.expect(t, !expr_is_conditional(expr_const(3)))
+	testing.expect(t, !expr_is_conditional(expr_mul(expr_const(3), expr_count(Tag.Crew))))
+	testing.expect(
+		t,
+		expr_is_conditional(expr_gate(.Gte, expr_quantity(.Round), expr_const(3), expr_const(5), expr_const(0))),
+	)
+}
+
+@(test)
+showcase_opens_every_gate_and_counts_one_of_everything :: proc(t: ^testing.T) {
+	// The item-card reading: what the item is worth when what it asks for is true. A
+	// context of zeroes would answer the same tree with 0, which reads as "does nothing".
+	gated := expr_gate(.Gte, expr_quantity(.Round), expr_const(5), expr_const(11), expr_const(0))
+	testing.expect_value(t, expr_eval(gated, Expr_Context{}), 0)
+	testing.expect_value(t, expr_showcase(gated), 11)
+
+	// A count reads 1, so a per-match magnitude shows as itself rather than as nothing.
+	testing.expect_value(t, expr_showcase(expr_mul(expr_const(3), expr_count(Tag.Weapon))), 3)
+	testing.expect_value(t, expr_showcase(expr_mul(expr_const(3), expr_count_opponent(Tag.Weapon))), 3)
+
+	// It is the same arithmetic everywhere else, including inside the branch it takes.
+	testing.expect_value(t, expr_showcase(expr_add(expr_const(2), expr_const(5))), 7)
+	testing.expect_value(t, expr_showcase(Expr{}), 0)
+}
+
+// The captain's order is an ordinal **encoding**, so equality is the whole of what it
+// means. Ordering comparisons over it are refused where the tree is written, not resolved
+// to something arbitrary at runtime.
+@(test)
+an_ordering_comparison_on_the_captains_order_is_rejected_at_authoring :: proc(t: ^testing.T) {
+	// Equality and inequality are the two legal readings.
+	on_commit := expr_gate(
+		.Eq,
+		expr_quantity(.Captains_Order),
+		expr_const(int(Captains_Order.Commit)),
+		expr_const(4),
+		expr_const(0),
+	)
+	ctx := Expr_Context{}
+	ctx.quantities[.Captains_Order] = int(Captains_Order.Commit)
+	testing.expect_value(t, expr_eval(on_commit, ctx), 4)
+
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	testing.expect_assert(t, "the captain's order is an ordinal encoding")
+	_ = expr_gate(
+		.Gte,
+		expr_quantity(.Captains_Order),
+		expr_const(int(Captains_Order.Press_Fire)),
+		expr_const(4),
+		expr_const(0),
+	)
+}

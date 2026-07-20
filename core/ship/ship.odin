@@ -1,12 +1,12 @@
 package ship
 
-Slot_Size :: enum {
+Slot_Size :: enum u8 {
 	Small,
 	Medium,
 	Large,
 }
 
-Visibility :: enum {
+Visibility :: enum u8 {
 	Exposed,
 	Concealed,
 }
@@ -15,7 +15,7 @@ Visibility :: enum {
 // resolves Brace -> Fire, and Category is which of the two a fitting triggers in. It
 // lives in this package rather than core/combat because layout order — this package's
 // data — is what fixes the phase grouping combat resolves by.
-Category :: enum {
+Category :: enum u8 {
 	Brace,
 	Fire,
 }
@@ -23,7 +23,7 @@ Category :: enum {
 // Tag is a fitting's family membership: the axis synergy effects count fittings
 // along, independent of combat phase (Category) — a Beast may brace or fire. Multi-tag
 // is allowed (selector_matches counts a fitting under each of its tags).
-Tag :: enum {
+Tag :: enum u8 {
 	Crew,
 	Weapon,
 	Beast,
@@ -75,115 +75,205 @@ ship_phase_verb :: proc(phase: Category) -> Effect_Kind {
 	unreachable()
 }
 
-// Selector picks the fittings a synergy effect counts (ADR-0012): its magnitude
-// scales with how many installed fittings match. One axis per selector — a Tag
-// family, a Slot_Size, an effective Visibility, or a round Category — modeled as a
-// tagged union whose variant *is* the criterion value and whose type is the
-// discriminant. Plain data, so it round-trips through a Ghost_Snapshot (ADR-0008).
+// Selector picks the fittings a Count node — or a synergy effect's magnitude scaling
+// (ADR-0012) — counts. One axis per selector, modeled as a tagged union whose variant
+// *is* the criterion value and whose type is the discriminant. Plain data, so it
+// round-trips through a Ghost_Snapshot (ADR-0008).
+//
+// **Tag, slot size and effective visibility, and nothing else.** All three are
+// authored constants sitting below the phase layer, so counting them cannot read a
+// quantity the count is itself an input to. Category left with #404: it is a *phase*,
+// which sits above the modifier layer a Modify_Speed count would be resolved in, and
+// on a Fitting it defaults to Brace — so counting by it counted every cargo hold as a
+// Brace item. There is no "empty slot" axis either: a vacated slot backfills a hold
+// (ship_remove), so `count(empty slots)` and `count(Tag.Cargo)` were always the same
+// fact and the second one is reachable.
 Selector :: union {
 	Tag,
 	Slot_Size,
 	Visibility,
-	Category,
 }
 
-// Condition gates a conditional effect's magnitude on a battle- or ship-state
-// trigger (ADR-0012): the effect contributes its full magnitude the rounds its
-// Condition holds and nothing otherwise, re-evaluated every round (condition_met).
-// A tagged union — the trigger is its parameters, its type the discriminant; plain
-// data for a Ghost_Snapshot (ADR-0008). The battle-state triggers read
-// Effect_Context.battle, nil outside combat, so they are unmet off the battlefield.
-Condition :: union {
-	Condition_Hull_Below,
-	Condition_Round_At_Least,
-	Condition_Self_Visibility,
-	Condition_Opponent_Faster,
-	Condition_Opponent_Slower,
+// Captains_Order is the round's own order as an item may read it (Quantity.Captains_Order):
+// **one ordinal quantity, not four flags**. Four boolean-valued quantities would let
+// "multiply by whether I pressed" and "select on whether I pressed" be the same item at
+// two prices, which is an arbitrage an author shops; one ordinal has a single spelling.
+// It is an encoding and not a scale, so only Eq/Ne compare it (expr_gate).
+//
+// Only the orders that shape a round's output are in here. **Jettison Cargo is not** — a
+// once-a-voyage panic is not a choice an item may be authored to reward (CONTEXT.md,
+// Order / Jettison Cargo) — and neither is Break Off, which ends the battle before any
+// phase resolves. A round spent on either reads as Hold, which is what it did to the
+// phases. The **opponent's** order is unreadable at all: a scripted ship's order is a
+// constant, so reading it would carry no information.
+Captains_Order :: enum {
+	Hold        = 0,
+	Press_Brace = 1,
+	Press_Fire  = 2,
+	Commit      = 3,
 }
 
-// Condition_Hull_Below holds while the owner's current Hull is strictly below
-// `percent` percent of its max Hull ("below half Hull" is `percent = 50`).
-Condition_Hull_Below :: struct {
-	percent: int,
-}
-
-// Condition_Round_At_Least holds from battle `round` onward (1-based, matching
-// Battle.round). A battle-state trigger: unmet when resolved outside combat.
-Condition_Round_At_Least :: struct {
-	round: int,
-}
-
-// Condition_Self_Visibility holds while the fitting carrying the effect has the
-// given effective visibility (ship_effective_visibility). Reads
-// Effect_Context.self_slot, the slot the effect is being resolved for, so it is
-// unmet when resolved without a self slot.
-Condition_Self_Visibility :: struct {
-	visibility: Visibility,
-}
-
-// Condition_Opponent_Faster / _Slower hold while the opponent's effective Speed
-// is strictly greater / less than the owner's, compared against the live speeds
-// combat captures into Effect_Context.battle. Battle-state triggers: unmet
-// outside combat.
-Condition_Opponent_Faster :: struct {}
-Condition_Opponent_Slower :: struct {}
-
-// Effect is a fitting's data-driven contribution, resolved against an
-// Effect_Context at the point of use rather than baked in as a bare constant. It
-// stays plain data — no function pointers — so a Ghost_Snapshot (ADR-0008) can
-// carry it. `kind` decides what the resolved magnitude does; `magnitude` is the
-// per-unit strength; `synergy` (see Selector) and `conditional` (see Condition),
-// when set, make the resolved magnitude context-sensitive at the magnitude seam
-// (effect_magnitude), each orthogonal to `kind`. The two compose.
+// Effect is a fitting's data-driven contribution, resolved against an Effect_Context at
+// the point of use rather than baked in as a bare constant. It stays plain data — no
+// function pointers, no pointers at all — so a Ghost_Snapshot (ADR-0008) can carry it.
+//
+// `kind` decides what the resolved magnitude does. `magnitude` is that magnitude **as an
+// expression tree** (see expr.odin): what used to be a stored integer optionally gated by
+// one of five fixed conditions is now arithmetic an author writes, so "more while the hull
+// is low", "from round three", "while the opponent is faster" and everything between them
+// are one mechanism rather than a closed list. `synergy`, when set, scales the resolved
+// magnitude by the count of matching fittings, orthogonal to `kind`.
+//
+// `site_scale` is a percent riding **beside** the tree, applied to what the evaluator
+// returns: it is how a Fight site makes a hostile's damage bite deeper (ship_fitting_output_scaled)
+// without touching an authored number. It is not a node, because wrapping the root in a
+// percent would tax the whole roster a node, and scaling constant leaves would be wrong —
+// a constant may be a gate's threshold. Its honest value is 100; the effect_* authoring
+// helpers are what set it, so a zero-valued literal cannot silently disarm an item.
 Effect :: struct {
-	kind:        Effect_Kind,
-	magnitude:   Magnitude,
-	synergy:     Maybe(Selector),
-	conditional: Maybe(Condition),
+	kind:       Effect_Kind,
+	magnitude:  Expr,
+	site_scale: int,
+	synergy:    Maybe(Selector),
 }
 
-// Effect_Context is everything an Effect may resolve its magnitude against: the
-// owning ship, the slot being resolved for (for self-referential triggers like own
-// concealment), and the live battle state. `battle` is nil outside a battle, where
-// the round-number and opponent-speed triggers are simply unmet; `self_slot` is set
-// per-slot by every resolve site that iterates a layout (ship_effective_speed,
-// combat_phase_output).
+// EFFECT_SITE_SCALE_AUTHORED is the site scale that changes nothing: the item deals what
+// its tree says. Every authored effect starts here and only a Fight site moves it.
+EFFECT_SITE_SCALE_AUTHORED :: 100
+
+// effect_phase_contribution / effect_repair / effect_modify_speed are the three ways an
+// Effect is authored — one per Effect_Kind, so the verb is chosen by which proc is called
+// rather than by remembering a field. They exist because two of the Effect's fields have a
+// zero value that lies: a `site_scale` of 0 silently disarms the item, and a `magnitude`
+// left unset is an empty tree worth nothing. A helper cannot forget either.
+effect_phase_contribution :: proc(magnitude: Expr, synergy: Maybe(Selector) = nil) -> Effect {
+	return Effect{kind = .Phase_Contribution, magnitude = magnitude, site_scale = EFFECT_SITE_SCALE_AUTHORED, synergy = synergy}
+}
+
+effect_repair :: proc(magnitude: Expr, synergy: Maybe(Selector) = nil) -> Effect {
+	return Effect{kind = .Repair, magnitude = magnitude, site_scale = EFFECT_SITE_SCALE_AUTHORED, synergy = synergy}
+}
+
+// effect_modify_speed is where the **layering rule** is enforced, and it is enforced here
+// — at authoring time — rather than as a runtime zero. A tree may read any quantity
+// computed strictly below its own layer (base stats -> modifier effects -> effective stats
+// -> phase contributions -> this round's outputs); Speed is the only stat with a modifier
+// layer, so the whole restriction is one line: a Modify_Speed tree reads no speed, own or
+// opponent. Resolving such a read to 0 instead would be the very defect this work deletes
+// — an authored intent that quietly never fires.
+effect_modify_speed :: proc(magnitude: Expr, synergy: Maybe(Selector) = nil) -> Effect {
+	assert(
+		!expr_reads_quantity(magnitude, .Own_Speed) && !expr_reads_quantity(magnitude, .Opponent_Speed),
+		"a Modify_Speed tree cannot read a speed: Speed is the layer it is an input to",
+	)
+	return Effect{kind = .Modify_Speed, magnitude = magnitude, site_scale = EFFECT_SITE_SCALE_AUTHORED, synergy = synergy}
+}
+
+// Effect_Context is everything an Effect may resolve its magnitude against, and it is
+// **layered**, one optional member per layer above the ship itself:
+//
+//   - `owner` / `self_slot`: the ship and the slot the effect sits in — the base stats.
+//   - `round`: the round's facts that are computed below the speed layer (Round_Facts).
+//   - `speeds`: both sides' effective Speeds, which are computed *from* `round`.
+//
+// The two-pass build falls out of the type. Pass one resolves Modify_Speed effects with
+// `speeds` left nil — not zeroed, absent — so a speed-reading tree could not be answered
+// there even if authoring had let one through. Pass two fills it and resolves everything
+// else against a complete round. `self_slot` is set per-slot by every resolve site that
+// iterates a layout (ship_effective_speed, combat_phase_output).
 Effect_Context :: struct {
 	owner:     ^Ship,
 	self_slot: Maybe(Layout_Slot),
-	battle:    Maybe(Battle_State),
+	round:     Maybe(Round_Facts),
+	speeds:    Maybe(Speeds),
 }
 
-// Battle_State is the slice of live combat state a conditional effect may read,
-// built by core/combat and carried on Effect_Context.battle. Speeds are captured
-// by combat (combat_effective_speed) rather than recomputed here, so this stays
-// plain data and the comparison can't re-enter effect resolution.
+// Round_Facts is the round as plain data, holding only what is settled **before** either
+// side's Speed is read: the round number, the captain's own order, the damage this ship
+// took last round, and the opponent as a scouting report. Built by core/combat once per
+// round per side, and the input to both passes.
 //
-// The captain's order is **not** in here, and when one is added Jettison stays out
-// of it: a once-a-voyage panic is not a choice an item may be authored to reward
-// (CONTEXT.md, Order / Jettison Cargo).
-Battle_State :: struct {
-	round:          int,
-	own_speed:      int,
-	opponent_speed: int,
+// `opponent` is a **counter block, never a ship pointer** (ship_scouting_report), and it
+// arrives already filtered by what concealment leaves visible — so an item that reads the
+// enemy reads what its own lookouts could see, and concealment counters being read by
+// construction rather than by a rule somewhere downstream.
+Round_Facts :: struct {
+	round:                   int,
+	captains_order:          Captains_Order,
+	damage_taken_last_round: int,
+	opponent:                Count_Table,
 }
 
-// effect_magnitude resolves `effect`'s magnitude against `ctx`: a flat effect
-// returns its stored constant; a conditional effect returns that constant the
-// rounds its Condition holds and 0 otherwise (condition_met); a synergy effect
-// scales it by the count of matching fittings. Every magnitude read (combat phase
-// output, the effective-stat readers) goes through this seam.
+// Speeds is the effective-Speed layer: both sides', as combat computed them from
+// Round_Facts. Named rather than two loose ints, so a construction site cannot silently
+// swap them.
+Speeds :: struct {
+	own:      int,
+	opponent: int,
+}
+
+// effect_magnitude resolves `effect`'s magnitude against `ctx`: it evaluates the effect's
+// expression tree over the flattened context, scales the result by the site
+// (`site_scale`), and multiplies by the matching-fitting count when the effect carries a
+// synergy Selector. Every magnitude read — combat's phase output, the effective-stat
+// readers — goes through this one seam, which is why wiring the trees in changed no call
+// site's shape.
+//
+// The site scale rounds half-up so a scale-down cannot silently disarm the smallest
+// fittings (magnitude 1 at 50% is 1, not 0), and lands ahead of the synergy multiply, so
+// scaling stays proportional to what the fitting deals rather than to the build around it:
+// `(m x pct) x count` is `pct x (m x count)`.
 effect_magnitude :: proc(effect: Effect, ctx: Effect_Context) -> Magnitude {
-	if condition, is_conditional := effect.conditional.?; is_conditional {
-		if !condition_met(condition, ctx) {
-			return 0
-		}
-	}
-	magnitude := effect.magnitude
+	value := expr_eval(effect.magnitude, effect_expr_context(ctx))
+	value = (value * effect.site_scale + 50) / 100
 	if selector, is_synergy := effect.synergy.?; is_synergy {
-		magnitude *= Magnitude(ship_count_matching(ctx.owner, selector))
+		value *= ship_count_matching(ctx.owner, selector)
 	}
-	return magnitude
+	return Magnitude(value)
+}
+
+// effect_showcase_magnitude is the effect read **as an item card**: its tree taken at
+// showcase (expr_showcase — every gate open, every count 1), then scaled by the site. It
+// answers "what is this item worth" for a fitting held in the hand, where there is no
+// ship, no round and no opponent — the offer screen, the refit list, and the content tests
+// that compare two authored items. The synergy multiplier is deliberately left off: a
+// synergy count is a property of the build the item lands in, not of the item.
+//
+// Never called from combat. Resolution goes through effect_magnitude and a real context.
+effect_showcase_magnitude :: proc(effect: Effect) -> int {
+	return (expr_showcase(effect.magnitude) * effect.site_scale + 50) / 100
+}
+
+// effect_expr_context flattens an Effect_Context into the plain-data Expr_Context the
+// evaluator reads: every quantity as a scalar, every countable axis as a census. This is
+// the whole of the boundary between "the game" and "the language" — the evaluator gets no
+// Ship, no layout and no Battle, which is what lets the language be tested as arithmetic.
+//
+// A layer that is absent reads as 0 rather than as an error, and that is not the
+// dead-conditions defect returning: the speed quantities are absent only in pass one,
+// where authoring has already made them unreadable, and off the battlefield, where the
+// only effects resolved at all are Modify_Speed ones that may not read them either.
+effect_expr_context :: proc(ctx: Effect_Context) -> Expr_Context {
+	out: Expr_Context
+	if ctx.owner != nil {
+		out.quantities[.Own_Hull] = ctx.owner.hull
+		out.quantities[.Own_Max_Hull] = ctx.owner.max_hull
+		out.counts = ship_count_table(ctx.owner.layout)
+	}
+	if self_slot, has_self := ctx.self_slot.?; has_self {
+		out.quantities[.Own_Visibility] = int(ship_effective_visibility(self_slot))
+	}
+	if round, in_round := ctx.round.?; in_round {
+		out.quantities[.Round] = round.round
+		out.quantities[.Captains_Order] = int(round.captains_order)
+		out.quantities[.Damage_Taken_Last_Round] = round.damage_taken_last_round
+		out.opponent = round.opponent
+	}
+	if speeds, has_speeds := ctx.speeds.?; has_speeds {
+		out.quantities[.Own_Speed] = speeds.own
+		out.quantities[.Opponent_Speed] = speeds.opponent
+	}
+	return out
 }
 
 // selector_matches reports whether layout_slot's installed fitting satisfies
@@ -203,41 +293,62 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 		return fitting.size == criterion
 	case Visibility:
 		return ship_effective_visibility(layout_slot) == criterion
-	case Category:
-		return fitting.category == criterion
 	}
 	return false
 }
 
-// condition_met reports whether `condition` holds against `ctx`, re-evaluated at
-// every magnitude read so a conditional tracks live state round to round. The two
-// battle-state triggers read ctx.battle and are unmet when it is nil (resolved
-// outside combat); the self-visibility trigger reads ctx.self_slot and is unmet
-// without one.
-condition_met :: proc(condition: Condition, ctx: Effect_Context) -> bool {
-	switch c in condition {
-	case Condition_Hull_Below:
-		return ctx.owner.hull * 100 < ctx.owner.max_hull * c.percent
-	case Condition_Round_At_Least:
-		battle, in_battle := ctx.battle.?
-		return in_battle && battle.round >= c.round
-	case Condition_Self_Visibility:
-		self_slot, has_self := ctx.self_slot.?
-		return has_self && ship_effective_visibility(self_slot) == c.visibility
-	case Condition_Opponent_Faster:
-		battle, in_battle := ctx.battle.?
-		return in_battle && battle.opponent_speed > battle.own_speed
-	case Condition_Opponent_Slower:
-		battle, in_battle := ctx.battle.?
-		return in_battle && battle.opponent_speed < battle.own_speed
+// ship_count_table takes the census a Count node reads: every installed fitting of
+// `layout` bucketed along each Selector axis at once, in one pass. A multi-tag fitting
+// lands under each of its tags, exactly as selector_matches counts it.
+ship_count_table :: proc(layout: []Layout_Slot) -> Count_Table {
+	counts: Count_Table
+	for layout_slot in layout {
+		fitting, has_fitting := layout_slot.fitting.?
+		if !has_fitting {
+			continue
+		}
+		for tag in fitting.tags {
+			counts.tag[tag] += 1
+		}
+		counts.size[fitting.size] += 1
+		counts.visibility[ship_effective_visibility(layout_slot)] += 1
 	}
-	return false
+	return counts
+}
+
+// ship_scouting_report is what one ship can see of another: the same census
+// ship_count_table takes, over the **exposed fittings only**. It is the only way the
+// opponent enters an expression at all — a flattened counter block that leaves the ship
+// behind, so no tree can reach a hull, a magnitude or a slot it was not shown.
+//
+// Concealment is therefore a real counter to being read, by construction: a concealed
+// fitting is not in the report, so it is not in any count, and an item that pays out per
+// enemy Weapon pays nothing for the guns it never saw. The report still carries a
+// Visibility axis, whose Concealed bucket is always 0 — it is the same Count_Table, and a
+// count of what you cannot see being zero is the honest answer.
+ship_scouting_report :: proc(s: ^Ship) -> Count_Table {
+	report: Count_Table
+	for layout_slot in s.layout {
+		if ship_effective_visibility(layout_slot) != .Exposed {
+			continue
+		}
+		fitting, has_fitting := layout_slot.fitting.?
+		if !has_fitting {
+			continue
+		}
+		for tag in fitting.tags {
+			report.tag[tag] += 1
+		}
+		report.size[fitting.size] += 1
+		report.visibility[.Exposed] += 1
+	}
+	return report
 }
 
 // ship_count_matching counts s's installed fittings that satisfy `selector`; the
 // synergy magnitude scales with this. Cargo is not special-cased out — it carries a
 // real Tag, size, and visibility, so a size/visibility or "for each Cargo" synergy
-// legitimately counts it (only its Category axis is meaningless for cargo).
+// legitimately counts it.
 ship_count_matching :: proc(s: ^Ship, selector: Selector) -> int {
 	count := 0
 	for layout_slot in s.layout {
@@ -248,20 +359,28 @@ ship_count_matching :: proc(s: ^Ship, selector: Selector) -> int {
 	return count
 }
 
-// ship_effect_context builds the off-battle Effect_Context for ship s: owner only,
-// no battle state. The effective-stat readers use it, filling self_slot per
-// iteration; combat builds the in-battle shape with ship_effect_context_in_battle.
+// ship_effect_context builds the off-battle Effect_Context for ship s: owner only, no
+// round and no speeds. The effective-stat readers use it, filling self_slot per
+// iteration; combat builds the two in-battle shapes below.
 ship_effect_context :: proc(s: ^Ship) -> Effect_Context {
 	return Effect_Context{owner = s}
 }
 
-// ship_effect_context_in_battle builds the in-combat Effect_Context: the owning
-// ship plus the live `battle` state its round-number and opponent-speed triggers
-// read (callers still fill self_slot per slot). Takes the whole Battle_State rather
-// than its fields loose, so the caller names each at the construction site — two
-// positional speeds would be silently swappable.
-ship_effect_context_in_battle :: proc(s: ^Ship, battle: Battle_State) -> Effect_Context {
-	return Effect_Context{owner = s, battle = battle}
+// ship_effect_context_pre_speed is **pass one**: the owning ship plus the round's facts,
+// with no speeds. It is what Modify_Speed effects resolve against, and the absence of
+// `speeds` is the acyclicity rule made structural — the speed layer is being computed, so
+// it is not yet a thing to read. What it *does* carry is why this pass exists at all: a
+// speed modifier gated on the round number or on the captain's order used to be resolved
+// with no round at all, and so was silently dead every round of every battle.
+ship_effect_context_pre_speed :: proc(s: ^Ship, round: Round_Facts) -> Effect_Context {
+	return Effect_Context{owner = s, round = round}
+}
+
+// ship_effect_context_in_battle is **pass two**: the same round, now with both sides'
+// effective Speeds filled in from pass one. Everything that is not a Modify_Speed resolves
+// here, against a complete round (callers still fill self_slot per slot).
+ship_effect_context_in_battle :: proc(s: ^Ship, round: Round_Facts, speeds: Speeds) -> Effect_Context {
+	return Effect_Context{owner = s, round = round, speeds = speeds}
 }
 
 Fitting :: struct {
@@ -437,18 +556,24 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx:
 // ship_effective_speed is a ship's Speed as combat and escape read it: the raw base
 // field, plus every installed fitting's Modify_Speed contribution, less its weight
 // (ADR-0020) — `base + Σ Modify_Speed − weight/10`, so no ship's Speed can be read
-// without asking what it carries. self_slot is set per iteration so a conditional
-// modifier gated on its own concealment resolves against the slot it actually sits in;
-// the context carries no battle state, so a battle-state-gated modifier is unmet here.
+// without asking what it carries. self_slot is set per iteration so a modifier gated on
+// its own concealment resolves against the slot it actually sits in.
+//
+// `round` is **pass one of the round's two-pass context build**: given the round's facts,
+// a speed modifier gated on the round number, the captain's order or the damage taken last
+// round fires here, mid-battle, instead of being resolved against nothing. It defaults to
+// nil for the callers that read a ship's Speed outside a battle (refit, presentation),
+// where those quantities have no value to carry. No pass and no context carries speeds
+// into this: that is the layering rule, and effect_modify_speed is where it is enforced.
 //
 // The `/10` divisor is the cargo↔Speed exchange rate (a full Small hold = 1 Speed,
 // Medium = 2, Large = 4) and is forced: any coarser divisor makes jettisoning a Small
 // hold buy 0 Speed. Weight is a subtrahend, never a clamp — authoring keeps
 // `base − weight/10 >= 0` at every ship's realistic full hold (the floor invariant),
 // so `max(0, …)` is never written.
-ship_effective_speed :: proc(s: ^Ship) -> int {
+ship_effective_speed :: proc(s: ^Ship, round: Maybe(Round_Facts) = nil) -> int {
 	modifiers := 0
-	ctx := ship_effect_context(s)
+	ctx := Effect_Context{owner = s, round = round}
 	for layout_slot in s.layout {
 		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
 			ctx.self_slot = layout_slot
