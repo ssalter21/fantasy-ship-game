@@ -207,16 +207,12 @@ the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 		testing.expect(t, len(f.name) > 0)
 		// A roster item is a real placeable fitting, not a cargo filler.
 		testing.expect(t, !f.is_cargo)
-		// Every item carries at least one tag family and **at most** one effect (in
-		// either the passive or the active slot, never both). "At most" rather than
-		// "exactly" is ADR-0026's residue: the five items that carried Modify_Durability
-		// are effect-less until #397 re-authors them as repair — pinned by name in
-		// the_items_that_carried_modify_durability_are_inert_until_repair_lands, so this
-		// looser bound cannot quietly cover a sixth.
+		// Every item carries at least one tag family and exactly one effect, in either
+		// the passive or the active slot, never both.
 		testing.expect(t, f.tags != {})
 		_, has_passive := f.passive.?
 		_, has_active := f.active.?
-		testing.expect(t, !(has_passive && has_active))
+		testing.expectf(t, has_passive != has_active, "%v carries %v effects, not one", f.name, int(has_passive) + int(has_active))
 		// Names are distinct (the Item Offer presents distinct items by name).
 		for other, j in roster {
 			if i != j {
@@ -340,18 +336,47 @@ splash_powder_monkeys_offense_scales_with_weapons_aboard :: proc(t: ^testing.T) 
 	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&armed)), active.magnitude * 2)
 }
 
-// **Temporarily inert, on purpose.** ADR-0026 deleted Modify_Durability, and the five
-// items that carried it lost their only effect rather than being re-authored on the way
-// past — #397's repair verb is what they are waiting for. This pins the gap so it is a
-// known hole rather than a silent one: when Reinforced Hull says something again, this
-// test should fail and be replaced by one asserting what it now says.
+// **A fitting's phase is its verb's phase** (ADR-0027). Category says when a fitting
+// resolves and Effect_Kind says what it does, and combat only reads an effect through the
+// phase whose verb it carries (combat_phase_output) — so an item authored with a
+// Phase_Contribution on a Brace fitting, or a Repair on a Fire one, is silently inert. The
+// stat-modifier kind is exempt: it feeds no phase and rides on either category.
 @(test)
-the_items_that_carried_modify_durability_are_inert_until_repair_lands :: proc(t: ^testing.T) {
-	for name in ([]string{"Iron Plating", "Ballast Stones", "Reinforced Hull", "Dragon Turtle", "Adamant Bulwark"}) {
-		item := roster_item_named(name)
-		_, has_passive := item.fitting.passive.?
-		_, has_active := item.fitting.active.?
-		testing.expectf(t, !has_passive && !has_active, "%v carries an effect again — re-point this test at what it says", name)
+every_roster_item_carries_its_categorys_verb :: proc(t: ^testing.T) {
+	check :: proc(t: ^testing.T, f: Fitting) {
+		for slot in ([2]Maybe(Effect){f.passive, f.active}) {
+			effect, has_effect := slot.?
+			if !has_effect || effect.kind == .Modify_Speed {
+				continue
+			}
+			testing.expectf(
+				t,
+				effect.kind == ship_phase_verb(f.category),
+				"%v is a %v fitting carrying a %v effect — nothing resolves it",
+				f.name, f.category, effect.kind,
+			)
+		}
+	}
+
+	for item in ship_item_roster() {
+		check(t, item.fitting)
+	}
+	for f in ([]Fitting{ship_fitting_top_crew(), ship_fitting_captains_quarters(), ship_fitting_gun_deck()}) {
+		check(t, f)
+	}
+}
+
+// Brace holds real content: the phase a captain can press has items to press (ADR-0027).
+@(test)
+the_roster_authors_repair_items_at_every_tier :: proc(t: ^testing.T) {
+	repairs: [Tier]int
+	for item in ship_item_roster() {
+		if active, ok := item.fitting.active.?; ok && active.kind == .Repair {
+			repairs[item.tier] += 1
+		}
+	}
+	for tier in Tier {
+		testing.expectf(t, repairs[tier] > 0, "no %v repair item: Brace has nothing to press at that tier", tier)
 	}
 }
 

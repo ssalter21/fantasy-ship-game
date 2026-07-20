@@ -43,16 +43,36 @@ Slot :: struct {
 // (see core/combat's combat_phase_output).
 Magnitude :: distinct int
 
-// Effect_Kind is what an Effect's resolved magnitude does. The zero value,
-// Phase_Contribution, feeds the owning fitting's combat phase (its Category,
-// ADR-0006); the Modify_* kinds instead adjust one of the owning ship's
-// effective stats (ship_effective_speed / _max_hull), so a fitting can raise a
-// stat without contributing to a phase. Modify_Durability died with the
-// Durability stat itself (ADR-0026).
+// Effect_Kind is an Effect's **verb**: what its resolved magnitude does, and thereby
+// which consumer reads it. Two kinds feed a combat phase and one adjusts a ship stat:
+//
+//   - Phase_Contribution (the zero value) is the damage a Fire fitting deals.
+//   - Repair is the Hull a Brace fitting restores, capped at the ship's maximum
+//     (ADR-0027).
+//   - Modify_Speed adjusts the owning ship's effective Speed (ship_effective_speed)
+//     rather than feeding a phase, so it is the one kind that rides on either
+//     category.
+//
+// ship_phase_verb is the pairing between the two phase-feeding kinds and the phase
+// that consumes each.
 Effect_Kind :: enum {
 	Phase_Contribution,
+	Repair,
 	Modify_Speed,
-	Modify_Max_Hull,
+}
+
+// ship_phase_verb is the Effect_Kind a phase's fittings resolve through (ADR-0027):
+// Fire deals damage, Brace repairs. It is the single statement of that pairing —
+// combat's per-phase totals read it, and the roster is authored against it, so an
+// effect whose kind is a phase verb belongs on the phase that consumes it.
+ship_phase_verb :: proc(phase: Category) -> Effect_Kind {
+	switch phase {
+	case .Brace:
+		return .Repair
+	case .Fire:
+		return .Phase_Contribution
+	}
+	unreachable()
 }
 
 // Selector picks the fittings a synergy effect counts (ADR-0012): its magnitude
@@ -83,9 +103,6 @@ Condition :: union {
 
 // Condition_Hull_Below holds while the owner's current Hull is strictly below
 // `percent` percent of its max Hull ("below half Hull" is `percent = 50`).
-// Compared against the raw Ship.max_hull, not ship_effective_max_hull: an
-// effective read would recurse (a Hull-conditional Modify_Max_Hull effect would
-// re-enter this check) — and the threshold means the base ceiling anyway (ADR-0008).
 Condition_Hull_Below :: struct {
 	percent: int,
 }
@@ -129,7 +146,7 @@ Effect :: struct {
 // owning ship, the slot being resolved for (for self-referential triggers like own
 // concealment), and the live battle state. `battle` is nil outside a battle, where
 // the round-number and opponent-speed triggers are simply unmet; `self_slot` is set
-// per-slot by every resolve site that iterates a layout (ship_effective_stat,
+// per-slot by every resolve site that iterates a layout (ship_effective_speed,
 // combat_phase_output).
 Effect_Context :: struct {
 	owner:     ^Ship,
@@ -289,8 +306,10 @@ Slot_Index :: distinct int
 Ship :: struct {
 	hull:     int,
 	// max_hull is the ship's undamaged Hull ceiling (ADR-0008): hull is the voyage-
-	// persistent value combat depletes, max_hull never changes during a voyage and
-	// is what a Ghost_Snapshot resets hull to on capture.
+	// persistent value combat depletes and repair restores, and max_hull is the ceiling
+	// neither may pass. No fitting moves it — a Trade axis is the one thing that does —
+	// so it is read directly rather than through an effective-stat reader, and it is
+	// what a Ghost_Snapshot resets hull to on capture.
 	max_hull: int,
 	// speed is the `base` term of the derived Speed reading (ADR-0020): effective
 	// Speed is `speed + Σ Modify_Speed − weight/10` (ship_effective_speed), not this
@@ -369,7 +388,7 @@ ship_effective_visibility :: proc(layout_slot: Layout_Slot) -> Visibility {
 // ship_fitting_stat_contribution sums the resolved magnitude of a fitting's stat-
 // modifier effects of `kind`. Both the passive and active effect are considered,
 // so a stat modifier may sit in either slot; only effects whose Effect_Kind matches
-// count, so a Phase_Contribution never leaks into a stat total.
+// count, so a phase verb never leaks into a stat total.
 ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx: Effect_Context) -> int {
 	total := 0
 	for slot in ([2]Maybe(Effect){fitting.passive, fitting.active}) {
@@ -380,39 +399,28 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, kind: Effect_Kind, ctx:
 	return total
 }
 
-// ship_effective_stat is the shared shape behind ship_effective_speed /
-// _max_hull: the raw base stat plus every installed fitting's matching
-// stat-modifier contribution. `base` is the ship's own field and `kind` the
-// Modify_* kind that targets it. self_slot is set per iteration so a conditional
-// stat modifier gated on its own concealment resolves against the slot it actually
-// sits in. The context carries no battle state, so a conditional stat modifier
-// gated on a battle-state trigger is unmet through this off-battle path.
-ship_effective_stat :: proc(s: ^Ship, base: int, kind: Effect_Kind) -> int {
-	total := base
+// ship_effective_speed is a ship's Speed as combat and escape read it: the raw base
+// field, plus every installed fitting's Modify_Speed contribution, less its weight
+// (ADR-0020) — `base + Σ Modify_Speed − weight/10`, so no ship's Speed can be read
+// without asking what it carries. self_slot is set per iteration so a conditional
+// modifier gated on its own concealment resolves against the slot it actually sits in;
+// the context carries no battle state, so a battle-state-gated modifier is unmet here.
+//
+// The `/10` divisor is the cargo↔Speed exchange rate (a full Small hold = 1 Speed,
+// Medium = 2, Large = 4) and is forced: any coarser divisor makes jettisoning a Small
+// hold buy 0 Speed. Weight is a subtrahend, never a clamp — authoring keeps
+// `base − weight/10 >= 0` at every ship's realistic full hold (the floor invariant),
+// so `max(0, …)` is never written.
+ship_effective_speed :: proc(s: ^Ship) -> int {
+	modifiers := 0
 	ctx := ship_effect_context(s)
 	for layout_slot in s.layout {
 		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
 			ctx.self_slot = layout_slot
-			total += ship_fitting_stat_contribution(fitting, kind, ctx)
+			modifiers += ship_fitting_stat_contribution(fitting, .Modify_Speed, ctx)
 		}
 	}
-	return total
-}
-
-// ship_effective_speed / _max_hull return a ship's stat after its installed
-// fittings' stat-modifier effects apply on top of the raw Ship field. Combat reads
-// these rather than the raw fields (ADR-0008's ghost capture resets hull to
-// effective max Hull), so a fitting can raise Speed / Max Hull.
-//
-// Speed alone also derives from weight (ADR-0020):
-// `base + Σ Modify_Speed − weight/10`, so no ship's Speed can be read without
-// asking what it carries. The `/10` divisor is the money↔Speed exchange rate (a
-// full Small hold = 1 Speed, Medium = 2, Large = 4) and is forced: any coarser
-// divisor makes jettisoning a Small hold buy 0 Speed. Weight is a subtrahend,
-// never a clamp — authoring keeps `base − weight/10 >= 0` at every ship's realistic
-// full hold (the floor invariant), so `max(0, …)` is never written.
-ship_effective_speed :: proc(s: ^Ship) -> int {
-	return ship_effective_stat(s, s.speed, .Modify_Speed) - ship_weight(s^) / 10
+	return s.speed + modifiers - ship_weight(s^) / 10
 }
 
 // ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): a
@@ -437,10 +445,6 @@ ship_weight :: proc(s: Ship) -> int {
 		}
 	}
 	return total
-}
-
-ship_effective_max_hull :: proc(s: ^Ship) -> int {
-	return ship_effective_stat(s, s.max_hull, .Modify_Max_Hull)
 }
 
 // ship_cargo_capacity is the cargo a ship can carry: the size contribution of

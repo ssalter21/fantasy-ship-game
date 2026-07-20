@@ -98,11 +98,21 @@ Round_State :: struct {
 // Event is the only way a caller learns what happened inside a resolved
 // round (mirrors ADR-0001's Command/Event boundary for the Sim).
 Event :: union {
+	Event_Hull_Repaired,
 	Event_Damage_Dealt,
 	Event_Ship_Sunk,
 	Event_Cargo_Jettisoned,
 	Event_Cargo_Reallocated,
 	Event_Battle_Ended,
+}
+
+// Event_Hull_Repaired reports the Hull a side's Brace phase restored this round:
+// `amount` is what actually landed after the max-Hull cap, so a repair into a full
+// hull emits nothing at all rather than an amount of 0.
+Event_Hull_Repaired :: struct {
+	round:  int,
+	side:   Side,
+	amount: int,
 }
 
 // Damage is one number, not a raw/final pair: ADR-0026 deleted the subtraction
@@ -225,14 +235,16 @@ combat_apply_reallocate :: proc(battle: ^Battle, side: Side, from, to: ship.Slot
 
 // combat_phase_output sums the active-effect magnitude of every fitting of
 // `phase`'s Category on `side`'s ship in fixed slot order (ADR-0006): each fitting
-// with an active Phase_Contribution effect triggers once per round, no cooldown.
-// Modify_* effects never contribute here — they act through the effective-stat
-// readers, not the phase totals. Takes the whole battle, not a bare ship, so a
-// conditional effect resolves against live battle state: the round and both sides'
-// effective speeds go into the context, and self_slot is set per fitting so an
-// own-concealment trigger reads the slot the effect sits in.
+// whose active effect carries that phase's verb (ship_phase_verb — damage for Fire,
+// repair for Brace) triggers once per round, no cooldown. Modify_Speed never
+// contributes here — it acts through ship_effective_speed, not the phase totals.
+// Takes the whole battle, not a bare ship, so a conditional effect resolves against
+// live battle state: the round and both sides' effective speeds go into the context,
+// and self_slot is set per fitting so an own-concealment trigger reads the slot the
+// effect sits in.
 combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category) -> int {
 	s := battle.ships[side]
+	verb := ship.ship_phase_verb(phase)
 	total := 0
 	ctx := ship.ship_effect_context_in_battle(s, ship.Battle_State{
 		round          = battle.round,
@@ -245,13 +257,27 @@ combat_phase_output :: proc(battle: ^Battle, side: Side, phase: ship.Category) -
 			continue
 		}
 		active, has_active := fitting.active.?
-		if !has_active || active.kind != .Phase_Contribution {
+		if !has_active || active.kind != verb {
 			continue
 		}
 		ctx.self_slot = layout_slot
 		total += int(ship.effect_magnitude(active, ctx))
 	}
 	return total
+}
+
+// combat_apply_repair restores `amount` Hull to side's ship, capped at its maximum
+// (ADR-0027): repair fills the gap, never more, so a repair into a full hull is a
+// no-op that emits nothing — the same shape as a zero-damage hit going unsaid. The
+// event carries what was actually restored, not what was offered.
+combat_apply_repair :: proc(battle: ^Battle, side: Side, amount: int, events: ^[dynamic]Event) {
+	s := battle.ships[side]
+	restored := min(amount, s.max_hull - s.hull)
+	if restored <= 0 {
+		return
+	}
+	s.hull += restored
+	append(events, Event(Event_Hull_Repaired{round = battle.round, side = side, amount = restored}))
 }
 
 // combat_may_break_off reports whether side is escape-eligible for the round
@@ -327,29 +353,34 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 		return total
 	}
 
-	// Fire is the only phase a round still resolves into a number (ADR-0006,
-	// amended by ADR-0025 and ADR-0026): a round's damage is a side's own Fire output,
-	// pressed. Brace has **no consumer** — ADR-0026 deleted the subtracted side of
-	// the exchange entirely, so a hit lands at its full weight and there is nothing
-	// left to sum a Brace phase into. Its repair verb arrives with #397.
+	// Both phases are **totalled off the hull the round opened with**, before either
+	// writes to it. A Press multiplies its own phase's fittings and nothing else
+	// (ADR-0006), so with both phases feeding a consumer either Press reads: Fire
+	// doubles the damage dealt, Brace the Hull restored.
 	//
-	// A Press multiplies its own phase's fittings and nothing else (ADR-0006), and
-	// with no Brace consumer Press Fire is for now the only Press that reads.
-	// The {phase} shape is kept against that repair verb and a future second damage
-	// axis (ADR-0025).
+	// Summing here rather than at each phase's write is what keeps repair's ordering
+	// consumed by the death check alone (ADR-0027): a Hull-gated fitting reads the hull
+	// its captain saw when they gave the order, so patching a hull cannot switch off the
+	// desperate ship's own guns mid-round.
+	repair: [Side]int
 	for side in Side {
-		round_state[side].damage = pressed(
-			combat_phase_output(battle, side, .Fire),
-			.Fire,
-			round_state[side].press_phase,
-		)
+		repair[side] = pressed(combat_phase_output(battle, side, .Brace), .Brace, round_state[side].press_phase)
+		round_state[side].damage = pressed(combat_phase_output(battle, side, .Fire), .Fire, round_state[side].press_phase)
+	}
+
+	// Brace lands first — ahead of the damage below and the death check under it — which
+	// is what the ordering is *for*: a repair can save a captain on the round they would
+	// otherwise have sunk. Both sides repair before either fires, so the phase stays
+	// simultaneous.
+	for side in Side {
+		combat_apply_repair(battle, side, repair[side], events)
 	}
 
 	for side in Side {
 		target := combat_opposite_side(side)
 		target_ship := battle.ships[target]
-		// Damage lands whole (ADR-0026): no Durability, no Brace output, nothing
-		// else stands between a side's Fire total and the target's hull.
+		// Damage lands whole (ADR-0026): nothing is subtracted from a side's Fire total
+		// on its way to the target's hull — a Brace phase adds to its own hull instead.
 		damage := round_state[side].damage
 		if damage > 0 {
 			target_ship.hull = max(0, target_ship.hull-damage)

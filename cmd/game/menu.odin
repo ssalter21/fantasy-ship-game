@@ -128,6 +128,8 @@ forfeited_stages_label :: proc(state: ^Game_State, e: sim.Event_Encounter_Halted
 // battle_event_text renders one core/combat Event as a human-readable beat.
 battle_event_text :: proc(event: combat.Event) -> string {
 	switch e in event {
+	case combat.Event_Hull_Repaired:
+		return fmt.tprintf("%v repairs %d hull.", e.side, e.amount)
 	case combat.Event_Damage_Dealt:
 		return fmt.tprintf("%v takes %d damage!", e.target, e.damage)
 	case combat.Event_Ship_Sunk:

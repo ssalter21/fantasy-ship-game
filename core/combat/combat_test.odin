@@ -48,17 +48,19 @@ fire_fitting_deals_its_full_magnitude_to_the_target :: proc(t: ^testing.T) {
 	testing.expect_value(t, dealt.damage, 10)
 }
 
+// A Brace fitting adds to its own hull rather than subtracting from the hit (ADR-0027):
+// the damage still lands whole, and the repair that met it is a separate, earlier fact.
 @(test)
-a_brace_fitting_no_longer_reduces_incoming_damage :: proc(t: ^testing.T) {
+a_brace_fitting_repairs_instead_of_reducing_the_incoming_damage :: proc(t: ^testing.T) {
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 10}}
-	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
+	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.Effect{kind = .Repair, magnitude = 4}}
 	a := ship.Ship{
-		hull = 20, speed = 5,
+		hull = 20, max_hull = 20, speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
 	b := ship.Ship{
-		hull = 20, speed = 5,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = shield}},
+		hull = 20, max_hull = 30, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = surgeon}},
 	}
 	battle := combat_battle_create(&a, &b)
 
@@ -67,8 +69,15 @@ a_brace_fitting_no_longer_reduces_incoming_damage :: proc(t: ^testing.T) {
 	cmds: [Side]Maybe(Command)
 	combat_resolve_round(&battle, cmds, &events)
 
-	// 10 raw, and 10 lands: the shield's 4 is summed by nothing.
-	testing.expect_value(t, b.hull, 10)
+	// Repaired to 24, then struck for the whole 10.
+	testing.expect_value(t, b.hull, 14)
+	repaired, ok := events[0].(Event_Hull_Repaired)
+	testing.expect(t, ok) // and said first, ahead of the hit
+	testing.expect_value(t, repaired.side, Side.B)
+	testing.expect_value(t, repaired.amount, 4)
+	dealt, dealt_ok := events[1].(Event_Damage_Dealt)
+	testing.expect(t, dealt_ok)
+	testing.expect_value(t, dealt.damage, 10) // nothing was subtracted from the hit
 }
 
 // A Crew-tagged Fire fitting and a gun of equal magnitude contribute to raw
@@ -182,29 +191,25 @@ press_fire_multiplies_the_whole_fire_pile_including_former_crew :: proc(t: ^test
 	testing.expect_value(t, b.hull, 40-(2+5)*PRESS_MULTIPLIER)
 }
 
-// Press Brace is inert (ADR-0026). It still parses, still costs the round, and still
-// multiplies the Brace phase's total — but nothing reads that total, so the damage the
-// pressing ship takes is identical to the damage it takes holding. Press Fire is for now
-// the only Press that reads; #397's repair verb is what gives this one its consumer back.
+// Press Brace doubles its own phase's fittings like any Press (ADR-0006), and since that
+// phase repairs, the order buys Hull: the pressing ship ends the round PRESS_MULTIPLIER
+// repairs better off than the one that held.
 @(test)
-press_brace_changes_nothing_while_brace_has_no_consumer :: proc(t: ^testing.T) {
-	crew := ship.Fitting{name = "Top Crew", category = .Fire, tags = {.Crew}, active = ship.Effect{magnitude = 3}}
-	shield := ship.Fitting{name = "Shield Charm", category = .Brace, active = ship.Effect{magnitude = 4}}
+press_brace_doubles_the_repair_the_round_restores :: proc(t: ^testing.T) {
+	surgeon := ship.Fitting{name = "Ship's Surgeon", category = .Brace, active = ship.Effect{kind = .Repair, magnitude = 4}}
 	cannon := ship.Fitting{name = "Cannon", category = .Fire, active = ship.Effect{magnitude = 20}}
 
-	// Hull is set well clear of B's 20 so both runs finish above the floor: at
-	// hull 20 the two would land on 0 whether or not the shield absorbed anything,
-	// and the comparison would prove nothing.
+	// Damaged, with headroom for both runs' repair: a full hull would cap them equal and
+	// the comparison would prove nothing.
 	defender := ship.Ship {
 		hull = 50,
+		max_hull = 100,
 		speed = 5,
-		layout = []ship.Layout_Slot {
-			{slot = ship.Slot{size = .Small}, fitting = crew},
-			{slot = ship.Slot{size = .Small}, fitting = shield},
-		},
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = surgeon}},
 	}
 	attacker := ship.Ship {
 		hull = 50,
+		max_hull = 100,
 		speed = 5,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
 	}
@@ -227,11 +232,10 @@ press_brace_changes_nothing_while_brace_has_no_consumer :: proc(t: ^testing.T) {
 	hold[.A] = Command(Command_Hold{})
 	combat_resolve_round(&held_battle, hold, &events)
 
-	// The claim is parity, not a number: pressing Brace buys exactly what holding
-	// buys, because nothing reads a Brace total (ADR-0026).
-	testing.expect_value(t, pressed_defender.hull, held_defender.hull)
-	// And what both take is B's Fire output whole — 20 off 50, nothing absorbed.
-	testing.expect_value(t, pressed_defender.hull, 30)
+	// Both take B's Fire output whole — a Press never touches the incoming hit — but the
+	// pressed run mended twice as much before it landed.
+	testing.expect_value(t, held_defender.hull, 50 + 4 - 20)
+	testing.expect_value(t, pressed_defender.hull, 50 + 4 * PRESS_MULTIPLIER - 20)
 }
 
 @(test)
@@ -266,7 +270,7 @@ the_three_starting_fittings_phase_output_matches_their_magnitude_constants :: pr
 	opponent := ship.Ship{}
 	battle := combat_battle_create(&s, &opponent)
 
-	testing.expect_value(t, combat_phase_output(&battle, .A, .Brace), ship.CAPTAINS_QUARTERS_DEFENSE_MAGNITUDE)
+	testing.expect_value(t, combat_phase_output(&battle, .A, .Brace), ship.CAPTAINS_QUARTERS_REPAIR_MAGNITUDE)
 	testing.expect_value(t, combat_phase_output(&battle, .A, .Fire), ship.TOP_CREW_OFFENSE_MAGNITUDE + ship.GUN_DECK_OFFENSE_MAGNITUDE)
 }
 

@@ -170,11 +170,10 @@ a_deeper_node_gives_the_opponent_harder_hitting_fire_fittings :: proc(t: ^testin
 	testing.expect(t, deep.hull > coastal.hull)
 }
 
-// **Stakes scales what a hostile deals, and Fire is all it deals** — what is left of
-// #135's rule (voyage_stakes_scales_category) once ADR-0026 deleted the subtracted side
-// of the exchange. Brace's old reason for exemption (scaling a subtrahend walls the
-// player) died with bulwark; the exemption survives on a plainer one — Brace feeds
-// nothing at all until its repair verb lands (#397), so there is nothing there to scale.
+// **Stakes scales what a hostile deals, and Fire is all it deals**
+// (voyage_stakes_scales_category). Brace is exempt because it repairs (ADR-0027): a
+// hostile repair that reached the player's per-round Fire output would be an unkillable
+// hostile.
 //
 // Only Brace is exempt. Every other category — Fire, and the Modify_Speed passives
 // filed under it — the site scales. This names the *property* (Brace output never moves
@@ -194,7 +193,7 @@ the_site_scales_what_a_hostile_deals_and_never_its_brace :: proc(t: ^testing.T) 
 		testing.expectf(
 			t,
 			phase_magnitude(deep, .Brace) == phase_magnitude(shallow, .Brace),
-			"%v's brace output moved with the site — Brace has no consumer, so the site must not scale it",
+			"%v's brace output moved with the site — a site-scaled repair is a damage floor",
 			archetype.name,
 		)
 	}

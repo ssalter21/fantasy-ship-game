@@ -1523,6 +1523,133 @@ winning_a_fight_surfaces_the_wreck_cargo_that_overflows_the_hold :: proc(t: ^tes
 	testing.expect(t, found) // the overflow is surfaced, not silent
 }
 
+// battle_events collects the combat Events of variant T wrapped in this batch, in the
+// order the round emitted them — the seam a battle scenario asserts on (ADR-0001: what
+// presentation learns is the stream, not the hull field).
+battle_events :: proc(events: []Event, $T: typeid) -> (found: [dynamic]T) {
+	for e in events {
+		wrapped, is_battle := e.(Event_Battle_Event)
+		if !is_battle {
+			continue
+		}
+		if inner, is_t := wrapped.inner.(T); is_t {
+			append(&found, inner)
+		}
+	}
+	return
+}
+
+// battle_event_index is where variant T first appears in the batch, or -1 if it never
+// does — how a scenario asserts on the *order* two facts were said in.
+battle_event_index :: proc(events: []Event, $T: typeid) -> int {
+	for e, i in events {
+		wrapped, is_battle := e.(Event_Battle_Event)
+		if !is_battle {
+			continue
+		}
+		if _, is_t := wrapped.inner.(T); is_t {
+			return i
+		}
+	}
+	return -1
+}
+
+// damage_to is what `side` lost to the round's guns: a round emits one hit per side, so
+// a scenario about the player's hull must name which of the two it is reading.
+damage_to :: proc(hits: []combat.Event_Damage_Dealt, side: combat.Side) -> int {
+	for hit in hits {
+		if hit.target == side {
+			return hit.damage
+		}
+	}
+	return 0
+}
+
+// arm_with_repair installs a Brace fitting repairing `magnitude` Hull a round into the
+// player's empty Large forecastle (slot 3, left free by the starting stow) — the shape
+// the roster's defensive items are authored in.
+arm_with_repair :: proc(sim: ^Sim, magnitude: int) {
+	fitting := ship.Fitting{
+		name     = "Shipwright's Kit",
+		size     = .Large,
+		category = .Brace,
+		active   = ship.Effect{kind = .Repair, magnitude = ship.Magnitude(magnitude)},
+	}
+	ship.ship_fit(&sim.player.layout[3], fitting)
+}
+
+@(test)
+a_repair_lands_before_the_guns_and_saves_a_ship_that_would_have_sunk :: proc(t: ^testing.T) {
+	// The whole of what makes Brace a phase rather than a summing pass (#397): repair
+	// resolves **inside Brace, ahead of Fire**, and that ordering is consumed by exactly
+	// one thing — the death check. The player is left holding exactly the round's incoming
+	// damage, so without the repair the round sinks them. Every claim is read off the
+	// stream: the repair is said before the damage, and neither a sinking nor an ending
+	// is said at all.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim)
+	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the round
+
+	arm_with_repair(&sim, 5)
+	incoming := combat.combat_phase_output(&sim.battle, .B, .Fire)
+	testing.expect(t, incoming > 0)
+	sim.player.hull = incoming // one round's damage and not a point more
+
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}))
+	ev := refit_tick(&sim, &events)
+
+	repaired_at := battle_event_index(ev, combat.Event_Hull_Repaired)
+	damaged_at := battle_event_index(ev, combat.Event_Damage_Dealt)
+	testing.expect(t, repaired_at >= 0)
+	testing.expect(t, damaged_at >= 0)
+	testing.expect(t, repaired_at < damaged_at) // repair ahead of Fire, in the stream itself
+
+	// The repair covered the gap, so the round the captain would have gone down on ends
+	// with the battle still running.
+	testing.expect_value(t, battle_event_index(ev, combat.Event_Ship_Sunk), -1)
+	testing.expect_value(t, battle_event_index(ev, combat.Event_Battle_Ended), -1)
+}
+
+@(test)
+a_repair_never_heals_past_the_ships_maximum :: proc(t: ^testing.T) {
+	// Repair restores the *gap*, never its own magnitude: a repair into a full hull is a
+	// no-op that says nothing, and one into a damaged hull stops at the ceiling. This is
+	// what gives Max Hull a value raising it never had on its own — a repair larger than
+	// any wound still cannot take the hull above its maximum. The fitting offers 10,000
+	// and the stream reports exactly the wound the round before it opened.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	ready_for_battle(&sim) // full hull
+	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000))
+
+	arm_with_repair(&sim, 10_000) // far larger than any gap a round can open
+
+	// Round one: nothing to restore, so the repair is a no-op and emits nothing.
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}))
+	ev := refit_tick(&sim, &events)
+	testing.expect_value(t, battle_event_index(ev, combat.Event_Hull_Repaired), -1)
+	first_hits := battle_events(ev, combat.Event_Damage_Dealt)
+	defer delete(first_hits)
+	wound := damage_to(first_hits[:], .A)
+	testing.expect(t, wound > 0)
+
+	// Round two: it fills that wound and stops there.
+	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}))
+	ev = refit_tick(&sim, &events)
+	repairs := battle_events(ev, combat.Event_Hull_Repaired)
+	defer delete(repairs)
+	testing.expect_value(t, len(repairs), 1)
+	testing.expect_value(t, repairs[0].side, combat.Side.A)
+	testing.expect_value(t, repairs[0].amount, wound) // the gap, not the magnitude
+}
+
 @(test)
 reallocating_cargo_in_battle_moves_cargo_through_the_sim_and_keeps_the_battle_going :: proc(t: ^testing.T) {
 	// The reallocation order end to end through the sim (#200): the player submits a

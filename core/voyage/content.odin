@@ -26,7 +26,7 @@ Hostile_Archetype :: struct {
 // that draws it, so it must not be per-node memory. @(rodata): these are constant
 // initializers (unlike hostile_roster below, which slices them).
 @(rodata)
-COASTAL_PRIVATEER_ITEMS := [?]string{"Long Nines", "Carronade", "Swivel Guns", "Boarding Nets"}
+COASTAL_PRIVATEER_ITEMS := [?]string{"Long Nines", "Carronade", "Swivel Guns", "Carpenter's Mate"}
 
 @(rodata)
 BROADSIDE_COMPANY_ITEMS := [?]string{"Naval Gun Crew", "Swivel Guns", "Powder Monkeys", "Boarding Pikes"}
@@ -35,10 +35,10 @@ BROADSIDE_COMPANY_ITEMS := [?]string{"Naval Gun Crew", "Swivel Guns", "Powder Mo
 DEEPWATER_MENAGERIE_ITEMS := [?]string{"Hunter's Pack", "Snapping Eels", "War Hound"}
 
 @(rodata)
-SMUGGLERS_RUN_ITEMS := [?]string{"Copper Sheathing", "Iron Plating", "Wraith Cannon", "Spare Rigging", "Ghost Lantern"}
+SMUGGLERS_RUN_ITEMS := [?]string{"Copper Sheathing", "Oakum & Pitch", "Wraith Cannon", "Spare Rigging", "Ghost Lantern"}
 
 @(rodata)
-IRONCLAD_HULK_ITEMS := [?]string{"Long Nines", "Ramming Prow", "Reinforced Hull", "Ballast Stones"}
+IRONCLAD_HULK_ITEMS := [?]string{"Long Nines", "Ramming Prow", "Shipwright's Kit", "Spare Timbers"}
 
 @(rodata)
 BOARDING_PARTY_ITEMS := [?]string{"Naval Gun Crew", "Admiral's Guard", "Boarding Pikes"}
@@ -95,9 +95,11 @@ voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 
 // voyage_stakes_scales_category reports whether the site's power reading scales a fitting of
 // this Category. The rule: stakes scales what a hostile deals, and Fire is the only thing it
-// deals. A round's damage is a side's Fire output, so scaling Fire makes a deep hostile hit harder;
-// Brace is excluded because since ADR-0026 it feeds nothing at all — there is no bulwark left
-// to scale, and its repair verb (#397) will be scaled on its own terms if at all.
+// deals. A round's damage is a side's Fire output, so scaling Fire makes a deep hostile hit harder.
+//
+// **Brace is exempt because it repairs** (ADR-0027): a hostile repair that reached the
+// player's per-round Fire output would be an unkillable hostile. Its staying power grows
+// with the site through its Hull pool instead, which has no such ceiling.
 //
 // This is the *category* half of the rule. Category is a combat phase, and .Fire also holds
 // every Modify_Speed item; ship_fitting_output_scaled is what declines to touch those, for
@@ -107,7 +109,7 @@ voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
 	case .Fire:
 		return true // a round's damage is Fire output
 	case .Brace:
-		return false // no consumer since ADR-0026; nothing to scale
+		return false // repair, and a scaled repair is a damage floor
 	}
 	return false
 }

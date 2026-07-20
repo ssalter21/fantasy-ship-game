@@ -349,8 +349,8 @@ fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
 	flat := ship.Fitting{category = .Fire, active = ship.Effect{magnitude = 5}}
 	testing.expect_value(t, fitting_effect_intent(flat), "+5 Offense")
 
-	max_hull := ship.Fitting{category = .Brace, passive = ship.Effect{kind = .Modify_Max_Hull, magnitude = 2}}
-	testing.expect_value(t, fitting_effect_intent(max_hull), "+2 Max Hull")
+	repair := ship.Fitting{category = .Brace, active = ship.Effect{kind = .Repair, magnitude = 2}}
+	testing.expect_value(t, fitting_effect_intent(repair), "+2 Repair")
 
 	synergy := ship.Fitting{category = .Fire, active = ship.Effect{magnitude = 2, synergy = ship.Selector(ship.Tag.Weapon)}}
 	testing.expect_value(t, fitting_effect_intent(synergy), "+2 Offense per Weapon")

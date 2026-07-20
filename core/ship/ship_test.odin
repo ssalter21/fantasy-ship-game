@@ -427,7 +427,7 @@ effect_magnitude_resolves_a_flat_effect_to_its_stored_constant :: proc(t: ^testi
 	ctx := Effect_Context{owner = &s}
 
 	testing.expect_value(t, effect_magnitude(Effect{magnitude = 7}, ctx), Magnitude(7))
-	testing.expect_value(t, effect_magnitude(Effect{kind = .Modify_Max_Hull, magnitude = 4}, ctx), Magnitude(4))
+	testing.expect_value(t, effect_magnitude(Effect{kind = .Repair, magnitude = 4}, ctx), Magnitude(4))
 }
 
 // synergy_ship builds a ship whose layout holds the given fittings in bare
@@ -535,55 +535,53 @@ effect_magnitude_of_a_synergy_with_no_matches_is_zero :: proc(t: ^testing.T) {
 }
 
 @(test)
-effective_stats_equal_the_raw_fields_when_no_stat_modifier_is_installed :: proc(t: ^testing.T) {
+effective_speed_is_the_raw_field_less_weight_when_no_modifier_is_installed :: proc(t: ^testing.T) {
 	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Fire, active = Effect{magnitude = 10}}
 	s := Ship{
 		speed = 4, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},
 	}
 
-	// A plain fitting adds no stat modifier, so Max Hull reads its raw field. Speed is
-	// different now (ADR-0020): every non-cargo fitting has an authored weight, so
-	// effective Speed is base − weight/10, not the raw field. The Large Cannon weighs
-	// 38, so 4 − 3 = 1.
+	// A plain fitting adds no Speed modifier, but every non-cargo fitting has an authored
+	// weight (ADR-0020), so effective Speed is base − weight/10 rather than the raw field.
 	testing.expect_value(t, ship_effective_speed(&s), 4 - ship_weight(s) / 10)
-	testing.expect_value(t, ship_effective_max_hull(&s), 20)
+	testing.expect_value(t, s.max_hull, 20) // no fitting moves the ceiling (ADR-0027)
 }
 
 @(test)
-a_stat_modifier_fitting_raises_the_matching_effective_stat_only :: proc(t: ^testing.T) {
-	reinforced := Fitting{
-		name = "Reinforced Hull", size = .Small,
-		passive = Effect{kind = .Modify_Max_Hull, magnitude = 3},
-	}
+only_a_modify_speed_effect_moves_effective_speed :: proc(t: ^testing.T) {
+	// Speed is the one stat a fitting can modify, and it reads exactly the effects that
+	// name it: a Brace fitting's Repair magnitude resolves through combat's phase totals,
+	// never into a stat, so it must not leak here.
+	sails := Fitting{name = "Fast Sails", size = .Small, passive = Effect{kind = .Modify_Speed, magnitude = 3}}
+	surgeon := Fitting{name = "Ship's Surgeon", size = .Small, category = .Brace, active = Effect{kind = .Repair, magnitude = 6}}
 	s := Ship{
 		speed = 4, max_hull = 20,
-		layout = []Layout_Slot{{slot = Slot{size = .Small}, fitting = reinforced}},
-	}
-
-	testing.expect_value(t, ship_effective_max_hull(&s), 20 + 3)
-	testing.expect_value(t, ship_effective_speed(&s), 4) // unaffected
-}
-
-@(test)
-stat_modifiers_stack_across_slots_and_span_max_hull_and_speed :: proc(t: ^testing.T) {
-	surgeon := Fitting{name = "Ship's Surgeon", size = .Small, weight = 8, passive = Effect{kind = .Modify_Max_Hull, magnitude = 3}}
-	sails := Fitting{name = "Fast Sails", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 4}}
-	rigging := Fitting{name = "Spare Rigging", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 2}}
-	ballast := Fitting{name = "Ballast Tanks", size = .Small, weight = 8, passive = Effect{kind = .Modify_Max_Hull, magnitude = 10}}
-	s := Ship{
-		speed = 5, max_hull = 20,
 		layout = []Layout_Slot{
-			{slot = Slot{size = .Small}, fitting = surgeon},
 			{slot = Slot{size = .Small}, fitting = sails},
-			{slot = Slot{size = .Small}, fitting = rigging},
-			{slot = Slot{size = .Small}, fitting = ballast},
+			{slot = Slot{size = .Small}, fitting = surgeon},
 		},
 	}
 
-	// base 5 + Modify_Speed (4 + 2), minus the four Small fittings' weight/10 (ADR-0020).
+	testing.expect_value(t, ship_effective_speed(&s), 4 + 3)
+}
+
+@(test)
+speed_modifiers_stack_across_slots :: proc(t: ^testing.T) {
+	sails := Fitting{name = "Fast Sails", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 4}}
+	rigging := Fitting{name = "Spare Rigging", size = .Small, weight = 8, passive = Effect{kind = .Modify_Speed, magnitude = 2}}
+	timbers := Fitting{name = "Spare Timbers", size = .Small, weight = 8, category = .Brace, active = Effect{kind = .Repair, magnitude = 3}}
+	s := Ship{
+		speed = 5, max_hull = 20,
+		layout = []Layout_Slot{
+			{slot = Slot{size = .Small}, fitting = sails},
+			{slot = Slot{size = .Small}, fitting = rigging},
+			{slot = Slot{size = .Small}, fitting = timbers},
+		},
+	}
+
+	// base 5 + Modify_Speed (4 + 2), minus the three Small fittings' weight/10 (ADR-0020).
 	testing.expect_value(t, ship_effective_speed(&s), 5 + 4 + 2 - ship_weight(s) / 10)
-	testing.expect_value(t, ship_effective_max_hull(&s), 20 + 3 + 10)
 }
 
 // The calibration BASE_SPEED is solved against (ADR-0020, #158): the starting ship

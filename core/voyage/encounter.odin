@@ -146,17 +146,15 @@ voyage_trade_stat_floor :: proc(stat: Trade_Stat) -> int {
 // voyage_trade_stat_reading is how much of `stat` the ship currently has, for measuring
 // a trade's cost against.
 //
-// It reads the effective stat, never the raw base field (ADR-0012): effective is the
-// number combat and escape resolve against, so it is what the ship truly "has" — a
-// +Max_Hull fitting genuinely makes a Max Hull cost affordable. Hull reads its base
-// directly because Ship.hull has no modifier path — fittings move the ceiling
-// (Modify_Max_Hull), not the current value.
+// It reads what combat and escape resolve against, which is what the ship truly "has":
+// Hull and Max Hull are their own fields, no fitting moving either, while Cargo is the
+// holds rather than a field at all (ADR-0020).
 voyage_trade_stat_reading :: proc(s: ^ship.Ship, stat: Trade_Stat) -> int {
 	switch stat {
 	case .Hull:
 		return s.hull
 	case .Max_Hull:
-		return ship.ship_effective_max_hull(s)
+		return s.max_hull
 	case .Cargo:
 		return ship.ship_cargo(s^)
 	}
@@ -205,7 +203,7 @@ voyage_trade_project :: proc(s: ^ship.Ship, trade: Stage_Trade) -> (cost, gain: 
 	case .Hull:
 		// A repair caps against the ceiling — lowered first if the cost is paid in Max Hull,
 		// mirroring voyage_apply_trade's pay-before-grant order.
-		ceiling := ship.ship_effective_max_hull(s)
+		ceiling := s.max_hull
 		if trade.cost.stat == .Max_Hull {
 			ceiling -= trade.cost.amount
 		}
@@ -219,38 +217,34 @@ voyage_trade_project :: proc(s: ^ship.Ship, trade: Stage_Trade) -> (cost, gain: 
 	return
 }
 
-// voyage_trade_pay deducts a trade's cost. The cost is measured against the effective
-// stat (voyage_trade_can_accept) but paid out of the base field, the only field a voyage
-// owns — so a heavily-fitted ship can pay a cost its base alone couldn't cover, and the
-// base may land negative. That is fine: nothing reads the base directly, so effective is
-// still >= the floor.
+// voyage_trade_pay deducts a trade's cost, the affordability gate
+// (voyage_trade_can_accept) having already guaranteed the ship can cover it.
 //
-// Cargo has no base field (ADR-0020): it is the holds, so paying re-stows the cargo at
-// its reduced total (ship_stow_cargo), the affordability gate having guaranteed cargo >=
-// amount.
+// Cargo has no field (ADR-0020): it is the holds, so paying re-stows the cargo at its
+// reduced total (ship_stow_cargo).
 //
 // Spending Max Hull pulls the ceiling down under current Hull, so hull re-clamps to the
-// new effective ceiling — the ship cannot hold more Hull than it can now hold.
+// new ceiling — the ship cannot hold more Hull than it can now hold.
 voyage_trade_pay :: proc(s: ^ship.Ship, cost: Trade_Term) {
 	switch cost.stat {
 	case .Hull:
 		s.hull -= cost.amount
 	case .Max_Hull:
 		s.max_hull -= cost.amount
-		s.hull = min(s.hull, ship.ship_effective_max_hull(s))
+		s.hull = min(s.hull, s.max_hull)
 	case .Cargo:
 		ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^) - cost.amount)
 	}
 }
 
 // voyage_trade_grant applies a trade's gain. Gaining Hull is a repair and caps at the
-// ship's effective max (a +Max_Hull fitting's headroom counts) — there is no overheal.
-// Gaining Max Hull raises the ceiling without filling it: headroom, not a repair. The
-// two stats stay distinct precisely so a trade can swap one for the other.
+// ship's max — there is no overheal, here or in battle (ADR-0027). Gaining Max Hull
+// raises the ceiling without filling it: headroom, not a repair. The two stats stay
+// distinct precisely so a trade can swap one for the other.
 voyage_trade_grant :: proc(s: ^ship.Ship, gain: Trade_Term) {
 	switch gain.stat {
 	case .Hull:
-		s.hull = min(s.hull + gain.amount, ship.ship_effective_max_hull(s))
+		s.hull = min(s.hull + gain.amount, s.max_hull)
 	case .Max_Hull:
 		s.max_hull += gain.amount
 	case .Cargo:
