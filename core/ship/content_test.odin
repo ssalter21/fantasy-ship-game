@@ -230,8 +230,12 @@ the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 
 	// ADR-0012 targets "~50"; the pool must clear the offer's option count so an
 	// offer can present that many distinct items (voyage.ITEM_OFFER_OPTION_COUNT).
+	// The size is derived from the item list (ITEM_ROSTER_SIZE), so this line is the
+	// only thing an appended item has to answer to: the fifty-first is a conversation
+	// — about the shop pools and offer draws sized against the count — rather than a
+	// silent widening.
+	testing.expect_value(t, ITEM_ROSTER_SIZE, 50)
 	testing.expect_value(t, len(roster), ITEM_ROSTER_SIZE)
-	testing.expect(t, ITEM_ROSTER_SIZE >= 45)
 
 	for item, i in roster {
 		f := item.fitting

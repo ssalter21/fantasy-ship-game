@@ -1,18 +1,14 @@
 package ship
 
-// The roster (ADR-0012): the pool an Item Offer and a Port shop draw from, authored as
-// one proc per item and assembled into ROSTER.
+// The roster (ADR-0012): the pool an Item Offer and a Port shop draw from, one proc per
+// item, listed in ROSTER_AUTHORS. It is in-proc Odin rather than a data file because an
+// item's magnitude is an expression tree built by expr.odin's helper procs, which nothing
+// outside the language can call.
 //
-// It stays **in-proc Odin** rather than a data file: an item's magnitude is an expression
-// tree built by the helper procs in expr.odin, which a data file could not call without a
-// parser — trading compile errors for runtime ones. One proc per item because a
-// three-effect item runs to a dozen nodes, and splicing that into a single fifty-entry
-// literal is where the misplaced comma goes.
-//
-// **New items append to the end of ROSTER, always.** Roster order is load-bearing for seed
-// stability — shop baking and the offer draw index into it — so a mid-array insert
-// silently changes which item an existing seed offers. Tier is a field of the item, not a
-// position in the array.
+// **New items append to the end of ROSTER_AUTHORS, always.** Roster order is load-bearing
+// for seed stability — shop baking and the offer draw index into it — so a mid-array
+// insert silently changes which item an existing seed offers. Tier is a field each item's
+// proc names, never a position in the list.
 
 // roster_item is the one way an entry is authored: the item's tier, the fitting's authored
 // fields, and its effects, which must number between one and FITTING_MAX_EFFECTS and are
@@ -353,8 +349,9 @@ roster_sea_witch :: proc() -> Roster_Item {
 	return roster_item(.Deep, "Sea Witch", .Medium, 16, {.Crew}, {effect_phase_contribution(expr_while_opponent_faster(6))})
 }
 
-// ROSTER is the pool itself, in the order an Offer and a shop index it. Append only.
-ROSTER :: [?]proc() -> Roster_Item {
+// ROSTER_AUTHORS is the pool itself: each item's proc, in the order an Offer and a shop
+// index it. Append only — see the note at the top of this file.
+ROSTER_AUTHORS :: [?]proc() -> Roster_Item {
 	roster_deckhands,
 	roster_swivel_guns,
 	roster_deck_cannon,
@@ -409,10 +406,11 @@ ROSTER :: [?]proc() -> Roster_Item {
 
 // ITEM_ROSTER_SIZE is how many distinct items ship_item_roster hands back — the pool an
 // Item Offer samples its options from (voyage.voyage_item_offer_options), and the size of
-// the index arrays core/voyage builds over it. **Derived**, so appending an item is one
-// edit and the 51st item is a conversation rather than a silent count. Must stay at least
-// voyage.ITEM_OFFER_OPTION_COUNT so an offer can present that many distinct items.
-ITEM_ROSTER_SIZE :: len(ROSTER)
+// the index arrays core/voyage builds over it. Read off the list itself, so an appended
+// item is one edit; must stay at least voyage.ITEM_OFFER_OPTION_COUNT so an offer can
+// present that many distinct items, and the_item_roster_is_about_fifty_distinct_placeable_items
+// is where a change to the count is answered for.
+ITEM_ROSTER_SIZE :: len(ROSTER_AUTHORS)
 
 // ship_item_roster builds the full roster pool as value data: every entry's fields and
 // effect trees are assembled by its own proc at call time, so nothing here is a top-level
@@ -420,7 +418,7 @@ ITEM_ROSTER_SIZE :: len(ROSTER)
 // only value fields and static-string names, so there is nothing to free.
 ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 	roster: [ITEM_ROSTER_SIZE]Roster_Item
-	for author, i in ROSTER {
+	for author, i in ROSTER_AUTHORS {
 		roster[i] = author()
 	}
 	return roster
@@ -436,8 +434,8 @@ ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 // *content* bug — an author's typo — not a runtime condition, so callers assert rather
 // than handle it.
 ship_item_by_name :: proc(name: string) -> (item: Roster_Item, ok: bool) {
-	for author in ROSTER {
-		if candidate := author(); candidate.fitting.name == name {
+	for candidate in ship_item_roster() {
+		if candidate.fitting.name == name {
 			return candidate, true
 		}
 	}
