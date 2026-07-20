@@ -86,14 +86,14 @@ fight_action_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX
 }
 
 // fight_order_commands is the captain's order row: ADR-0028's five and nothing else. The
-// Presses come from the Category enum so a new phase would appear automatically, each
+// Presses come from the Phase enum so a new phase would appear automatically, each
 // disabled once the battle's one Press is spent; then Commit, Jettison, Hold, and Break Off
 // last, disabled until may_break_off. An untakeable order is offered-but-disabled rather than
 // dropped: the order set is fixed, so the row is the same length every round however laden the
 // ship is. Jettison opens a step rather than submitting, which is what keeps a ship's holds
 // from each adding a button here.
 fight_order_commands :: proc(state: ^Game_State) -> (actions: [FIGHT_ACTION_MAX]Fight_Action, n: int) {
-	for category in ship.Category {
+	for category in ship.Phase {
 		fight_add_action(&actions, &n, fmt.tprintf("Press %v", category), .Submit, combat.Command(combat.Command_Press{phase = category}), state.may_press)
 	}
 	fight_add_action(&actions, &n, "Commit", .Submit, combat.Command(combat.Command_Commit{}), true)
@@ -348,7 +348,7 @@ draw_fight_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, gate:
 	if is_hold {
 		rl.DrawTextEx(ui_font_body, fmt.ctprintf("holds %d", fitting.cargo_held), rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, UI_BODY_SIZE, 1, COLOUR_STEEL)
 	} else {
-		draw_build_category_chip(rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, fitting.category)
+		draw_build_phase_chip(rl.Vector2{rect.x + 8, rect.y + rect.height - 26}, fitting_phase_label(fitting))
 	}
 	rl.EndScissorMode()
 

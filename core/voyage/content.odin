@@ -93,27 +93,6 @@ voyage_make_opponent_ship :: proc(site: Scaling_Site) -> ship.Ship {
 	}
 }
 
-// voyage_stakes_scales_category reports whether the site's power reading scales a fitting of
-// this Category. The rule: stakes scales what a hostile deals, and Fire is the only thing it
-// deals. A round's damage is a side's Fire output, so scaling Fire makes a deep hostile hit harder.
-//
-// **Brace is exempt because it repairs** (ADR-0027): a hostile repair that reached the
-// player's per-round Fire output would be an unkillable hostile. Its staying power grows
-// with the site through its Hull pool instead, which has no such ceiling.
-//
-// This is the *category* half of the rule. Category is a combat phase, and .Fire also holds
-// every Modify_Speed item; ship_fitting_output_scaled is what declines to touch those, for
-// the reason on that proc.
-voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
-	switch category {
-	case .Fire:
-		return true // a round's damage is Fire output
-	case .Brace:
-		return false // repair, and a scaled repair is a damage floor
-	}
-	return false
-}
-
 // voyage_fit_hostile_loadout fits an archetype's items into the one ship template (ADR-0004),
 // each scaled to the site's power reading, and fills the leftover slots with Spoils (issue
 // #91, the opponent's analogue of the player's Cargo). The or_return chain mirrors
@@ -124,16 +103,19 @@ voyage_stakes_scales_category :: proc(category: ship.Category) -> bool {
 // is the same proportion as one gun at 50%, and gun count cannot swamp the site's reading. A
 // Selector scales with its match count, upstream of effect_magnitude's synergy seam — the
 // multiplier holds through that for the same reason.
+//
+// **Stakes scales what a hostile deals, and Fire damage is the only thing it deals**, which
+// is a guard on the verb rather than on the loadout: ship_fitting_output_scaled moves
+// Phase_Contribution effects and leaves Repair and Modify_Speed where they were, so every
+// fitting can be handed to it. Repair is exempt because a hostile repair that reached the
+// player's per-round Fire output would be an unkillable hostile (ADR-0027); a deep hostile's
+// staying power grows through its Hull pool instead, which has no such ceiling.
 voyage_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostile_Archetype, power_percent: int) -> bool {
 	for name in archetype.items {
 		item, found := ship.ship_item_by_name(name)
 		assert(found, "hostile archetype names an item that is not in the roster")
 
-		fitting := item.fitting
-		if voyage_stakes_scales_category(fitting.category) {
-			fitting = ship.ship_fitting_output_scaled(fitting, power_percent)
-		}
-		ship.ship_fit_first_empty_slot(layout, fitting) or_return
+		ship.ship_fit_first_empty_slot(layout, ship.ship_fitting_output_scaled(item.fitting, power_percent)) or_return
 	}
 	ship.ship_fill_empty_slots_with_holds(layout, "Spoils") or_return
 	ship.ship_fill_holds_to_percent(layout, ship.HOSTILE_FILL_PERCENT)
@@ -279,7 +261,7 @@ Stock_Pool :: enum {
 // #137): subset and size.
 //
 // `families` is the subset: the Tag families the shop stocks. Filtered on Tag (ADR-0012's
-// family axis), not Category, because Category is a combat phase — filtering on it would sort
+// family axis), not Phase, because Phase is a combat phase — filtering on it would sort
 // wares by when they fire, not what they are. A Maybe: nil means *no filter*, not *every
 // family*, so an unfiltered shop keeps stocking a sixth Tag the day one is authored without
 // this table being edited.

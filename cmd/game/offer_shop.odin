@@ -391,7 +391,7 @@ draw_offer_shop_shelf_card :: proc(rect: rl.Rectangle, option: sim.Stage_Option,
 	if cost, priced := option.cost.?; priced {
 		draw_cargo_price(rl.Vector2{x, rect.y + 34}, cost, affordable)
 	} else {
-		draw_build_category_chip(rl.Vector2{x, rect.y + 32}, option.fitting.category)
+		draw_build_phase_chip(rl.Vector2{x, rect.y + 32}, fitting_phase_label(option.fitting))
 	}
 
 	intent_tone := affordable ? COLOUR_STEEL : rl.Fade(COLOUR_STEEL, 0.5)

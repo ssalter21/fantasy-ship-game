@@ -39,7 +39,7 @@ fight_action_commands_offers_the_round_menu :: proc(t: ^testing.T) {
 	// The captain's whole order set, and nothing else: a Press per phase, Commit,
 	// Jettison, Break Off, Hold. However laden the ship is, the row stays this length —
 	// Jettison names its target in a second step, so no hold ever adds a button here.
-	testing.expect(t, presses == len(ship.Category)) // one Press per combat phase
+	testing.expect(t, presses == len(ship.Phase)) // one Press per combat phase
 	testing.expect(t, commits == 1)
 	testing.expect(t, steps == 1) // the one Jettison
 	testing.expect(t, jettisons == 0) // no slot index until the second step
@@ -126,11 +126,11 @@ fight_press_is_offered_but_untakeable_once_the_battles_press_is_spent :: proc(t:
 
 	state.may_press = true
 	offered, enabled := press_enabled(&state)
-	testing.expect(t, offered == len(ship.Category) && enabled == offered)
+	testing.expect(t, offered == len(ship.Phase) && enabled == offered)
 
 	state.may_press = false
 	offered, enabled = press_enabled(&state)
-	testing.expect(t, offered == len(ship.Category) && enabled == 0)
+	testing.expect(t, offered == len(ship.Phase) && enabled == 0)
 }
 
 @(test)

@@ -66,7 +66,7 @@ a_fitting_may_both_carry_and_fire :: proc(t: ^testing.T) {
 	// slot spent on offence was automatically a slot spent against the purse. A gun
 	// that authors less than its full slot in bulk carries the remainder.
 	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
-	armed_trader := Fitting{name = "Armed Trader", size = .Large, bulk = 30, active = effect_phase_contribution(expr_const(4))}
+	armed_trader := ship_fitting_with_effects(Fitting{name = "Armed Trader", size = .Large, bulk = 30}, effect_phase_contribution(expr_const(4)))
 
 	testing.expect(t, ship_fit(&layout_slot, armed_trader))
 	testing.expect_value(t, ship_fitting_capacity(armed_trader), 10) // the Large's 40, less its bulk
@@ -522,7 +522,7 @@ replace_admits_a_carrying_fitting_that_also_has_an_effect :: proc(t: ^testing.T)
 	// Replace now applies the exact-size rule and nothing else, exactly as install does.
 	layout_slot := make_layout_slot("hold", .Large, .Concealed)
 	testing.expect(t, ship_fit(&layout_slot, Fitting{name = "Cannon", size = .Large, bulk = 40}))
-	cursed_loot := Fitting{name = "Cursed Loot", size = .Large, bulk = 20, passive = Effect{}}
+	cursed_loot := ship_fitting_with_effects(Fitting{name = "Cursed Loot", size = .Large, bulk = 20}, Effect{})
 
 	testing.expect(t, ship_replace_fitting(&layout_slot, cursed_loot))
 
@@ -555,14 +555,14 @@ synergy_ship :: proc(fittings: ..Fitting) -> Ship {
 selector_matches_over_each_of_tag_size_and_visibility :: proc(t: ^testing.T) {
 	slot := Layout_Slot{
 		slot    = Slot{size = .Large, base_visibility = .Concealed},
-		fitting = Fitting{name = "War Kraken", size = .Large, category = .Fire, tags = {.Beast, .Weapon}},
+		fitting = Fitting{name = "War Kraken", size = .Large, tags = {.Beast, .Weapon}},
 	}
 
 	// Tag: a multi-tag fitting matches on each of its own tags, and misses a tag it lacks.
 	testing.expect(t, selector_matches(slot, Selector(Tag.Beast)))
 	testing.expect(t, selector_matches(slot, Selector(Tag.Weapon)))
 	testing.expect(t, !selector_matches(slot, Selector(Tag.Crew)))
-	// Size: the fitting's own field. A round Category is not an axis at all — a phase is
+	// Size: the fitting's own field. A round Phase is not an axis at all — a phase is
 	// not a countable constant (see Selector).
 	testing.expect(t, selector_matches(slot, Selector(Slot_Size.Large)))
 	testing.expect(t, !selector_matches(slot, Selector(Slot_Size.Small)))
@@ -627,7 +627,7 @@ effect_magnitude_of_a_synergy_with_no_matches_is_zero :: proc(t: ^testing.T) {
 
 @(test)
 effective_speed_is_the_raw_field_less_weight_when_no_modifier_is_installed :: proc(t: ^testing.T) {
-	cannon := Fitting{name = "Cannon", size = .Large, weight = 38, category = .Fire, active = effect_phase_contribution(expr_const(10))}
+	cannon := ship_fitting_with_effects(Fitting{name = "Cannon", size = .Large, weight = 38}, effect_phase_contribution(expr_const(10)))
 	s := Ship{
 		speed = 4, max_hull = 20,
 		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = cannon}},
@@ -644,8 +644,8 @@ only_a_modify_speed_effect_moves_effective_speed :: proc(t: ^testing.T) {
 	// Speed is the one stat a fitting can modify, and it reads exactly the effects that
 	// name it: a Brace fitting's Repair magnitude resolves through combat's phase totals,
 	// never into a stat, so it must not leak here.
-	sails := Fitting{name = "Fast Sails", size = .Small, passive = effect_modify_speed(expr_const(3))}
-	surgeon := Fitting{name = "Ship's Surgeon", size = .Small, category = .Brace, active = effect_repair(expr_const(6))}
+	sails := ship_fitting_with_effects(Fitting{name = "Fast Sails", size = .Small}, effect_modify_speed(expr_const(3)))
+	surgeon := ship_fitting_with_effects(Fitting{name = "Ship's Surgeon", size = .Small}, effect_repair(expr_const(6)))
 	s := Ship{
 		speed = 4, max_hull = 20,
 		layout = []Layout_Slot{
@@ -659,9 +659,9 @@ only_a_modify_speed_effect_moves_effective_speed :: proc(t: ^testing.T) {
 
 @(test)
 speed_modifiers_stack_across_slots :: proc(t: ^testing.T) {
-	sails := Fitting{name = "Fast Sails", size = .Small, weight = 8, passive = effect_modify_speed(expr_const(4))}
-	rigging := Fitting{name = "Spare Rigging", size = .Small, weight = 8, passive = effect_modify_speed(expr_const(2))}
-	timbers := Fitting{name = "Spare Timbers", size = .Small, weight = 8, category = .Brace, active = effect_repair(expr_const(3))}
+	sails := ship_fitting_with_effects(Fitting{name = "Fast Sails", size = .Small, weight = 8}, effect_modify_speed(expr_const(4)))
+	rigging := ship_fitting_with_effects(Fitting{name = "Spare Rigging", size = .Small, weight = 8}, effect_modify_speed(expr_const(2)))
+	timbers := ship_fitting_with_effects(Fitting{name = "Spare Timbers", size = .Small, weight = 8}, effect_repair(expr_const(3)))
 	s := Ship{
 		speed = 5, max_hull = 20,
 		layout = []Layout_Slot{
@@ -853,7 +853,7 @@ an_opponent_count_reads_the_scouting_report_and_concealment_empties_it :: proc(t
 a_modify_speed_tree_that_reads_a_speed_is_rejected_when_it_is_authored :: proc(t: ^testing.T) {
 	// A Modify_Speed effect may read anything below its layer.
 	round_gated := effect_modify_speed(expr_from_round(3, 2))
-	testing.expect_value(t, round_gated.kind, Effect_Kind.Modify_Speed)
+	testing.expect_value(t, round_gated.verb, Verb.Modify_Speed)
 
 	// It may not read either speed — own or opponent. Both readings are refused by
 	// effect_modify_speed's assert; expr_reads_quantity is the question it asks.
@@ -873,11 +873,7 @@ a_modify_speed_tree_that_reads_a_speed_is_rejected_when_it_is_authored :: proc(t
 // reading to open on and the item is dormant in every round of every battle.
 @(test)
 a_round_gated_speed_modifier_fires_mid_battle_through_pass_one :: proc(t: ^testing.T) {
-	sails := Fitting {
-		name    = "Storm Canvas",
-		size    = .Small,
-		passive = effect_modify_speed(expr_from_round(3, 4)),
-	}
+	sails := ship_fitting_with_effects(Fitting{name = "Storm Canvas", size = .Small}, effect_modify_speed(expr_from_round(3, 4)))
 	s := Ship {
 		speed  = 2,
 		max_hull = 20,
@@ -896,11 +892,7 @@ a_gated_stat_modifier_applies_only_while_its_gate_is_open :: proc(t: ^testing.T)
 	// A "below half Hull, run for it" rigging: the effective-stat readers resolve it
 	// through the same magnitude seam, self_slot filled per slot. Speed rather than
 	// Max Hull, so the gate's own reading cannot move underneath it.
-	rigging := Fitting {
-		name    = "Panic Rigging",
-		size    = .Small,
-		passive = effect_modify_speed(expr_below_hull_percent(50, 5)),
-	}
+	rigging := ship_fitting_with_effects(Fitting{name = "Panic Rigging", size = .Small}, effect_modify_speed(expr_below_hull_percent(50, 5)))
 	s := Ship {
 		speed  = 2,
 		max_hull = 20,
@@ -960,4 +952,161 @@ jettisoning_a_fitting_carrying_nothing_is_refused :: proc(t: ^testing.T) {
 	testing.expect(t, !laden)
 	_, filled := ship_jettison_cargo(layout[:], Slot_Index(1))
 	testing.expect(t, !filled)
+}
+
+// --- Three effects to a fitting (#405) ---
+
+@(test)
+a_fitting_carries_up_to_three_effects_and_names_the_phases_they_feed :: proc(t: ^testing.T) {
+	// The whole of what the array buys: one item feeding both phases *and* a stat, which
+	// a single passive/active pair could not express.
+	warship := ship_fitting_with_effects(
+		Fitting{name = "Flagship", size = .Large},
+		effect_phase_contribution(expr_const(6)),
+		effect_repair(expr_const(2)),
+		effect_modify_speed(expr_const(1)),
+	)
+
+	testing.expect_value(t, warship.effect_count, 3)
+	testing.expect_value(t, ship_fitting_phases(warship), bit_set[Phase]{.Brace, .Fire})
+	// The stat verb feeds no phase, so it is in neither of those and in no phase total.
+	testing.expect_value(t, warship.effects[2].phase, Maybe(Phase)(nil))
+}
+
+@(test)
+a_fitting_with_no_effects_feeds_no_phase_and_is_a_hold :: proc(t: ^testing.T) {
+	hold := ship_fitting_hold(.Small)
+
+	testing.expect_value(t, hold.effect_count, 0)
+	testing.expect_value(t, ship_fitting_phases(hold), bit_set[Phase]{})
+	testing.expect(t, ship_fitting_is_hold(hold))
+}
+
+@(test)
+a_fitting_cannot_be_given_more_effects_than_the_cap :: proc(t: ^testing.T) {
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	testing.expect_assert(t, "a fitting carries at most FITTING_MAX_EFFECTS effects")
+	_ = ship_fitting_with_effects(
+		Fitting{name = "Overloaded", size = .Large},
+		effect_phase_contribution(expr_const(1)),
+		effect_phase_contribution(expr_const(1)),
+		effect_phase_contribution(expr_const(1)),
+		effect_phase_contribution(expr_const(1)),
+	)
+}
+
+// --- Timing (#405) ---
+
+// The five timings as the sequences they produce, read as pure arithmetic: the counter
+// each round hands back is the next round's input, which is the whole of what a Battle
+// stores for them.
+
+@(test)
+timing_always_fires_every_round_and_remembers_nothing :: proc(t: ^testing.T) {
+	counter := 0
+	for round in 1 ..= 4 {
+		reading: Timing_Reading
+		reading, counter = effect_timing_advance(Timing_Always{}, round, counter)
+		testing.expect(t, !reading.dormant)
+		testing.expect_value(t, reading.ramp, 0)
+		testing.expect_value(t, counter, 0)
+	}
+}
+
+@(test)
+timing_once_per_battle_fires_on_the_first_round_and_never_again :: proc(t: ^testing.T) {
+	counter := 0
+	fired: [5]bool
+	for round in 1 ..= 5 {
+		reading: Timing_Reading
+		reading, counter = effect_timing_advance(Timing_Once_Per_Battle{}, round, counter)
+		fired[round - 1] = !reading.dormant
+	}
+	testing.expect_value(t, fired, [5]bool{true, false, false, false, false})
+
+	// A fresh battle zeroes the counter, and the one firing is available again.
+	reading, _ := effect_timing_advance(Timing_Once_Per_Battle{}, 1, 0)
+	testing.expect(t, !reading.dormant)
+}
+
+@(test)
+timing_every_n_fires_on_its_cadence_and_nothing_between :: proc(t: ^testing.T) {
+	fired: [6]bool
+	for round in 1 ..= 6 {
+		reading, _ := effect_timing_advance(Timing_Every_N{n = 3}, round, 0)
+		fired[round - 1] = !reading.dormant
+	}
+	testing.expect_value(t, fired, [6]bool{false, false, true, false, false, true})
+}
+
+@(test)
+timing_ramp_grows_by_the_round_and_stops_at_its_cap :: proc(t: ^testing.T) {
+	// The ramp is what the round adds to what the tree yields, capped in total — so the
+	// first round is the authored magnitude and the growth is bounded by authoring
+	// rather than by how long the fight ran.
+	ramps: [5]int
+	for round in 1 ..= 5 {
+		reading, _ := effect_timing_advance(Timing_Ramp{per_round = 2, cap = 5}, round, 0)
+		testing.expect(t, !reading.dormant)
+		ramps[round - 1] = reading.ramp
+	}
+	testing.expect_value(t, ramps, [5]int{0, 2, 4, 5, 5})
+}
+
+@(test)
+timing_charge_banks_its_gain_and_spends_it_on_the_round_it_fires :: proc(t: ^testing.T) {
+	counter := 0
+	fired: [6]bool
+	for round in 1 ..= 6 {
+		reading: Timing_Reading
+		reading, counter = effect_timing_advance(Timing_Charge{cost = 4, per_round = 2}, round, counter)
+		fired[round - 1] = !reading.dormant
+	}
+	// Two rounds of banking pays for the third, and the bank starts over.
+	testing.expect_value(t, fired, [6]bool{false, true, false, true, false, true})
+	testing.expect_value(t, counter, 0)
+}
+
+@(test)
+an_effect_that_does_not_fire_resolves_to_nothing :: proc(t: ^testing.T) {
+	// Resolved at the one magnitude seam rather than skipped by each consumer, so "when
+	// does it fire" has a single answer.
+	s := Ship{hull = 10, max_hull = 10}
+	gun := effect_phase_contribution(expr_const(7))
+
+	testing.expect_value(t, effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{dormant = true}), Magnitude(0))
+	// The zero reading is a firing round, so a table short of an entry cannot disarm an effect.
+	testing.expect_value(t, effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{}), Magnitude(7))
+	// A ramp lands beside the tree, and the site scales the sum.
+	ramped := effect_magnitude(gun, ship_effect_context(&s), Timing_Reading{ramp = 3})
+	testing.expect_value(t, ramped, Magnitude(10))
+}
+
+@(test)
+a_stat_verb_cannot_be_given_a_timing :: proc(t: ^testing.T) {
+	// Speed is read off the battlefield too, where no Battle holds a counter — so a
+	// timing there would answer the refit screen and the fight differently.
+	when testutil.SKIP_WINDOWS_ASSERT_BUG {
+		return
+	}
+	testing.expect_assert(t, "a Modify_Speed effect is Always")
+	_ = effect_with_timing(effect_modify_speed(expr_const(2)), Timing_Once_Per_Battle{})
+}
+
+@(test)
+a_timed_effect_keeps_everything_but_its_timing :: proc(t: ^testing.T) {
+	base := effect_repair(expr_const(5))
+	timed := effect_with_timing(base, Timing_Every_N{n = 2})
+
+	testing.expect_value(t, timed.verb, base.verb)
+	testing.expect_value(t, timed.phase, base.phase)
+	testing.expect_value(t, timed.site_scale, base.site_scale)
+	testing.expect_value(t, effect_showcase_magnitude(timed), effect_showcase_magnitude(base))
+	_, is_every_n := timed.timing.(Timing_Every_N)
+	testing.expect(t, is_every_n)
+	// An untimed effect is Always by its zero value, not by an author remembering to say so.
+	_, is_always := base.timing.(Timing_Always)
+	testing.expect(t, is_always)
 }

@@ -566,9 +566,9 @@ draw_build_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, dim: 
 				COLOUR_STEEL,
 			)
 		} else {
-			// Category is a steel chip (no new hue — the guide is silent on category colour
+			// Phase is a steel chip (no new hue — the guide is silent on category colour
 			// and #302 keeps it that way), the effect intent steel beside/under it.
-			chip_w := draw_build_category_chip(rl.Vector2{x, rect.y + 36}, fitting.category)
+			chip_w := draw_build_phase_chip(rl.Vector2{x, rect.y + 36}, fitting_phase_label(fitting))
 			rl.DrawTextEx(
 				ui_font_body,
 				fmt.ctprintf("%s", fitting_effect_intent(fitting)),
@@ -595,10 +595,11 @@ draw_build_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, dim: 
 	}
 }
 
-// draw_build_category_chip draws the Brace / Fire chip — a steel-outlined tag, no
-// fill, no new hue — and returns its width so the effect intent can sit beside it.
-draw_build_category_chip :: proc(pos: rl.Vector2, category: ship.Category) -> f32 {
-	label := fmt.ctprintf("%v", category)
+// draw_build_phase_chip draws the phase chip — a steel-outlined tag, no fill, no new hue —
+// and returns its width so the effect intent can sit beside it. Takes the label rather than
+// a phase because an item may feed both (fitting_phase_label).
+draw_build_phase_chip :: proc(pos: rl.Vector2, phases: string) -> f32 {
+	label := fmt.ctprintf("%s", phases)
 	text_w := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1).x
 	chip := rl.Rectangle{x = pos.x, y = pos.y, width = text_w + 12, height = 24}
 	rl.DrawRectangleLinesEx(chip, 1, rl.Fade(COLOUR_STEEL, 0.8))

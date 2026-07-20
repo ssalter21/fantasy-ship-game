@@ -865,8 +865,8 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 			label = fmt.tprintf("%s: ???", layout_slot.slot.name)
 		case:
 			magnitude := 0
-			if active, has_active := fitting.active.?; has_active {
-				magnitude = ship.effect_showcase_magnitude(active)
+			for i in 0 ..< fitting.effect_count {
+				magnitude += ship.effect_showcase_magnitude(fitting.effects[i])
 			}
 			label = fmt.tprintf("%s: %s (%d)", layout_slot.slot.name, fitting.name, magnitude)
 		}
@@ -898,29 +898,32 @@ fitting_tags_label :: proc(tags: bit_set[ship.Tag]) -> string {
 	return len(label) > 0 ? label : "none"
 }
 
-// fitting_effect_intent renders a one-line summary of what a fitting's effect does:
-// the magnitude and the verb it carries (Effect_Kind), with synergy and conditionality
-// spelled out ("+2 Offense per Weapon", "+8 Offense when its condition holds"). Reads
-// whichever of active/passive carries the effect; "no effect" for a cargo filler.
+// fitting_effect_intent renders a one-line summary of what a fitting does: each of its
+// effects as a magnitude and the verb it carries (Verb), with synergy and
+// conditionality spelled out ("+2 Offense per Weapon", "+8 Offense when its condition
+// holds"), joined by commas. "no effect" for a cargo filler.
 //
 // The magnitude is the effect read **at showcase** (effect_showcase_magnitude): what the
 // item is worth when what its tree asks for is true. An item held in the hand has no ship,
 // round or opponent to resolve against, and resolving it against nothing would print every
 // conditional item as "+0". A magnitude is an arbitrary tree, so what the condition *is*
-// has no closed set of clauses to render — the line says only that there is one, which is
-// the honest reading until the item card is re-cut (#405).
+// has no closed set of clauses to render — the line says only that there is one.
 fitting_effect_intent :: proc(f: ship.Fitting) -> string {
-	effect: ship.Effect
-	if active, ok := f.active.?; ok {
-		effect = active
-	} else if passive, ok := f.passive.?; ok {
-		effect = passive
-	} else {
+	if f.effect_count == 0 {
 		return "no effect"
 	}
+	intent := ""
+	for i in 0 ..< f.effect_count {
+		line := fitting_one_effect_intent(f.effects[i])
+		intent = i == 0 ? line : fmt.tprintf("%s, %s", intent, line)
+	}
+	return intent
+}
 
+@(private = "file")
+fitting_one_effect_intent :: proc(effect: ship.Effect) -> string {
 	target: string
-	switch effect.kind {
+	switch effect.verb {
 	case .Phase_Contribution:
 		target = "Offense"
 	case .Repair:
@@ -939,11 +942,23 @@ fitting_effect_intent :: proc(f: ship.Fitting) -> string {
 	return intent
 }
 
+// fitting_phase_label names the round phases a fitting feeds (ship_fitting_phases), which
+// is a *set* now that phase rides on the effect rather than on the fitting: an item with a
+// Brace effect and a Fire effect reads "Brace/Fire", and one that feeds neither — a hold, a
+// pure speed item — reads "no phase".
+fitting_phase_label :: proc(f: ship.Fitting) -> string {
+	label := ""
+	for phase in ship.ship_fitting_phases(f) {
+		label = len(label) == 0 ? fmt.tprintf("%v", phase) : fmt.tprintf("%s/%v", label, phase)
+	}
+	return len(label) > 0 ? label : "no phase"
+}
+
 // fitting_summary_lines renders the two detail lines shown under an item's name on
-// the Item Offer and Refit screens: the first its size, phase (Category), and tag
+// the Item Offer and Refit screens: the first its size, the phases it feeds, and its tag
 // families; the second its effect intent.
 fitting_summary_lines :: proc(f: ship.Fitting) -> (string, string) {
-	spec := fmt.tprintf("%v · %v · %s", f.size, f.category, fitting_tags_label(f.tags))
+	spec := fmt.tprintf("%v · %s · %s", f.size, fitting_phase_label(f), fitting_tags_label(f.tags))
 	return spec, fitting_effect_intent(f)
 }
 
