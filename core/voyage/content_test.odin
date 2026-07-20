@@ -741,6 +741,23 @@ every_trade_roster_entry_swaps_two_different_stats_and_is_named :: proc(t: ^test
 	}
 }
 
+// **A Trade is not a thing you install**, so no axis may take a roster item's name
+// (content.odin's authoring guardrail, which until now was a comment with no test). The
+// two rosters are authored in different packages and read on different screens, so a
+// collision would show the captain one name meaning two things — and it is exactly the
+// kind of miss a new item slips past, since the item author is not looking at the trades.
+//
+// It lives here rather than beside ship_item_roster because core/ship cannot import
+// core/voyage: every ripple invariant that reaches across the two is asserted from this
+// side, and no single proc sees both halves.
+@(test)
+no_trade_axis_takes_a_roster_items_name :: proc(t: ^testing.T) {
+	for axis in voyage_trade_roster() {
+		_, collides := ship.ship_item_by_name(axis.name)
+		testing.expectf(t, !collides, "the trade %q is also a roster item — one name, two things", axis.name)
+	}
+}
+
 // The roster's coverage after ADR-0026 (content.odin): Speed left with the #180 cut and
 // Durability left with the stat itself, dropping the roster to two rows, so coverage is
 // deliberately partial. Hull is gain-only (nothing else heals), Cargo is cost-only (its

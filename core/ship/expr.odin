@@ -138,12 +138,14 @@ EXPR_NODE_ARITY := [Node_Kind]int {
 	.Gate     = 4,
 }
 
-// Gate_Mode is how a walk answers a Gate: by comparing (Compared — a real round), or by
-// taking its open branch outright (Open — the item-card reading, expr_showcase). It is
-// the *only* difference between the two walks, which is why there is one walker.
+// Gate_Mode is how a walk answers a Gate: by comparing (Compared — a real round), by
+// taking its open branch outright (Open — the item-card reading, expr_showcase), or by
+// taking its larger branch (Peak — the pricing reading, expr_peak). It is the *only*
+// difference between the three walks, which is why there is one walker.
 Gate_Mode :: enum {
 	Compared,
 	Open,
+	Peak,
 }
 
 // expr_eval resolves `e` against `ctx`. Pure: it reads only its arguments, writes
@@ -195,6 +197,9 @@ expr_eval_node :: proc(nodes: []Node, ctx: Expr_Context, index: int, gates := Ga
 	case .Add, .Sub, .Mul, .Min, .Max, .Pct:
 		return expr_apply(node.kind, children[0], children[1]), next
 	case .Gate:
+		if gates == .Peak {
+			return max(children[2], children[3]), next
+		}
 		if gates == .Open || expr_compare(node.compare, children[0], children[1]) {
 			return children[2], next
 		}
@@ -446,6 +451,20 @@ expr_showcase :: proc(e: Expr) -> int {
 		ctx.opponent.visibility[visibility] = 1
 	}
 	return expr_walk(e, ctx, .Open)
+}
+
+// expr_peak is the tree read **as the most it can ever yield**: every Count reads the
+// peak census the ship layout admits (ship_count_peaks) and every Gate takes its larger
+// branch, so a conditional prices at what it pays when its condition holds. It is the
+// magnitude the power budget charges for (ship_effect_cost), and it is a reading of the
+// tree rather than of a round — nothing in combat calls it.
+//
+// Min, Max and Pct need no special answer: evaluated over peak inputs they already
+// yield the peak. A tree that reads a **quantity** as its magnitude rather than inside a
+// gate's comparands peaks at 0 here and so prices at nothing — the budget has no bound
+// to charge such a tree against, so an item wanting one is a finding, not an authoring.
+expr_peak :: proc(e: Expr, peaks: Count_Table) -> int {
+	return expr_walk(e, Expr_Context{counts = peaks, opponent = peaks}, .Peak)
 }
 
 // Composed shapes: the tree an item writes when it wants one of the readings the roster
