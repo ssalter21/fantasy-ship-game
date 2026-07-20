@@ -385,15 +385,25 @@ expr_subtree :: proc(e: Expr, index: int) -> (sub: Expr, next: int) {
 	return sub, next
 }
 
+// expr_gate_comparands lifts the two sides of the Gate node at `index` back out of the tree
+// and reports where its **open branch** starts — which is the path the gate's magnitude
+// rides on, and so the path a reading that follows a condition down has to take.
+expr_gate_comparands :: proc(e: Expr, index: int) -> (lhs: Expr, rhs: Expr, then_branch: int) {
+	assert(index < e.count && e.nodes[index].kind == .Gate, "expr_gate_comparands wants a Gate node")
+	after_lhs: int
+	lhs, after_lhs = expr_subtree(e, index + 1)
+	rhs, then_branch = expr_subtree(e, after_lhs)
+	return
+}
+
 // expr_gate_parts decomposes a Gate-rooted tree back into the four subtrees it was
 // authored from. Asserts the root is a Gate, so a caller that has not checked cannot get a
 // meaningless answer.
 expr_gate_parts :: proc(e: Expr) -> (op: Compare_Op, lhs: Expr, rhs: Expr, then_expr: Expr, else_expr: Expr) {
 	assert(e.count > 0 && e.nodes[0].kind == .Gate, "expr_gate_parts wants a Gate-rooted tree")
 	op = e.nodes[0].compare
-	next := 1
-	lhs, next = expr_subtree(e, next)
-	rhs, next = expr_subtree(e, next)
+	next: int
+	lhs, rhs, next = expr_gate_comparands(e, 0)
 	then_expr, next = expr_subtree(e, next)
 	else_expr, _ = expr_subtree(e, next)
 	return
@@ -411,6 +421,80 @@ expr_reads_quantity :: proc(e: Expr, quantity: Quantity) -> bool {
 	for i in 0 ..< e.count {
 		if e.nodes[i].kind == .Quantity && e.nodes[i].quantity == quantity {
 			return true
+		}
+	}
+	return false
+}
+
+// expr_first_const is the first Const value in `e`, and 0 in a tree that holds none. It is
+// how a gate hands a reader the threshold it turns on.
+expr_first_const :: proc(e: Expr) -> int {
+	for i in 0 ..< e.count {
+		if e.nodes[i].kind == .Const {
+			return int(e.nodes[i].value)
+		}
+	}
+	return 0
+}
+
+// expr_gates_on_quantity reports whether some Gate in `e` turns on `quantity` — a condition
+// the tree is subject to, as against a quantity it merely does arithmetic over.
+expr_gates_on_quantity :: proc(e: Expr, quantity: Quantity) -> bool {
+	for i in 0 ..< e.count {
+		if e.nodes[i].kind != .Gate {
+			continue
+		}
+		lhs, rhs, _ := expr_gate_comparands(e, i)
+		if expr_reads_quantity(lhs, quantity) || expr_reads_quantity(rhs, quantity) {
+			return true
+		}
+	}
+	return false
+}
+
+// expr_gates_on_order reports whether `e` turns on the captain having given `order`, which
+// is how a reader tells one order's gate from another's.
+expr_gates_on_order :: proc(e: Expr, order: Captains_Order) -> bool {
+	for i in 0 ..< e.count {
+		if e.nodes[i].kind != .Gate || e.nodes[i].compare != .Eq {
+			continue
+		}
+		lhs, rhs, _ := expr_gate_comparands(e, i)
+		if expr_reads_quantity(lhs, .Captains_Order) && expr_first_const(rhs) == int(order) {
+			return true
+		}
+		if expr_reads_quantity(rhs, .Captains_Order) && expr_first_const(lhs) == int(order) {
+			return true
+		}
+	}
+	return false
+}
+
+// expr_scales_the_captains_order reports whether `e` treats the captain's order as a number
+// rather than as the encoding it is: an ordering comparison against it, or any arithmetic
+// reading it at all. Equality is the whole of what the encoding means, and both halves of
+// that are refused where a tree is built (expr_gate, expr_binary) — this is the same reading
+// taken of a tree already assembled.
+expr_scales_the_captains_order :: proc(e: Expr) -> bool {
+	if !expr_reads_quantity(e, .Captains_Order) {
+		return false
+	}
+	for i in 0 ..< e.count {
+		node := e.nodes[i]
+		switch {
+		case EXPR_NODE_ARITY[node.kind] == 0:
+		case node.kind != .Gate:
+			// Every interior kind but Gate is arithmetic, and arithmetic over the order is an
+			// ordering comparison spelled without an ordering operator.
+			sub, _ := expr_subtree(e, i)
+			if expr_reads_quantity(sub, .Captains_Order) {
+				return true
+			}
+		case node.compare != .Eq && node.compare != .Ne:
+			lhs, rhs, _ := expr_gate_comparands(e, i)
+			if expr_reads_quantity(lhs, .Captains_Order) || expr_reads_quantity(rhs, .Captains_Order) {
+				return true
+			}
 		}
 	}
 	return false

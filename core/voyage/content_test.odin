@@ -742,10 +742,10 @@ every_trade_roster_entry_swaps_two_different_stats_and_is_named :: proc(t: ^test
 }
 
 // **A Trade is not a thing you install**, so no axis may take a roster item's name
-// (content.odin's authoring guardrail, which until now was a comment with no test). The
-// two rosters are authored in different packages and read on different screens, so a
-// collision would show the captain one name meaning two things — and it is exactly the
-// kind of miss a new item slips past, since the item author is not looking at the trades.
+// (content.odin's authoring guardrail). The two rosters are authored in different packages
+// and read on different screens, so a collision would show the captain one name meaning two
+// things — and it is exactly the kind of miss a new item slips past, since the item author
+// is not looking at the trades.
 //
 // It lives here rather than beside ship_item_roster because core/ship cannot import
 // core/voyage: every ripple invariant that reaches across the two is asserted from this

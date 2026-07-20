@@ -117,7 +117,28 @@ a_gate_is_discounted_by_how_little_the_author_controls_it :: proc(t: ^testing.T)
 
 	// Nested gates multiply, and the product floors at half.
 	deep := effect_phase_contribution(expr_gate(.Gte, expr_quantity(.Round), expr_const(5), expr_from_round(5, 4), expr_const(0)))
-	testing.expect_value(t, effect_gate_factor(deep), GATE_FACTOR_FLOOR)
+	testing.expect_value(t, effect_cost_factor(deep), GATE_FACTOR_FLOOR)
+
+	// A gate the magnitude does not ride on is part of that tree's arithmetic rather than a
+	// condition standing in front of it, and buys nothing — the same reading of a root
+	// expr_with_bonus takes.
+	buried := effect_phase_contribution(expr_add(expr_from_round(5, 4), expr_const(2)))
+	testing.expect_value(t, effect_cost_factor(buried), GATE_FACTOR_UNCONTROLLED)
+}
+
+// **A negative magnitude never refunds allowance, for any verb** — a drawback is free
+// exactly when you do not care about it, so it prices at nothing rather than buying its
+// author points. Weight remains the one sanctioned way to be slow.
+@(test)
+a_drawback_is_priced_at_nothing_and_never_earns_allowance :: proc(t: ^testing.T) {
+	peaks := ship_count_peaks()
+	testing.expect_value(t, effect_cost(effect_modify_speed(expr_const(-2)), peaks), Points(0))
+	testing.expect_value(t, effect_cost(effect_phase_contribution(expr_const(-5)), peaks), Points(0))
+
+	// So an item that only ever subtracts is not a cheap item — it is an empty one, and the
+	// band's floor is what says so.
+	drawback := roster_item(.Shallow, "Test Anchor", .Medium, WEIGHT_DEFAULT[.Medium], {.Artifact}, {effect_modify_speed(expr_const(-2))})
+	testing.expect_value(t, roster_check(drawback).fault, Roster_Fault.Under_Band)
 }
 
 // **The Gate factor is suppressed for Repair**: burst is already the conditionality
@@ -129,7 +150,7 @@ a_repair_pays_the_burst_rate_or_the_gate_factor_but_never_both :: proc(t: ^testi
 
 	// Sustained repair, gated: the gate buys nothing, so it costs the full sustained rate.
 	gated := effect_repair(expr_below_hull_percent(50, 4))
-	testing.expect_value(t, effect_gate_factor(gated), GATE_FACTOR_UNCONTROLLED)
+	testing.expect_value(t, effect_cost_factor(gated), GATE_FACTOR_UNCONTROLLED)
 	testing.expect_value(t, effect_cost(gated, peaks), Points(800))
 
 	// Burst repair: each firing is paid for by frequency, so the rate falls to a quarter of
@@ -151,10 +172,20 @@ a_commit_gate_earns_the_burst_rate_and_a_press_gate_does_not :: proc(t: ^testing
 	}
 	testing.expect_value(t, effect_cost(on_order(.Commit), peaks), Points(200))
 	testing.expect_value(t, effect_cost(on_order(.Press_Brace), peaks), Points(800))
+
+	// The burst rate is bought by a **gate**, not by a mention: a tree that merely does
+	// arithmetic over the damage taken last round still fires every round, so it has paid
+	// for nothing.
+	arithmetic := effect_repair(expr_mul(expr_quantity(.Damage_Taken_Last_Round), expr_const(2)))
+	testing.expect_value(t, effect_point_rate(arithmetic), VERB_POINT_RATE[.Repair])
+	gated := effect_repair(
+		expr_gate(.Gt, expr_quantity(.Damage_Taken_Last_Round), expr_const(0), expr_const(4), expr_const(0)),
+	)
+	testing.expect_value(t, effect_point_rate(gated), REPAIR_BURST_POINT_RATE)
 }
 
-// Weight converts into and out of allowance rather than into cost — the line this effort
-// kept dropping. Heavier than the size's default earns points; lighter spends them.
+// Weight converts into and out of allowance rather than into cost. Heavier than the size's
+// default earns points; lighter spends them.
 @(test)
 weight_converts_into_and_out_of_allowance_at_three_to_the_point :: proc(t: ^testing.T) {
 	testing.expect_value(t, budget_weight_allowance(.Medium, WEIGHT_DEFAULT[.Medium]), Points(0))

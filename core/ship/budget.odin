@@ -1,24 +1,16 @@
 package ship
 
-// The power budget: the one place the grant table, the band, the verb rates, the node
-// cost factors and the gate factors are published, and `roster_check`, the pure
-// arithmetic that prices one authored Roster_Item against them.
+// The power budget (CONTEXT.md, "The power budget"): the one place the grant table, the
+// band, the verb rates, the node cost factors and the gate factors are published, and
+// `roster_check`, the pure arithmetic that prices one authored Roster_Item against them.
 //
-// **An allowance, not a derivation.** A derivation would hand every author a free 3x
-// through the three-effect cap, so what a cell grants is a table and what an item costs
-// is a formula, and legality is the two meeting inside a band.
+// **The unit is one magnitude of Fire**, so the grant table reads directly as licensed
+// magnitudes. An item's allowance is its size x tier cell, moved by its weight; its cost is
+// its effects plus its capacity; legality is the two meeting inside a band.
 //
-// **The unit is one magnitude of Fire.** Fire is the numeraire at 1.0 pt/magnitude by
-// construction, so the grant table below reads directly as licensed magnitudes and the
-// common case needs no conversion at all.
-//
-// **The procedure is solve, never search.** The formula has no optional term, so an
-// author rearranges it for the magnitude they may spend rather than guessing a number and
-// asking whether it passed — a checker stops at the first green light, and a formula
-// missing a term still returns green.
-//
-// It cannot run before the write: an item must compile to exist, so this *confirms*
-// arithmetic the author already did.
+// **The formula has no optional term**, so an author rearranges it for the magnitude they
+// may spend rather than guessing a number and asking whether it passed. This confirms that
+// arithmetic and cannot replace it: an item must compile to be checked at all.
 
 // Points is a budget quantity in **hundredths of a point**, distinct from a plain int
 // (ADR-0011) so a price is never passed where a magnitude belongs. Hundredths because the
@@ -60,9 +52,9 @@ BUDGET_BAND_MINIMUM :: POINT
 // two.
 @(rodata)
 VERB_POINT_RATE := [Verb]Points {
-	.Phase_Contribution = 100,
-	.Repair             = 200,
-	.Modify_Speed       = 300,
+	.Phase_Contribution = POINT,
+	.Repair             = 2 * POINT,
+	.Modify_Speed       = 3 * POINT,
 }
 
 // REPAIR_BURST_POINT_RATE is repair's second rate. Repair needs two because the
@@ -74,13 +66,14 @@ VERB_POINT_RATE := [Verb]Points {
 // gate whose quantity can turn off again inside a fight, of which there are exactly two
 // (the captain's order and the damage taken last round). A Press gate earns nothing: Press
 // rations by frequency but is free.
-REPAIR_BURST_POINT_RATE :: Points(50)
+REPAIR_BURST_POINT_RATE :: POINT / 2
 
-// NODE_COST_FACTOR is every node kind's cost factor as a percent. **Nine of ten publish
-// 1.0** — Count included, because a tag count resolves at purchase time and the purchase is
-// optional, so the author controls it, and Min/Max/Pct because the peak already reflects
-// them and pricing them again double-counts. `Gate` alone carries a per-quantity factor and
-// the value here is its no-discount case (expr_gate_cost_factor refines it).
+// NODE_COST_FACTOR is every node kind's cost factor as a percent, read through
+// budget_node_factor. Count publishes no discount because a tag count resolves at purchase
+// time and the purchase is optional, so the author controls it; Min, Max and Pct need none
+// because the peak already reflects them and pricing them again double-counts. `Gate` alone
+// carries a **per-quantity** factor, and its entry here is the no-discount case
+// budget_gate_factor falls back to.
 @(rodata)
 NODE_COST_FACTOR := [Node_Kind]int {
 	.Const    = 100,
@@ -198,9 +191,8 @@ budget_weight_band :: proc(size: Slot_Size) -> (low: int, high: int) {
 }
 
 // budget_weight_allowance is what an item's weight is worth in allowance: heavier than its
-// size's default earns points at WEIGHT_PER_POINT, lighter spends them at the same rate.
-// This is the term the whole effort kept dropping, which is why it is its own published
-// proc rather than a line inside the check.
+// size's default earns points at WEIGHT_PER_POINT, lighter spends them at the same rate. Its
+// own proc rather than a line inside the check, because it is the term an author drops.
 budget_weight_allowance :: proc(size: Slot_Size, weight: int) -> Points {
 	return Points(budget_round_half_up((weight - WEIGHT_DEFAULT[size]) * int(POINT), WEIGHT_PER_POINT))
 }
@@ -230,11 +222,11 @@ ship_count_peaks :: proc() -> Count_Table {
 
 	peaks: Count_Table
 	for layout_slot in layout {
-		for tag in Tag {
-			peaks.tag[tag] += 1
-		}
 		peaks.size[layout_slot.slot.size] += 1
 		peaks.visibility[layout_slot.slot.base_visibility] += 1
+	}
+	for tag in Tag {
+		peaks.tag[tag] = len(layout)
 	}
 	return peaks
 }
@@ -265,53 +257,67 @@ effect_point_rate :: proc(effect: Effect) -> Points {
 	return VERB_POINT_RATE[effect.verb]
 }
 
-// effect_is_burst reports whether each individual firing of `effect` is paid for:
-// by frequency, which is three of the five timings, or by cost — a gate on the captain's
-// order matched against Commit, which forfeits that round's Fire. Press is deliberately not
-// here: it rations by frequency but costs nothing.
+// effect_is_burst reports whether each individual firing of `effect` is paid for: by
+// frequency, which is three of the five timings, or by cost — a **gate** on the captain's
+// order matched against Commit, which forfeits that round's Fire, or on the damage taken
+// last round. Press is deliberately not here: it rations by frequency but costs nothing.
 //
-// A gate on the damage taken last round earns it too. It and the captain's order are the
-// only two quantities that can turn *off* again inside a fight, which is what makes this
-// one line rather than a taxonomy: everything else a gate can read, once true, stays true.
+// The two quantities are the only two that can turn *off* again inside a fight, which is
+// what makes this one line rather than a taxonomy: everything else a gate can read, once
+// true, stays true. It must be a gate — a tree that merely multiplies by the damage taken
+// still fires every round, so it has bought nothing.
 effect_is_burst :: proc(effect: Effect) -> bool {
 	switch _ in effect.timing {
 	case Timing_Once_Per_Battle, Timing_Every_N, Timing_Charge:
 		return true
 	case Timing_Always, Timing_Ramp:
 	}
-	if expr_reads_quantity(effect.magnitude, .Damage_Taken_Last_Round) {
+	if expr_gates_on_quantity(effect.magnitude, .Damage_Taken_Last_Round) {
 		return true
 	}
 	return expr_gates_on_order(effect.magnitude, .Commit)
 }
 
-// effect_gate_factor is the product of every Gate factor in the effect's tree, floored
-// at GATE_FACTOR_FLOOR — nesting is how `and` is spelled, so every gate in a tree stands
-// between the author and the magnitude.
+// effect_cost_factor is the product of the cost factors on the path the effect's magnitude
+// actually rides — the root, and then each open branch below a Gate, floored at
+// GATE_FACTOR_FLOOR. Nesting is how `and` is spelled, so nested gates compound; a gate
+// buried under arithmetic is part of that tree's value rather than a condition standing in
+// front of it, and pays nothing (the same reading of a tree's root expr_with_bonus takes).
 //
 // **Suppressed for Repair**: burst *is* repair's conditionality discount, and charging both
 // prices the same conditionality twice. The side effect is the one the defensive roster
 // needed — gates become free distinctness on burst repair.
-effect_gate_factor :: proc(effect: Effect) -> int {
+effect_cost_factor :: proc(effect: Effect) -> int {
 	if effect.verb == .Repair {
 		return GATE_FACTOR_UNCONTROLLED
 	}
-	factor := 100
 	e := effect.magnitude
-	for i in 0 ..< e.count {
-		if e.nodes[i].kind == .Gate {
-			factor = factor * expr_gate_cost_factor(e, i) / 100
+	factor, index := 100, 0
+	for index < e.count {
+		factor = factor * budget_node_factor(e, index) / 100
+		if e.nodes[index].kind != .Gate {
+			break
 		}
+		_, _, then_branch := expr_gate_comparands(e, index)
+		index = then_branch
 	}
 	return max(GATE_FACTOR_FLOOR, factor)
 }
 
-// expr_gate_cost_factor prices the uncertainty of the Gate node at `index` from the quantity
+// budget_node_factor is what the node at `index` costs its effect, as a percent: the
+// published per-kind factor, refined for a Gate by the quantity it turns on.
+budget_node_factor :: proc(e: Expr, index: int) -> int {
+	if e.nodes[index].kind != .Gate {
+		return NODE_COST_FACTOR[e.nodes[index].kind]
+	}
+	return budget_gate_factor(e, index)
+}
+
+// budget_gate_factor prices the uncertainty of the Gate node at `index` from the quantity
 // it turns on. An unrecognised gate pays full: the budget never discounts what it cannot
 // read.
-expr_gate_cost_factor :: proc(e: Expr, index: int) -> int {
-	lhs, after_lhs := expr_subtree(e, index + 1)
-	rhs, _ := expr_subtree(e, after_lhs)
+budget_gate_factor :: proc(e: Expr, index: int) -> int {
+	lhs, rhs, _ := expr_gate_comparands(e, index)
 
 	// The captain's order and the slot's own visibility are the author's to arrange, and
 	// the damage taken last round is as likely as not: none of the three is uncertainty.
@@ -343,12 +349,16 @@ expr_gate_cost_factor :: proc(e: Expr, index: int) -> int {
 	return GATE_FACTOR_UNCONTROLLED
 }
 
-// effect_cost is one effect's price: its peak magnitude at its verb's rate, discounted
-// by what its gates make uncertain. Every term is mandatory, which is the whole design —
-// a formula with an optional term still returns green when the term is dropped.
+// effect_cost is one effect's price: its peak magnitude at its verb's rate, discounted by
+// what its gates make uncertain. Every term is mandatory, which is the whole design — a
+// formula with an optional term still returns green when the term is dropped.
+//
+// **A negative magnitude never refunds allowance, for any verb**: a drawback is free exactly
+// when you do not care about it, so an effect that only ever subtracts is priced at nothing
+// rather than paid for. Weight remains the one sanctioned way to be slow.
 effect_cost :: proc(effect: Effect, peaks: Count_Table) -> Points {
-	peak := effect_peak(effect, peaks)
-	return Points(peak * int(effect_point_rate(effect)) * effect_gate_factor(effect) / 100)
+	peak := max(0, effect_peak(effect, peaks))
+	return Points(peak * int(effect_point_rate(effect)) * effect_cost_factor(effect) / 100)
 }
 
 // roster_check prices one authored Roster_Item against the published budget and reports
@@ -433,70 +443,6 @@ effect_fault :: proc(effect: Effect, peaks: Count_Table) -> Roster_Fault {
 		return .Peak_Output_Over_Cap
 	}
 	return .None
-}
-
-// expr_scales_the_captains_order reports whether `e` treats the captain's order as a
-// number rather than as the encoding it is: an ordering comparison against it, or any
-// arithmetic reading it at all. Equality is the whole of what the encoding means.
-expr_scales_the_captains_order :: proc(e: Expr) -> bool {
-	if !expr_reads_quantity(e, .Captains_Order) {
-		return false
-	}
-	for i in 0 ..< e.count {
-		node := e.nodes[i]
-		if EXPR_NODE_ARITY[node.kind] == 0 {
-			continue
-		}
-		if node.kind != .Gate {
-			// Every interior kind but Gate is arithmetic, and arithmetic over the order is
-			// an ordering comparison spelled without an ordering operator.
-			sub, _ := expr_subtree(e, i)
-			if expr_reads_quantity(sub, .Captains_Order) {
-				return true
-			}
-			continue
-		}
-		lhs, after_lhs := expr_subtree(e, i + 1)
-		rhs, _ := expr_subtree(e, after_lhs)
-		reads_order := expr_reads_quantity(lhs, .Captains_Order) || expr_reads_quantity(rhs, .Captains_Order)
-		if reads_order && node.compare != .Eq && node.compare != .Ne {
-			return true
-		}
-	}
-	return false
-}
-
-// expr_gates_on_order reports whether `e` turns on the captain having given `order` —
-// how the budget tells a Commit gate, which pays for its own firing, from a Press one, which
-// does not.
-expr_gates_on_order :: proc(e: Expr, order: Captains_Order) -> bool {
-	for i in 0 ..< e.count {
-		if e.nodes[i].kind != .Gate || e.nodes[i].compare != .Eq {
-			continue
-		}
-		lhs, after_lhs := expr_subtree(e, i + 1)
-		rhs, _ := expr_subtree(e, after_lhs)
-		if expr_reads_quantity(lhs, .Captains_Order) && expr_first_const(rhs) == int(order) {
-			return true
-		}
-		if expr_reads_quantity(rhs, .Captains_Order) && expr_first_const(lhs) == int(order) {
-			return true
-		}
-	}
-	return false
-}
-
-// expr_first_const is the first Const value in a subtree — how the threshold-carrying gates
-// hand the budget their threshold. A subtree with no constant reads 0, which is the
-// no-discount answer for every caller here.
-@(private = "file")
-expr_first_const :: proc(e: Expr) -> int {
-	for i in 0 ..< e.count {
-		if e.nodes[i].kind == .Const {
-			return int(e.nodes[i].value)
-		}
-	}
-	return 0
 }
 
 // budget_round_half_up divides, rounding halves away from zero on both signs — so a weight
