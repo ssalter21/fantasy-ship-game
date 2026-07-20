@@ -80,41 +80,57 @@ ship_starting_ship_fills_every_concealed_slot_with_cargo_by_default :: proc(t: ^
 		concealed_count += 1
 		fitting, has_fitting := layout_slot.fitting.?
 		testing.expect(t, has_fitting)
-		testing.expect(t, fitting.is_cargo)
+		testing.expect(t, ship_fitting_is_hold(fitting))
 	}
 	testing.expect_value(t, concealed_count, 4)
 }
 
-// The starting cargo is stowed smallest-first (ADR-0020, #172), not spread across
-// every free slot: the three small holds and the concealed medium fill to exactly
-// 50, while the exposed Large forecastle is left **empty** as visible headroom —
-// the player starts at the fine end of the jettison-granularity property (#157),
-// with room a Reward can fall into before it costs a payout.
+// The starting ship ships with **holds in all five free slots**, forecastle included.
+// It has to: an empty slot carries nothing now (ship_cargo_capacity), so leaving the
+// forecastle empty as "headroom" would be leaving 40 of capacity behind rather than
+// reserving it. The five holds total exactly 90 — the same capacity the old
+// empty-slots-count rule read — so the starting ship's observable state does not move.
 @(test)
-ship_starting_ship_stows_the_starting_cargo_smallest_first_leaving_the_large_empty :: proc(t: ^testing.T) {
+ship_starting_ship_holds_every_free_slot_and_still_reads_ninety_capacity :: proc(t: ^testing.T) {
 	s := ship_starting_ship()
 	defer delete(s.layout)
 
-	// Every cargo fitting matches its slot size; cargo lands in the Small and Medium
-	// holds, never the Large forecastle.
-	saw_size := [Slot_Size]bool{}
+	// Every slot is filled, and every slot the loadout did not claim carries a hold
+	// sized to it.
+	holds := 0
 	for layout_slot in s.layout {
 		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting || !fitting.is_cargo {
-			continue
-		}
+		testing.expect(t, has_fitting)
 		testing.expect_value(t, fitting.size, layout_slot.slot.size)
-		saw_size[layout_slot.slot.size] = true
+		if ship_fitting_is_hold(fitting) {
+			holds += 1
+		}
 	}
-	testing.expect(t, saw_size[.Small])
-	testing.expect(t, saw_size[.Medium])
-	testing.expect(t, !saw_size[.Large]) // the forecastle is headroom, not stowed
+	testing.expect_value(t, holds, 5)
 
-	// The exposed Large forecastle is empty, and the whole cargo is exactly 50.
-	forecastle := find_slot(s, "forecastle")
-	_, forecastle_filled := forecastle.fitting.?
-	testing.expect(t, !forecastle_filled)
+	// The forecastle is one of them, and it carries — headroom is a hold now.
+	forecastle, forecastle_filled := find_slot(s, "forecastle").fitting.?
+	testing.expect(t, forecastle_filled)
+	testing.expect(t, ship_fitting_is_hold(forecastle))
+
+	testing.expect_value(t, ship_cargo_capacity(s), 90) // 40 + 20 + 3×10
 	testing.expect_value(t, ship_cargo(s), STARTING_CARGO + CAPTAIN_STARTING_CARGO)
+}
+
+// Water-filling spreads the starting 50 evenly rather than packing the small holds:
+// five destinations, an equal share of 10 apiece, which is exactly the Smalls' whole
+// capacity. That is what stops a poor ship heaving a full Small for a Speed gain a
+// rich one has to buy with a whole Large.
+@(test)
+ship_starting_ship_water_fills_its_cargo_evenly :: proc(t: ^testing.T) {
+	s := ship_starting_ship()
+	defer delete(s.layout)
+
+	for layout_slot in s.layout {
+		fitting, _ := layout_slot.fitting.?
+		expected := ship_fitting_is_hold(fitting) ? 10 : 0
+		testing.expect_value(t, fitting.cargo_held, expected)
+	}
 }
 
 @(test)
@@ -132,7 +148,7 @@ the_three_starting_fittings_and_cargo_carry_their_families :: proc(t: ^testing.T
 	testing.expect_value(t, ship_fitting_top_crew().tags, bit_set[Tag]{.Crew})
 	testing.expect_value(t, ship_fitting_captains_quarters().tags, bit_set[Tag]{.Crew})
 	testing.expect_value(t, ship_fitting_gun_deck().tags, bit_set[Tag]{.Weapon})
-	testing.expect_value(t, ship_fitting_cargo("Cargo", .Small, 10).tags, bit_set[Tag]{.Cargo})
+	testing.expect_value(t, ship_fitting_hold(.Small).tags, bit_set[Tag]{.Cargo})
 }
 
 @(test)
@@ -193,6 +209,28 @@ roster_item_named :: proc(name: string) -> Roster_Item {
 	panic("roster item not found")
 }
 
+// Every roster item authors its full slot contribution as `bulk`, so none of them
+// carries. This is a guard on a **zero-value hazard**, not a balance rule: an omitted
+// `bulk` reads as zero, which is the *carrying* end of the axis, so a forgotten field
+// silently bolts a free full-slot hold onto a gun and hands the budget capacity it
+// never priced. It also pins the port — the fifty items came across the axis at cost
+// zero, and that is only true while every one of them is at `bulk = full`.
+@(test)
+the_roster_carries_nothing :: proc(t: ^testing.T) {
+	for item in ship_item_roster() {
+		f := item.fitting
+		testing.expectf(
+			t,
+			ship_fitting_capacity(f) == 0,
+			"%v authors bulk %v in a %v slot, so it carries %v — every roster item must author its full contribution",
+			f.name,
+			f.bulk,
+			f.size,
+			ship_fitting_capacity(f),
+		)
+	}
+}
+
 @(test)
 the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 	roster := ship_item_roster()
@@ -205,8 +243,8 @@ the_item_roster_is_about_fifty_distinct_placeable_items :: proc(t: ^testing.T) {
 	for item, i in roster {
 		f := item.fitting
 		testing.expect(t, len(f.name) > 0)
-		// A roster item is a real placeable fitting, not a cargo filler.
-		testing.expect(t, !f.is_cargo)
+		// A roster item is authored, so it arrives carrying nothing.
+		testing.expect_value(t, f.cargo_held, 0)
 		// Every item carries at least one tag family and exactly one effect, in either
 		// the passive or the active slot, never both.
 		testing.expect(t, f.tags != {})
@@ -541,7 +579,7 @@ ship_fitting_output_scaled_rounds_half_up_and_is_the_identity_at_a_hundred :: pr
 
 	testing.expect_value(t, ship_fitting_output_scaled(swivel, 100), swivel)
 
-	// A cargo filler carries no effect at all and is returned untouched.
-	filler := ship_fitting_cargo("Spoils", .Small, 10)
+	// A hold carries no effect at all and is returned untouched.
+	filler := ship_fitting_hold(.Small, "Spoils")
 	testing.expect_value(t, ship_fitting_output_scaled(filler, 50), filler)
 }

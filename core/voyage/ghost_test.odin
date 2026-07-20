@@ -15,7 +15,7 @@ capture_resets_hull_to_max_hull_regardless_of_current_hull :: proc(t: ^testing.T
 
 @(test)
 capture_clones_the_layout_so_later_mutation_to_the_source_ship_does_not_leak_into_the_snapshot :: proc(t: ^testing.T) {
-	cargo := ship.Fitting{name = "Rations", is_cargo = true, stack_count = 1}
+	cargo := ship.Fitting{name = "Rations", cargo_held = 1}
 	s := ship.Ship{
 		hull = 20, max_hull = 20,
 		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Small}, fitting = cargo}},

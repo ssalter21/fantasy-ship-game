@@ -1468,11 +1468,11 @@ voyage_finish_ship_battle_pays_the_sunk_opponents_hold_into_the_player :: proc(t
 	// cargo still stowed in the sunk opponent's cargo slots.
 	player := ship.Ship {
 		hull = 20, max_hull = 20,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}}, {slot = ship.Slot{size = .Small}}},
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = ship.ship_fitting_hold(.Large)}, {slot = ship.Slot{size = .Small}, fitting = ship.ship_fitting_hold(.Small)}},
 	}
 	ship.ship_stow_cargo(player.layout, 10) // room for 50 (Large 40 + Small 10), 10 aboard
 	fight := Stage_Fight {
-		opponent = ship.Ship{layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}}, {slot = ship.Slot{size = .Small}}}},
+		opponent = ship.Ship{layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}, fitting = ship.ship_fitting_hold(.Medium)}, {slot = ship.Slot{size = .Small}, fitting = ship.ship_fitting_hold(.Small)}}},
 	}
 	ship.ship_stow_cargo(fight.opponent.layout, 30)
 	battle := battle_destroyed_won_by_the_player(&player, &fight)
@@ -1493,11 +1493,11 @@ voyage_finish_ship_battle_payout_above_capacity_falls_overboard :: proc(t: ^test
 	// gross hold looted; what the player keeps is capped at capacity.
 	player := ship.Ship {
 		hull = 20, max_hull = 20,
-		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}}, {slot = ship.Slot{size = .Small}}},
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = ship.ship_fitting_hold(.Large)}, {slot = ship.Slot{size = .Small}, fitting = ship.ship_fitting_hold(.Small)}},
 	}
 	ship.ship_stow_cargo(player.layout, 45) // capacity 50, only 5 of room left
 	fight := Stage_Fight {
-		opponent = ship.Ship{layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}}, {slot = ship.Slot{size = .Small}}}},
+		opponent = ship.Ship{layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Medium}, fitting = ship.ship_fitting_hold(.Medium)}, {slot = ship.Slot{size = .Small}, fitting = ship.ship_fitting_hold(.Small)}}},
 	}
 	ship.ship_stow_cargo(fight.opponent.layout, 30)
 	battle := battle_destroyed_won_by_the_player(&player, &fight)

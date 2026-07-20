@@ -19,7 +19,7 @@ fight_action_commands_offers_the_round_menu :: proc(t: ^testing.T) {
 	presses, sails, jettisons, break_offs, reallocs := 0, 0, 0, 0, 0
 	laden_holds := 0
 	for layout_slot in state.player.layout {
-		if fitting, has := layout_slot.fitting.?; has && fitting.is_cargo {
+		if fitting, has := layout_slot.fitting.?; has && fitting.cargo_held > 0 {
 			laden_holds += 1
 		}
 	}

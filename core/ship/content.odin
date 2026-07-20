@@ -9,8 +9,8 @@ TOP_CREW_OFFENSE_MAGNITUDE :: 3
 CAPTAINS_QUARTERS_REPAIR_MAGNITUDE :: 2
 GUN_DECK_OFFENSE_MAGNITUDE :: 5
 
-// HOSTILE_FILL_PERCENT is the fraction of each empty slot's capacity a hostile stows
-// with cargo (ship_fill_empty_slots_with_cargo, ADR-0020) — so a hostile's cargo, its
+// HOSTILE_FILL_PERCENT is the fraction of its own capacity each of a hostile's fittings
+// stows with cargo (ship_fill_holds_to_percent, ADR-0020) — so a hostile's cargo, its
 // weight, and thus its Speed fall out of its loadout uniformly, with no per-slot
 // authoring. The player's stow is amount-driven instead (ship_stow_cargo), so the two
 // rules differ by design. Pushing this toward 100% breaches the weight-floor budget;
@@ -55,15 +55,15 @@ CAPTAIN_STARTING_CARGO :: 10
 // distinction rides on the Tag, not the phase. The upgraded variants inherit these
 // through ship_fitting_upgraded, which copies the base fitting whole.
 ship_fitting_top_crew :: proc() -> Fitting {
-	return Fitting{name = "Top Crew", size = .Medium, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = TOP_CREW_OFFENSE_MAGNITUDE}}
+	return Fitting{name = "Top Crew", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = TOP_CREW_OFFENSE_MAGNITUDE}}
 }
 
 ship_fitting_captains_quarters :: proc() -> Fitting {
-	return Fitting{name = "Captain's Quarters", size = .Medium, weight = 18, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = CAPTAINS_QUARTERS_REPAIR_MAGNITUDE}}
+	return Fitting{name = "Captain's Quarters", size = .Medium, bulk = 20, weight = 18, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = CAPTAINS_QUARTERS_REPAIR_MAGNITUDE}}
 }
 
 ship_fitting_gun_deck :: proc() -> Fitting {
-	return Fitting{name = "Gun Deck", size = .Large, weight = 38, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = GUN_DECK_OFFENSE_MAGNITUDE}}
+	return Fitting{name = "Gun Deck", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = GUN_DECK_OFFENSE_MAGNITUDE}}
 }
 
 // ship_fitting_upgraded is the shared shape behind the three upgraded-variant procs
@@ -156,63 +156,70 @@ ITEM_ROSTER_SIZE :: 50
 // matches its category's verb where it carries one (ship_phase_verb — a Brace item
 // repairs, a Fire item deals damage). Magnitudes are placeholders, graded loosely by
 // tier. Read it as a data table, top to bottom per tier.
+//
+// Every entry also names a `bulk` equal to its size's full slot contribution, so no
+// roster item carries anything: cargo capacity is an authored power source nothing has
+// yet spent on. That is written out rather than defaulted because `bulk`'s zero value is
+// the *carrying* end — an omitted bulk is a free full-slot hold with a gun bolted to it.
+// the_roster_carries_nothing is the guard until the roster moves to per-item procs, where
+// it becomes a defaulted parameter and the hazard closes by construction.
 ship_item_roster :: proc() -> [ITEM_ROSTER_SIZE]Roster_Item {
 	return [ITEM_ROSTER_SIZE]Roster_Item {
 		// ---- Splash ----
-		{tier = .Splash, fitting = Fitting{name = "Deckhands", size = .Small, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Swivel Guns", size = .Small, weight = 8, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 3}}},
-		{tier = .Splash, fitting = Fitting{name = "Deck Cannon", size = .Medium, weight = 18, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 4}}},
-		{tier = .Splash, fitting = Fitting{name = "Boarding Pikes", size = .Small, weight = 6, category = .Fire, tags = {.Weapon, .Crew}, active = Effect{magnitude = 2}}},
-		{tier = .Splash, fitting = Fitting{name = "Snapping Eels", size = .Small, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3}}},
-		{tier = .Splash, fitting = Fitting{name = "Oakum & Pitch", size = .Medium, weight = 24, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 5}}},
-		{tier = .Splash, fitting = Fitting{name = "Spare Timbers", size = .Small, weight = 12, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 3}}},
-		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, weight = 5, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1}}},
-		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, weight = 7, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 3}}},
-		{tier = .Splash, fitting = Fitting{name = "Carpenter's Mate", size = .Small, weight = 5, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = 2}}},
-		{tier = .Splash, fitting = Fitting{name = "Deck Pumps", size = .Medium, weight = 20, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 4}}},
-		{tier = .Splash, fitting = Fitting{name = "Powder Monkeys", size = .Small, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}},
-		{tier = .Splash, fitting = Fitting{name = "Smuggler's Crates", size = .Small, weight = 7, category = .Fire, tags = {.Cargo}, active = Effect{magnitude = 1, synergy = Selector(Visibility.Concealed)}}},
-		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3, conditional = Condition_Hull_Below{percent = 50}}}},
-		{tier = .Splash, fitting = Fitting{name = "Lookout Nest", size = .Small, weight = 5, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, conditional = Condition_Opponent_Faster{}}}},
-		{tier = .Splash, fitting = Fitting{name = "Bilge Rats", size = .Small, weight = 5, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 2, conditional = Condition_Round_At_Least{round = 3}}}},
-		{tier = .Splash, fitting = Fitting{name = "Harpoon Line", size = .Small, weight = 6, category = .Fire, tags = {.Weapon, .Beast}, active = Effect{magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Deckhands", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 1}}},
+		{tier = .Splash, fitting = Fitting{name = "Swivel Guns", size = .Small, bulk = 10, weight = 8, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Deck Cannon", size = .Medium, bulk = 20, weight = 18, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 4}}},
+		{tier = .Splash, fitting = Fitting{name = "Boarding Pikes", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Weapon, .Crew}, active = Effect{magnitude = 2}}},
+		{tier = .Splash, fitting = Fitting{name = "Snapping Eels", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Oakum & Pitch", size = .Medium, bulk = 20, weight = 24, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 5}}},
+		{tier = .Splash, fitting = Fitting{name = "Spare Timbers", size = .Small, bulk = 10, weight = 12, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Spare Rigging", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1}}},
+		{tier = .Splash, fitting = Fitting{name = "Salt Provisions", size = .Small, bulk = 10, weight = 7, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 3}}},
+		{tier = .Splash, fitting = Fitting{name = "Carpenter's Mate", size = .Small, bulk = 10, weight = 5, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = 2}}},
+		{tier = .Splash, fitting = Fitting{name = "Deck Pumps", size = .Medium, bulk = 20, weight = 20, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 4}}},
+		{tier = .Splash, fitting = Fitting{name = "Powder Monkeys", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 1, synergy = Selector(Tag.Weapon)}}},
+		{tier = .Splash, fitting = Fitting{name = "Smuggler's Crates", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Cargo}, active = Effect{magnitude = 1, synergy = Selector(Visibility.Concealed)}}},
+		{tier = .Splash, fitting = Fitting{name = "War Hound", size = .Small, bulk = 10, weight = 7, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3, conditional = Condition_Hull_Below{percent = 50}}}},
+		{tier = .Splash, fitting = Fitting{name = "Lookout Nest", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, conditional = Condition_Opponent_Faster{}}}},
+		{tier = .Splash, fitting = Fitting{name = "Bilge Rats", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 2, conditional = Condition_Round_At_Least{round = 3}}}},
+		{tier = .Splash, fitting = Fitting{name = "Harpoon Line", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Weapon, .Beast}, active = Effect{magnitude = 3}}},
 
 		// ---- Shallow ----
-		{tier = .Shallow, fitting = Fitting{name = "Long Nines", size = .Large, weight = 42, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 8}}},
-		{tier = .Shallow, fitting = Fitting{name = "Carronade", size = .Medium, weight = 22, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 6}}},
-		{tier = .Shallow, fitting = Fitting{name = "Naval Gun Crew", size = .Medium, weight = 20, category = .Fire, tags = {.Crew, .Weapon}, active = Effect{magnitude = 6}}},
-		{tier = .Shallow, fitting = Fitting{name = "Sea Drake", size = .Large, weight = 34, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 7}}},
-		{tier = .Shallow, fitting = Fitting{name = "Ramming Prow", size = .Large, weight = 40, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 7}}},
-		{tier = .Shallow, fitting = Fitting{name = "War Drums", size = .Small, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 3}}},
-		{tier = .Shallow, fitting = Fitting{name = "Shipwright's Kit", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 7}}},
-		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, weight = 16, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 2}}},
-		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, weight = 16, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = 6}}},
-		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, weight = 5, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1, synergy = Selector(Slot_Size.Small)}}},
-		{tier = .Shallow, fitting = Fitting{name = "Gun Captain", size = .Medium, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Tag.Weapon)}}},
-		{tier = .Shallow, fitting = Fitting{name = "Master Gunner", size = .Medium, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Category.Fire)}}},
-		{tier = .Shallow, fitting = Fitting{name = "Contraband Hold", size = .Medium, weight = 18, category = .Fire, tags = {.Cargo}, active = Effect{magnitude = 2, synergy = Selector(Tag.Cargo)}}},
-		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, weight = 20, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 8, conditional = Condition_Hull_Below{percent = 50}}}},
-		{tier = .Shallow, fitting = Fitting{name = "Ghost Lantern", size = .Small, weight = 5, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
-		{tier = .Shallow, fitting = Fitting{name = "Storm Sails", size = .Medium, weight = 15, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Opponent_Slower{}}}},
-		{tier = .Shallow, fitting = Fitting{name = "Chain & Bar Shot", size = .Medium, weight = 21, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 7, conditional = Condition_Opponent_Faster{}}}},
+		{tier = .Shallow, fitting = Fitting{name = "Long Nines", size = .Large, bulk = 40, weight = 42, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 8}}},
+		{tier = .Shallow, fitting = Fitting{name = "Carronade", size = .Medium, bulk = 20, weight = 22, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 6}}},
+		{tier = .Shallow, fitting = Fitting{name = "Naval Gun Crew", size = .Medium, bulk = 20, weight = 20, category = .Fire, tags = {.Crew, .Weapon}, active = Effect{magnitude = 6}}},
+		{tier = .Shallow, fitting = Fitting{name = "Sea Drake", size = .Large, bulk = 40, weight = 34, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 7}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ramming Prow", size = .Large, bulk = 40, weight = 40, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 7}}},
+		{tier = .Shallow, fitting = Fitting{name = "War Drums", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 3}}},
+		{tier = .Shallow, fitting = Fitting{name = "Shipwright's Kit", size = .Medium, bulk = 20, weight = 25, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 7}}},
+		{tier = .Shallow, fitting = Fitting{name = "Copper Sheathing", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 2}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ship's Surgeon", size = .Medium, bulk = 20, weight = 16, category = .Brace, tags = {.Crew}, active = Effect{kind = .Repair, magnitude = 6}}},
+		{tier = .Shallow, fitting = Fitting{name = "Outriggers", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 1, synergy = Selector(Slot_Size.Small)}}},
+		{tier = .Shallow, fitting = Fitting{name = "Gun Captain", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Tag.Weapon)}}},
+		{tier = .Shallow, fitting = Fitting{name = "Master Gunner", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 2, synergy = Selector(Category.Fire)}}},
+		{tier = .Shallow, fitting = Fitting{name = "Contraband Hold", size = .Medium, bulk = 20, weight = 18, category = .Fire, tags = {.Cargo}, active = Effect{magnitude = 2, synergy = Selector(Tag.Cargo)}}},
+		{tier = .Shallow, fitting = Fitting{name = "Kraken Spawn", size = .Medium, bulk = 20, weight = 20, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 8, conditional = Condition_Hull_Below{percent = 50}}}},
+		{tier = .Shallow, fitting = Fitting{name = "Ghost Lantern", size = .Small, bulk = 10, weight = 5, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
+		{tier = .Shallow, fitting = Fitting{name = "Storm Sails", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 4, conditional = Condition_Opponent_Slower{}}}},
+		{tier = .Shallow, fitting = Fitting{name = "Chain & Bar Shot", size = .Medium, bulk = 20, weight = 21, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 7, conditional = Condition_Opponent_Faster{}}}},
 
 		// ---- Deep ----
-		{tier = .Deep, fitting = Fitting{name = "Great Bombard", size = .Large, weight = 45, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 12}}},
-		{tier = .Deep, fitting = Fitting{name = "Leviathan", size = .Large, weight = 38, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 11}}},
-		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, weight = 40, category = .Brace, tags = {.Beast}, active = Effect{kind = .Repair, magnitude = 12}}},
-		{tier = .Deep, fitting = Fitting{name = "Adamant Sigil", size = .Medium, weight = 25, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 10}}},
-		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, weight = 15, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 3}}},
-		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, weight = 36, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 11}}},
-		{tier = .Deep, fitting = Fitting{name = "Shipwright's Stores", size = .Medium, weight = 22, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 9}}},
-		{tier = .Deep, fitting = Fitting{name = "Admiral's Guard", size = .Medium, weight = 17, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 3, synergy = Selector(Tag.Crew)}}},
-		{tier = .Deep, fitting = Fitting{name = "Broadside Master", size = .Large, weight = 36, category = .Fire, tags = {.Crew, .Weapon}, active = Effect{magnitude = 3, synergy = Selector(Tag.Weapon)}}},
-		{tier = .Deep, fitting = Fitting{name = "Hunter's Pack", size = .Medium, weight = 18, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3, synergy = Selector(Tag.Beast)}}},
-		{tier = .Deep, fitting = Fitting{name = "Flagship Colors", size = .Medium, weight = 15, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Slot_Size.Large)}}},
-		{tier = .Deep, fitting = Fitting{name = "Storm Caller", size = .Small, weight = 6, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Visibility.Concealed)}}},
-		{tier = .Deep, fitting = Fitting{name = "Wraith Cannon", size = .Medium, weight = 22, category = .Fire, tags = {.Artifact, .Weapon}, active = Effect{magnitude = 10, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
-		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, weight = 38, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 12, conditional = Condition_Hull_Below{percent = 50}}}},
-		{tier = .Deep, fitting = Fitting{name = "Siege Battery", size = .Large, weight = 44, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 11, conditional = Condition_Round_At_Least{round = 5}}}},
-		{tier = .Deep, fitting = Fitting{name = "Sea Witch", size = .Medium, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 6, conditional = Condition_Opponent_Faster{}}}},
+		{tier = .Deep, fitting = Fitting{name = "Great Bombard", size = .Large, bulk = 40, weight = 45, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 12}}},
+		{tier = .Deep, fitting = Fitting{name = "Leviathan", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 11}}},
+		{tier = .Deep, fitting = Fitting{name = "Dragon Turtle", size = .Large, bulk = 40, weight = 40, category = .Brace, tags = {.Beast}, active = Effect{kind = .Repair, magnitude = 12}}},
+		{tier = .Deep, fitting = Fitting{name = "Adamant Sigil", size = .Medium, bulk = 20, weight = 25, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 10}}},
+		{tier = .Deep, fitting = Fitting{name = "Enchanted Keel", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, passive = Effect{kind = .Modify_Speed, magnitude = 3}}},
+		{tier = .Deep, fitting = Fitting{name = "Titan's Heart", size = .Large, bulk = 40, weight = 36, category = .Brace, tags = {.Artifact}, active = Effect{kind = .Repair, magnitude = 11}}},
+		{tier = .Deep, fitting = Fitting{name = "Shipwright's Stores", size = .Medium, bulk = 20, weight = 22, category = .Brace, tags = {.Cargo}, active = Effect{kind = .Repair, magnitude = 9}}},
+		{tier = .Deep, fitting = Fitting{name = "Admiral's Guard", size = .Medium, bulk = 20, weight = 17, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 3, synergy = Selector(Tag.Crew)}}},
+		{tier = .Deep, fitting = Fitting{name = "Broadside Master", size = .Large, bulk = 40, weight = 36, category = .Fire, tags = {.Crew, .Weapon}, active = Effect{magnitude = 3, synergy = Selector(Tag.Weapon)}}},
+		{tier = .Deep, fitting = Fitting{name = "Hunter's Pack", size = .Medium, bulk = 20, weight = 18, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 3, synergy = Selector(Tag.Beast)}}},
+		{tier = .Deep, fitting = Fitting{name = "Flagship Colors", size = .Medium, bulk = 20, weight = 15, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Slot_Size.Large)}}},
+		{tier = .Deep, fitting = Fitting{name = "Storm Caller", size = .Small, bulk = 10, weight = 6, category = .Fire, tags = {.Artifact}, active = Effect{magnitude = 3, synergy = Selector(Visibility.Concealed)}}},
+		{tier = .Deep, fitting = Fitting{name = "Wraith Cannon", size = .Medium, bulk = 20, weight = 22, category = .Fire, tags = {.Artifact, .Weapon}, active = Effect{magnitude = 10, conditional = Condition_Self_Visibility{visibility = .Concealed}}}},
+		{tier = .Deep, fitting = Fitting{name = "Cornered Beast", size = .Large, bulk = 40, weight = 38, category = .Fire, tags = {.Beast}, active = Effect{magnitude = 12, conditional = Condition_Hull_Below{percent = 50}}}},
+		{tier = .Deep, fitting = Fitting{name = "Siege Battery", size = .Large, bulk = 40, weight = 44, category = .Fire, tags = {.Weapon}, active = Effect{magnitude = 11, conditional = Condition_Round_At_Least{round = 5}}}},
+		{tier = .Deep, fitting = Fitting{name = "Sea Witch", size = .Medium, bulk = 20, weight = 16, category = .Fire, tags = {.Crew}, active = Effect{magnitude = 6, conditional = Condition_Opponent_Faster{}}}},
 	}
 }
 
@@ -305,15 +312,22 @@ ship_fitting_output_scaled :: proc(base: Fitting, percent: int) -> Fitting {
 	return f
 }
 
-// ship_fitting_cargo builds a cargo fitting holding `cargo` (ADR-0020: a cargo fitting *is*
-// its cargo, so stack_count carries the amount). name lets a caller flavor multiple cargo
-// instances (a PvE opponent's "Spoils") without a separate fitting type; size is
-// caller-supplied so cargo can fill a slot of any size under the exact-size-match fit rule
-// (a larger slot's cargo is worth more — see ship_cargo_slot_contribution). cargo must be
-// at least 1 — an empty hold is an *empty slot*, not a zero-count cargo fitting
-// (ship_fitting_fits rejects stack_count < 1). Cargo carries the Cargo tag family.
-ship_fitting_cargo :: proc(name: string, size: Slot_Size, cargo: int) -> Fitting {
-	return Fitting{name = name, size = size, tags = {.Cargo}, is_cargo = true, stack_count = cargo}
+// ship_fitting_hold mints a hold: an **ordinary installed fitting** at the degenerate
+// corner of the cargo axis — no bulk (so its capacity is its whole slot), no mass of its
+// own, no effects, and Tag.Cargo as the authored statement that carrying is its job. One
+// constructor covers all three sizes, since a hold *is* its slot's contribution and has
+// nothing else to author.
+//
+// It is deliberately **not a Roster_Item**, which is the seam between authored and
+// sim-visible data: so it has no tier by construction rather than by exemption, costs no
+// gold and no allowance, never appears in a shop, and leaves the roster at exactly fifty.
+// That is what lets it be free — and it must be free, because every vacated slot backfills
+// one (ship_remove) and the starting ship ships with five.
+//
+// `name` is flavour only, so a PvE opponent's hold can read "Spoils" without a second
+// fitting kind; the ship reads nothing off it.
+ship_fitting_hold :: proc(size: Slot_Size, name := "Cargo") -> Fitting {
+	return Fitting{name = name, size = size, tags = {.Cargo}}
 }
 
 // ship_template_layout is the vertical slice's one ship template (issue #91): 8 slots split
@@ -338,37 +352,58 @@ ship_starting_captain :: proc() -> Captain {
 	return Captain{name = "Captain Odessa Vane", starting_cargo_bonus = CAPTAIN_STARTING_CARGO}
 }
 
-// ship_fit_starting_loadout fits the fixed combat loadout into the exposed slots and stows
-// `cargo` across the remaining slots smallest-first (ship_stow_cargo), which leaves the
-// Large forecastle empty as headroom. The or_return chain means a false return signals the
-// template and its starting fittings have drifted out of sync — a content bug this
-// package's tests catch, not a real runtime condition. Slot-name pairing is flavor only:
-// names impose no restriction on what fills them (ADR-0004).
+// ship_fit_starting_loadout fits the fixed combat loadout into the exposed slots, fills
+// the five slots it leaves with holds, and stows `cargo` across them (ship_stow_cargo).
+// The holds are what give the ship its capacity at all — an empty slot carries nothing
+// (ship_cargo_capacity) — and they total the same 90 the old empty-slots-count rule read:
+// the Large forecastle's 40, hold 1's 20, and 10 apiece from the three Smalls. The
+// or_return chain means a false return signals the template and its starting fittings
+// have drifted out of sync — a content bug this package's tests catch, not a real runtime
+// condition. Slot-name pairing is flavor only: names impose no restriction on what fills
+// them (ADR-0004).
 ship_fit_starting_loadout :: proc(layout: []Layout_Slot, cargo: int) -> bool {
 	ship_fit(&layout[0], ship_fitting_captains_quarters()) or_return
 	ship_fit(&layout[1], ship_fitting_top_crew()) or_return
 	ship_fit(&layout[2], ship_fitting_gun_deck()) or_return
+	ship_fill_empty_slots_with_holds(layout, "Cargo") or_return
 	ship_stow_cargo(layout, cargo)
 	return true
 }
 
-// ship_fill_empty_slots_with_cargo fills every still-empty slot of `layout` with a
-// size-matching cargo filler, each stowed to HOSTILE_FILL_PERCENT of its capacity (issue
-// #91): once the combat fittings are placed, all remaining slots go to cargo rather than
-// sitting idle. Each filler takes its slot's own size, satisfying the exact-size-match fit
-// rule, so ship_fit only fails here on a genuine content bug. This is the **hostile's**
-// stow (voyage_fit_hostile_loadout); the player's is amount-driven (ship_stow_cargo), so
-// the two do not share a rule. A slot filled at 50% weighs half its capacity, so this is
-// what a hostile's Speed reads its weight from (ship_effective_speed).
-ship_fill_empty_slots_with_cargo :: proc(layout: []Layout_Slot, name: string) -> bool {
+// ship_fill_empty_slots_with_holds installs a size-matching hold in every still-empty slot
+// of `layout` (issue #91), leaving each one empty of cargo: once the combat fittings are
+// placed, all remaining slots go to carrying rather than sitting idle — and since an empty
+// slot carries nothing, this is what turns leftover slots into capacity at all. Each hold
+// takes its slot's own size, satisfying the exact-size-match fit rule, so ship_fit only
+// fails here on a genuine content bug. What goes *into* the holds is the caller's: the
+// player stows an amount (ship_stow_cargo), a hostile fills each to a flat percentage
+// (ship_fill_holds_to_percent).
+ship_fill_empty_slots_with_holds :: proc(layout: []Layout_Slot, name: string) -> bool {
 	for &layout_slot in layout {
 		if _, occupied := layout_slot.fitting.?; occupied {
 			continue
 		}
-		fill := ship_cargo_slot_contribution(layout_slot.slot.size) * HOSTILE_FILL_PERCENT / 100
-		ship_fit(&layout_slot, ship_fitting_cargo(name, layout_slot.slot.size, fill)) or_return
+		ship_fit(&layout_slot, ship_fitting_hold(layout_slot.slot.size, name)) or_return
 	}
 	return true
+}
+
+// ship_fill_holds_to_percent stows `percent` of its own capacity into every fitting that
+// has any, so a hostile's cargo, its weight, and thus its Speed fall out of its loadout
+// uniformly with no per-slot authoring. This is the **hostile's** stow
+// (voyage_fit_hostile_loadout); the player's is amount-driven and water-fills
+// (ship_stow_cargo), so the two differ by design — a flat per-fitting fraction is what
+// makes hostile weight a function of the archetype alone. Pushing this toward 100%
+// breaches the weight-floor budget; the floor test is the tripwire.
+ship_fill_holds_to_percent :: proc(layout: []Layout_Slot, percent: int) {
+	for &layout_slot in layout {
+		fitting, has_fitting := layout_slot.fitting.?
+		if !has_fitting {
+			continue
+		}
+		fitting.cargo_held = ship_fitting_capacity(fitting) * percent / 100
+		layout_slot.fitting = fitting
+	}
 }
 
 // ship_starting_ship assembles the voyage's starting Ship (issue #23): the one template

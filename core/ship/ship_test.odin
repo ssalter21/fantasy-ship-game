@@ -59,51 +59,39 @@ fitting_into_an_already_occupied_slot_is_rejected :: proc(t: ^testing.T) {
 }
 
 @(test)
-cargo_fitting_with_no_effects_and_a_positive_stack_count_is_accepted :: proc(t: ^testing.T) {
-	layout_slot := make_layout_slot("hold", .Small, .Concealed)
-	rations := Fitting{name = "Rations", size = .Small, is_cargo = true, stack_count = 3}
+a_fitting_may_both_carry_and_fire :: proc(t: ^testing.T) {
+	// The whole point of the axis: the fit rule used to hold a cargo fitting to
+	// "stackable and effect-less", which made carrying a *kind* of item and meant a
+	// slot spent on offence was automatically a slot spent against the purse. A gun
+	// that authors less than its full slot in bulk carries the remainder.
+	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
+	armed_trader := Fitting{name = "Armed Trader", size = .Large, bulk = 30, active = Effect{magnitude = 4}}
 
-	ok := ship_fit(&layout_slot, rations)
-
-	testing.expect(t, ok)
-	_, has_fitting := layout_slot.fitting.?
-	testing.expect(t, has_fitting)
+	testing.expect(t, ship_fit(&layout_slot, armed_trader))
+	testing.expect_value(t, ship_fitting_capacity(armed_trader), 10) // the Large's 40, less its bulk
 }
 
 @(test)
-cargo_fitting_with_a_passive_effect_is_rejected :: proc(t: ^testing.T) {
+an_empty_hold_is_an_ordinary_fitting_not_an_empty_slot :: proc(t: ^testing.T) {
+	// A zero-count cargo fitting used to be unrepresentable — an empty hold *was* an
+	// empty slot. Now the hold is an installed fitting that happens to be carrying
+	// nothing: it weighs nothing, and it is the ship's capacity.
 	layout_slot := make_layout_slot("hold", .Small, .Concealed)
-	cursed_loot := Fitting{name = "Cursed Loot", size = .Small, is_cargo = true, stack_count = 1, passive = Effect{}}
+	hold := ship_fitting_hold(.Small)
 
-	ok := ship_fit(&layout_slot, cursed_loot)
-
-	testing.expect(t, !ok)
-	_, has_fitting := layout_slot.fitting.?
-	testing.expect(t, !has_fitting)
+	testing.expect(t, ship_fit(&layout_slot, hold))
+	testing.expect_value(t, hold.cargo_held, 0)
+	testing.expect_value(t, ship_fitting_weight(hold), 0)
+	testing.expect_value(t, ship_fitting_capacity(hold), 10)
 }
 
 @(test)
-cargo_fitting_with_an_active_effect_is_rejected :: proc(t: ^testing.T) {
-	layout_slot := make_layout_slot("hold", .Small, .Concealed)
-	trapped_chest := Fitting{name = "Trapped Chest", size = .Small, is_cargo = true, stack_count = 1, active = Effect{}}
-
-	ok := ship_fit(&layout_slot, trapped_chest)
-
-	testing.expect(t, !ok)
-	_, has_fitting := layout_slot.fitting.?
-	testing.expect(t, !has_fitting)
-}
-
-@(test)
-cargo_fitting_with_a_zero_stack_count_is_rejected :: proc(t: ^testing.T) {
-	layout_slot := make_layout_slot("hold", .Small, .Concealed)
-	empty_crate := Fitting{name = "Empty Crate", size = .Small, is_cargo = true, stack_count = 0}
-
-	ok := ship_fit(&layout_slot, empty_crate)
-
-	testing.expect(t, !ok)
-	_, has_fitting := layout_slot.fitting.?
-	testing.expect(t, !has_fitting)
+bulk_is_clamped_to_the_slots_own_contribution :: proc(t: ^testing.T) {
+	// Capacity reads `contribution − bulk` clamped to `[0, contribution]`, so an
+	// out-of-band authored bulk lands on one of the two corners rather than reading as
+	// a negative hold or an oversized one.
+	testing.expect_value(t, ship_fitting_capacity(Fitting{size = .Medium, bulk = 500}), 0)
+	testing.expect_value(t, ship_fitting_capacity(Fitting{size = .Medium, bulk = -500}), 20)
 }
 
 @(test)
@@ -162,23 +150,29 @@ fitting_override_forces_a_concealed_slot_to_read_as_exposed :: proc(t: ^testing.
 }
 
 @(test)
-cargo_capacity_excludes_a_slot_holding_a_non_cargo_fitting :: proc(t: ^testing.T) {
-	// A slot spent on a gun holds no cargo (ADR-0020, #157): its size does not
-	// count toward capacity, but empty and cargo-filled slots both do.
+cargo_capacity_is_what_the_installed_fittings_leave_over :: proc(t: ^testing.T) {
+	// Capacity is `contribution − bulk`, summed over what is installed (ADR-0020,
+	// #157): a gun authoring its whole slot carries nothing, a hold authoring none of
+	// it carries everything, and a hybrid carries the difference.
 	s := Ship{
 		layout = []Layout_Slot{
-			{slot = Slot{name = "gun deck", size = .Large, base_visibility = .Exposed}, fitting = Fitting{name = "Cannon", size = .Large}},
-			{slot = Slot{name = "hold 1", size = .Small, base_visibility = .Concealed}},
-			{slot = Slot{name = "hold 2", size = .Medium, base_visibility = .Concealed}, fitting = Fitting{name = "Cargo", size = .Medium, is_cargo = true, stack_count = 5}},
+			{slot = Slot{name = "gun deck", size = .Large, base_visibility = .Exposed}, fitting = Fitting{name = "Cannon", size = .Large, bulk = 40}},
+			{slot = Slot{name = "hold 1", size = .Small, base_visibility = .Concealed}, fitting = ship_fitting_hold(.Small)},
+			{slot = Slot{name = "hold 2", size = .Medium, base_visibility = .Concealed}, fitting = Fitting{name = "Armed Launch", size = .Medium, bulk = 15}},
 		},
 	}
 
-	// The empty Small (10) and the cargo-filled Medium (20); the gun's Large is out.
-	testing.expect_value(t, ship_cargo_capacity(s), 10 + 20)
+	// The hold's whole Small (10) plus the hybrid's leftover (20 − 15); the gun's
+	// Large contributes nothing.
+	testing.expect_value(t, ship_cargo_capacity(s), 10 + 5)
 }
 
 @(test)
-cargo_capacity_sums_each_cargo_capable_slots_size_contribution :: proc(t: ^testing.T) {
+an_empty_slot_carries_nothing :: proc(t: ^testing.T) {
+	// Forced rather than chosen: if an empty slot still contributed, a free zero-bulk
+	// hold would be byte-identical to leaving the slot empty and would exist purely as
+	// a farmable Cargo-tagged token. The accepted consequence is that an empty slot is
+	// wasted rather than neutral — which is why every vacated slot backfills a hold.
 	s := Ship{
 		layout = []Layout_Slot{
 			{slot = Slot{name = "hold 1", size = .Small, base_visibility = .Concealed}},
@@ -186,8 +180,13 @@ cargo_capacity_sums_each_cargo_capable_slots_size_contribution :: proc(t: ^testi
 			{slot = Slot{name = "hold 3", size = .Large, base_visibility = .Concealed}},
 		},
 	}
+	testing.expect_value(t, ship_cargo_capacity(s), 0)
 
-	// Small 10, Medium 20, Large 40 (#156: ×10 and doubling, a Large worth four Smalls).
+	// The same three slots, held: Small 10, Medium 20, Large 40 (#156: ×10 and
+	// doubling, a Large worth four Smalls).
+	for &layout_slot in s.layout {
+		layout_slot.fitting = ship_fitting_hold(layout_slot.slot.size)
+	}
 	testing.expect_value(t, ship_cargo_capacity(s), 10 + 20 + 40)
 }
 
@@ -205,11 +204,22 @@ the_starting_hull_reads_ninety_capacity_against_a_fifty_cargo :: proc(t: ^testin
 
 // The stow-overflow tests below share a two-slot hold — Small 10 + Large 40 = 50 of
 // capacity — so the returned `spilled` reads against a capacity that is easy to see.
+// Both slots carry a hold, because capacity comes from installed fittings: a pair of
+// *empty* slots would carry nothing at all and every stow would spill.
+// Returned by value, not as a Ship: a compound-literal slice cannot outlive the frame
+// that built it, so the caller owns the array and takes its own slice of it.
+make_held_layout :: proc() -> [2]Layout_Slot {
+	return [2]Layout_Slot {
+		{slot = Slot{size = .Small}, fitting = ship_fitting_hold(.Small)},
+		{slot = Slot{size = .Large}, fitting = ship_fitting_hold(.Large)},
+	}
+}
 
 @(test)
 stowing_within_capacity_returns_zero_spilled :: proc(t: ^testing.T) {
 	// A stow that fits reports no loss: the return is the overflow, and there is none.
-	s := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+	layout := make_held_layout()
+	s := Ship{layout = layout[:]}
 	testing.expect_value(t, ship_stow_cargo(s.layout, 30), 0) // 30 into 50 of capacity
 	testing.expect_value(t, ship_cargo(s), 30)
 }
@@ -217,7 +227,8 @@ stowing_within_capacity_returns_zero_spilled :: proc(t: ^testing.T) {
 @(test)
 stowing_exactly_to_capacity_returns_zero_spilled :: proc(t: ^testing.T) {
 	// The fits-exactly boundary: filling every slot to the brim drops nothing.
-	s := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+	layout := make_held_layout()
+	s := Ship{layout = layout[:]}
 	testing.expect_value(t, ship_stow_cargo(s.layout, 50), 0) // exactly capacity
 	testing.expect_value(t, ship_cargo(s), 50)
 }
@@ -226,7 +237,8 @@ stowing_exactly_to_capacity_returns_zero_spilled :: proc(t: ^testing.T) {
 stowing_above_capacity_returns_the_overflow :: proc(t: ^testing.T) {
 	// Overflow above capacity is dropped (#157) and returned, never stored: the holds
 	// fill to 50 and the return names the 15 that found no slot.
-	s := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+	layout := make_held_layout()
+	s := Ship{layout = layout[:]}
 	testing.expect_value(t, ship_stow_cargo(s.layout, 65), 15) // 15 over a 50 capacity
 	testing.expect_value(t, ship_cargo(s), 50)
 }
@@ -236,7 +248,8 @@ refilling_an_emptied_hold_reports_its_overflow_afresh :: proc(t: ^testing.T) {
 	// A re-stow rebuilds the hold from scratch, so the return reflects the new total,
 	// not the old: brim-fill, empty, then refill past capacity, and each stow reports
 	// its own overflow.
-	s := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+	layout := make_held_layout()
+	s := Ship{layout = layout[:]}
 	testing.expect_value(t, ship_stow_cargo(s.layout, 50), 0) // brim-full
 	testing.expect_value(t, ship_stow_cargo(s.layout, 0), 0) // emptied: nothing to spill
 	testing.expect_value(t, ship_cargo(s), 0)
@@ -245,13 +258,81 @@ refilling_an_emptied_hold_reports_its_overflow_afresh :: proc(t: ^testing.T) {
 }
 
 @(test)
+stowing_is_a_pure_function_of_the_amount_and_the_capacities :: proc(t: ^testing.T) {
+	// Water-filling is arrangement-independent: shuffling the same capacities into a
+	// different slot order changes neither the hold's total nor the spill. That is what
+	// lets every caller keep passing a scalar total and re-derive the arrangement from
+	// it — sim_refit_restow, the Reward beat and the bootstrap stow all rely on it.
+	forwards := [3]Layout_Slot {
+		{slot = Slot{size = .Small}, fitting = ship_fitting_hold(.Small)},
+		{slot = Slot{size = .Medium}, fitting = ship_fitting_hold(.Medium)},
+		{slot = Slot{size = .Large}, fitting = ship_fitting_hold(.Large)},
+	}
+	backwards := [3]Layout_Slot{forwards[2], forwards[1], forwards[0]}
+
+	for amount in ([]int{0, 1, 7, 30, 55, 70, 200}) {
+		a, b := forwards, backwards
+		spilled_a := ship_stow_cargo(a[:], amount)
+		spilled_b := ship_stow_cargo(b[:], amount)
+
+		testing.expectf(t, spilled_a == spilled_b, "spill differed by arrangement at amount %d", amount)
+		testing.expectf(
+			t,
+			ship_cargo(Ship{layout = a[:]}) == ship_cargo(Ship{layout = b[:]}),
+			"hold total differed by arrangement at amount %d",
+			amount,
+		)
+	}
+}
+
+@(test)
+water_filling_caps_the_small_holds_first_and_cascades_the_rest :: proc(t: ^testing.T) {
+	// Equal absolute shares, capping and cascading: 70 across 10/20/40 gives everyone
+	// 23 on the first pass, which the Small caps at 10 and the Medium at 20; the 40
+	// leftover cascades to the Large, which was already holding 23.
+	layout := [3]Layout_Slot {
+		{slot = Slot{size = .Small}, fitting = ship_fitting_hold(.Small)},
+		{slot = Slot{size = .Medium}, fitting = ship_fitting_hold(.Medium)},
+		{slot = Slot{size = .Large}, fitting = ship_fitting_hold(.Large)},
+	}
+
+	testing.expect_value(t, ship_stow_cargo(layout[:], 70), 0)
+
+	small, _ := layout[0].fitting.?
+	medium, _ := layout[1].fitting.?
+	large, _ := layout[2].fitting.?
+	testing.expect_value(t, small.cargo_held, 10) // capped
+	testing.expect_value(t, medium.cargo_held, 20) // capped
+	testing.expect_value(t, large.cargo_held, 40) // took what the other two could not
+}
+
+@(test)
+tag_cargo_is_authored_and_never_derived :: proc(t: ^testing.T) {
+	// Tag.Cargo says "this fitting's job is carrying", not "this fitting is carrying".
+	// The distinction is load-bearing: a selector reads authored constants, and
+	// `cargo_held` is the one field of a Fitting that moves at runtime — so a tag that
+	// appeared when cargo was stowed would be a selector reading live state.
+	gun := Fitting{name = "Deck Cannon", size = .Medium, bulk = 5, tags = {.Weapon}}
+	gun.cargo_held = 15
+
+	testing.expect_value(t, gun.tags, bit_set[Tag]{.Weapon}) // carrying earns no tag
+	testing.expect(t, !ship_fitting_is_hold(gun))
+
+	// And the converse: a hold declares Cargo while carrying nothing at all.
+	empty_hold := ship_fitting_hold(.Large)
+	testing.expect_value(t, empty_hold.cargo_held, 0)
+	testing.expect_value(t, empty_hold.tags, bit_set[Tag]{.Cargo})
+}
+
+@(test)
 ship_stow_spill_predicts_the_overflow_a_stow_would_drop :: proc(t: ^testing.T) {
 	// The predictive twin agrees with the mutating stow's return across the range, so a
 	// caller that must name the loss before stowing (the Reward beat) gets the same
 	// number ship_stow_cargo would report after.
 	for amount in ([]int{0, 30, 50, 65, 120}) {
-		predicted := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
-		actual := Ship{layout = []Layout_Slot{{slot = Slot{size = .Small}}, {slot = Slot{size = .Large}}}}
+		predicted_layout, actual_layout := make_held_layout(), make_held_layout()
+		predicted := Ship{layout = predicted_layout[:]}
+		actual := Ship{layout = actual_layout[:]}
 		testing.expectf(
 			t,
 			ship_stow_spill(predicted, amount) == ship_stow_cargo(actual.layout, amount),
@@ -279,17 +360,23 @@ ship_with_a_captain_assigned_carries_that_captains_name :: proc(t: ^testing.T) {
 }
 
 @(test)
-remove_takes_the_fitting_out_and_leaves_the_slot_empty :: proc(t: ^testing.T) {
+remove_takes_the_fitting_out_and_backfills_a_matching_hold :: proc(t: ^testing.T) {
+	// The removed fitting is discarded — nothing holds it now (no inventory) — but the
+	// slot does not go empty: an empty slot carries nothing, so leaving one would hand
+	// the captain a berth that is worse than useless and a rule to remember about it.
+	// Backfilling makes the empty slot unreachable, and costs nothing: holds are free.
 	layout_slot := make_layout_slot("gun deck", .Large, .Exposed)
-	ok := ship_fit(&layout_slot, Fitting{name = "Gun Deck", size = .Large})
-	testing.expect(t, ok)
+	testing.expect(t, ship_fit(&layout_slot, Fitting{name = "Gun Deck", size = .Large, bulk = 40}))
 
 	removed, was_there := ship_remove(&layout_slot)
 
 	testing.expect(t, was_there)
 	testing.expect_value(t, removed.name, "Gun Deck")
-	_, still_there := layout_slot.fitting.?
-	testing.expect(t, !still_there) // discarded: nothing holds it now
+	backfilled, still_there := layout_slot.fitting.?
+	testing.expect(t, still_there)
+	testing.expect(t, ship_fitting_is_hold(backfilled))
+	testing.expect_value(t, backfilled.size, Slot_Size.Large) // sized to the slot it vacated
+	testing.expect_value(t, ship_fitting_capacity(backfilled), 40)
 }
 
 @(test)
@@ -302,22 +389,42 @@ remove_of_an_empty_slot_is_a_rejected_no_op :: proc(t: ^testing.T) {
 }
 
 @(test)
-move_relocates_a_fitting_into_an_empty_same_size_slot :: proc(t: ^testing.T) {
+move_relocates_a_fitting_and_backfills_the_slot_it_left :: proc(t: ^testing.T) {
 	layout := []Layout_Slot{
 		make_layout_slot("gun deck", .Large, .Exposed),
 		make_layout_slot("forecastle", .Large, .Exposed),
 	}
-	ok := ship_fit(&layout[0], Fitting{name = "Gun Deck", size = .Large})
-	testing.expect(t, ok)
+	testing.expect(t, ship_fit(&layout[0], Fitting{name = "Gun Deck", size = .Large, bulk = 40}))
 
 	moved, did_move := ship_move(&layout[0], &layout[1])
 
 	testing.expect(t, did_move)
 	testing.expect_value(t, moved.name, "Gun Deck")
-	_, source_empty := layout[0].fitting.?
-	testing.expect(t, !source_empty)
+	source, source_filled := layout[0].fitting.?
+	testing.expect(t, source_filled)
+	testing.expect(t, ship_fitting_is_hold(source)) // vacated, then backfilled
 	dest, dest_full := layout[1].fitting.?
 	testing.expect(t, dest_full)
+	testing.expect_value(t, dest.name, "Gun Deck")
+}
+
+@(test)
+move_may_displace_a_bare_hold_but_not_a_real_fitting :: proc(t: ^testing.T) {
+	// Every vacated slot backfills, so a genuinely empty berth is unreachable in play
+	// and an empty-only destination rule would delete rearranging outright. A hold is
+	// free and unowned, so displacing one takes nothing from anybody; a real fitting
+	// still refuses, because a move is not a swap.
+	layout := []Layout_Slot{
+		make_layout_slot("gun deck", .Large, .Exposed),
+		make_layout_slot("forecastle", .Large, .Exposed),
+	}
+	testing.expect(t, ship_fit(&layout[0], Fitting{name = "Gun Deck", size = .Large, bulk = 40}))
+	testing.expect(t, ship_fit(&layout[1], ship_fitting_hold(.Large)))
+
+	_, did_move := ship_move(&layout[0], &layout[1])
+	testing.expect(t, did_move)
+
+	dest, _ := layout[1].fitting.?
 	testing.expect_value(t, dest.name, "Gun Deck")
 }
 
@@ -408,17 +515,20 @@ replace_with_a_different_size_fitting_is_rejected_and_leaves_the_slot_untouched 
 }
 
 @(test)
-replace_with_a_cargo_fitting_carrying_an_effect_is_rejected :: proc(t: ^testing.T) {
+replace_admits_a_carrying_fitting_that_also_has_an_effect :: proc(t: ^testing.T) {
+	// The fit rule used to reject this outright: cargo was a *kind* of fitting, held
+	// to "stackable and effect-less", so nothing could both carry and do something.
+	// Replace now applies the exact-size rule and nothing else, exactly as install does.
 	layout_slot := make_layout_slot("hold", .Large, .Concealed)
-	testing.expect(t, ship_fit(&layout_slot, Fitting{name = "Cannon", size = .Large}))
-	cursed_loot := Fitting{name = "Cursed Loot", size = .Large, is_cargo = true, stack_count = 1, passive = Effect{}}
+	testing.expect(t, ship_fit(&layout_slot, Fitting{name = "Cannon", size = .Large, bulk = 40}))
+	cursed_loot := Fitting{name = "Cursed Loot", size = .Large, bulk = 20, passive = Effect{}}
 
-	ok := ship_replace_fitting(&layout_slot, cursed_loot)
+	testing.expect(t, ship_replace_fitting(&layout_slot, cursed_loot))
 
-	testing.expect(t, !ok)
 	installed, has_fitting := layout_slot.fitting.?
 	testing.expect(t, has_fitting)
-	testing.expect_value(t, installed.name, "Cannon") // untouched
+	testing.expect_value(t, installed.name, "Cursed Loot")
+	testing.expect_value(t, ship_fitting_capacity(installed), 20)
 }
 
 @(test)
@@ -515,7 +625,7 @@ count_matching_on_a_category_selector_counts_by_the_fittings_category_field :: p
 	s := synergy_ship(
 		Fitting{name = "Iron Plating", size = .Medium, category = .Brace},
 		Fitting{name = "Gun Deck", size = .Large, category = .Fire},
-		Fitting{name = "Cargo", size = .Small, tags = {.Cargo}, is_cargo = true, stack_count = 1},
+		Fitting{name = "Cargo", size = .Small, tags = {.Cargo}, cargo_held = 1},
 	)
 	defer delete(s.layout)
 

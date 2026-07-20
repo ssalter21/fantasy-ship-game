@@ -105,24 +105,26 @@ build_drop_command_maps_drags_to_loadout_operations :: proc(t: ^testing.T) {
 	defer delete(s.layout)
 	state := Game_State{player = s}
 	// Starting slots: 0 top deck (M) Captain's Quarters, 2 gun deck (L) Gun Deck,
-	// 3 forecastle (L) empty, 4 hold 1 (M) Cargo.
+	// 3 forecastle (L) a bare hold, 4 hold 1 (M) a bare hold.
 
-	// A granted shelf item dropped on an empty berth installs it.
+	// Every berth is occupied now — a free one carries a hold rather than nothing — so
+	// a shelf drop always swaps in (Replace, discarding the occupant). The Install leg of
+	// the mapping survives for a genuinely empty slot, which is unreachable in play.
 	shelf := Build_Drag{active = true, from_slot = nil, fitting = ship.ship_fitting_top_crew()}
 	cmd, ready, wants := build_drop_command(&state, shelf, ship.Slot_Index(3), false)
 	testing.expect(t, ready)
 	_, no_discard := wants.?
 	testing.expect(t, !no_discard)
 	refit, _ := cmd.(sim.Command_Refit)
-	install, is_install := refit.command.(sim.Refit_Install)
-	testing.expect(t, is_install)
-	testing.expect_value(t, install.slot, ship.Slot_Index(3))
+	replace, is_replace := refit.command.(sim.Refit_Replace)
+	testing.expect(t, is_replace)
+	testing.expect_value(t, replace.slot, ship.Slot_Index(3))
 
-	// Dropped on a filled berth it swaps in (Replace, discarding the occupant).
+	// The same on a berth holding a real fitting: the occupant is discarded.
 	cmd, ready, _ = build_drop_command(&state, shelf, ship.Slot_Index(0), false)
 	testing.expect(t, ready)
 	refit, _ = cmd.(sim.Command_Refit)
-	replace, is_replace := refit.command.(sim.Refit_Replace)
+	replace, is_replace = refit.command.(sim.Refit_Replace)
 	testing.expect(t, is_replace)
 	testing.expect_value(t, replace.slot, ship.Slot_Index(0))
 
@@ -358,8 +360,8 @@ fitting_effect_intent_describes_each_effect_kind :: proc(t: ^testing.T) {
 	conditional := ship.Fitting{category = .Fire, active = ship.Effect{magnitude = 8, conditional = ship.Condition_Hull_Below{percent = 50}}}
 	testing.expect_value(t, fitting_effect_intent(conditional), "+8 Offense below 50% Hull")
 
-	cargo := ship.ship_fitting_cargo("Cargo", .Small, 10)
-	testing.expect_value(t, fitting_effect_intent(cargo), "no effect")
+	hold := ship.ship_fitting_hold(.Small)
+	testing.expect_value(t, fitting_effect_intent(hold), "no effect")
 }
 
 @(test)

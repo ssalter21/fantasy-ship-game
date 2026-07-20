@@ -263,12 +263,21 @@ ship_effect_context_in_battle :: proc(s: ^Ship, battle: Battle_State) -> Effect_
 Fitting :: struct {
 	name:                string,
 	size:                Slot_Size,
-	// weight is what this fitting adds to its ship's weight (ADR-0020) — an
-	// authored per-item balance knob that makes a strong item pay for its strength.
-	// Only read for non-cargo fittings: a cargo fitting weighs its cargo
-	// (stack_count) instead, so ship_fitting_weight ignores this field when
-	// is_cargo.
+	// weight is the fitting's own mass (ADR-0020) — an authored per-item balance
+	// knob that makes a strong item pay for its strength. It is not the whole of
+	// what the fitting adds to its ship: cargo weighs 1:1 on top of it, so the
+	// effective figure is `weight + cargo_held` (ship_fitting_weight).
 	weight:              int,
+	// bulk is the *volume* the fitting's own machinery takes inside its slot, and
+	// the leftover — `ship_cargo_slot_contribution(size) − bulk` — is what it can
+	// carry (ship_fitting_capacity). Weight is mass, bulk is volume: keeping them
+	// apart is what makes a gun that also carries authorable at all. An ordinary
+	// item authors its full slot contribution and so carries nothing; a hold
+	// authors 0 and is the degenerate corner of the axis. **Its zero value is the
+	// carrying end**, so every authored fitting must name it — ship_item_roster's
+	// no-capacity assertion is what holds that until the roster moves to per-item
+	// procs with a defaulted parameter.
+	bulk:                int,
 	// category is which round phase (ADR-0006) this fitting's active effect
 	// triggers in. Meaningless for cargo, which carries no effects.
 	category:            Category,
@@ -277,15 +286,14 @@ Fitting :: struct {
 	visibility_override: Maybe(Visibility),
 	passive:             Maybe(Effect),
 	active:              Maybe(Effect),
-	// is_cargo marks the one special-cased fitting kind (ADR-0004): stackable and
-	// effect-less, and the fitting a ship's money lives in (ADR-0020) — a cargo
-	// fitting *is* its cargo. ship_fit enforces both halves: no passive/active
-	// effects, and a stack_count of at least 1.
-	is_cargo:            bool,
-	// stack_count is the cargo this cargo fitting holds (ADR-0020): one stacked unit
-	// is one unit of cargo and one unit of weight. Summed across a ship's cargo
-	// fittings it is the ship's cargo (ship_cargo). Only meaningful when is_cargo.
-	stack_count:         int,
+	// cargo_held is the cargo stowed inside this fitting (ADR-0020): one unit is one
+	// unit of cargo and one unit of weight, and summed across the layout it is the
+	// ship's cargo (ship_cargo) — a ship's money is nothing but this. It is the one
+	// field of a Fitting that moves at runtime; everything else is authored, which
+	// is what lets a selector read tags without reading state the budget cannot see.
+	// "This fitting is carrying" is `cargo_held > 0`; "this fitting's job is
+	// carrying" is Tag.Cargo, authored and never derived from this field.
+	cargo_held:          int,
 }
 
 Layout_Slot :: struct {
@@ -326,23 +334,46 @@ Ship :: struct {
 }
 
 // ship_fitting_fits reports whether `fitting` may occupy a slot of `size` under
-// ADR-0004's fit rule, independent of current occupancy: an exact size match (no
-// downsizing), plus — for a cargo fitting — the "stackable and effect-less" rule
-// (no passive/active effect, stack_count at least 1). It is the single statement
-// of the fit rule that both ship_fit and ship_replace_fitting share, so the two
-// admit exactly the same fittings.
+// ADR-0004's fit rule, independent of current occupancy: an exact size match, no
+// downsizing. The cargo half of the old rule ("stackable and effect-less") is gone
+// with the special-cased cargo fitting — carrying is an axis every fitting sits on
+// now, so there is no kind of fitting left to hold to a different standard. It is
+// the single statement of the fit rule that both ship_fit and ship_replace_fitting
+// share, so the two admit exactly the same fittings.
 ship_fitting_fits :: proc(size: Slot_Size, fitting: Fitting) -> bool {
-	if fitting.size != size {
+	return fitting.size == size
+}
+
+// ship_fitting_is_hold reports whether `fitting` is a bare hold — the degenerate
+// corner of the cargo axis ship_fitting_hold mints: no bulk, no mass of its own, no
+// effects, and Cargo the whole of what it is. Read structurally rather than off a
+// flag: an `is_hold: bool` would be the deleted `is_cargo` under a new name, and a
+// hold is fully described by its field values.
+//
+// It exists for the two places that must tell "this slot is spent" from "this slot
+// is free": a hold backfills a vacated slot (ship_remove) and a move may land on one
+// (ship_move), because a hold is free and unowned and displacing it costs nobody
+// anything.
+ship_fitting_is_hold :: proc(fitting: Fitting) -> bool {
+	if fitting.bulk != 0 || fitting.weight != 0 || fitting.tags != {.Cargo} {
 		return false
 	}
-	if fitting.is_cargo {
-		_, has_passive := fitting.passive.?
-		_, has_active := fitting.active.?
-		if has_passive || has_active || fitting.stack_count < 1 {
-			return false
-		}
-	}
-	return true
+	_, has_passive := fitting.passive.?
+	_, has_active := fitting.active.?
+	return !has_passive && !has_active
+}
+
+// ship_fitting_capacity is how much cargo one fitting can carry: its slot's size
+// contribution less the volume its own machinery takes — `contribution − bulk`,
+// clamped to the contribution at both ends so an out-of-band authored bulk reads as
+// one of the two corners rather than as a negative hold or an oversized one.
+// Derived, never stored, so capacity and bulk cannot drift apart.
+//
+// Reads the fitting's own size, not the slot's: the fit rule is an exact size match
+// (ship_fitting_fits), so an installed fitting's size *is* its slot's.
+ship_fitting_capacity :: proc(fitting: Fitting) -> int {
+	contribution := ship_cargo_slot_contribution(fitting.size)
+	return clamp(contribution - fitting.bulk, 0, contribution)
 }
 
 // ship_fit installs `fitting` into `layout_slot` under the fit rule
@@ -423,16 +454,15 @@ ship_effective_speed :: proc(s: ^Ship) -> int {
 	return s.speed + modifiers - ship_weight(s^) / 10
 }
 
-// ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): a
-// cargo fitting weighs its cargo (its stack_count — an empty hold weighs nothing, a
-// full one weighs its contents 1:1), a non-cargo fitting its authored
-// Fitting.weight. Guns are permanently heavy, cargo heavy only while full, so
-// emptiness — not loadout — is what varies a ship's weight.
+// ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): its
+// own authored mass plus the cargo stowed in it, 1:1. The two used to be
+// alternatives — a cargo fitting weighed its stack, everything else its authored
+// figure — but once any fitting can carry, they are terms of one sum: a bare hold
+// contributes only its cargo (mass 0), a gun only its mass (it carries nothing), and
+// a laden gun both. Guns are permanently heavy and cargo heavy only while stowed, so
+// emptiness — not loadout — is still what varies a ship's weight.
 ship_fitting_weight :: proc(f: Fitting) -> int {
-	if f.is_cargo {
-		return f.stack_count
-	}
-	return f.weight
+	return f.weight + f.cargo_held
 }
 
 // ship_weight is a ship's total weight: every installed fitting's contribution
@@ -447,18 +477,24 @@ ship_weight :: proc(s: Ship) -> int {
 	return total
 }
 
-// ship_cargo_capacity is the cargo a ship can carry: the size contribution of
-// every slot *not* carrying a non-cargo fitting — empty and cargo-filled slots both
-// count, a slot spent on a gun does not (ADR-0020). Overflow above this is lost
-// (ship_stow_cargo), never stored: cargo lives only in cargo fittings, which live
-// only in finite slots.
+// ship_cargo_capacity is the cargo a ship can carry: the summed capacity of its
+// **installed fittings** (ship_fitting_capacity), so a hold contributes its whole
+// slot, a gun contributes nothing, and a hybrid contributes its leftover. Overflow
+// above this is lost (ship_stow_cargo), never stored: cargo lives inside fittings,
+// which live only in finite slots.
+//
+// An **empty slot carries nothing**, which is forced rather than chosen: were an
+// empty slot still to contribute, a free zero-bulk hold would be byte-identical to
+// leaving the slot empty and would exist purely as a farmable Cargo-tagged token. The
+// accepted consequence is that an empty slot is wasted rather than neutral — which is
+// why the starting ship ships with holds and why removing a fitting backfills one
+// (ship_remove), so an empty slot is never something a captain has to manage.
 ship_cargo_capacity :: proc(s: Ship) -> int {
 	capacity := 0
 	for layout_slot in s.layout {
-		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && !fitting.is_cargo {
-			continue
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+			capacity += ship_fitting_capacity(fitting)
 		}
-		capacity += ship_cargo_slot_contribution(layout_slot.slot.size)
 	}
 	return capacity
 }
@@ -478,57 +514,109 @@ ship_cargo_slot_contribution :: proc(size: Slot_Size) -> int {
 	return 0
 }
 
-// ship_cargo is what a ship carries: the cargo summed across its cargo fittings
-// (ADR-0020 — a cargo fitting's stack_count *is* its cargo). A ship with no cargo
-// fittings carries nothing.
+// ship_cargo is what a ship carries: the cargo summed across every installed
+// fitting (ADR-0020). No filter on *which* fittings — carrying is an axis, so the
+// question "does this one count" no longer arises; a fitting that carries nothing
+// contributes 0 on its own.
 ship_cargo :: proc(s: Ship) -> int {
 	cargo := 0
 	for layout_slot in s.layout {
-		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
-			cargo += fitting.stack_count
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+			cargo += fitting.cargo_held
 		}
 	}
 	return cargo
 }
 
-// ship_stow_cargo re-stows `amount` cargo across `layout`, smallest slots first
-// (ADR-0020). It first clears every existing cargo fitting — reallocation is free
-// outside battle, so a re-stow rebuilds the hold from scratch — then fills the
-// empty, non-gun slots smallest-first, each up to its capacity, until `amount` is
-// exhausted. The caller passes the desired total, not a delta, so this serves both
+// ship_stow_cargo re-stows `amount` cargo across `layout` by **water-filling**
+// (ADR-0020): it empties every fitting first — reallocation is free outside battle,
+// so a re-stow rebuilds the hold from scratch — then pours the amount out in equal
+// absolute shares over everything with capacity, capping each at its own room and
+// cascading the unused share to whoever can still take it. The odd units left when
+// the shares no longer divide go to the largest remaining room, ties to the lower
+// slot index. The caller passes the desired total, not a delta, so this serves both
 // the bootstrap stow and every out-of-battle cargo change (a Reward gain, a Shop or
 // Trade spend).
+//
+// Water-filling replaces smallest-slot-first, which put fine change in the small
+// slots and so let a *poor* ship heave a full Small for a Speed gain a rich one had
+// to buy with a whole Large. Filling evenly makes the small holds cap out first, so
+// jettison granularity is a property of the **build** — how the captain authored
+// `bulk` across the layout — rather than of how little they happen to be carrying.
+//
+// The result is a pure function of `(amount, the capacities present)`: arrangement
+// moves nothing but the tie-break, so both the hold's total and the spill are
+// independent of slot order. That is what lets every caller keep passing a scalar
+// total and re-derive the arrangement from it.
 //
 // Overflow above capacity is lost and returned as `spilled` (0 when everything fit),
 // so the one place the loss actually happens is the one place that reports it — no
 // caller re-derives it from a before/after subtraction or a capacity re-computation.
-//
-// Smallest-first keeps the granularity property: fine change lives in the small
-// slots, so the richer you get the coarser the only cargo you can heave.
 ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) -> (spilled: int) {
 	for &layout_slot in layout {
-		if fitting, has_fitting := layout_slot.fitting.?; has_fitting && fitting.is_cargo {
-			layout_slot.fitting = nil
+		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+			fitting.cargo_held = 0
+			layout_slot.fitting = fitting
 		}
 	}
+
 	remaining := amount
-	for size in ([3]Slot_Size{.Small, .Medium, .Large}) {
+	// Equal shares, pass after pass: each pass divides what is *still* unstowed
+	// among the fittings that still have room, so a hold that caps out drops out and
+	// its share falls to the rest. Terminates because a pass with a share of at
+	// least 1 always stows at least that much.
+	for remaining > 0 {
+		with_room := 0
+		for layout_slot in layout {
+			if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+				if ship_fitting_capacity(fitting) > fitting.cargo_held {
+					with_room += 1
+				}
+			}
+		}
+		share := remaining / max(with_room, 1)
+		if with_room == 0 || share == 0 {
+			break
+		}
 		for &layout_slot in layout {
-			if remaining <= 0 {
-				return 0
-			}
-			if _, occupied := layout_slot.fitting.?; occupied {
+			fitting, has_fitting := layout_slot.fitting.?
+			if !has_fitting {
 				continue
 			}
-			if layout_slot.slot.size != size {
+			stow := min(share, ship_fitting_capacity(fitting) - fitting.cargo_held)
+			if stow <= 0 {
 				continue
 			}
-			stow := min(remaining, ship_cargo_slot_contribution(size))
-			layout_slot.fitting = ship_fitting_cargo("Cargo", size, stow)
+			fitting.cargo_held += stow
+			layout_slot.fitting = fitting
 			remaining -= stow
 		}
 	}
-	return remaining // the cargo that found no slot — lost above capacity, never stored
+
+	// The remainder — fewer units than there are fittings with room, so no share
+	// divides — settles into the largest room going, ties to the lower slot index.
+	// Deterministic rather than principled: it is at most a handful of units, and
+	// the alternative (leave them unstowed) would spill cargo the ship has room for.
+	for remaining > 0 {
+		best, best_room := -1, 0
+		for layout_slot, index in layout {
+			if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
+				if room := ship_fitting_capacity(fitting) - fitting.cargo_held; room > best_room {
+					best, best_room = index, room
+				}
+			}
+		}
+		if best < 0 {
+			break
+		}
+		fitting, _ := layout[best].fitting.?
+		stow := min(remaining, best_room)
+		fitting.cargo_held += stow
+		layout[best].fitting = fitting
+		remaining -= stow
+	}
+
+	return remaining // the cargo that found no room — lost above capacity, never stored
 }
 
 // ship_stow_spill reports how much of a prospective new total `amount` would fall
@@ -541,38 +629,54 @@ ship_stow_spill :: proc(s: Ship, amount: int) -> int {
 	return max(0, amount - ship_cargo_capacity(s))
 }
 
-// ship_remove takes the fitting out of layout_slot, leaving the slot empty, and
-// returns it (ADR-0012's manual loadout). There is no inventory: the returned
-// fitting is the caller's to discard. Returns false (and a zero Fitting) when the
-// slot was already empty, so a remove of nothing is a caller-visible rejection
-// rather than a silent no-op.
+// ship_remove takes the fitting out of layout_slot and returns it (ADR-0012's
+// manual loadout). There is no inventory: the returned fitting is the caller's to
+// discard. Returns false (and a zero Fitting) when the slot was already empty, so a
+// remove of nothing is a caller-visible rejection rather than a silent no-op.
+//
+// The vacated slot is **backfilled with a size-matched hold** rather than left
+// empty. An empty slot carries nothing (ship_cargo_capacity), so leaving one would
+// hand the captain a slot that is worse than useless and a rule to remember about
+// it; backfilling makes the empty slot unreachable instead, and costs nothing —
+// holds are free, untiered and outside the roster. Any cargo the removed fitting was
+// carrying goes with it, so a caller that means to *conserve* the hold re-stows the
+// prior total afterwards (sim_refit_remove).
 ship_remove :: proc(layout_slot: ^Layout_Slot) -> (Fitting, bool) {
 	fitting, occupied := layout_slot.fitting.?
 	if !occupied {
 		return {}, false
 	}
-	layout_slot.fitting = nil
+	layout_slot.fitting = ship_fitting_hold(layout_slot.slot.size)
 	return fitting, true
 }
 
-// ship_move relocates the fitting in `from` into the empty `to` under ADR-0004's
-// exact-size fit rule: the source must hold a fitting, the destination must be
-// empty, and the two slots must be the same size. Any of those unmet leaves both
-// slots untouched and returns false. On success the moved fitting is returned and
-// the source is left empty. Takes the two slots by pointer, like ship_fit /
-// ship_remove, so the caller resolves and bounds-checks the indices itself.
+// ship_move relocates the fitting in `from` into `to` under ADR-0004's exact-size
+// fit rule: the source must hold a fitting, the destination must be free, and the
+// two slots must be the same size. Any of those unmet leaves both slots untouched
+// and returns false. On success the moved fitting is returned and the source is
+// backfilled with a size-matched hold, exactly as ship_remove does.
+//
+// "Free" means empty **or carrying nothing but a bare hold** (ship_fitting_is_hold).
+// Once every vacated slot backfills, a genuinely empty slot is unreachable in play,
+// so an empty-only rule would delete rearranging outright; and a hold is free and
+// unowned, so displacing one takes nothing from anybody. A laden destination hold
+// loses its cargo with it, so a caller that means to conserve the hold re-stows the
+// prior total afterwards (sim_refit_move).
+//
+// Takes the two slots by pointer, like ship_fit / ship_remove, so the caller
+// resolves and bounds-checks the indices itself.
 ship_move :: proc(from, to: ^Layout_Slot) -> (Fitting, bool) {
 	fitting, occupied := from.fitting.?
 	if !occupied {
 		return {}, false
 	}
-	if _, dest_occupied := to.fitting.?; dest_occupied {
+	if dest, dest_occupied := to.fitting.?; dest_occupied && !ship_fitting_is_hold(dest) {
 		return {}, false
 	}
 	if fitting.size != to.slot.size {
 		return {}, false
 	}
-	from.fitting = nil
+	from.fitting = ship_fitting_hold(from.slot.size)
 	to.fitting = fitting
 	return fitting, true
 }

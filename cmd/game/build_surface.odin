@@ -391,8 +391,11 @@ build_is_legal_berth :: proc(state: ^Game_State, drag: Build_Drag, slot: ship.Sl
 	if slot == from {
 		return false
 	}
-	_, occupied := state.player.layout[slot].fitting.?
-	return !occupied // a move needs an empty destination
+	// A move needs a free destination, and free means empty *or* carrying nothing but a
+	// bare hold — every vacated slot backfills one, so an empty berth is unreachable and
+	// an empty-only rule would leave nothing draggable-to.
+	dest, occupied := state.player.layout[slot].fitting.?
+	return !occupied || ship.ship_fitting_is_hold(dest)
 }
 
 // draw_build_hull sketches the ship's cross-section behind the cards: a faint hull outline
@@ -466,13 +469,13 @@ draw_build_zone_label :: proc(pos: rl.Vector2, label: string, visibility: ship.V
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", label), rl.Vector2{pos.x + 24, pos.y}, UI_BODY_SIZE, 1, tint)
 }
 
-// draw_build_card draws one slot: a filled fitting (steel-bordered, draggable), a cargo
-// filler (quieter recessive-blue border), or an empty slot (dashed steel outline). A legal
+// draw_build_card draws one slot: a filled fitting (steel-bordered, draggable), a bare
+// hold (quieter recessive-blue border), or an empty slot (dashed steel outline). A legal
 // berth for the current drag lights cyan; an illegal one while a drag is up is dimmed, so
 // the surface points at where a fitting can go (#302).
 draw_build_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, dim: bool, legal: bool) {
 	fitting, has_fitting := layout_slot.fitting.?
-	is_cargo := has_fitting && fitting.is_cargo
+	is_hold := has_fitting && ship.ship_fitting_is_hold(fitting)
 
 	// The card's role decides its border tone: steel for an interactive fitting, recessive
 	// blue for inert cargo, dashed steel for an empty berth (framing: a 2px role border over
@@ -481,7 +484,7 @@ draw_build_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, dim: 
 		draw_build_dashed_rect(rect, legal ? COLOUR_CYAN : COLOUR_STEEL)
 	} else {
 		rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, 0.55))
-		border := is_cargo ? COLOUR_BLUE_RECESSIVE : COLOUR_STEEL
+		border := is_hold ? COLOUR_BLUE_RECESSIVE : COLOUR_STEEL
 		if legal {
 			border = COLOUR_CYAN
 		}
@@ -503,13 +506,13 @@ draw_build_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, dim: 
 			rl.Fade(COLOUR_STEEL, 0.6),
 		)
 	} else {
-		name_tone := is_cargo ? rl.Fade(COLOUR_CREAM, 0.75) : COLOUR_CREAM
+		name_tone := is_hold ? rl.Fade(COLOUR_CREAM, 0.75) : COLOUR_CREAM
 		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", fitting.name), rl.Vector2{x, rect.y + 10}, UI_BODY_SIZE, 1, name_tone)
 
-		if is_cargo {
+		if is_hold {
 			rl.DrawTextEx(
 				ui_font_body,
-				fmt.ctprintf("holds %d", fitting.stack_count),
+				fmt.ctprintf("holds %d", fitting.cargo_held),
 				rl.Vector2{x, rect.y + 38},
 				UI_BODY_SIZE,
 				1,

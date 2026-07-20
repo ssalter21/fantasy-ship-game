@@ -313,7 +313,8 @@ a_hundred_percent_power_leaves_an_archetype_exactly_as_authored :: proc(t: ^test
 			item, _ := ship.ship_item_by_name(name)
 			testing.expect(t, ship.ship_fit_first_empty_slot(layout, item.fitting))
 		}
-		testing.expect(t, ship.ship_fill_empty_slots_with_cargo(layout, "Spoils"))
+		testing.expect(t, ship.ship_fill_empty_slots_with_holds(layout, "Spoils"))
+		ship.ship_fill_holds_to_percent(layout, ship.HOSTILE_FILL_PERCENT)
 
 		unscaled := ship.Ship{layout = layout, speed = ship.BASE_SPEED}
 		testing.expectf(
@@ -639,10 +640,10 @@ voyage_item_offer_options_presents_distinct_roster_items :: proc(t: ^testing.T) 
 	options := voyage_item_offer_options(Scaling_Site{zone = .Coastal, depth = 0}, gen)
 
 	// Every offered option is a distinct roster item (no repeats), and each is a
-	// real fitting the player could place — not a cargo filler.
+	// real authored fitting the player could place — so it arrives carrying nothing.
 	testing.expect_value(t, len(options), ITEM_OFFER_OPTION_COUNT)
 	for a, i in options {
-		testing.expect(t, !a.is_cargo)
+		testing.expect_value(t, a.cargo_held, 0)
 		testing.expect(t, len(a.name) > 0)
 		for b, j in options {
 			if i != j {

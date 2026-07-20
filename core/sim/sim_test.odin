@@ -613,9 +613,11 @@ fitting_name_at :: proc(sim: ^Sim, slot: int) -> string {
 	return ok ? f.name : ""
 }
 
-slot_is_empty :: proc(sim: ^Sim, slot: int) -> bool {
-	_, ok := sim.player.layout[slot].fitting.?
-	return !ok
+// A vacated slot backfills with a hold rather than going empty, so "did this refit
+// free the slot?" is asked as "does it carry nothing but a bare hold?".
+slot_is_free :: proc(sim: ^Sim, slot: int) -> bool {
+	fitting, ok := sim.player.layout[slot].fitting.?
+	return ok && ship.ship_fitting_is_hold(fitting)
 }
 
 @(test)
@@ -652,38 +654,36 @@ a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :
 	testing.expect(t, has_event(ev, Event_Refit_Rejected))
 	testing.expect_value(t, fitting_name_at(&sim, 2), "Gun Deck")
 
-	// Move the Gun Deck (Large) from slot 2 into the empty Large forecastle (slot 3),
-	// which the starting stow leaves open as headroom (ADR-0020, #172).
+	// Move the Gun Deck (Large) from slot 2 into the Large forecastle (slot 3), which
+	// carries a bare hold out of the starting stow. A hold is free and unowned, so it
+	// is a legal destination — and the vacated slot 2 backfills with one in turn.
 	submit_refit(&sim, Refit_Move{from = 2, to = 3})
 	ev = refit_tick(&sim, &events)
 	testing.expect(t, has_event(ev, Event_Fitting_Moved))
-	testing.expect(t, slot_is_empty(&sim, 2))
+	testing.expect(t, slot_is_free(&sim, 2))
 	testing.expect_value(t, fitting_name_at(&sim, 3), "Gun Deck")
 
-	// Install the pending Upgraded Gun Deck into the freed Large slot 2.
-	submit_refit(&sim, Refit_Install{slot = 2})
+	// Land the pending Upgraded Gun Deck in the freed Large slot 2. It goes in as a
+	// Replace, not an Install: the slot carries a backfilled hold, and Install still
+	// refuses an occupied slot.
+	submit_refit(&sim, Refit_Replace{slot = 2})
 	ev = refit_tick(&sim, &events)
 	testing.expect(t, has_event(ev, Event_Fitting_Installed))
 	testing.expect_value(t, fitting_name_at(&sim, 2), "Upgraded Gun Deck")
 	_, pending_after_install := sim.refit_pending.?
 	testing.expect(t, !pending_after_install) // consumed
 
-	// With nothing pending, an install even into an empty, size-matching slot is
-	// refused: free a Small slot (removing its cargo is discarded — no inventory —
-	// and emits Event_Fitting_Removed), then try to install into it.
+	// With nothing pending, a placement is refused whatever the slot: no incoming item
+	// is open outside a stage's grant (ADR-0012). Free a Small slot first — removing
+	// its hold discards it (no inventory) and backfills a fresh one.
 	submit_refit(&sim, Refit_Remove{slot = 5})
 	ev = refit_tick(&sim, &events)
 	testing.expect(t, has_event(ev, Event_Fitting_Removed))
-	testing.expect(t, slot_is_empty(&sim, 5))
-	submit_refit(&sim, Refit_Install{slot = 5})
+	testing.expect(t, slot_is_free(&sim, 5))
+	submit_refit(&sim, Refit_Replace{slot = 5})
 	ev = refit_tick(&sim, &events)
 	testing.expect(t, has_event(ev, Event_Refit_Rejected))
-	testing.expect(t, slot_is_empty(&sim, 5)) // nothing installed
-
-	// Removing an already-empty slot is refused too.
-	submit_refit(&sim, Refit_Remove{slot = 5})
-	ev = refit_tick(&sim, &events)
-	testing.expect(t, has_event(ev, Event_Refit_Rejected))
+	testing.expect(t, slot_is_free(&sim, 5)) // nothing installed
 
 	// Finish returns to a travel choice and broadcasts the legal moves again.
 	submit_refit(&sim, Refit_Finish{})
@@ -799,7 +799,7 @@ a_free_refit_move_at_anchor_applies_and_stays_awaiting_travel :: proc(t: ^testin
 
 	testing.expect(t, has_event(ev, Event_Fitting_Moved))
 	testing.expect(t, has_event(ev, Event_Ship_Updated))
-	testing.expect(t, slot_is_empty(&sim, 2))
+	testing.expect(t, slot_is_free(&sim, 2))
 	testing.expect_value(t, fitting_name_at(&sim, 3), "Gun Deck")
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, has_event(ev, Event_Travel_Options)) // options re-emitted: still at anchor
@@ -819,7 +819,7 @@ a_free_refit_remove_at_anchor_applies_and_stays_awaiting_travel :: proc(t: ^test
 	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, has_event(ev, Event_Fitting_Removed))
-	testing.expect(t, slot_is_empty(&sim, 5))
+	testing.expect(t, slot_is_free(&sim, 5))
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, has_event(ev, Event_Travel_Options))
 }
@@ -835,11 +835,11 @@ a_free_refit_install_at_anchor_is_rejected :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	sim_tick(&sim, &events) // voyage start
-	submit_refit(&sim, Refit_Install{slot = 3}) // the empty Large forecastle
+	submit_refit(&sim, Refit_Replace{slot = 3}) // the Large forecastle's bare hold
 	ev := refit_tick(&sim, &events)
 
 	testing.expect(t, has_event(ev, Event_Refit_Rejected))
-	testing.expect(t, slot_is_empty(&sim, 3)) // nothing landed
+	testing.expect(t, slot_is_free(&sim, 3)) // nothing landed
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 }
 
@@ -1566,16 +1566,18 @@ damage_to :: proc(hits: []combat.Event_Damage_Dealt, side: combat.Side) -> int {
 }
 
 // arm_with_repair installs a Brace fitting repairing `magnitude` Hull a round into the
-// player's empty Large forecastle (slot 3, left free by the starting stow) — the shape
-// the roster's defensive items are authored in.
+// player's Large forecastle (slot 3, which carries a bare hold out of the starting
+// stow) — the shape the roster's defensive items are authored in. It **replaces**
+// rather than installs: no slot is ever empty, so ship_fit would refuse every one.
 arm_with_repair :: proc(sim: ^Sim, magnitude: int) {
 	fitting := ship.Fitting{
 		name     = "Shipwright's Kit",
 		size     = .Large,
 		category = .Brace,
+		bulk     = 40, // its own machinery fills the slot: an armed forecastle carries nothing
 		active   = ship.Effect{kind = .Repair, magnitude = ship.Magnitude(magnitude)},
 	}
-	ship.ship_fit(&sim.player.layout[3], fitting)
+	ship.ship_replace_fitting(&sim.player.layout[3], fitting)
 }
 
 @(test)
@@ -1667,19 +1669,20 @@ reallocating_cargo_in_battle_moves_cargo_through_the_sim_and_keeps_the_battle_go
 	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // a durable opponent: the battle outlives the round
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
-	// The starting stow leaves the Large forecastle (slot 3) empty with the Smalls full
-	// (#172): pour a full Small (slot 5) into it. Total cargo is conserved.
+	// Water-filling leaves every hold at 10 with the Large forecastle (slot 3) 30 short
+	// of its 40: pour a full Small (slot 5) into it. Total cargo is conserved.
 	clear(&events)
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Reallocate{from = 5, to = 3}}))
 	refit_tick(&sim, &events)
 
 	testing.expect(t, !sim.battle.ended) // reallocation is not an ending
 	testing.expect_value(t, ship.ship_cargo(sim.player), before) // no cargo created or lost
-	_, occupied := sim.player.layout[5].fitting.?
-	testing.expect(t, !occupied) // the drained Small is now an empty slot
+	src, occupied := sim.player.layout[5].fitting.?
+	testing.expect(t, occupied) // the drained Small keeps its hold — it is still capacity
+	testing.expect_value(t, src.cargo_held, 0)
 	dst, has_dst := sim.player.layout[3].fitting.?
 	testing.expect(t, has_dst)
-	testing.expect_value(t, dst.stack_count, 10) // poured into the forecastle
+	testing.expect_value(t, dst.cargo_held, 20) // its own 10 plus the Small's
 
 	found := false
 	for event in events {

@@ -92,26 +92,30 @@ sim_refit_replace :: proc(sim: ^Sim, op: Refit_Replace, events: ^[dynamic]Event)
 sim_refit_move :: proc(sim: ^Sim, op: Refit_Move, events: ^[dynamic]Event) {
 	sim_refit_assert_slot(sim, op.from)
 	sim_refit_assert_slot(sim, op.to)
+	cargo_before := ship.ship_cargo(sim.player)
 	fitting, moved := ship.ship_move(&sim.player.layout[op.from], &sim.player.layout[op.to])
 	if !moved {
 		sim_refit_reject(Refit_Command(op), events)
 		return
 	}
 	append(events, Event(Event_Fitting_Moved{from = op.from, to = op.to, fitting = fitting}))
+	sim_refit_restow(sim, cargo_before)
 	sim_refit_ship_updated(sim, events)
 }
 
 // sim_refit_remove discards the fitting in op.slot via ship_remove — nothing
-// holds it afterward (no inventory — ADR-0012). Removing an already-empty slot
-// is rejected.
+// holds it afterward (no inventory — ADR-0012), and the vacated slot backfills with
+// a hold. Removing an already-empty slot is rejected.
 sim_refit_remove :: proc(sim: ^Sim, op: Refit_Remove, events: ^[dynamic]Event) {
 	sim_refit_assert_slot(sim, op.slot)
+	cargo_before := ship.ship_cargo(sim.player)
 	fitting, removed := ship.ship_remove(&sim.player.layout[op.slot])
 	if !removed {
 		sim_refit_reject(Refit_Command(op), events)
 		return
 	}
 	append(events, Event(Event_Fitting_Removed{slot = op.slot, fitting = fitting}))
+	sim_refit_restow(sim, cargo_before)
 	sim_refit_ship_updated(sim, events)
 }
 
@@ -136,22 +140,30 @@ sim_refit_ship_updated :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	append(events, Event(Event_Ship_Updated{ship = sim.player}))
 }
 
-// sim_refit_conserve_cargo reconciles the hold after a fitting lands in a slot.
-// Installing a non-cargo fitting is the only refit move that can *shrink*
-// ship_cargo_capacity (its slot stops counting toward the hold), and a Replace can
-// drop a cargo slot outright, so the surviving cargo is re-stowed into whatever
-// capacity remains: everything still under the reduced ceiling is conserved and only
-// genuine overflow above it is lost (ADR-0020). A Move is capacity-neutral and a
-// Remove only *grows* capacity, so neither can strand cargo and neither re-stows.
+// sim_refit_conserve_cargo reconciles the hold after a fitting lands in a slot: the
+// surviving cargo is re-stowed into whatever capacity the layout now has, so
+// everything still under the ceiling is conserved and only genuine overflow above it
+// is lost (ADR-0020). `cargo_before` is snapshotted *before* the placement, so cargo
+// the incoming fitting displaced flows into the remaining fittings rather than being
+// destroyed.
 //
-// `cargo_before` is snapshotted *before* the placement, so cargo a Replace displaces
-// flows into the remaining slots rather than being destroyed. The re-stow is scoped
-// to non-cargo fittings: cargo never reaches a refit (it is stowed by ship_stow_cargo,
-// not fitted), and re-laying cargo_before would double-count a cargo incoming's own
-// stack.
+// An incoming that arrives already laden is left alone rather than re-stowed, which
+// would double-count what it brought. Nothing does today — a shop or offer fitting is
+// authored, and authored fittings carry no cargo — so this is a guard on the seam,
+// not a live branch.
 sim_refit_conserve_cargo :: proc(sim: ^Sim, incoming: ship.Fitting, cargo_before: int) {
-	if incoming.is_cargo {
+	if incoming.cargo_held > 0 {
 		return
 	}
+	sim_refit_restow(sim, cargo_before)
+}
+
+// sim_refit_restow re-derives the whole hold from one scalar total, which is the only
+// arrangement concept there is: capacity is a property of the installed fittings, so
+// every refit move can change it and the answer is always to pour `cargo_before` back
+// in (ship_stow_cargo) and let the water-fill settle it. Move and Remove need it as
+// much as Install does now that they displace holds — a Move can land on a laden one
+// and a Remove can take one out, and neither should burn the cargo in it.
+sim_refit_restow :: proc(sim: ^Sim, cargo_before: int) {
 	ship.ship_stow_cargo(sim.player.layout, cargo_before)
 }
