@@ -41,7 +41,8 @@ BUILD_DANGER :: rl.Color{166, 72, 90, 255}
 // (The Chart once reused it for a raise/lower swipe; #329 retired that for a click toggle, so the
 // drag is refit-only again.) `from_slot` nil means the dragged
 // fitting is the granted item lifted off the shelf (an Install/Replace when dropped);
-// a slot index means an installed fitting being moved or dragged off to discard.
+// a slot index means an installed fitting being moved, dragged off to discard, or dragged
+// onto the hold ledger to burn what it carries.
 Build_Drag :: struct {
 	active:    bool,
 	from_slot: Maybe(ship.Slot_Index),
@@ -145,28 +146,52 @@ build_discard_rect :: proc() -> rl.Rectangle {
 	return rl.Rectangle{x = 30, y = 560, width = 200, height = 70}
 }
 
-// build_confirm_yes_rect is the deliberate release-to-confirm for a discard: a Wraith
-// Cannon is never binned by a slip (#302), so drag-off opens this and only a click on it
-// commits the Refit_Remove.
+// build_ledger_rect is the hold ledger's panel — the stats strip along the bottom, and the
+// drop target for an out-of-combat burn (#401): dragging a laden fitting onto the ledger
+// burns what it carries, which reads as "put this berth's cargo back on the books" rather
+// than "throw the berth away". Deliberately *not* the discard bin, whose meaning stays "this
+// thing leaves the ship".
+build_ledger_rect :: proc() -> rl.Rectangle {
+	return rl.Rectangle{x = 40, y = BUILD_LEDGER_Y, width = WINDOW_WIDTH - 80, height = BUILD_LEDGER_H}
+}
+
+// build_confirm_yes_rect is the deliberate release-to-confirm for a destructive drop: a Wraith
+// Cannon is never binned by a slip, and a misdrag onto the ledger costs the run's score (#302,
+// #401), so drag-off opens this and only a click on it commits.
 build_confirm_yes_rect :: proc() -> rl.Rectangle {
 	return rl.Rectangle{x = (WINDOW_WIDTH - 260) / 2, y = 360, width = 260, height = 44}
+}
+
+// Build_Confirm is a destructive drop waiting on the captain's second click. `burn` is which
+// of the two it is: a burn empties the berth's cargo and leaves the fitting installed, a
+// discard takes the whole fitting off the ship. One gate serves both, since both cost
+// something there is no getting back.
+Build_Confirm :: struct {
+	slot: ship.Slot_Index,
+	burn: bool,
 }
 
 // build_drop_command maps a completed drag — its source and where it was released — to the
 // loadout Command it commits, mirroring refit_click's pure mapping so the interaction is
 // testable without a live window. The exact-size fit rule is the Sim's, not predicted here
 // (ADR-0004): a wrong-size Move/Install/Replace is emitted anyway and bounces back as
-// Event_Refit_Rejected. A discard doesn't commit directly — it asks for a confirm — so it
-// returns `wants_discard` rather than a command.
+// Event_Refit_Rejected. The two destructive drops don't commit directly — each asks for a
+// confirm — so they return a `confirm` rather than a command.
+//
+// The two destructive targets carry different meanings and must not be confused: the discard
+// bin is "this thing leaves the ship", the hold ledger "burn what this berth is carrying"
+// (#401). Keeping them apart is what stops a laden gun from being unremovable — the bin still
+// takes the whole fitting, load and all.
 build_drop_command :: proc(
 	state: ^Game_State,
 	drag: Build_Drag,
 	target: Maybe(ship.Slot_Index),
 	on_discard: bool,
+	on_ledger: bool,
 ) -> (
 	cmd: sim.Command,
 	ready: bool,
-	wants_discard: Maybe(ship.Slot_Index),
+	confirm: Maybe(Build_Confirm),
 ) {
 	from_slot, dragging_slot := drag.from_slot.?
 
@@ -184,15 +209,33 @@ build_drop_command :: proc(
 	}
 
 	// Dragging an installed fitting: onto another slot moves it; over the discard zone bins
-	// it (after a confirm); back onto itself or into open water cancels.
+	// it and over the hold ledger burns its cargo (each after a confirm); back onto itself or
+	// into open water cancels. A fitting carrying nothing has nothing to burn, so the ledger
+	// is inert under it.
 	if on_discard {
-		return {}, false, from_slot
+		return {}, false, Build_Confirm{slot = from_slot, burn = false}
+	}
+	if on_ledger {
+		if drag.fitting.cargo_held == 0 {
+			return {}, false, nil
+		}
+		return {}, false, Build_Confirm{slot = from_slot, burn = true}
 	}
 	slot, has_target := target.?
 	if !has_target || slot == from_slot {
 		return {}, false, nil
 	}
 	return sim.Command(sim.Command_Refit{command = sim.Refit_Move{from = from_slot, to = slot}}), true, nil
+}
+
+// build_confirm_command is the Command a confirmed destructive drop commits — the one place
+// the burn/discard split becomes two different loadout operations, so both surfaces' loops
+// commit it the same way.
+build_confirm_command :: proc(confirm: Build_Confirm) -> sim.Command {
+	if confirm.burn {
+		return sim.Command(sim.Command_Refit{command = sim.Refit_Jettison_Cargo{slot = confirm.slot}})
+	}
+	return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = confirm.slot}})
 }
 
 // build_slot_at returns the slot whose card the point is over, or nil.
@@ -244,21 +287,21 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 	}
 
 	drag: Build_Drag
-	confirm_discard: Maybe(ship.Slot_Index)
+	pending_confirm: Maybe(Build_Confirm)
 
 	for {
 		window_quit_if_closed()
 		mouse := rl.GetMousePosition()
 
-		// Confirm sub-state: a discard is one deliberate click away from committing, or a
-		// click anywhere else cancels it.
-		if slot, confirming := confirm_discard.?; confirming {
-			draw_build_surface(state, Build_Drag{}, confirm_discard, mouse)
+		// Confirm sub-state: a destructive drop is one deliberate click away from committing,
+		// or a click anywhere else cancels it.
+		if confirm, confirming := pending_confirm.?; confirming {
+			draw_build_surface(state, Build_Drag{}, pending_confirm, mouse)
 			if rl.IsMouseButtonPressed(.LEFT) {
 				if rl.CheckCollisionPointRec(mouse, build_confirm_yes_rect()) {
-					return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = slot}})
+					return build_confirm_command(confirm)
 				}
-				confirm_discard = nil
+				pending_confirm = nil
 			}
 			continue
 		}
@@ -269,10 +312,11 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 			draw_build_surface(state, drag, nil, mouse)
 			if rl.IsMouseButtonReleased(.LEFT) {
 				on_discard := rl.CheckCollisionPointRec(mouse, build_discard_rect())
-				cmd, ready, wants := build_drop_command(state, drag, build_slot_at(state, mouse), on_discard)
+				on_ledger := rl.CheckCollisionPointRec(mouse, build_ledger_rect())
+				cmd, ready, wants := build_drop_command(state, drag, build_slot_at(state, mouse), on_discard, on_ledger)
 				drag.active = false
-				if slot, discard := wants.?; discard {
-					confirm_discard = slot
+				if confirm, asked := wants.?; asked {
+					pending_confirm = confirm
 				} else if ready {
 					return cmd
 				}
@@ -297,7 +341,7 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 // composing and polling are separate acts — the loop draws then polls, capture draws and
 // never polls (#277). `drag` is the in-flight drag (its ghost drawn at `mouse`), `confirm`
 // a pending discard's slot, `mouse` the cursor for hover and the ghost.
-draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(ship.Slot_Index), mouse: rl.Vector2) {
+draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2) {
 	rl.BeginDrawing()
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)
@@ -312,7 +356,7 @@ draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(
 // leaves by sailing, not by finishing, so its Home wrapper draws a chart tab over this body
 // instead. Everything else is shared, and the shelf block is naturally skipped at Home, where
 // there is never a granted item.
-draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(ship.Slot_Index), mouse: rl.Vector2, at_home: bool) {
+draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2, at_home: bool) {
 	rl.ClearBackground(COLOUR_DEEP)
 
 	draw_build_hull()
@@ -338,7 +382,10 @@ draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: M
 		draw_build_card(rects[i], layout_slot, dragging && !legal, legal)
 	}
 
-	draw_build_ledger(state)
+	// The ledger arms as a burn target only while a laden berth is in the air: nothing else
+	// can be burned, so it stays an inert stats strip the rest of the time.
+	burnable := dragging && slot_dragged(drag) && drag.fitting.cargo_held > 0
+	draw_build_ledger(state, burnable, burnable && rl.CheckCollisionPointRec(mouse, build_ledger_rect()))
 	if !at_home {
 		draw_build_done(mouse)
 	}
@@ -356,8 +403,8 @@ draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: M
 		draw_build_ghost(drag.fitting, mouse)
 	}
 
-	if slot, confirming := confirm.?; confirming {
-		draw_build_discard_confirm(state, slot, mouse)
+	if pending, confirming := confirm.?; confirming {
+		draw_build_confirm(state, pending, mouse)
 	}
 
 	draw_build_heading(at_home ? "At Anchor" : "Refit")
@@ -618,10 +665,28 @@ draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
 // draw_build_ledger is the stats strip along the bottom, always visible: Hull · SPD ·
 // Hold · Weight, the derived reads (ADR-0020) not the raw fields. A recessive-blue-bordered
 // translucent panel — inert chrome, framed by its role tone.
-draw_build_ledger :: proc(state: ^Game_State) {
-	panel := rl.Rectangle{x = 40, y = BUILD_LEDGER_Y, width = WINDOW_WIDTH - 80, height = BUILD_LEDGER_H}
-	rl.DrawRectangleRec(panel, rl.Fade(COLOUR_GROUND, 0.6))
-	rl.DrawRectangleLinesEx(panel, 2, COLOUR_BLUE_RECESSIVE)
+//
+// `armed` turns it into the burn target (#401): with a laden berth in the air the border
+// takes the danger tone and the strip names what a drop would do, brightening on `hovered`.
+// The two reads sit on one panel because burning is what *changes* the numbers on it — the
+// ledger is both what the burn costs and where it is paid.
+draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool = false) {
+	panel := build_ledger_rect()
+	rl.DrawRectangleRec(panel, rl.Fade(COLOUR_GROUND, armed && hovered ? 0.8 : 0.6))
+	rl.DrawRectangleLinesEx(panel, 2, armed ? BUILD_DANGER : COLOUR_BLUE_RECESSIVE)
+	if armed {
+		rl.DrawRectangleRec(panel, rl.Fade(BUILD_DANGER, hovered ? 0.28 : 0.12))
+		hint := fmt.ctprint("drop to burn this cargo")
+		size := rl.MeasureTextEx(ui_font_body, hint, UI_BODY_SIZE, 1)
+		rl.DrawTextEx(
+			ui_font_body,
+			hint,
+			rl.Vector2{panel.x + panel.width - size.x - 14, panel.y + (BUILD_LEDGER_H - UI_BODY_SIZE) / 2},
+			UI_BODY_SIZE,
+			1,
+			COLOUR_CREAM,
+		)
+	}
 
 	s := &state.player
 	text := fmt.ctprintf(
@@ -646,33 +711,51 @@ draw_build_done :: proc(mouse: rl.Vector2) {
 	rl.DrawTextEx(ui_font_body, "Done", rl.Vector2{rect.x + 44, rect.y + (rect.height - UI_BODY_SIZE) / 2}, UI_BODY_SIZE, 1, COLOUR_STEEL)
 }
 
-// draw_build_discard_zone draws the "overboard" target, only while a drag is up. Muted
-// maroon (the one warm the guide admits beside amber), brighter when the cursor is over it.
+// draw_build_discard_zone draws the "this thing leaves the ship" target, only while a drag is
+// up. Muted maroon (the one warm the guide admits beside amber), brighter when the cursor is
+// over it. It is named for what it does to the *fitting* — the word Jettison belongs to cargo
+// (ADR-0028), which is the ledger's drop, so the two destructive targets never share a name.
 draw_build_discard_zone :: proc(hovered: bool) {
 	rect := build_discard_rect()
 	rl.DrawRectangleRec(rect, rl.Fade(BUILD_DANGER, hovered ? 0.35 : 0.18))
 	rl.DrawRectangleLinesEx(rect, 2, BUILD_DANGER)
-	rl.DrawTextEx(ui_font_body, "Jettison", rl.Vector2{rect.x + 14, rect.y + 12}, UI_BODY_SIZE, 1, COLOUR_STEEL)
+	rl.DrawTextEx(ui_font_body, "Over the Side", rl.Vector2{rect.x + 14, rect.y + 12}, UI_BODY_SIZE, 1, COLOUR_STEEL)
 	rl.DrawTextEx(ui_font_body, "drag off to bin", rl.Vector2{rect.x + 14, rect.y + 40}, UI_BODY_SIZE, 1, rl.Fade(COLOUR_STEEL, 0.7))
 }
 
-// draw_build_discard_confirm draws the release-to-confirm gate: a scrim over the surface and
-// one amber "Discard" button — the deliberate second act that keeps a slip from binning a
-// fitting (#302). This is the only moment discard shows the screen's amber, and there is no
-// shelf item then, so the one-amber rule holds.
-draw_build_discard_confirm :: proc(state: ^Game_State, slot: ship.Slot_Index, mouse: rl.Vector2) {
+// draw_build_confirm draws the release-to-confirm gate: a scrim over the surface and one amber
+// button — the deliberate second act that keeps a slip from binning a fitting or burning a
+// berth's cargo (#302, #401). The wording is the whole difference between the two: a discard
+// loses the fitting, a burn loses the cargo and keeps the fitting. This is the only moment a
+// destructive drop shows the screen's amber, and there is no shelf item then, so the one-amber
+// rule holds.
+draw_build_confirm :: proc(state: ^Game_State, confirm: Build_Confirm, mouse: rl.Vector2) {
 	rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, rl.Fade(COLOUR_VIGNETTE, 0.7))
 	name := "this fitting"
-	if fitting, filled := state.player.layout[slot].fitting.?; filled {
+	cargo := 0
+	if fitting, filled := state.player.layout[confirm.slot].fitting.?; filled {
 		name = fitting.name
+		cargo = fitting.cargo_held
 	}
-	prompt := fmt.ctprintf("Jettison %s? There is no getting it back.", name)
+
+	prompt := fmt.ctprintf("Put %s over the side? There is no getting it back.", name)
+	label := fmt.ctprint("Over the side")
+	if confirm.burn {
+		// The berth, not the fitting: a bare hold is named "Cargo", so "the cargo in Cargo"
+		// says nothing, where the slot's name points at the card on screen.
+		prompt = fmt.ctprintf(
+			"Jettison the %d cargo in %s? That is score, gone for good.",
+			cargo,
+			state.player.layout[confirm.slot].slot.name,
+		)
+		label = fmt.ctprint("Jettison it")
+	}
 	size := rl.MeasureTextEx(ui_font_body, prompt, UI_BODY_SIZE, 1)
 	rl.DrawTextEx(ui_font_body, prompt, rl.Vector2{(WINDOW_WIDTH - size.x) / 2, 320}, UI_BODY_SIZE, 1, COLOUR_CREAM)
 
 	yes := build_confirm_yes_rect()
 	rl.DrawRectangleRec(yes, COLOUR_AMBER)
-	rl.DrawTextEx(ui_font_body, "Jettison it", rl.Vector2{yes.x + 16, yes.y + (yes.height - UI_BODY_SIZE) / 2}, UI_BODY_SIZE, 1, COLOUR_INK)
+	rl.DrawTextEx(ui_font_body, label, rl.Vector2{yes.x + 16, yes.y + (yes.height - UI_BODY_SIZE) / 2}, UI_BODY_SIZE, 1, COLOUR_INK)
 	rl.DrawTextEx(
 		ui_font_body,
 		"click anywhere else to keep it",
@@ -785,7 +868,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 	}
 
 	drag: Build_Drag
-	confirm_discard: Maybe(ship.Slot_Index)
+	pending_confirm: Maybe(Build_Confirm)
 	chart_raise: f32 = 0 // 0 lowered .. 1 raised, the chart's live elevation
 	chart_target: f32 = 0 // 0 or 1: the end a tab click is flipping the chart toward
 
@@ -879,31 +962,32 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 
 		// From here the chart is fully lowered: the Build surface is the live screen.
 
-		// Confirm sub-state: a discard is one deliberate click from committing, or a click
-		// anywhere else cancels it (same as build_surface_loop).
-		if slot, confirming := confirm_discard.?; confirming {
-			draw_home(state, Build_Drag{}, confirm_discard, mouse, 0)
+		// Confirm sub-state: a destructive drop is one deliberate click from committing, or a
+		// click anywhere else cancels it (same as build_surface_loop).
+		if confirm, confirming := pending_confirm.?; confirming {
+			draw_home(state, Build_Drag{}, pending_confirm, mouse, 0)
 			if rl.IsMouseButtonPressed(.LEFT) {
 				if rl.CheckCollisionPointRec(mouse, build_confirm_yes_rect()) {
-					return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = slot}})
+					return build_confirm_command(confirm)
 				}
-				confirm_discard = nil
+				pending_confirm = nil
 			}
 			continue
 		}
 
 		// A drag in flight: the ghost follows the cursor until release, when where it lands
 		// decides the free-reallocation command (Move) or a cancel. With no shelf item at Home,
-		// build_begin_drag only ever lifts a filled slot, so build_drop_command yields a Move or
-		// a discard — never an Install/Replace.
+		// build_begin_drag only ever lifts a filled slot, so build_drop_command yields a Move, a
+		// discard or a cargo burn — never an Install/Replace.
 		if drag.active {
 			draw_home(state, drag, nil, mouse, 0)
 			if rl.IsMouseButtonReleased(.LEFT) {
 				on_discard := rl.CheckCollisionPointRec(mouse, build_discard_rect())
-				cmd, ready, wants := build_drop_command(state, drag, build_slot_at(state, mouse), on_discard)
+				on_ledger := rl.CheckCollisionPointRec(mouse, build_ledger_rect())
+				cmd, ready, wants := build_drop_command(state, drag, build_slot_at(state, mouse), on_discard, on_ledger)
 				drag.active = false
-				if slot, discard := wants.?; discard {
-					confirm_discard = slot
+				if confirm, asked := wants.?; asked {
+					pending_confirm = confirm
 				} else if ready {
 					return cmd
 				}
@@ -933,7 +1017,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 // a raise/lower, not a split view; the rlgl translate slides the whole chart as one, so draw_map
 // keeps drawing at its fixed MAP_AREA positions and only the hover mouse is un-shifted back into
 // chart space.
-draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(ship.Slot_Index), mouse: rl.Vector2, raise: f32) {
+draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2, raise: f32) {
 	rl.BeginDrawing()
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)

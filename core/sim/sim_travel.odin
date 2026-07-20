@@ -22,7 +22,7 @@ sim_process_at_anchor :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 
 // sim_process_anchor_refit applies a free loadout edit made at anchor. There is no pending
 // incoming item — that is a stage's grant (ADR-0012), and none is open between encounters — so
-// only Move and Remove can land; an Install or Replace with nothing to place is refused
+// only Move, Remove and Jettison_Cargo can land; an Install or Replace with nothing to place is refused
 // (Event_Refit_Rejected) through the very sim_refit_* helpers a granted Refit uses, so the fit
 // rule (ADR-0004) and cargo re-stow (ADR-0020) hold in one place. The phase never leaves
 // Awaiting_Travel_Choice, so sim_settle re-emits the legal destinations and the surface stays
@@ -40,6 +40,8 @@ sim_process_anchor_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim_refit_move(sim, op, events)
 	case Refit_Remove:
 		sim_refit_remove(sim, op, events)
+	case Refit_Jettison_Cargo:
+		sim_refit_jettison_cargo(sim, op, events)
 	case Refit_Finish:
 	}
 }

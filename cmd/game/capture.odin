@@ -210,6 +210,34 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 	draw_build_surface(&game, drag, nil, over)
 	draw_build_surface(&game, drag, nil, over)
 	capture_write(state, "build-placing")
+
+	// The out-of-combat burn (#401): a laden berth dragged onto the hold ledger, which arms
+	// as the burn target, and the confirm the drop opens.
+	game.refit_incoming = nil
+	first_laden_slot :: proc(layout: []ship.Layout_Slot) -> Maybe(ship.Slot_Index) {
+		for layout_slot, i in layout {
+			if fitting, filled := layout_slot.fitting.?; filled && fitting.cargo_held > 0 {
+				return ship.Slot_Index(i)
+			}
+		}
+		return nil
+	}
+	laden_slot, any_laden := first_laden_slot(game.player.layout).?
+	if !any_laden {
+		return
+	}
+	laden, _ := game.player.layout[laden_slot].fitting.?
+	burn_drag := Build_Drag{active = true, from_slot = laden_slot, fitting = laden}
+	ledger := build_ledger_rect()
+	on_ledger := rl.Vector2{ledger.x + ledger.width / 2, ledger.y + ledger.height / 2}
+	draw_build_surface(&game, burn_drag, nil, on_ledger)
+	draw_build_surface(&game, burn_drag, nil, on_ledger)
+	capture_write(state, "build-burning")
+
+	burn := Build_Confirm{slot = laden_slot, burn = true}
+	draw_build_surface(&game, Build_Drag{}, burn, no_mouse)
+	draw_build_surface(&game, Build_Drag{}, burn, no_mouse)
+	capture_write(state, "build-burn-confirm")
 }
 
 // capture_shot_encounter_frame photographs the shared encounter frame (#304) — the constant

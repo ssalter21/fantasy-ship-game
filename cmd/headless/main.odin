@@ -104,6 +104,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Fitting_Installed:
 	case sim.Event_Fitting_Moved:
 	case sim.Event_Fitting_Removed:
+	case sim.Event_Cargo_Jettisoned:
 	case sim.Event_Refit_Rejected:
 	case sim.Event_Refit_Finished:
 	case sim.Event_Encounter_Resolved:

@@ -321,6 +321,10 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		// The ship panel re-renders from Event_Ship_Updated, so a move/remove needs
 		// no extra UI state here; the change is visible on the next refit frame.
 
+	case sim.Event_Cargo_Jettisoned:
+		// The burn is deliberate and already confirmed, so it needs no beat to explain
+		// itself; the ledger it was dropped on re-reads from Event_Ship_Updated.
+
 	case sim.Event_Refit_Rejected:
 		play_beat(state, "That can't go there.")
 

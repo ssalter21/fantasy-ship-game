@@ -34,6 +34,8 @@ sim_process_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 		sim_refit_move(sim, op, events)
 	case Refit_Remove:
 		sim_refit_remove(sim, op, events)
+	case Refit_Jettison_Cargo:
+		sim_refit_jettison_cargo(sim, op, events)
 	case Refit_Finish:
 		sim.refit_pending = nil
 		append(events, Event(Event_Refit_Finished{}))
@@ -116,6 +118,24 @@ sim_refit_remove :: proc(sim: ^Sim, op: Refit_Remove, events: ^[dynamic]Event) {
 	}
 	append(events, Event(Event_Fitting_Removed{slot = op.slot, fitting = fitting}))
 	sim_refit_restow(sim, cargo_before)
+	sim_refit_ship_updated(sim, events)
+}
+
+// sim_refit_jettison_cargo burns the cargo out of op.slot via ship_jettison_cargo, which
+// empties the fitting, leaves it installed, and water-fills the remainder back across the
+// layout (ADR-0020). A slot that is empty or carrying nothing has nothing to burn and is
+// rejected, so this needs no restow of its own: the primitive settles the hold.
+//
+// It is the in-battle heave on a second surface, priced differently — a round under fire,
+// free and repeatable at anchor — so the granularity a build authors binds only in battle.
+sim_refit_jettison_cargo :: proc(sim: ^Sim, op: Refit_Jettison_Cargo, events: ^[dynamic]Event) {
+	sim_refit_assert_slot(sim, op.slot)
+	heaved, burned := ship.ship_jettison_cargo(sim.player.layout, op.slot)
+	if !burned {
+		sim_refit_reject(Refit_Command(op), events)
+		return
+	}
+	append(events, Event(Event_Cargo_Jettisoned{slot = op.slot, fitting = heaved}))
 	sim_refit_ship_updated(sim, events)
 }
 
