@@ -358,20 +358,21 @@ the_item_roster_uses_the_whole_effect_vocabulary :: proc(t: ^testing.T) {
 // install-these-fittings test helper.
 
 @(test)
-splash_powder_monkeys_offense_scales_with_weapons_aboard :: proc(t: ^testing.T) {
+splash_powder_monkeys_offense_scales_with_the_small_berths_aboard :: proc(t: ^testing.T) {
 	item := roster_item_named("Powder Monkeys")
 	testing.expect_value(t, item.tier, Tier.Splash)
 	active := item.fitting.effects[0]
 
-	// No Weapons aboard (Powder Monkeys itself is Crew): the synergy is 0.
+	// Alone: the one Small berth aboard is its own.
 	alone := synergy_ship(item.fitting)
 	defer delete(alone.layout)
-	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&alone)), Magnitude(0))
+	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&alone)), Magnitude(effect_showcase_magnitude(active)))
 
-	// Each Weapon aboard lifts it by the per-unit magnitude.
-	armed := synergy_ship(item.fitting, roster_item_named("Swivel Guns").fitting, roster_item_named("Deck Cannon").fitting)
-	defer delete(armed.layout)
-	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&armed)), Magnitude(effect_showcase_magnitude(active) * 2))
+	// Each further Small berth lifts it by the per-unit magnitude, and a berth of
+	// another size is none of its business.
+	crowded := synergy_ship(item.fitting, roster_item_named("Swivel Guns").fitting, roster_item_named("Deck Cannon").fitting)
+	defer delete(crowded.layout)
+	testing.expect_value(t, effect_magnitude(active, ship_effect_context(&crowded)), Magnitude(effect_showcase_magnitude(active) * 2))
 }
 
 // **An effect's phase is its verb's phase** (ADR-0027). Combat routes on the phase an
