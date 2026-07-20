@@ -204,11 +204,10 @@ roster_item_named :: proc(name: string) -> Roster_Item {
 }
 
 // Every roster item authors its full slot contribution as `bulk`, so none of them
-// carries. This is a guard on a **zero-value hazard**, not a balance rule: an omitted
-// `bulk` reads as zero, which is the *carrying* end of the axis, so a forgotten field
-// silently bolts a free full-slot hold onto a gun and hands the budget capacity it
-// never priced. It also pins the port — the fifty items came across the axis at cost
-// zero, and that is only true while every one of them is at `bulk = full`.
+// carries — which is what makes the roster free of the cargo axis: capacity is an
+// authored power source nothing has yet spent on. roster_item's default supplies it,
+// so this catches the entry that names a `bulk` of its own and lands on the carrying
+// end of the axis, handing the budget capacity it never priced.
 @(test)
 the_roster_carries_nothing :: proc(t: ^testing.T) {
 	for item in ship_item_roster() {
