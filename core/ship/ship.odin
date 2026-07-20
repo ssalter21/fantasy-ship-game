@@ -475,10 +475,7 @@ selector_matches :: proc(layout_slot: Layout_Slot, selector: Selector) -> bool {
 ship_count_table :: proc(layout: []Layout_Slot, seen_as: Maybe(Visibility) = nil) -> Count_Table {
 	counts: Count_Table
 	for layout_slot in layout {
-		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting {
-			continue
-		}
+		fitting := layout_slot.fitting.? or_continue
 		visibility := ship_effective_visibility(layout_slot)
 		if only, filtered := seen_as.?; filtered && visibility != only {
 			continue
@@ -668,11 +665,9 @@ Ship :: struct {
 
 // ship_fitting_fits reports whether `fitting` may occupy a slot of `size` under
 // ADR-0004's fit rule, independent of current occupancy: an exact size match, no
-// downsizing. The cargo half of the old rule ("stackable and effect-less") is gone
-// with the special-cased cargo fitting — carrying is an axis every fitting sits on
-// now, so there is no kind of fitting left to hold to a different standard. It is
-// the single statement of the fit rule that both ship_fit and ship_replace_fitting
-// share, so the two admit exactly the same fittings.
+// downsizing. Carrying is an axis every fitting sits on, so there is no kind of fitting
+// held to a different standard. It is the single statement of the fit rule that both
+// ship_fit and ship_replace_fitting share, so the two admit exactly the same fittings.
 ship_fitting_fits :: proc(size: Slot_Size, fitting: Fitting) -> bool {
 	return fitting.size == size
 }
@@ -712,11 +707,7 @@ ship_fit :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> bool {
 	if _, occupied := layout_slot.fitting.?; occupied {
 		return false
 	}
-	if !ship_fitting_fits(layout_slot.slot.size, fitting) {
-		return false
-	}
-	layout_slot.fitting = fitting
-	return true
+	return ship_replace_fitting(layout_slot, fitting)
 }
 
 // ship_replace_fitting swaps `fitting` into layout_slot under the same fit rule as
@@ -795,9 +786,8 @@ ship_effective_speed :: proc(s: ^Ship, round: Maybe(Round_Facts) = nil) -> int {
 }
 
 // ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): its
-// own authored mass plus the cargo stowed in it, 1:1. The two used to be
-// alternatives — a cargo fitting weighed its stack, everything else its authored
-// figure — but once any fitting can carry, they are terms of one sum: a bare hold
+// own authored mass plus the cargo stowed in it, 1:1. Because any fitting can carry, the
+// two are terms of one sum: a bare hold
 // contributes only its cargo (mass 0), a gun only its mass (it carries nothing), and
 // a laden gun both. Guns are permanently heavy and cargo heavy only while stowed, so
 // emptiness — not loadout — is still what varies a ship's weight.
@@ -843,15 +833,14 @@ ship_cargo_capacity :: proc(s: Ship) -> int {
 // since money is weight (ADR-0020), how much a full one weighs. The ×10-and-
 // doubling scale makes weight, capacity, and money one commensurable system.
 ship_cargo_slot_contribution :: proc(size: Slot_Size) -> int {
-	switch size {
-	case .Small:
-		return 10
-	case .Medium:
-		return 20
-	case .Large:
-		return 40
-	}
-	return 0
+	return CARGO_SLOT_CONTRIBUTION[size]
+}
+
+@(rodata)
+CARGO_SLOT_CONTRIBUTION := [Slot_Size]int {
+	.Small  = 10,
+	.Medium = 20,
+	.Large  = 40,
 }
 
 // ship_cargo is what a ship carries: the cargo summed across every installed
@@ -919,10 +908,7 @@ ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) -> (spilled: int) {
 			break
 		}
 		for &layout_slot in layout {
-			fitting, has_fitting := layout_slot.fitting.?
-			if !has_fitting {
-				continue
-			}
+			fitting := layout_slot.fitting.? or_continue
 			stow := min(share, ship_fitting_capacity(fitting) - fitting.cargo_held)
 			if stow <= 0 {
 				continue

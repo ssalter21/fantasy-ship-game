@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:slice"
 import voyage "../../core/voyage"
 import ship "../../core/ship"
 import rl "vendor:raylib"
@@ -22,7 +23,7 @@ MAP_PAD_X :: 85
 MAP_PAD_Y :: 34
 
 // The parchment Chart's ink palette (spec 0001 §8). The reskin drops the blue
-// nautical-chart tones on this surface — steel rings, CHART_INK routes, the amber
+// nautical-chart tones on this surface — steel rings, blue chart routes, the amber
 // snap — for a cartographer's-hand ink language over the sourced parchment page. Two
 // registers carry identity vs. recession: node identity and the road behind you ink
 // in strong sepia; the fog ahead (unexplored ? buoys, charted-not-yet routes) recedes
@@ -129,19 +130,15 @@ stage_tint :: proc(kind: voyage.Stage_Kind) -> rl.Color {
 	return rl.Color{74, 85, 104, 255} // fallback (#4A5568)
 }
 
-// node_marker is the map's colour and label for an encounter, keyed on the stage it
+// node_marker is the map's label for an encounter, keyed on the stage it
 // opens with. A Shop opening reads "Port" here, and only here — everywhere else a Shop
 // stage is a "Market" (stage_kind_label) — because this names a *node*, and a node
 // opening on a Shop is a Port (ADR-0016). That rests on the authoring convention that
 // only the Port bucket opens on a Shop (catalog.odin): author one `[Shop, Fight]` and
 // this label starts lying, which the_only_encounters_a_captain_can_see_coming_are_ports
 // guards.
-node_marker :: proc(opening: voyage.Stage_Kind) -> (color: rl.Color, label: string) {
-	label = stage_kind_label(opening)
-	if opening == .Shop {
-		label = "Port"
-	}
-	return stage_tint(opening), label
+node_marker :: proc(opening: voyage.Stage_Kind) -> string {
+	return opening == .Shop ? "Port" : stage_kind_label(opening)
 }
 
 // ink_state fades an identity ink to a memory when the node has been visited (~0.3
@@ -161,8 +158,7 @@ ink_state :: proc(ink: rl.Color, visited: bool) -> rl.Color {
 // chest, buoy) is node_mark's call, keyed on the same predicates; this proc owns only the
 // ink and the label. It is still a place the reveal question is asked of the stage list,
 // never the node kind (ADR-0014, voyage_encounter_reveals) — the same question the Sim's
-// mask asks. The label keeps node_marker's Shop→"Port" rename; the colour it computes is
-// discarded, since the parchment inks every identity the same.
+// mask asks. The label keeps node_marker's Shop→"Port" rename.
 node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, label: string) {
 	switch p.kind {
 	case .Start:
@@ -182,7 +178,7 @@ node_appearance :: proc(p: voyage.Node, visited: bool) -> (color: rl.Color, labe
 		if !has_opening {
 			return INK_FADED, ""
 		}
-		_, label = node_marker(voyage.voyage_stage_kind(opening))
+		label = node_marker(voyage.voyage_stage_kind(opening))
 		return ink_state(INK_SEPIA, visited), label
 	}
 	return INK_FADED, ""
@@ -503,19 +499,10 @@ draw_ink_bloom :: proc(centre: rl.Vector2, now, started: f64) {
 // dashes mark precisely the edges a click will sail.
 edge_is_sailable :: proc(current, a, b: voyage.Node_ID, options: []voyage.Node_ID) -> bool {
 	if a == current {
-		return option_contains(options, b)
+		return slice.contains(options, b)
 	}
 	if b == current {
-		return option_contains(options, a)
-	}
-	return false
-}
-
-option_contains :: proc(options: []voyage.Node_ID, id: voyage.Node_ID) -> bool {
-	for o in options {
-		if o == id {
-			return true
-		}
+		return slice.contains(options, a)
 	}
 	return false
 }
@@ -1127,9 +1114,9 @@ draw_beat :: proc(state: ^Game_State, headline: string) {
 	defer free_all(context.temp_allocator)
 
 	if state.in_battle {
-		draw_fight_scene(state, rl.Vector2{-1, -1})
+		draw_fight_scene(state, NO_MOUSE)
 	} else {
-		draw_scene_contents(state, "", rl.Vector2{-1, -1})
+		draw_scene_contents(state, "", NO_MOUSE)
 	}
 	draw_playback_overlay(headline)
 }

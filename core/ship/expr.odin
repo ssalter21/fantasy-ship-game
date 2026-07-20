@@ -21,7 +21,7 @@ EXPR_MAX_NODES :: 12
 // single evaluation step needs.
 EXPR_MAX_ARITY :: 4
 
-// Node_Kind is a node's operation. Arity is fixed per kind (expr_node_arity), which
+// Node_Kind is a node's operation. Arity is fixed per kind (EXPR_NODE_ARITY), which
 // is what lets prefix order alone imply a tree's structure: no node stores a child
 // index.
 Node_Kind :: enum u8 {
@@ -119,20 +119,23 @@ Count_Table :: struct {
 	visibility: [Visibility]int,
 }
 
-// expr_node_arity is how many child subtrees a kind consumes, and the single
+// EXPR_NODE_ARITY is how many child subtrees a kind consumes, and the single
 // statement of that: evaluation reads its children through this, so prefix
 // structure has one source of truth. Gate's four are lhs, rhs, then and else — its
-// comparison op rides on the node itself.
-expr_node_arity :: proc(kind: Node_Kind) -> int {
-	switch kind {
-	case .Const, .Quantity, .Count:
-		return 0
-	case .Add, .Sub, .Mul, .Min, .Max, .Pct:
-		return 2
-	case .Gate:
-		return 4
-	}
-	unreachable()
+// comparison op rides on the node itself. A new kind that names no arity here is a
+// compile error, the same coverage an exhaustive switch would give.
+@(rodata)
+EXPR_NODE_ARITY := [Node_Kind]int {
+	.Const    = 0,
+	.Quantity = 0,
+	.Count    = 0,
+	.Add      = 2,
+	.Sub      = 2,
+	.Mul      = 2,
+	.Min      = 2,
+	.Max      = 2,
+	.Pct      = 2,
+	.Gate     = 4,
 }
 
 // Gate_Mode is how a walk answers a Gate: by comparing (Compared — a real round), or by
@@ -177,7 +180,7 @@ expr_eval_node :: proc(nodes: []Node, ctx: Expr_Context, index: int, gates := Ga
 	next = index + 1
 
 	children: [EXPR_MAX_ARITY]int
-	for i in 0 ..< expr_node_arity(node.kind) {
+	for i in 0 ..< EXPR_NODE_ARITY[node.kind] {
 		children[i], next = expr_eval_node(nodes, ctx, next, gates)
 	}
 
@@ -368,7 +371,7 @@ expr_subtree :: proc(e: Expr, index: int) -> (sub: Expr, next: int) {
 	next = index
 	for pending > 0 {
 		assert(next < e.count, "expression tree is truncated: a node is missing a child")
-		pending += expr_node_arity(e.nodes[next].kind) - 1
+		pending += EXPR_NODE_ARITY[e.nodes[next].kind] - 1
 		next += 1
 	}
 	for i in index ..< next {

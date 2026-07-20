@@ -215,12 +215,12 @@ a_tree_is_inline_pod_that_copies_by_assignment :: proc(t: ^testing.T) {
 @(test)
 the_node_set_is_closed_at_ten_and_gate_alone_takes_four_children :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(Node_Kind), 10)
-	testing.expect_value(t, expr_node_arity(.Gate), EXPR_MAX_ARITY)
+	testing.expect_value(t, EXPR_NODE_ARITY[.Gate], EXPR_MAX_ARITY)
 
 	widest := 0
 	for kind in Node_Kind {
 		if kind != .Gate {
-			widest = max(widest, expr_node_arity(kind))
+			widest = max(widest, EXPR_NODE_ARITY[kind])
 		}
 	}
 	testing.expect_value(t, widest, 2)
@@ -235,7 +235,7 @@ every_arity_is_even_so_a_trees_node_count_is_odd :: proc(t: ^testing.T) {
 	for kind in Node_Kind {
 		testing.expectf(
 			t,
-			expr_node_arity(kind) % 2 == 0,
+			EXPR_NODE_ARITY[kind] % 2 == 0,
 			"%v has odd arity, which would break the odd-node-count worst case",
 			kind,
 		)

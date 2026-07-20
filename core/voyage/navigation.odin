@@ -1,5 +1,7 @@
 package voyage
 
+import "core:slice"
+
 // Travel legality: which of a Node's edges a ship may traverse from where it
 // stands, given where it has already been. The voyage's single legal-move
 // authority — shared by the Sim's travel gate, the UI's reachable-next
@@ -34,10 +36,23 @@ voyage_travel_options :: proc(m: Map, current: Node_ID, visited: []bool) -> []No
 // voyage_travel_options for a single destination: dest must share an edge with
 // current and pass voyage_neighbor_is_legal.
 voyage_can_travel_to :: proc(m: Map, current: Node_ID, visited: []bool, dest: Node_ID) -> bool {
-	for neighbor in m.edges[current] {
-		if neighbor == dest {
-			return voyage_neighbor_is_legal(m, current, dest, visited)
+	return(
+		slice.contains(m.edges[current], dest) &&
+		voyage_neighbor_is_legal(m, current, dest, visited) \
+	)
+}
+
+// voyage_forward_option picks a deeper-layer neighbour out of `options` — already-legal
+// destinations the Sim emitted — falling back to the first. It is how a driver with no
+// player (headless's auto-player, capture's scripted walk) heads for the Haven instead of
+// wandering the graph. It decides nothing about legality: that is voyage_travel_options'
+// answer, and this only chooses among it.
+voyage_forward_option :: proc(m: Map, current: Node_ID, options: []Node_ID) -> Node_ID {
+	assert(len(options) > 0, "no legal travel option from the current node")
+	for dest in options {
+		if m.nodes[dest].layer > m.nodes[current].layer {
+			return dest
 		}
 	}
-	return false
+	return options[0]
 }

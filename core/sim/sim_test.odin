@@ -2631,7 +2631,7 @@ a_chandlerys_reserve_outlasts_the_cargo_a_captain_brings :: proc(t: ^testing.T) 
 	// bought from was refilled out of the reserve behind it.
 	testing.expect(t, bought > 0)
 	testing.expect_value(t, filled_option_count(sim.stage_options), voyage.SHOP_SHELF_SIZE)
-	testing.expect(t, ship.ship_cargo(sim.player) < ship.ITEM_COST_SPLASH)
+	testing.expect(t, ship.ship_cargo(sim.player) < ship.ITEM_COST[.Splash])
 }
 
 @(test)

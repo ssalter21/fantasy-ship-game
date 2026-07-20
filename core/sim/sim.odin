@@ -607,9 +607,7 @@ sim_emit_travel_options :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	options := voyage.voyage_travel_options(sim.voyage_map, sim.current, sim.visited)
 
 	clear(&sim.travel_options)
-	for id in options {
-		append(&sim.travel_options, id)
-	}
+	append(&sim.travel_options, ..options)
 	append(events, Event(Event_Travel_Options{options = sim.travel_options[:]}))
 }
 

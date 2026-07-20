@@ -25,7 +25,22 @@ sim_open_refit :: proc(sim: ^Sim, incoming: Maybe(ship.Fitting), events: ^[dynam
 sim_process_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	cmd := sim_take_pending(sim, Command_Refit)
 
-	switch op in cmd.command {
+	if _, finished := cmd.command.(Refit_Finish); finished {
+		sim.refit_pending = nil
+		append(events, Event(Event_Refit_Finished{}))
+		sim_walk_encounter(sim, events)
+		return
+	}
+	sim_refit_apply(sim, cmd.command, events)
+}
+
+// sim_refit_apply dispatches one loadout edit to the helper that applies it. The four
+// editing variants mean the same thing wherever a refit is open, so this is the single
+// statement of that mapping — shared by a stage's granted refit (sim_process_refit) and
+// the free at-anchor one (sim_process_anchor_refit), which differ only in what Finish
+// means to them and so handle it themselves. Finish is a no-op here.
+sim_refit_apply :: proc(sim: ^Sim, command: Refit_Command, events: ^[dynamic]Event) {
+	switch op in command {
 	case Refit_Install:
 		sim_refit_install(sim, op, events)
 	case Refit_Replace:
@@ -37,9 +52,6 @@ sim_process_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	case Refit_Jettison_Cargo:
 		sim_refit_jettison_cargo(sim, op, events)
 	case Refit_Finish:
-		sim.refit_pending = nil
-		append(events, Event(Event_Refit_Finished{}))
-		sim_walk_encounter(sim, events)
 	}
 }
 

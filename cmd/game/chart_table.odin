@@ -124,55 +124,15 @@ draw_chart_table :: proc(hovered: int) {
 	draw_chart_table_version_stamp()
 }
 
-// The chart's tones, measured off menu-ui-mock.png's own chart rather than invented.
-// They were the Chart Table's drawn ground until #284's sourced background replaced it
-// (art.odin); their live consumer now is the voyage map's mini-chart (view.odin), which
-// still draws land and a route from the ramp. Kept here beside the screen they were
-// measured for.
-//
-// Land is khaki with an inland green, not parchment: treasure-map.jpg's parchment is
-// 9.67% strongly-warm against 0.2-2.7% for every other reference, and the amber rule
-// works only because warm is scarce (#294). A cream title and an amber button cannot
-// sit on cream.
-CHART_LAND :: rl.Color{83, 80, 73, 255} // the mock's island body, #535049
-CHART_LAND_SHADE :: rl.Color{73, 67, 55, 255} // its shadowed edge, #494337
-CHART_LAND_GREEN :: rl.Color{35, 65, 44, 255} // its inland green, #23412C
-// CHART_INK is the chart's own linework — the rose, the route. Opaque and quiet on
-// purpose. The world must never outshine the chrome (the guide's rule for zone tints
-// is the same rule), and a translucent tone cannot enforce that: alpha composites
-// per-draw, so eight Fade(CREAM, 0.7) spokes crossing at a hub stack to near-opaque
-// cream. An opaque dim tone is the only one whose peak you can predict from the
-// constant. H215, so it is on the ramp.
-CHART_INK :: rl.Color{110, 130, 160, 255}
-
-// Chart_Lobe is one blob of land. An island is several overlapping lobes: DrawPoly
-// draws a *regular* polygon, which alone reads as a gem rather than a coastline, so
-// the irregularity has to come from the overlap.
-//
-// `green` scales the inland patch (0 = bare sand). `sides` low and `rot` arbitrary is
-// what keeps the edges hard and faceted — the reference set's 16-bit register.
-Chart_Lobe :: struct {
-	centre: rl.Vector2,
-	radius: f32,
-	sides:  i32,
-	rot:    f32,
-	green:  f32,
-}
-
-// draw_chart_table_ground draws the sourced tropical-island background this screen
-// sits on (art.odin, the #284 carve-out). It replaces the sea-chart that #294 drew
-// from the ramp with raylib primitives — that ground was a placeholder "only in
-// ambition", and #284 always named a sourced image as the improvement in *depiction*
-// it would take. The palette rule is unchanged and was enforced at conform time rather
-// than draw time: the asset is measured onto the ramp (peak luminance 142, below the
-// title's ~211) and carries no warm pixels, so the guide's two hard rules — the world
-// never outshines the chrome, amber stays scarce — hold before the texture is ever
-// blitted.
+// draw_chart_table_ground draws the sourced tropical-island background this screen sits
+// on (art.odin). The palette rule is enforced at conform time rather than draw time: the
+// asset is measured onto the ramp (peak luminance 142, below the title's ~211) and carries
+// no warm pixels, so the guide's two hard rules — the world never outshines the chrome,
+// amber stays scarce — hold before the texture is ever blitted.
 //
 // The scene is 400x272 at native resolution, POINT-scaled to the window (art.odin sets
-// the filter). Composition is split from polling the same way the chart was: capture
-// photographs this at frame 0 (#278), and a fixed asset keeps every screenshot diff
-// meaningful.
+// the filter). Composition is split from polling so capture can photograph this at frame
+// 0, where a fixed asset keeps every screenshot diff meaningful.
 draw_chart_table_ground :: proc() {
 	rl.ClearBackground(COLOUR_DEEP)
 	src := rl.Rectangle{0, 0, f32(menu_island_tex.width), f32(menu_island_tex.height)}

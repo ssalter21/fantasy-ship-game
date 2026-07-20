@@ -60,25 +60,19 @@ Shelf_Drag :: struct {
 	cost:         Maybe(int),
 }
 
-// offer_shop_list_is_priced reports whether any option carries a price — how the screen
-// tells a Shop's shelf from an Offer's items without the Sim naming the primitive. Costs
-// are per-option, so it asks the list rather than assuming the stage.
-offer_shop_list_is_priced :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) -> bool {
+// offer_shop_kind names which primitive this list is, read off the prices — a priced list
+// is a Shop, an unpriced one an Offer — so the header, its tint, and the Leave/Skip wording
+// all come from the same tell the old option screen used. Costs are per-option, so it asks
+// the list rather than assuming the stage.
+offer_shop_kind :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) -> voyage.Stage_Kind {
 	for slot in options {
 		if option, filled := slot.?; filled {
 			if _, has_cost := option.cost.?; has_cost {
-				return true
+				return .Shop
 			}
 		}
 	}
-	return false
-}
-
-// offer_shop_kind names which primitive this list is, read off the prices — a priced list
-// is a Shop, an unpriced one an Offer — so the header, its tint, and the Leave/Skip wording
-// all come from the same tell the old option screen used.
-offer_shop_kind :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) -> voyage.Stage_Kind {
-	return offer_shop_list_is_priced(options) ? .Shop : .Offer
+	return .Offer
 }
 
 // offer_shop_legal_berth is the drag's affordance rule: a shelf card can land on any
@@ -239,7 +233,6 @@ offer_shop_loop :: proc(state: ^Game_State) -> sim.Command {
 	// within one refit, but clear it here too so nothing stale survives into this stop.
 	state.pending_shelf_install = nil
 
-	kind := offer_shop_kind(state.stage_options)
 	drag: Shelf_Drag
 
 	for {
@@ -336,17 +329,11 @@ draw_offer_shop :: proc(state: ^Game_State, drag: Shelf_Drag, mouse: rl.Vector2)
 // ASCII "->" rather than "→": Pixelify Sans carries no U+2192, so the glyph would render as a
 // blank box (see UI_FONT_EXTRA_CODEPOINTS).
 offer_shop_cargo_preview_text :: proc(s: ^ship.Ship, cost: int) -> string {
-	cargo := ship.ship_cargo(s^)
-	capacity := ship.ship_cargo_capacity(s^)
 	return fmt.tprintf(
-		"Hull %d/%d · SPD %d · Cargo %d/%d -> %d/%d",
-		s.hull,
-		s.max_hull,
-		ship.ship_effective_speed(s),
-		cargo,
-		capacity,
-		cargo - cost,
-		capacity,
+		"%s -> %d/%d",
+		encounter_stat_line_text(s),
+		ship.ship_cargo(s^) - cost,
+		ship.ship_cargo_capacity(s^),
 	)
 }
 

@@ -392,10 +392,8 @@ draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: M
 
 	// The shelf: a granted item at rest is the screen's one amber. While it is being
 	// dragged the resting card gives way to the ghost, so there are never two.
-	if has_incoming && !(dragging && !slot_dragged(drag)) {
-		if !dragging {
-			draw_build_shelf(incoming)
-		}
+	if has_incoming && !dragging {
+		draw_build_shelf(incoming)
 	}
 
 	if dragging {

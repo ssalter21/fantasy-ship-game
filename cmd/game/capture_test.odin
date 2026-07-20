@@ -1,7 +1,6 @@
 package main
 
 import "core:testing"
-import voyage "../../core/voyage"
 import sim "../../core/sim"
 
 // These cover the scripted half of capture — the half that has no window in it.
@@ -30,24 +29,6 @@ capture_scripted_command_answers_every_non_travel_phase :: proc(t: ^testing.T) {
 	refit := capture_scripted_command(&state, .Awaiting_Refit)
 	_, is_refit := refit.(sim.Command_Refit)
 	testing.expect(t, is_refit)
-}
-
-@(test)
-capture_next_node_prefers_a_deeper_neighbour :: proc(t: ^testing.T) {
-	voyage_map := voyage.voyage_map_create(0)
-	defer voyage.voyage_map_destroy(&voyage_map)
-
-	state := Capture_State{}
-	state.game.voyage_map = voyage_map
-	state.game.current_node_id = 0
-	state.game.travel_options = voyage_map.edges[0]
-
-	next := capture_next_node(&state)
-	testing.expect(
-		t,
-		voyage_map.nodes[next].layer > voyage_map.nodes[0].layer,
-		"capture should sail toward Haven when a forward option is offered",
-	)
 }
 
 @(test)

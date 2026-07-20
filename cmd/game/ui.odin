@@ -8,20 +8,22 @@ import rl "vendor:raylib"
 // There is one palette, and it is a depth ramp: hue falls and value rises as water
 // shallows, measured off menu-ui-mock.png's chart (H222 V0.15 -> H212 V0.19 ->
 // H200 V0.25) and corroborated at its deep end by ship-night (H230) and ship-battle
-// (H234) and at its bright end by wave (H186). #280 split this into a "chrome"
-// palette and a "world" palette from two different sources; #294 found that was the
-// disunity rather than the cure, because the two sources sit in hue families 31.8°
-// apart. The three ramp stops below are also zone_tint's three zones (view.odin) —
-// the ground the chrome sits on and the deepest water are one colour, not two.
+// (H234) and at its bright end by wave (H186). The ground the chrome sits on and the
+// deepest water are one colour, not two.
 COLOUR_DEEP :: rl.Color{8, 17, 39, 255} // ramp stop 1 (H222): the dominant field, and zone Deep
 COLOUR_MID :: rl.Color{10, 28, 48, 255} // ramp stop 2 (H212): open water
 COLOUR_SHALLOW :: rl.Color{14, 46, 63, 255} // ramp stop 3 (H200): where water meets land
 COLOUR_VIGNETTE :: rl.Color{5, 11, 24, 255} // below the ramp; frames the screen
 
-// COLOUR_GROUND / COLOUR_GROUND_MID were the chrome names for the ramp's first two
-// stops, kept as aliases so the call sites that read as "ground" still say so.
+// NO_MOUSE is a pointer position no widget can be under: every hover test is a
+// containment check against a real rect, so an off-screen point reads as "nothing
+// hovered". Capture has no mouse and must photograph each screen at rest, and the
+// draw-only call sites (a route preview, a fight frame) have no pointer to pass.
+NO_MOUSE :: rl.Vector2{-1, -1}
+
+// COLOUR_GROUND is the chrome name for the ramp's first stop, so a call site that reads
+// as "ground" still says so.
 COLOUR_GROUND :: COLOUR_DEEP
-COLOUR_GROUND_MID :: COLOUR_MID
 COLOUR_AMBER :: rl.Color{247, 167, 43, 255} // reserved for "the thing you can act on right now"
 COLOUR_INK :: rl.Color{8, 18, 43, 255} // the only text colour that goes on amber
 COLOUR_STEEL :: rl.Color{138, 169, 214, 255} // unselected controls: border and label

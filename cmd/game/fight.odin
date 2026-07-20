@@ -566,7 +566,7 @@ draw_fight_exchange :: proc(state: ^Game_State, dmg_a: int, dmg_b: int) {
 	defer rl.EndDrawing()
 	defer free_all(context.temp_allocator)
 
-	draw_fight_scene(state, rl.Vector2{-1, -1})
+	draw_fight_scene(state, NO_MOUSE)
 	draw_playback_overlay("")
 	draw_fight_damage_number(FIGHT_PLAYER_X, dmg_a)
 	if _, ok := state.sighted_opponent.?; ok {

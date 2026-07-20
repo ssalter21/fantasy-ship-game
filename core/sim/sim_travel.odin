@@ -31,19 +31,7 @@ sim_process_at_anchor :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 // leaves the Build surface by sailing, not by finishing.
 sim_process_anchor_refit :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 	cmd := sim_take_pending(sim, Command_Refit)
-	switch op in cmd.command {
-	case Refit_Install:
-		sim_refit_install(sim, op, events)
-	case Refit_Replace:
-		sim_refit_replace(sim, op, events)
-	case Refit_Move:
-		sim_refit_move(sim, op, events)
-	case Refit_Remove:
-		sim_refit_remove(sim, op, events)
-	case Refit_Jettison_Cargo:
-		sim_refit_jettison_cargo(sim, op, events)
-	case Refit_Finish:
-	}
+	sim_refit_apply(sim, cmd.command, events)
 }
 
 // sim_process_travel applies a submitted Command_Travel_To: it arrives at the target

@@ -138,29 +138,24 @@ Roster_Item :: struct {
 	tier:    Tier,
 }
 
-// ITEM_COST_SPLASH / _SHALLOW / _DEEP are a roster item's Port-shop price by its authored
-// Tier (ADR-0012: "tier scales an item's power and its shop cost"), graded
-// weakest-to-strongest like the tiers themselves and scaled against the starting cargo so
-// the fixed budget bites — an unaffordable item is a real, reachable state. Placeholder
-// economy tuning like every other balance constant here.
-ITEM_COST_SPLASH :: 10
-ITEM_COST_SHALLOW :: 25
-ITEM_COST_DEEP :: 45
+// ITEM_COST is a roster item's Port-shop price by its authored Tier (ADR-0012: "tier
+// scales an item's power and its shop cost"), graded weakest-to-strongest like the tiers
+// themselves and scaled against the starting cargo so the fixed budget bites — an
+// unaffordable item is a real, reachable state. Placeholder economy tuning like every
+// other balance constant here.
+@(rodata)
+ITEM_COST := [Tier]int {
+	.Splash  = 10,
+	.Shallow = 25,
+	.Deep    = 45,
+}
 
 // ship_item_cost prices a roster item for a Port shop from its Tier — the one place tier
 // becomes cargo, so the shop's stock carries a plain int cost and nothing downstream
 // re-derives it. A Fitting has no tier of its own (it rides on Roster_Item), so a shop
 // must price an item while it still has the Roster_Item in hand.
 ship_item_cost :: proc(tier: Tier) -> int {
-	switch tier {
-	case .Splash:
-		return ITEM_COST_SPLASH
-	case .Shallow:
-		return ITEM_COST_SHALLOW
-	case .Deep:
-		return ITEM_COST_DEEP
-	}
-	return 0
+	return ITEM_COST[tier]
 }
 
 // ship_fit_first_empty_slot fits `fitting` into the first still-empty slot whose size
@@ -275,9 +270,8 @@ ship_starting_captain :: proc() -> Captain {
 // ship_fit_starting_loadout fits the fixed combat loadout into the exposed slots, fills
 // the five slots it leaves with holds, and stows `cargo` across them (ship_stow_cargo).
 // The holds are what give the ship its capacity at all — an empty slot carries nothing
-// (ship_cargo_capacity) — and they total the same 90 the old empty-slots-count rule read:
-// the Large forecastle's 40, hold 1's 20, and 10 apiece from the three Smalls. The
-// or_return chain means a false return signals the template and its starting fittings
+// (ship_cargo_capacity), and they total 90: the Large forecastle's 40, hold 1's 20, and 10
+// apiece from the three Smalls. The or_return chain means a false return signals the template and its starting fittings
 // have drifted out of sync — a content bug this package's tests catch, not a real runtime
 // condition. Slot-name pairing is flavor only: names impose no restriction on what fills
 // them (ADR-0004).
@@ -317,10 +311,7 @@ ship_fill_empty_slots_with_holds :: proc(layout: []Layout_Slot, name: string) ->
 // breaches the weight-floor budget; the floor test is the tripwire.
 ship_fill_holds_to_percent :: proc(layout: []Layout_Slot, percent: int) {
 	for &layout_slot in layout {
-		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting {
-			continue
-		}
+		fitting := layout_slot.fitting.? or_continue
 		fitting.cargo_held = ship_fitting_capacity(fitting) * percent / 100
 		layout_slot.fitting = fitting
 	}

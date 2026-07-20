@@ -345,7 +345,7 @@ a_visited_node_keeps_its_marker_faded :: proc(t: ^testing.T) {
 	color, label := node_appearance(fought, true)
 	testing.expect_value(t, label, "Battle") // where you have been, and what it was
 
-	full, _ := node_marker(.Fight)
+	full := stage_tint(.Fight)
 	testing.expect(t, color.a < full.a) // ...but faded: the walk is over, ADR-0014 resolves once
 }
 

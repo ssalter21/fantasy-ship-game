@@ -10,23 +10,24 @@ main :: proc() {
 	defer sim.sim_destroy(&s)
 
 	state := Headless_State{}
-	defer delete(state.events)
 	sink := sim.Event_Sink{data = &state, dispatch = dispatch}
 	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
 
 	sim.run_session(&s, input, sink)
 
-	fmt.printfln("run_session ended after %d event(s)", len(state.events))
+	fmt.printfln("run_session ended after %d event(s)", state.event_count)
 }
 
 // Headless_State is the shared context the Input_Source and Event_Sink halves of
 // the auto-player cooperate through — each callback receives only its own rawptr,
-// so shared state has nowhere else to live. voyage_map/current exist only to prefer
-// a forward (deeper-layer) move among the Sim's emitted travel options, not to
-// derive legality.
+// so shared state has nowhere else to live.
+//
+// It counts events rather than keeping them: an Event borrows from the Sim's run arena,
+// so a kept copy is only valid as long as the Sim is.
 Headless_State :: struct {
-	events:         [dynamic]sim.Event,
-	voyage_map:        voyage.Map, // borrowed from Event_Voyage_Started
+	event_count:    int,
+	last_event:     sim.Event, // borrowed from the Sim's run arena; valid only while it lives
+	voyage_map:     voyage.Map, // borrowed from Event_Voyage_Started
 	current:        sim.Node_ID,
 	travel_options: []sim.Node_ID, // borrowed from the latest Event_Travel_Options
 }
@@ -49,7 +50,8 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 		// rejecting keeps the voyage a pure function of the graph.
 		return sim.Command(sim.Command_Trade_Choice{accept = false})
 	case .Awaiting_Travel_Choice:
-		return sim.Command(sim.Command_Travel_To{node_id = headless_next_node(state)})
+		next := voyage.voyage_forward_option(state.voyage_map, state.current, state.travel_options)
+		return sim.Command(sim.Command_Travel_To{node_id = next})
 	case .Awaiting_Refit:
 		// The auto-player declines every option list, so a refit never opens; if one did,
 		// this just finishes it rather than editing the loadout.
@@ -60,27 +62,14 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	panic("unreachable")
 }
 
-// headless_next_node picks the next travel destination from the Sim's emitted legal
-// options: a forward neighbour (deeper layer) if one is offered, else the first option.
-headless_next_node :: proc(state: ^Headless_State) -> sim.Node_ID {
-	options := state.travel_options
-	assert(len(options) > 0, "no legal travel option from the current node")
-
-	for dest in options {
-		if state.voyage_map.nodes[dest].layer > state.voyage_map.nodes[state.current].layer {
-			return dest
-		}
-	}
-	return options[0]
-}
-
-// dispatch is the headless Event_Sink: record every event and track the current node
+// dispatch is the headless Event_Sink: print and count every event, and track the current node
 // plus the Sim's latest travel options that get_captain_choice plans from.
 // Event_Encounter_Resolved.snapshot needs no cleanup here — it lives in the Sim's
 // run-scoped arena and is freed wholesale by sim_destroy, not owned per-recipient.
 dispatch :: proc(data: rawptr, event: sim.Event) {
 	state := cast(^Headless_State)data
-	append(&state.events, event)
+	state.event_count += 1
+	state.last_event = event
 	fmt.printfln("%v", event)
 
 	switch e in event {
