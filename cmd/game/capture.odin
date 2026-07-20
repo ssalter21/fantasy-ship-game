@@ -7,6 +7,7 @@ import "core:strings"
 import combat "../../core/combat"
 import ship "../../core/ship"
 import sim "../../core/sim"
+import voyage "../../core/voyage"
 import rl "vendor:raylib"
 
 // Capture mode is the third Input_Source/Event_Sink pair (ADR-0002), beside the
@@ -422,7 +423,7 @@ capture_phase_slug :: proc(awaiting: sim.Phase) -> string {
 capture_scripted_command :: proc(state: ^Capture_State, awaiting: sim.Phase) -> sim.Command {
 	switch awaiting {
 	case .Awaiting_Travel_Choice:
-		return sim.Command(sim.Command_Travel_To{node_id = capture_next_node(state)})
+		return sim.Command(sim.Command_Travel_To{node_id = voyage.voyage_forward_option(state.game.voyage_map, state.game.current_node_id, state.game.travel_options)})
 	case .Awaiting_Battle_Command:
 		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command_Hold{}})
 	case .Awaiting_Option_Choice:
@@ -435,21 +436,6 @@ capture_scripted_command :: proc(state: ^Capture_State, awaiting: sim.Phase) -> 
 		panic("capture_scripted_command called while the sim isn't awaiting a decision")
 	}
 	panic("unreachable")
-}
-
-// capture_next_node prefers a deeper-layer neighbour among the Sim's emitted travel
-// options, so the scripted walk drives toward Haven instead of wandering.
-capture_next_node :: proc(state: ^Capture_State) -> sim.Node_ID {
-	options := state.game.travel_options
-	assert(len(options) > 0, "capture reached a travel decision with no emitted options")
-
-	nodes := state.game.voyage_map.nodes
-	for dest in options {
-		if nodes[dest].layer > nodes[state.game.current_node_id].layer {
-			return dest
-		}
-	}
-	return options[0]
 }
 
 // capture_requested reports whether the process was started as a capture run.

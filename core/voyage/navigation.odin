@@ -41,3 +41,18 @@ voyage_can_travel_to :: proc(m: Map, current: Node_ID, visited: []bool, dest: No
 		voyage_neighbor_is_legal(m, current, dest, visited) \
 	)
 }
+
+// voyage_forward_option picks a deeper-layer neighbour out of `options` — already-legal
+// destinations the Sim emitted — falling back to the first. It is how a driver with no
+// player (headless's auto-player, capture's scripted walk) heads for the Haven instead of
+// wandering the graph. It decides nothing about legality: that is voyage_travel_options'
+// answer, and this only chooses among it.
+voyage_forward_option :: proc(m: Map, current: Node_ID, options: []Node_ID) -> Node_ID {
+	assert(len(options) > 0, "no legal travel option from the current node")
+	for dest in options {
+		if m.nodes[dest].layer > m.nodes[current].layer {
+			return dest
+		}
+	}
+	return options[0]
+}

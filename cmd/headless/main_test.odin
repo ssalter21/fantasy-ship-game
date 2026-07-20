@@ -38,7 +38,6 @@ get_captain_choice_travels_to_a_legal_forward_neighbor_of_the_current_node :: pr
 @(test)
 get_captain_choice_holds_when_awaiting_a_battle_command :: proc(t: ^testing.T) {
 	state := Headless_State{}
-	defer delete(state.events)
 
 	cmd := get_captain_choice(&state, .Awaiting_Battle_Command)
 
@@ -51,7 +50,6 @@ get_captain_choice_holds_when_awaiting_a_battle_command :: proc(t: ^testing.T) {
 @(test)
 get_captain_choice_declines_when_awaiting_an_option_choice :: proc(t: ^testing.T) {
 	state := Headless_State{}
-	defer delete(state.events)
 
 	cmd := get_captain_choice(&state, .Awaiting_Option_Choice)
 
@@ -67,13 +65,11 @@ the_auto_player_reaches_a_voyage_ended_event_navigating_the_graph :: proc(t: ^te
 	defer sim.sim_destroy(&s)
 
 	state := Headless_State{}
-	defer delete(state.events)
 	sink := sim.Event_Sink{data = &state, dispatch = dispatch}
 	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
 
 	sim.run_session(&s, input, sink)
 
-	last := state.events[len(state.events)-1]
-	_, ok := last.(sim.Event_Voyage_Ended)
+	_, ok := state.last_event.(sim.Event_Voyage_Ended)
 	testing.expect(t, ok)
 }

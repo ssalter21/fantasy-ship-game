@@ -1264,6 +1264,29 @@ a_deeper_ship_battle_in_the_map_is_harder_than_a_shallower_one_in_the_same_zone 
 	testing.expect(t, found)
 }
 
+@(test)
+voyage_forward_option_prefers_a_deeper_neighbour :: proc(t: ^testing.T) {
+	m := voyage_map_create(0)
+	defer voyage_map_destroy(&m)
+
+	next := voyage_forward_option(m, 0, m.edges[0])
+	testing.expect(
+		t,
+		m.nodes[next].layer > m.nodes[0].layer,
+		"a driver with no player should sail toward the Haven when a forward option is offered",
+	)
+}
+
+@(test)
+voyage_forward_option_falls_back_to_the_first_option :: proc(t: ^testing.T) {
+	m := voyage_map_create(0)
+	defer voyage_map_destroy(&m)
+
+	// Every option on the ship's own layer: nothing is deeper, so the first one stands.
+	backward := []Node_ID{0}
+	testing.expect_value(t, voyage_forward_option(m, 0, backward), Node_ID(0))
+}
+
 // --- Traversal legality (voyage_travel_options) --------------------------------
 
 // legality_fixture is a tiny hand-wired graph the legality assertions can
@@ -1286,24 +1309,12 @@ legality_fixture :: proc() -> Map {
 	return Map{nodes = legality_nodes, edges = legality_edges}
 }
 
-// contains_id is the Node_ID counterpart of the generator's int-based
-// voyage_contains, used to assert membership in a voyage_travel_options result now
-// that those results are []Node_ID (issue #112).
-contains_id :: proc(xs: []Node_ID, x: Node_ID) -> bool {
-	for e in xs {
-		if e == x {
-			return true
-		}
-	}
-	return false
-}
-
 set_eq :: proc(got: []Node_ID, want: []Node_ID) -> bool {
 	if len(got) != len(want) {
 		return false
 	}
 	for w in want {
-		if !contains_id(got, w) {
+		if !slice.contains(got, w) {
 			return false
 		}
 	}
@@ -1338,10 +1349,10 @@ travel_options_offers_a_lateral_edge_in_both_directions :: proc(t: ^testing.T) {
 	visited := []bool{false, false, false, false}
 
 	from1 := voyage_travel_options(m, 1, visited)
-	testing.expect(t, contains_id(from1, 2)) // 1 -> 2 lateral
+	testing.expect(t, slice.contains(from1, 2)) // 1 -> 2 lateral
 
 	from2 := voyage_travel_options(m, 2, visited)
-	testing.expect(t, contains_id(from2, 1)) // 2 -> 1 lateral
+	testing.expect(t, slice.contains(from2, 1)) // 2 -> 1 lateral
 }
 
 @(test)
