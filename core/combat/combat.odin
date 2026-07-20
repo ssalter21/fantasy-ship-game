@@ -146,10 +146,7 @@ Event_Battle_Ended :: struct {
 }
 
 combat_battle_create :: proc(a, b: ^ship.Ship) -> Battle {
-	battle: Battle
-	battle.ships[.A] = a
-	battle.ships[.B] = b
-	return battle
+	return Battle{ships = {.A = a, .B = b}}
 }
 
 combat_opposite_side :: proc(side: Side) -> Side {
@@ -379,10 +376,7 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	// Break Off ends the encounter immediately for both ships (ADR-0006):
 	// no phase resolves the round a ship breaks off.
 	if battle.escaped != {} {
-		battle.ended = true
-		battle.reason = .Broke_Off
-		battle.winner = nil
-		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
+		combat_end(battle, .Broke_Off, nil, events)
 		return
 	}
 
@@ -488,26 +482,33 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 	}
 
 	if round_state[.A].sunk || round_state[.B].sunk {
-		battle.ended = true
-		battle.reason = .Destroyed
+		winner: Maybe(Side)
 		switch {
 		case round_state[.A].sunk && round_state[.B].sunk:
-			battle.winner = combat_speed_tiebreak(battle)
+			winner = combat_speed_tiebreak(battle)
 		case round_state[.A].sunk:
-			battle.winner = Side.B
+			winner = Side.B
 		case round_state[.B].sunk:
-			battle.winner = Side.A
+			winner = Side.A
 		}
-		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
+		combat_end(battle, .Destroyed, winner, events)
 		return
 	}
 
 	if battle.round >= HARD_ROUND_CAP {
-		battle.ended = true
-		battle.reason = .Round_Cap
-		battle.winner = combat_hull_tiebreak(battle)
-		append(events, Event(Event_Battle_Ended{round = battle.round, reason = battle.reason, winner = battle.winner}))
+		combat_end(battle, .Round_Cap, combat_hull_tiebreak(battle), events)
 	}
+}
+
+// combat_end closes a battle: it records how it ended and announces it. The three ways a
+// round can be a battle's last (a break off, a sinking, the round cap) differ only in the
+// reason and the winner they carry, so the flag, the record and the Event are set in one
+// place and cannot drift out of step.
+combat_end :: proc(battle: ^Battle, reason: End_Reason, winner: Maybe(Side), events: ^[dynamic]Event) {
+	battle.ended = true
+	battle.reason = reason
+	battle.winner = winner
+	append(events, Event(Event_Battle_Ended{round = battle.round, reason = reason, winner = winner}))
 }
 
 // combat_speed_tiebreak resolves a same-round mutual kill by higher
