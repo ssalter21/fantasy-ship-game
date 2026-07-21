@@ -120,8 +120,7 @@ a_gate_is_discounted_by_how_little_the_author_controls_it :: proc(t: ^testing.T)
 	testing.expect_value(t, effect_cost_factor(deep), GATE_FACTOR_FLOOR)
 
 	// A gate the magnitude does not ride on is part of that tree's arithmetic rather than a
-	// condition standing in front of it, and buys nothing — the same reading of a root
-	// expr_with_bonus takes.
+	// condition standing in front of it, and buys nothing.
 	buried := effect_phase_contribution(expr_add(expr_from_round(5, 4), expr_const(2)))
 	testing.expect_value(t, effect_cost_factor(buried), GATE_FACTOR_UNCONTROLLED)
 }

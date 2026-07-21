@@ -63,8 +63,17 @@ FIGHT_OPPONENT_HULL_PER_DEPTH :: 12
 FIGHT_OPPONENT_POWER_PERCENT_PER_TIER :: 50
 FIGHT_OPPONENT_POWER_PERCENT_PER_DEPTH :: 5
 
+// Offer's reading is spent on which shelf of the roster a node draws from, never on the
+// items themselves (ADR-0031).
 OFFER_ITEM_QUALITY_PER_TIER :: 15
 OFFER_ITEM_QUALITY_PER_DEPTH :: 5
+
+// The quality readings at which the band's top tier steps up (voyage_offer_tier_band).
+// Set **between** the zone tiers' own readings rather than on them, so that depth moves
+// the band inside a zone as well as between zones: a step reachable only by changing zone
+// would make depth-within-zone worth nothing to an Offer.
+OFFER_BAND_SHALLOW_AT :: 25
+OFFER_BAND_DEEP_AT :: 40
 
 // The Trade primitive's stakes constants are **per tradeable stat** (Trade_Stat), not
 // per trade: a Trade is a roster entry naming two stats (content.odin's Trade_Axis) and
@@ -162,10 +171,28 @@ voyage_fight_opponent_power :: proc(site: Scaling_Site) -> int {
 }
 
 // voyage_offer_item_quality is the Offer primitive's stakes reading: a deeper Offer
-// presents stronger items than a shallow one in the same zone. It feeds
-// voyage_item_offer_options' per-item scaling bonus (issue #96, ADR-0012).
+// presents stronger items than a shallow one in the same zone. Only voyage_offer_tier_band
+// consumes it, and it stays a bare int on the shared gradient so Offer is read against the
+// other primitives' readings rather than off a ladder of its own.
 voyage_offer_item_quality :: proc(site: Scaling_Site) -> int {
 	return voyage_zone_depth_scaled(site, OFFER_ITEM_QUALITY_PER_TIER, OFFER_ITEM_QUALITY_PER_DEPTH)
+}
+
+// voyage_offer_tier_band is the tiers an Offer at this site may draw from: the top tier the
+// site's quality has reached, plus the one below it, so a band is two shelves wide wherever
+// the ladder has two. **The floor rises with the ceiling** — depth takes shelves away as
+// well as adding them, which is what makes it a gradient rather than a lottery (ADR-0031).
+//
+// The top band has nowhere above it to climb, so an Offer stops moving once a site reaches
+// it. Authoring a fourth Tier is what would change that.
+voyage_offer_tier_band :: proc(site: Scaling_Site) -> bit_set[ship.Tier] {
+	switch quality := voyage_offer_item_quality(site); {
+	case quality >= OFFER_BAND_DEEP_AT:
+		return {.Shallow, .Deep}
+	case quality >= OFFER_BAND_SHALLOW_AT:
+		return {.Splash, .Shallow}
+	}
+	return {.Splash}
 }
 
 // voyage_trade_swing is the Trade primitive's stakes reading: how much of `stat` one

@@ -557,9 +557,6 @@ expr_peak :: proc(e: Expr, peaks: Count_Table) -> int {
 // item's magnitude on the open branch and nothing on the other — not a closed set an author must pick
 // from: an item wanting something outside these writes its own tree and costs the nodes it
 // costs. Nothing in the evaluator knows they exist.
-//
-// Both branches are authored as constants, so a bonus applied to the item later
-// (ship_fitting_scaled) lands outside the gate — see that proc for what that means.
 
 // expr_below_hull_percent is the "desperate" shape: full magnitude while the owner's Hull
 // is strictly below `percent` percent of its maximum, nothing above it. Written as a
@@ -616,18 +613,6 @@ expr_while_opponent_slower :: proc(magnitude: int) -> Expr {
 		expr_const(magnitude),
 		expr_const(0),
 	)
-}
-
-// expr_with_bonus is effect_with_bonus's rule as arithmetic: down a Gate's open branch,
-// recursively (so a nested gate is followed to the end), and at the root of anything else.
-// It asks whether the **root** is a Gate, not whether the tree contains one — a gate
-// buried under a Mul is part of that tree's arithmetic, not a branch to choose between.
-expr_with_bonus :: proc(e: Expr, bonus: int) -> Expr {
-	if e.count == 0 || e.nodes[0].kind != .Gate {
-		return expr_add(e, expr_const(bonus))
-	}
-	op, lhs, rhs, then_expr, else_expr := expr_gate_parts(e)
-	return expr_gate(op, lhs, rhs, expr_with_bonus(then_expr, bonus), else_expr)
 }
 
 @(private = "file")

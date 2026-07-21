@@ -52,8 +52,7 @@ CAPTAIN_STARTING_CARGO :: 10
 // Their effects cover both round phases (ADR-0006, amended by ADR-0025): Captain's Quarters
 // braces — repairing, the Brace verb (ADR-0027) — while Top Crew and Gun Deck both fire.
 // Each sits in exactly one Tag family (#90), so the "crew vs guns" distinction rides on the
-// Tag, not the phase. The upgraded variants inherit these through ship_fitting_upgraded,
-// which copies the base fitting whole.
+// Tag, not the phase.
 ship_fitting_top_crew :: proc() -> Fitting {
 	return ship_fitting_with_effects(
 		Fitting{name = "Top Crew", size = .Medium, bulk = 20, weight = 16, tags = {.Crew}},
@@ -75,48 +74,6 @@ ship_fitting_gun_deck :: proc() -> Fitting {
 	)
 }
 
-// ship_fitting_upgraded is the shared shape behind the three upgraded-variant procs
-// below: an upgraded variant keeps its base's size and effects and adds bonus on top of
-// their magnitudes. bonus is a caller-supplied scale (issue #23: a deeper node's
-// upgrade is worth more, and a PvE opponent's gun deck scales the same way), not a
-// fixed constant.
-ship_fitting_upgraded :: proc(base: Fitting, upgraded_name: string, bonus: int) -> Fitting {
-	f := ship_fitting_scaled(base, bonus)
-	f.name = upgraded_name
-	return f
-}
-
-// effect_with_bonus adds a flat `bonus` to what an effect's tree yields. A zero bonus
-// returns the effect untouched rather than spending two nodes saying nothing.
-//
-// **The bonus lands on the branch a gate opens onto, never on its fallback**, so a gated
-// item that pays nothing while its condition is unmet still pays nothing after the bonus:
-// a "below half Hull, +12" beast offered at +2 is a +14 beast below half Hull, not a beast
-// that has quietly become useful above it. Adding at the root instead would be one node
-// cheaper and would make every conditional item unconditional by a little, which is a
-// balance change disguised as a refactor. An ungated tree takes it at the root, where
-// there is no branch to prefer.
-effect_with_bonus :: proc(effect: Effect, bonus: int) -> Effect {
-	if bonus == 0 {
-		return effect
-	}
-	bonused := effect
-	bonused.magnitude = expr_with_bonus(effect.magnitude, bonus)
-	return bonused
-}
-
-ship_fitting_upgraded_top_crew :: proc(bonus: int) -> Fitting {
-	return ship_fitting_upgraded(ship_fitting_top_crew(), "Upgraded Top Crew", bonus)
-}
-
-ship_fitting_upgraded_captains_quarters :: proc(bonus: int) -> Fitting {
-	return ship_fitting_upgraded(ship_fitting_captains_quarters(), "Upgraded Captain's Quarters", bonus)
-}
-
-ship_fitting_upgraded_gun_deck :: proc(bonus: int) -> Fitting {
-	return ship_fitting_upgraded(ship_fitting_gun_deck(), "Upgraded Gun Deck", bonus)
-}
-
 // Tier is the catalog-authoring power/cost grade a roster item is written at (ADR-0012):
 // Splash (lightest) → Shallow → Deep (strongest). Deliberately *not* a field on Fitting:
 // tier scales an item's authored magnitudes and its shop cost, but combat resolution and
@@ -129,10 +86,11 @@ Tier :: enum {
 	Deep,
 }
 
-// Roster_Item pairs a catalog Fitting with the Tier it was authored at. An Item Offer
-// reads only the `fitting` (tier's power is already baked into the item's magnitudes),
-// while a shop reads `tier` to price it (ship_item_cost). Keeping tier out of Fitting is
-// what lets the same Fitting round-trip through a Ghost_Snapshot (ADR-0008) unchanged.
+// Roster_Item pairs a catalog Fitting with the Tier it was authored at. Tier's power is
+// baked into the item's magnitudes, so what a consumer reads it *for* is selection: an
+// Offer draws the tiers in its site's band and hands the fitting over untouched, a shop
+// prices it (ship_item_cost). Keeping tier out of Fitting is what lets the same Fitting
+// round-trip through a Ghost_Snapshot (ADR-0008) unchanged.
 Roster_Item :: struct {
 	fitting: Fitting,
 	tier:    Tier,
@@ -181,23 +139,10 @@ ship_fit_first_empty_slot :: proc(layout: []Layout_Slot, fitting: Fitting) -> bo
 	return false
 }
 
-// ship_fitting_scaled returns a copy of base with `bonus` added to every one of its effect
-// magnitudes — the Item Offer's zone-and-depth quality knob applied to a roster item (issue
-// #96). Each effect keeps its verb, phase, timing and selector, so only strength moves. A
-// cargo filler (no effects) is returned unchanged. See effect_with_bonus for where the
-// bonus lands inside a gated item's tree.
-ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
-	f := base
-	for i in 0 ..< f.effect_count {
-		f.effects[i] = effect_with_bonus(f.effects[i], bonus)
-	}
-	return f
-}
-
 // ship_fitting_output_scaled returns a copy of base with its combat **output** scaled to
-// `percent` percent of what was authored — the multiplicative sibling of
-// ship_fitting_scaled's additive bonus, and the shape core/voyage's Fight stakes reads with
-// (issue #165: an additive bonus can only ever add). 100 returns the fitting as authored.
+// `percent` percent of what was authored. Its one caller bakes it into a hostile at
+// construction (voyage_fit_hostile_loadout); an item in a player's hands is never scaled
+// (ADR-0031). 100 returns the fitting as authored.
 //
 // **Only a Phase_Contribution effect moves** — the damage a fitting deals, and nothing
 // else. Modify_Speed acts through ship_effective_speed and Repair restores the owner's own
@@ -211,8 +156,11 @@ ship_fitting_scaled :: proc(base: Fitting, bonus: int) -> Fitting {
 // the tree yields, rounding half-up, so a scale-down cannot silently disarm the smallest
 // fittings: magnitude 1 at 50% is 1, not 0, and any percent >= 50 holds that. It lands
 // ahead of the synergy multiply, keeping the scaling proportional to what the fitting deals
-// rather than the build around it: `(m x pct) x count` is `pct x (m x count)`. An additive
-// bonus has no such property (see voyage_fit_hostile_loadout).
+// rather than the build around it: `(m x pct) x count` is `pct x (m x count)`.
+//
+// **One rounding per effect**, never per anything finer: the residual flatness that leaves
+// at small magnitudes (1 stays 1 until 150%) is an integer-granularity artifact no
+// multiplier design avoids, answered by authoring guidance rather than by finer units.
 //
 // Composes multiplicatively, so scaling an already-scaled fitting reads as the product
 // rather than replacing what came before.

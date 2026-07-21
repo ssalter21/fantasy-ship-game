@@ -106,6 +106,72 @@ offer_item_quality_rises_by_zone_and_depth :: proc(t: ^testing.T) {
 	expect_rises_by_zone_and_depth(t, voyage_offer_item_quality)
 }
 
+// **The band climbs whole** (#409): a richer reading never drops the shelf an Offer can
+// reach, and never re-opens a shelf a shallower one had already left behind. The floor
+// moving with the ceiling is the whole mechanism — a Deep node stops offering Splash
+// items rather than handing them out with bigger numbers.
+@(test)
+the_offer_tier_band_climbs_whole_with_the_site :: proc(t: ^testing.T) {
+	band_edges :: proc(band: bit_set[ship.Tier]) -> (lowest, highest: ship.Tier) {
+		found := false
+		for tier in ship.Tier {
+			if tier not_in band {
+				continue
+			}
+			if !found {
+				lowest = tier
+				found = true
+			}
+			highest = tier
+		}
+		return
+	}
+
+	for zone in Zone {
+		for depth in 0 ..= DEPTH_STEPS {
+			shallower := Scaling_Site{zone = zone, depth = depth}
+			shallow_low, shallow_high := band_edges(voyage_offer_tier_band(shallower))
+			testing.expectf(t, voyage_offer_tier_band(shallower) != {}, "%v depth %d offers nothing at all", zone, depth)
+
+			for other_zone in Zone {
+				for other_depth in 0 ..= DEPTH_STEPS {
+					deeper := Scaling_Site{zone = other_zone, depth = other_depth}
+					if voyage_offer_item_quality(deeper) < voyage_offer_item_quality(shallower) {
+						continue
+					}
+					deep_low, deep_high := band_edges(voyage_offer_tier_band(deeper))
+					testing.expectf(
+						t,
+						deep_low >= shallow_low && deep_high >= shallow_high,
+						"%v depth %d offers %v..%v, but the shallower %v depth %d offers %v..%v",
+						other_zone,
+						other_depth,
+						deep_low,
+						deep_high,
+						zone,
+						depth,
+						shallow_low,
+						shallow_high,
+					)
+				}
+			}
+		}
+	}
+}
+
+// The band's two endpoints, pinned: the shallowest node in the game reaches no Deep
+// item, and the deepest offers no Splash one. Without these the climb above is
+// satisfiable by a band that never moves.
+@(test)
+the_offer_tier_band_spans_the_roster_between_its_endpoints :: proc(t: ^testing.T) {
+	shallowest := voyage_offer_tier_band(Scaling_Site{zone = .Coastal, depth = 0})
+	deepest := voyage_offer_tier_band(Scaling_Site{zone = .Deep, depth = DEPTH_STEPS})
+
+	testing.expect(t, ship.Tier.Deep not_in shallowest)
+	testing.expect(t, ship.Tier.Splash not_in deepest)
+	testing.expect(t, ship.Tier.Deep in deepest)
+}
+
 // The Trade primitive's reading is keyed by stat rather than by side (issue
 // #136), so it can't go through expect_rises_by_zone_and_depth's
 // proc(Scaling_Site) shape — and since #146 it reads no depth at all, so half of

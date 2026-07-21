@@ -170,15 +170,12 @@ a_deeper_node_gives_the_opponent_harder_hitting_fire_fittings :: proc(t: ^testin
 	testing.expect(t, deep.hull > coastal.hull)
 }
 
-// **Stakes scales what a hostile deals, and Fire is all it deals**
-// (voyage_stakes_scales_category). Brace is exempt because it repairs (ADR-0027): a
-// hostile repair that reached the player's per-round Fire output would be an unkillable
-// hostile.
+// **Stakes scales what a hostile deals, and Fire is all it deals.** Repair is exempt
+// (ADR-0027): a hostile repair that reached the player's per-round Fire output would be
+// an unkillable hostile — its staying power grows through its Hull pool instead.
 //
-// Only Brace is exempt. Every other category — Fire, and the Modify_Speed passives
-// filed under it — the site scales. This names the *property* (Brace output never moves
-// with the site) rather than a category list that would drift each time the categories
-// move.
+// This names the *property* — a hostile's Brace output never moves with the site —
+// rather than the list of effects that happen to be exempt today.
 @(test)
 the_site_scales_what_a_hostile_deals_and_never_its_brace :: proc(t: ^testing.T) {
 	shallow_site := Scaling_Site{zone = .Coastal, depth = 0}
@@ -202,13 +199,11 @@ the_site_scales_what_a_hostile_deals_and_never_its_brace :: proc(t: ^testing.T) 
 // **Speed is the archetype's axis, and the site must not touch it** (#165, and the
 // reason FIGHT_OPPONENT_SPEED was retired onto Hostile_Archetype by #135).
 //
-// This is a live tripwire rather than theoretical: the roster's four Modify_Speed items
-// are filed under Phase `.Fire` (Spare Rigging, Copper Sheathing, Outriggers,
-// Enchanted Keel), and `.Fire` is a category the site scales. Only
-// ship_fitting_output_scaled's refusal to touch anything but an active
-// Phase_Contribution keeps a Deep node from handing Reef Skimmer more Speed than a
-// Coastal one — which would quietly decide who is allowed to break off, since
-// escape eligibility is *strictly faster* (combat_may_break_off).
+// This is a live tripwire rather than theoretical: the roster carries Modify_Speed items
+// a hostile can be built from, and only ship_fitting_output_scaled's guard **on the
+// verb** — scaling Phase_Contribution and nothing else — keeps a Deep node from handing
+// Reef Skimmer more Speed than a Coastal one, which would quietly decide who is allowed
+// to break off (escape eligibility is *strictly faster*, combat_may_break_off).
 //
 // Two archetypes have real stakes in this: Smuggler's Run's Spare Rigging is what
 // takes it to an effective 8 so it bolts the round the gate opens, and Reef Skimmer
@@ -253,15 +248,17 @@ the_site_never_moves_a_hostiles_speed :: proc(t: ^testing.T) {
 // *shape* of the scaling and a conditional that is unmet contributes 0 at every
 // power, which scales correctly and trivially.
 //
-// The tolerance is rounding, and it is bounded rather than fudged:
-// ship_fitting_output_scaled rounds each fitting half-up, so a fitting is off by at
-// most half a point before its synergy count multiplies it — a couple of points
-// across a whole build. It is deliberately far tighter than the 5-point divergence
-// the old model had at Coastal and the 5-point one it had in The Deep.
+// The tolerance is rounding. The site scale is applied **once per effect**, rounding
+// half-up, so one effect is off by at most half a point — and a synergy count multiplies
+// that error along with the magnitude it sits on, so no closed bound over an arbitrary
+// build is available. What is asserted is the item-sized ceiling, ceil(0.5 x
+// ship.FITTING_MAX_EFFECTS), and the claim that the roster's builds meet it: their
+// roundings do not all err the same way. That is a property of this roster, which is why
+// it is a swept test rather than an inequality on paper.
 @(test)
 the_site_scales_every_archetype_by_the_same_proportion :: proc(t: ^testing.T) {
-	// Half a point per scaled fitting, times the largest synergy count in the roster.
-	TOLERANCE :: 2
+	// ceil(0.5 x FITTING_MAX_EFFECTS): half a point per rounding, one rounding per effect.
+	TOLERANCE :: (ship.FITTING_MAX_EFFECTS + 1) / 2
 
 	for archetype in voyage_hostile_roster() {
 		as_authored := hostile_at_power(archetype, 100)
@@ -655,24 +652,60 @@ voyage_item_offer_options_presents_distinct_roster_items :: proc(t: ^testing.T) 
 	}
 }
 
+// **An item's numbers are authored, never scaled** (#409): an Offer hands over the
+// roster line exactly as it is written, at every site. What a captain picks up is the
+// item the roster says it is, which is what makes the power budget's pricing of that
+// line true in the player's hands as well as on paper.
 @(test)
-voyage_item_offer_options_scale_up_with_a_deeper_node :: proc(t: ^testing.T) {
-	// A deeper node's quality bonus lifts the offered items' magnitudes. Drawing
-	// both offers from the same seed makes them sample the same items in the same
-	// order, so the only difference is the zone/depth scaling.
-	low_state := rand.create(7)
-	high_state := rand.create(7)
-	low := voyage_item_offer_options(Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&low_state))
-	high := voyage_item_offer_options(Scaling_Site{zone = .Deep, depth = 3}, rand.default_random_generator(&high_state))
-
-	found_scaled := false
-	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
-		testing.expect_value(t, low[i].name, high[i].name) // same items, same order
-		if effect_strength(high[i]) > effect_strength(low[i]) {
-			found_scaled = true
+an_offer_hands_over_the_roster_line_unmodified :: proc(t: ^testing.T) {
+	for zone in Zone {
+		for depth in 0 ..= DEPTH_STEPS {
+			state := rand.create(u64(depth) + 1)
+			site := Scaling_Site{zone = zone, depth = depth}
+			for option in voyage_item_offer_options(site, rand.default_random_generator(&state)) {
+				item, found := ship.ship_item_by_name(option.name)
+				testing.expectf(t, found, "an offer presented %v, which is not a roster item", option.name)
+				testing.expectf(
+					t,
+					option == item.fitting,
+					"%v arrives modified at %v depth %d — an offered item is the roster line, unmodified",
+					option.name,
+					zone,
+					depth,
+				)
+			}
 		}
 	}
-	testing.expect(t, found_scaled)
+}
+
+// Depth's lever on an Offer is **which shelf it draws from** (#409): every option comes
+// from the site's tier band, so a deeper node offers a better item rather than the same
+// item with bigger numbers. Swept across seeds, since the band binds every draw and not
+// just a lucky one.
+@(test)
+an_offers_options_come_from_its_sites_tier_band :: proc(t: ^testing.T) {
+	for zone in Zone {
+		for depth in 0 ..= DEPTH_STEPS {
+			site := Scaling_Site{zone = zone, depth = depth}
+			band := voyage_offer_tier_band(site)
+			for seed in u64(0) ..< 20 {
+				state := rand.create(seed)
+				for option in voyage_item_offer_options(site, rand.default_random_generator(&state)) {
+					item, _ := ship.ship_item_by_name(option.name)
+					testing.expectf(
+						t,
+						item.tier in band,
+						"%v is a %v item offered at %v depth %d, whose band is %v",
+						option.name,
+						item.tier,
+						zone,
+						depth,
+						band,
+					)
+				}
+			}
+		}
+	}
 }
 
 // --- Trade roster (issue #136) ----------------------------------------------
@@ -816,12 +849,3 @@ every_trade_roster_entry_is_takeable_by_a_starting_ship_outside_the_deep :: proc
 	}
 }
 
-// effect_strength totals the magnitudes of every effect a roster item carries, so a test
-// can assert the quality scaling lifted the item without naming which effect moved.
-effect_strength :: proc(f: ship.Fitting) -> int {
-	total := 0
-	for i in 0 ..< f.effect_count {
-		total += ship.effect_showcase_magnitude(f.effects[i])
-	}
-	return total
-}

@@ -151,43 +151,6 @@ the_three_starting_fittings_and_cargo_carry_their_families :: proc(t: ^testing.T
 	testing.expect_value(t, ship_fitting_hold(.Small).tags, bit_set[Tag]{.Cargo})
 }
 
-@(test)
-an_upgraded_fitting_inherits_its_base_fittings_families :: proc(t: ^testing.T) {
-	testing.expect_value(t, ship_fitting_upgraded_top_crew(1).tags, ship_fitting_top_crew().tags)
-	testing.expect_value(t, ship_fitting_upgraded_captains_quarters(1).tags, ship_fitting_captains_quarters().tags)
-	testing.expect_value(t, ship_fitting_upgraded_gun_deck(1).tags, ship_fitting_gun_deck().tags)
-}
-
-@(test)
-upgraded_top_crew_keeps_size_and_phase_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
-	base := ship_fitting_top_crew()
-	upgraded := ship_fitting_upgraded_top_crew(1)
-
-	testing.expect_value(t, upgraded.size, base.size)
-	testing.expect_value(t, ship_fitting_phases(upgraded), ship_fitting_phases(base))
-	testing.expect(t, effect_showcase_magnitude(upgraded.effects[0]) > effect_showcase_magnitude(base.effects[0]))
-}
-
-@(test)
-upgraded_captains_quarters_keeps_size_and_phase_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
-	base := ship_fitting_captains_quarters()
-	upgraded := ship_fitting_upgraded_captains_quarters(1)
-
-	testing.expect_value(t, upgraded.size, base.size)
-	testing.expect_value(t, ship_fitting_phases(upgraded), ship_fitting_phases(base))
-	testing.expect(t, effect_showcase_magnitude(upgraded.effects[0]) > effect_showcase_magnitude(base.effects[0]))
-}
-
-@(test)
-upgraded_gun_deck_keeps_size_and_phase_but_out_magnitudes_the_base_fitting :: proc(t: ^testing.T) {
-	base := ship_fitting_gun_deck()
-	upgraded := ship_fitting_upgraded_gun_deck(1)
-
-	testing.expect_value(t, upgraded.size, base.size)
-	testing.expect_value(t, ship_fitting_phases(upgraded), ship_fitting_phases(base))
-	testing.expect(t, effect_showcase_magnitude(upgraded.effects[0]) > effect_showcase_magnitude(base.effects[0]))
-}
-
 // --- The ~50-item roster (issue #97, ADR-0012) ---
 
 // roster_item_named finds the one Roster_Item with `name`, panicking if the
@@ -576,58 +539,4 @@ ship_fitting_output_scaled_rounds_half_up_and_is_the_identity_at_a_hundred :: pr
 	// A hold carries no effect at all and is returned untouched.
 	filler := ship_fitting_hold(.Small, "Spoils")
 	testing.expect_value(t, ship_fitting_output_scaled(filler, 50), filler)
-}
-
-// --- The offer bonus against a tree (#404) -----------------------------------
-
-@(test)
-an_offer_bonus_lands_on_a_gates_open_branch_and_never_on_its_fallback :: proc(t: ^testing.T) {
-	// A gated item that pays nothing while its condition is unmet must still pay nothing
-	// once an offer has sweetened it — otherwise every conditional item quietly becomes a
-	// little unconditional, which is a balance change wearing a refactor's clothes.
-	beast := ship_fitting_with_effects(Fitting{name = "Cornered Beast", size = .Large}, effect_phase_contribution(expr_below_hull_percent(50, 12)))
-	sweetened := ship_fitting_scaled(beast, 2).effects[0]
-
-	s := synergy_ship(beast)
-	defer delete(s.layout)
-	s.max_hull = 20
-
-	s.hull = 20 // above the threshold: the gate is shut, and the bonus is behind it
-	testing.expect_value(t, effect_magnitude(sweetened, ship_effect_context(&s)), Magnitude(0))
-
-	s.hull = 9 // below it: the bonus is on the branch that opened
-	testing.expect_value(t, effect_magnitude(sweetened, ship_effect_context(&s)), Magnitude(14))
-
-	// An ungated item takes it at the root, where there is no branch to prefer.
-	gun := ship_fitting_with_effects(Fitting{name = "Long Nines", size = .Large}, effect_phase_contribution(expr_const(8)))
-	plain := ship_fitting_scaled(gun, 2).effects[0]
-	testing.expect_value(t, effect_showcase_magnitude(plain), 10)
-}
-
-// The bonus costs nodes, and the bound is asserted where a tree is built — so a roster
-// item that could not survive being offered would assert mid-voyage rather than in a test.
-// The offer's largest bonus is a handful of points; this pins the whole roster against a
-// generous one.
-@(test)
-every_roster_item_still_fits_the_node_bound_once_an_offer_has_sweetened_it :: proc(t: ^testing.T) {
-	for item in ship_item_roster() {
-		sweetened := ship_fitting_scaled(item.fitting, 9)
-		for i in 0 ..< sweetened.effect_count {
-			effect := sweetened.effects[i]
-			base := item.fitting.effects[i]
-			testing.expectf(
-				t,
-				effect.magnitude.count <= EXPR_MAX_NODES,
-				"%s overruns the node bound once bonused: %d nodes",
-				item.fitting.name,
-				effect.magnitude.count,
-			)
-			testing.expectf(
-				t,
-				effect_showcase_magnitude(effect) > effect_showcase_magnitude(base),
-				"%s did not get stronger",
-				item.fitting.name,
-			)
-		}
-	}
 }
