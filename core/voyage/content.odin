@@ -151,43 +151,42 @@ voyage_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Shi
 	return s
 }
 
-// OFFER_ITEM_QUALITY_DIVISOR converts a node's Offer quality reading
-// (voyage_offer_item_quality) into a flat magnitude bonus added to each offered item (issue
-// #96) — a smaller, more legible number than raw quality. Not a stakes constant (it converts
-// a reading rather than scaling by tier/depth), so it stays with its consumer rather than
-// joining the scaling group.
-OFFER_ITEM_QUALITY_DIVISOR :: 5
-
-// voyage_item_offer_options picks the distinct roster items an Offer stage presents (issue
-// #96, ADR-0012): it samples ITEM_OFFER_OPTION_COUNT distinct items from ship_item_roster,
-// shuffling the pool's indices with the map generator's RNG so an offer is reproducible per
-// seed yet varies node to node, and scales each by this node's stakes. Baked at generation
-// time (voyage_bake_stage), so the offer carries its items as content.
+// voyage_item_offer_options picks the distinct roster items an Offer stage presents
+// (ADR-0012): ITEM_OFFER_OPTION_COUNT distinct items sampled from the site's tier band,
+// shuffled with the map generator's RNG so an offer is reproducible per seed yet varies node
+// to node. Baked at generation time (voyage_bake_stage), so the offer carries its items as
+// content.
+//
+// **The roster line is handed over unmodified** (ADR-0031): what depth moves is the band
+// drawn from (voyage_offer_tier_band) and nothing about the item, which is what makes the
+// power budget's pricing of that line true in the player's hands.
 voyage_item_offer_options :: proc(site: Scaling_Site, gen: rand.Generator) -> [ITEM_OFFER_OPTION_COUNT]ship.Fitting {
-	bonus := voyage_offer_item_quality(site) / OFFER_ITEM_QUALITY_DIVISOR
 	roster := ship.ship_item_roster()
-	indices := voyage_shuffled_roster_indices(gen)
+	candidates, n := voyage_offer_candidates(voyage_offer_tier_band(site))
+	assert(n >= ITEM_OFFER_OPTION_COUNT, "an offer's tier band holds fewer roster items than an Offer presents")
+	rand.shuffle(candidates[:n], gen)
 
 	options: [ITEM_OFFER_OPTION_COUNT]ship.Fitting
 	for i in 0 ..< ITEM_OFFER_OPTION_COUNT {
-		// tier's power is already baked into the item's magnitudes, so the offer reads only
-		// the fitting and scales it by this node's quality (a shop reads the tier for cost).
-		options[i] = ship.ship_fitting_scaled(roster[indices[i]].fitting, bonus)
+		options[i] = roster[candidates[i]].fitting
 	}
 	return options
 }
 
-// voyage_shuffled_roster_indices returns the roster's indices (0..<ship.ITEM_ROSTER_SIZE) in
-// a per-seed-reproducible shuffled order — the front half of sampling N distinct roster items
-// for the Offer stage (voyage_item_offer_options takes the first ITEM_OFFER_OPTION_COUNT).
-// Offer-only: a Shop draws from its own stock pool (voyage_bake_shop), not the whole roster.
-voyage_shuffled_roster_indices :: proc(gen: rand.Generator) -> [ship.ITEM_ROSTER_SIZE]int {
-	indices: [ship.ITEM_ROSTER_SIZE]int
-	for i in 0 ..< ship.ITEM_ROSTER_SIZE {
-		indices[i] = i
+// voyage_offer_candidates returns the roster indices in `band`, in roster order, and how
+// many — the filter half of voyage_item_offer_options, split out so the band can be checked
+// against the roster without baking an offer. It shares voyage_stock_candidates' shape and
+// deliberately not its body: Odin has no closures, so one proc serving both axes would have
+// to take the tag filter and the tier filter together and know which of them it was doing.
+voyage_offer_candidates :: proc(band: bit_set[ship.Tier]) -> (indices: [ship.ITEM_ROSTER_SIZE]int, count: int) {
+	for item, i in ship.ship_item_roster() {
+		if item.tier not_in band {
+			continue
+		}
+		indices[count] = i
+		count += 1
 	}
-	rand.shuffle(indices[:], gen)
-	return indices
+	return
 }
 
 // Trade_Axis is one authored entry in the Trade roster (issue #136): a named bargain and the

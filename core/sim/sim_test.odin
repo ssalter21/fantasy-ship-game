@@ -243,15 +243,12 @@ a_battle_free_route_reaches_the_haven_and_wins :: proc(t: ^testing.T) {
 	// at every emitted option gets the ship to Haven unscathed — the redesign's
 	// "travel to Haven wins" over a real graph.
 	//
-	// Re-pinned from seed 9 to seed 17 by the zero-crossing generator (#346): where
-	// #135/#136/#138 were content draws sitting *upstream* of edge generation, #346
-	// rewrote edge generation itself (monotone forward blocks, adjacent-only
-	// laterals), so every seed's routes — and thus which encounters a policy can
-	// dodge — reshaped, and a scenario pinned to one seed had to be re-pinned. The
-	// scarcity the catalog introduced still holds: a battle-free route to Haven
-	// survives on only a handful of seeds. Seed 17 is the lowest that keeps this
-	// pair — a battle-free route *and* a winnable first fight (below).
-	res := drive_policy(17, .Avoid_Battles, combat.Command(PRESS_FIRE))
+	// **Seed-pinned, and the pin is fragile**: a battle-free route to Haven survives
+	// on only a handful of seeds, and any new draw at or above map generation reshapes
+	// every seed's routes — so a change to what the generator rolls re-pins this. Seed
+	// 12 is the lowest that keeps the pair this and the test below need: a battle-free
+	// route *and* a winnable first fight on the same map.
+	res := drive_policy(12, .Avoid_Battles, combat.Command(PRESS_FIRE))
 	testing.expect_value(t, res.status, voyage.Voyage_Status.Won)
 	testing.expect_value(t, res.hull, ship.STARTING_HULL) // untouched: no battle fought
 }
@@ -262,16 +259,11 @@ fighting_a_coastal_ship_battle_can_be_won :: proc(t: ^testing.T) {
 	// Fire, then dodge the rest: the fresh ship wins it and sails on to
 	// Haven, taking some damage along the way.
 	//
-	// Re-pointed from seed 11 by the hostile roster (#135), then from seed 2 by the
-	// recipe catalog (#138), and now from seed 9 to seed 17 by the zero-crossing
-	// generator (#346), which #136 called: a new draw sits at or above edge
-	// generation, so every seed's map reshapes and a scenario pinned to one has to be
-	// re-pinned. Seed 17's first battle is a shallow Coastal one this fresh ship wins
-	// for a few Hull (100 -> 96), and seed 17 is deliberately the same map
-	// a_battle_free_route_reaches_the_haven_and_wins sails: one map that both permits
-	// a route around every fight and rewards taking the first one is a better pair of
-	// scenarios than two unrelated seeds.
-	res := drive_policy(17, .First_Battle_Then_Avoid, combat.Command(PRESS_FIRE))
+	// Seed 12 is deliberately the same map a_battle_free_route_reaches_the_haven_and_wins
+	// sails: one map that both permits a route around every fight and rewards taking the
+	// first one is a better pair of scenarios than two unrelated seeds. Its first battle
+	// costs the fresh ship about half its Hull and is still won.
+	res := drive_policy(12, .First_Battle_Then_Avoid, combat.Command(PRESS_FIRE))
 	testing.expect_value(t, res.status, voyage.Voyage_Status.Won)
 	testing.expect(t, res.battles_won >= 1)
 	testing.expect(t, res.hull < ship.STARTING_HULL) // a real fight cost some Hull
@@ -294,11 +286,9 @@ skipping_item_offers_on_the_route_leaves_the_loadout_unchanged :: proc(t: ^testi
 	// still sits in its Large exposed slot at Haven — the retired auto-replace path
 	// would have swapped it.
 	//
-	// Re-pointed from seed 4 to seed 9 with the battle-free route above (#138), and
-	// now to seed 17 by the zero-crossing generator (#346). The premise was checked
-	// rather than assumed on the way: seed 17's dodging route is presented six option
-	// lists, so there is something here to skip.
-	res := drive_policy(17, .Avoid_Battles, combat.Command(PRESS_FIRE))
+	// The premise is checked rather than assumed: seed 12's dodging route is presented
+	// five option lists, so there is something here to skip.
+	res := drive_policy(12, .Avoid_Battles, combat.Command(PRESS_FIRE))
 	testing.expect_value(t, res.status, voyage.Voyage_Status.Won)
 }
 
@@ -623,6 +613,14 @@ has_event :: proc(events: []Event, $T: typeid) -> bool {
 	return false
 }
 
+// refit_incoming_item is the pending fitting the refit tests drive with: a real roster
+// item at Large, the one size the starting layout leaves a free slot for.
+refit_incoming_item :: proc() -> ship.Fitting {
+	item, found := ship.ship_item_by_name("Long Nines")
+	assert(found, "the refit tests' incoming item left the roster")
+	return item.fitting
+}
+
 fitting_name_at :: proc(sim: ^Sim, slot: int) -> string {
 	f, ok := sim.player.layout[slot].fitting.?
 	return ok ? f.name : ""
@@ -649,7 +647,7 @@ a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :
 	events: [dynamic]Event
 	defer delete(events)
 
-	incoming := ship.ship_fitting_upgraded_gun_deck(3) // "Upgraded Gun Deck", Large
+	incoming := refit_incoming_item() // "Long Nines", Large
 	sim_open_refit(&sim, incoming, &events)
 	testing.expect(t, has_event(events[:], Event_Refit_Started))
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Refit)
@@ -678,13 +676,13 @@ a_refit_sequence_installs_moves_and_removes_fittings_and_enforces_the_fit_rule :
 	testing.expect(t, slot_is_free(&sim, 2))
 	testing.expect_value(t, fitting_name_at(&sim, 3), "Gun Deck")
 
-	// Land the pending Upgraded Gun Deck in the freed Large slot 2. It goes in as a
+	// Land the pending Long Nines in the freed Large slot 2. It goes in as a
 	// Replace, not an Install: the slot carries a backfilled hold, and Install still
 	// refuses an occupied slot.
 	submit_refit(&sim, Refit_Replace{slot = 2})
 	ev = refit_tick(&sim, &events)
 	testing.expect(t, has_event(ev, Event_Fitting_Installed))
-	testing.expect_value(t, fitting_name_at(&sim, 2), "Upgraded Gun Deck")
+	testing.expect_value(t, fitting_name_at(&sim, 2), "Long Nines")
 	_, pending_after_install := sim.refit_pending.?
 	testing.expect(t, !pending_after_install) // consumed
 
@@ -794,7 +792,7 @@ finishing_a_refit_discards_an_unplaced_incoming_fitting :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim_open_refit(&sim, ship.ship_fitting_upgraded_gun_deck(3), &events)
+	sim_open_refit(&sim, refit_incoming_item(), &events)
 	_, pending := sim.refit_pending.?
 	testing.expect(t, pending)
 
@@ -817,7 +815,7 @@ a_refit_slot_index_out_of_range_asserts :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim_open_refit(&sim, ship.ship_fitting_upgraded_gun_deck(3), &events)
+	sim_open_refit(&sim, refit_incoming_item(), &events)
 	submit_refit(&sim, Refit_Remove{slot = ship.Slot_Index(len(sim.player.layout))})
 
 	testing.expect_assert(t, "refit slot index out of range")

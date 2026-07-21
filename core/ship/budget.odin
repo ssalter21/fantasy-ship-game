@@ -282,7 +282,7 @@ effect_is_burst :: proc(effect: Effect) -> bool {
 // actually rides — the root, and then each open branch below a Gate, floored at
 // GATE_FACTOR_FLOOR. Nesting is how `and` is spelled, so nested gates compound; a gate
 // buried under arithmetic is part of that tree's value rather than a condition standing in
-// front of it, and pays nothing (the same reading of a tree's root expr_with_bonus takes).
+// front of it, and pays nothing.
 //
 // **Suppressed for Repair**: burst *is* repair's conditionality discount, and charging both
 // prices the same conditionality twice. The side effect is the one the defensive roster
