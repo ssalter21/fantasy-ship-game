@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import combat "../../core/combat"
 import voyage "../../core/voyage"
 import sim "../../core/sim"
 
@@ -32,34 +31,11 @@ Headless_State :: struct {
 	travel_options: []sim.Node_ID, // borrowed from the latest Event_Travel_Options
 }
 
-// get_captain_choice is the headless Input_Source: with no real player it resolves
-// every decision deterministically. Node kinds are hidden, so the plan depends only
-// on the graph shape, never on what an unvisited node holds.
+// get_captain_choice is the headless Input_Source: it hands the shared scripted
+// player (sim.scripted_player_command) the voyage state dispatch tracked.
 get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Headless_State)data
-
-	switch awaiting {
-	case .Awaiting_Battle_Command:
-		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command_Hold{}})
-	case .Awaiting_Option_Choice:
-		// Decline every option list: a nil selection takes nothing and opens no refit,
-		// so the auto-player never spends cargo or edits a loadout — it just walks through.
-		return sim.Command(sim.Command_Choose_Option{selection = nil})
-	case .Awaiting_Trade_Choice:
-		// Reject every Trade: accepting would swap a stat on the route's bargains, so
-		// rejecting keeps the voyage a pure function of the graph.
-		return sim.Command(sim.Command_Trade_Choice{accept = false})
-	case .Awaiting_Travel_Choice:
-		next := voyage.voyage_forward_option(state.voyage_map, state.current, state.travel_options)
-		return sim.Command(sim.Command_Travel_To{node_id = next})
-	case .Awaiting_Refit:
-		// The auto-player declines every option list, so a refit never opens; if one did,
-		// this just finishes it rather than editing the loadout.
-		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
-	case .Ended:
-		panic("get_captain_choice called while the sim isn't awaiting a decision")
-	}
-	panic("unreachable")
+	return sim.scripted_player_command(state.voyage_map, state.current, state.travel_options, awaiting)
 }
 
 // dispatch is the headless Event_Sink: print and count every event, and track the current node

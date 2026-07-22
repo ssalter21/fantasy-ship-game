@@ -4,11 +4,9 @@ import "core:fmt"
 import "core:os"
 import "core:slice"
 import "core:strings"
-import combat "../core/combat"
 import cutaway "./cutaway"
 import ship "../core/ship"
 import sim "../core/sim"
-import voyage "../core/voyage"
 import rl "vendor:raylib"
 
 // Capture mode is the third Input_Source/Event_Sink pair (ADR-0002), beside the
@@ -83,16 +81,22 @@ capture_main :: proc() {
 }
 
 // capture_get_captain_choice is the capture Input_Source: draw the decision screen
-// the player would have been shown, screenshot it, then answer the decision from a
-// script instead of from a click. Unlike the game's menu loops it blocks on
-// nothing, and unlike headless's it draws — which is the whole point of the third
-// implementation.
+// the player would have been shown, screenshot it, then answer the decision from
+// the shared scripted player (sim.scripted_player_command) instead of from a click —
+// fed the voyage state the real dispatch tracked into Game_State. Unlike the
+// game's menu loops it blocks on nothing, and unlike headless's it draws — which
+// is the whole point of the third Input_Source.
 @(private)
 capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Capture_State)data
 
 	capture_shot(state, awaiting, capture_phase_slug(awaiting))
-	return capture_scripted_command(state, awaiting)
+	return sim.scripted_player_command(
+		state.game.voyage_map,
+		state.game.current_node_id,
+		state.game.travel_options,
+		awaiting,
+	)
 }
 
 // capture_shot renders one frame of the current decision screen and writes it out.
@@ -421,34 +425,6 @@ capture_phase_slug :: proc(awaiting: sim.Phase) -> string {
 		return "ended"
 	}
 	return "unknown"
-}
-
-// capture_scripted_command answers every decision without a player, mirroring
-// cmd/headless's auto-player: sail forward, hold in a battle, decline every offer.
-// It is a re-implementation rather than a reuse — cmd/headless is a `package main`,
-// so its auto-player cannot be imported.
-@(private)
-capture_scripted_command :: proc(state: ^Capture_State, awaiting: sim.Phase) -> sim.Command {
-	switch awaiting {
-	case .Awaiting_Travel_Choice:
-		next := voyage.voyage_forward_option(
-			state.game.voyage_map,
-			state.game.current_node_id,
-			state.game.travel_options,
-		)
-		return sim.Command(sim.Command_Travel_To{node_id = next})
-	case .Awaiting_Battle_Command:
-		return sim.Command(sim.Command_Battle_Choice{combat_command = combat.Command_Hold{}})
-	case .Awaiting_Option_Choice:
-		return sim.Command(sim.Command_Choose_Option{selection = nil})
-	case .Awaiting_Trade_Choice:
-		return sim.Command(sim.Command_Trade_Choice{accept = false})
-	case .Awaiting_Refit:
-		return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
-	case .Ended:
-		panic("capture_scripted_command called while the sim isn't awaiting a decision")
-	}
-	panic("unreachable")
 }
 
 // capture_requested reports whether the process was started as a capture run.
