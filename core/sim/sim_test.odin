@@ -11,9 +11,9 @@ import "core:testing"
 // what most of these scenarios turn on:
 //
 //   - **Seat it** (sim_seat_at_stage) — the default. The scenario names the exact recipe it
-//     means to face and the node it faces it on, so it asserts about the stage and nothing
-//     else. Everything downstream of the arrival is real: the walk picks the phase, the tick
-//     tail raises awaiting_decision.
+//     means to face and the seating finds a node fit to face it on, so it asserts about the
+//     stage and nothing else. Everything downstream of the arrival is real: the walk picks
+//     the phase, the tick tail raises awaiting_decision.
 //   - **Sail to it** (the Auto_Pilot below, over a fixed seed) — for the scenarios that are
 //     about routing itself: it drives run_session by choosing at each step from the legal
 //     options the Sim emits on Event_Travel_Options (issue #83), steering by a battle policy.
@@ -318,7 +318,7 @@ arriving_at_a_trade_presents_the_bargain_instead_of_applying_it :: proc(t: ^test
 	// The cargo lives in the layout (ADR-0020), which `before` aliases — so snapshot it as
 	// an int to assert it genuinely did not move.
 	cargo_before := ship.ship_cargo(sim.player)
-	sim_seat_at_stage(&sim, 1, &events, trade_stage_costing(TRADE_COST))
+	sim_seat_at_stage(&sim, &events, trade_stage_costing(TRADE_COST))
 
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Trade_Choice)
 	trade, presented := presented_trade(events[:])
@@ -343,7 +343,7 @@ accepting_a_trade_pays_its_cost :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim_seat_at_stage(&sim, 1, &events, trade_stage_costing(TRADE_COST))
+	sim_seat_at_stage(&sim, &events, trade_stage_costing(TRADE_COST))
 	trade, presented := presented_trade(events[:])
 	testing.expect(t, presented)
 
@@ -354,7 +354,7 @@ accepting_a_trade_pays_its_cost :: proc(t: ^testing.T) {
 	tick_travel_options(&sim, &events)
 
 	testing.expect_value(t, voyage.voyage_trade_stat_reading(&sim.player, trade.cost.stat), cost_before - trade.cost.amount)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 }
 
 // Rejecting halts the encounter: nothing is paid, nothing is granted, and the
@@ -366,7 +366,7 @@ rejecting_a_trade_changes_nothing_and_still_resolves_the_node :: proc(t: ^testin
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim_seat_at_stage(&sim, 1, &events, trade_stage_costing(TRADE_COST))
+	sim_seat_at_stage(&sim, &events, trade_stage_costing(TRADE_COST))
 	before := sim.player
 	cargo_before := ship.ship_cargo(sim.player) // the cargo aliases via `before`; snapshot the int
 
@@ -377,7 +377,7 @@ rejecting_a_trade_changes_nothing_and_still_resolves_the_node :: proc(t: ^testin
 	testing.expect_value(t, sim.player.max_hull, before.max_hull)
 	testing.expect_value(t, sim.player.speed, before.speed)
 	testing.expect_value(t, ship.ship_cargo(sim.player), cargo_before)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 }
 
@@ -396,7 +396,7 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim_seat_at_stage(&sim, 1, &events, trade_stage_costing(TRADE_COST))
+	sim_seat_at_stage(&sim, &events, trade_stage_costing(TRADE_COST))
 	trade, presented := presented_trade(events[:])
 	testing.expect(t, presented)
 
@@ -407,13 +407,14 @@ revisiting_a_resolved_encounter_does_not_retrigger_it :: proc(t: ^testing.T) {
 	ship_after_trade := sim.player
 	cargo_after_trade := ship.ship_cargo(sim.player) // aliased via ship_after_trade; snapshot the int
 	testing.expect(t, voyage.voyage_trade_stat_reading(&sim.player, trade.cost.stat) < cost_before) // the trade did fire
+	seated := sim.current
 	testing.expect(t, node_id_in(opts, 0)) // Start offered as a backward retrace
 
 	submit_travel(&sim, 0)
 	opts = tick_travel_options(&sim, &events) // retrace to Start
-	testing.expect(t, node_id_in(opts, 1)) // the trade offered again, forward
+	testing.expect(t, node_id_in(opts, seated)) // the trade offered again, forward
 
-	submit_travel(&sim, 1)
+	submit_travel(&sim, seated)
 	clear(&events)
 	tick_travel_options(&sim, &events) // step onto the resolved trade again
 
@@ -927,10 +928,10 @@ offer_stage :: proc() -> voyage.Stage_Offer {
 	return offer
 }
 
-// seat_at_offer seats the ship in front of an Offer at node 1 — the shorthand the Offer
-// scenarios below open with.
+// seat_at_offer seats the ship in front of an Offer — the shorthand the Offer scenarios
+// below open with.
 seat_at_offer :: proc(sim: ^Sim, events: ^[dynamic]Event) {
-	sim_seat_at_stage(sim, 1, events, offer_stage())
+	sim_seat_at_stage(sim, events, offer_stage())
 }
 
 // presented_options returns the option list carried by the last
@@ -1192,8 +1193,8 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	before := sim.player.max_hull
 
 	// Seating enters stage 0, which parks on its bargain.
-	sim_seat_at_stage(&sim, 1, &events, trade_stage(), offer_stage(), trade_stage())
-	testing.expect(t, !sim.resolved[1]) // stages remain: the encounter is not over
+	sim_seat_at_stage(&sim, &events, trade_stage(), offer_stage(), trade_stage())
+	testing.expect(t, !sim.resolved[sim.current]) // stages remain: the encounter is not over
 
 	// Accepting completes the Trade, and the walk carries straight on to stage 1,
 	// which stops for a decision of its own.
@@ -1201,7 +1202,7 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	testing.expect_value(t, sim.player.max_hull, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
 	testing.expect(t, has_event(events[:], Event_Options_Presented))
-	testing.expect(t, !sim.resolved[1])
+	testing.expect(t, !sim.resolved[sim.current])
 
 	// Picking completes the Offer and opens a Refit; the walk resumes at its finish.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -1218,7 +1219,7 @@ a_multi_stage_encounter_walks_every_stage_in_order_and_then_resolves :: proc(t: 
 	// It ran off the end and resolved.
 	testing.expect_value(t, sim.player.max_hull, before + 2 * TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 	testing.expect(t, has_event(events[:], Event_Travel_Options))
 }
 
@@ -1235,7 +1236,7 @@ skipping_an_offer_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	before := sim.player.max_hull
-	sim_seat_at_stage(&sim, 1, &events, offer_stage(), trade_stage())
+	sim_seat_at_stage(&sim, &events, offer_stage(), trade_stage())
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = nil}))
@@ -1243,7 +1244,7 @@ skipping_an_offer_halts_before_a_later_stage :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, sim.player.max_hull, before) // the halt stopped the walk short
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1]) // halted encounters resolve too: the walk is over either way
+	testing.expect(t, sim.resolved[sim.current]) // halted encounters resolve too: the walk is over either way
 }
 
 // entered_stages collects every Event_Stage_Entered in the batch, in order — the walk's
@@ -1280,7 +1281,7 @@ the_walk_announces_its_cursor_at_every_stage :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim_seat_at_stage(&sim, 1, &events, offer_stage(), trade_stage())
+	sim_seat_at_stage(&sim, &events, offer_stage(), trade_stage())
 
 	first := entered_stages(events[:])
 	defer delete(first)
@@ -1315,7 +1316,7 @@ a_halt_is_announced_and_a_completion_is_not :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim_seat_at_stage(&skipped, 1, &events, offer_stage(), trade_stage())
+	sim_seat_at_stage(&skipped, &events, offer_stage(), trade_stage())
 	sim_submit_captain_choice(&skipped, Command(Command_Choose_Option{selection = nil}))
 	ev := refit_tick(&skipped, &events)
 
@@ -1333,7 +1334,7 @@ a_halt_is_announced_and_a_completion_is_not :: proc(t: ^testing.T) {
 
 	taken := sim_create(0)
 	defer sim_destroy(&taken)
-	sim_seat_at_stage(&taken, 1, &events, offer_stage(), trade_stage())
+	sim_seat_at_stage(&taken, &events, offer_stage(), trade_stage())
 	sim_submit_captain_choice(&taken, Command(Command_Choose_Option{selection = Option_Index(0)}))
 	refit_tick(&taken, &events)
 	submit_refit(&taken, Refit_Finish{})
@@ -1354,7 +1355,7 @@ picking_from_an_offer_completes_it_and_the_walk_reaches_the_next_stage :: proc(t
 	defer delete(events)
 
 	before := sim.player.max_hull
-	sim_seat_at_stage(&sim, 1, &events, offer_stage(), trade_stage())
+	sim_seat_at_stage(&sim, &events, offer_stage(), trade_stage())
 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
 	refit_tick(&sim, &events)
@@ -1367,7 +1368,7 @@ picking_from_an_offer_completes_it_and_the_walk_reaches_the_next_stage :: proc(t
 
 	testing.expect_value(t, sim.player.max_hull, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 }
 
 @(test)
@@ -1384,7 +1385,7 @@ rejecting_a_trade_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	sim_seat_at_stage(&sim, 1, &events, trade_stage(), offer_stage())
+	sim_seat_at_stage(&sim, &events, trade_stage(), offer_stage())
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Trade_Choice)
 
 	sim_submit_captain_choice(&sim, Command(Command_Trade_Choice{accept = false}))
@@ -1393,7 +1394,7 @@ rejecting_a_trade_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	// The halt stopped the walk short: the Offer behind the Trade was never presented.
 	testing.expect(t, !has_event(ev, Event_Options_Presented))
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1]) // halted encounters resolve too: the walk is over either way
+	testing.expect(t, sim.resolved[sim.current]) // halted encounters resolve too: the walk is over either way
 }
 
 @(test)
@@ -1410,7 +1411,7 @@ breaking_off_halts_before_a_later_stage :: proc(t: ^testing.T) {
 
 	ready_for_battle(&sim)
 	before := ship.ship_cargo(sim.player)
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000), reward_stage()) // too tough to sink quickly
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000), reward_stage()) // too tough to sink quickly
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
 	// Hold until the Speed-gated escape unlocks (ADR-0006: not before the baseline
@@ -1429,7 +1430,7 @@ breaking_off_halts_before_a_later_stage :: proc(t: ^testing.T) {
 	testing.expect(t, sim.battle.ended)
 	testing.expect_value(t, ship.ship_cargo(sim.player), before) // fled: no payout for escaping
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 
 	// And the escape is **said out loud** (issue #139). The cargo above is the model
 	// working; this is the captain being able to tell that it worked. Without it, fleeing
@@ -1461,11 +1462,11 @@ a_reward_pays_out_and_completes_without_stopping_for_the_captain :: proc(t: ^tes
 	defer delete(events)
 
 	before := ship.ship_cargo(sim.player)
-	sim_seat_at_stage(&sim, 1, &events, reward_stage())
+	sim_seat_at_stage(&sim, &events, reward_stage())
 
 	testing.expect_value(t, ship.ship_cargo(sim.player), before + REWARD_PAYOUT)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice) // never parked
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 
 	// Presentation learns the cargo moved only through Events (ADR-0001). The node's
 	// ghost rides along here because a bare [Reward] *is* the whole encounter — its
@@ -1494,7 +1495,7 @@ a_reward_that_overflows_the_hold_reports_the_spill_on_its_event :: proc(t: ^test
 
 	capacity := ship.ship_cargo_capacity(sim.player)
 	ship.ship_stow_cargo(sim.player.layout, capacity)
-	sim_seat_at_stage(&sim, 1, &events, reward_stage())
+	sim_seat_at_stage(&sim, &events, reward_stage())
 
 	testing.expect_value(t, ship.ship_cargo(sim.player), capacity) // filled to the ceiling, no further
 
@@ -1535,7 +1536,7 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 	before := ship.ship_cargo(sim.player)
 	fight := fight_stage(&sim, 1) // 1 Hull: sinks in a round
 	ship.ship_stow_cargo(fight.opponent.layout, 0) // broke wreck: isolate the Reward as the only payout
-	sim_seat_at_stage(&sim, 1, &events, fight, reward_stage())
+	sim_seat_at_stage(&sim, &events, fight, reward_stage())
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_FIRE}))
@@ -1544,7 +1545,7 @@ winning_a_fight_completes_it_and_the_reward_behind_it_pays_out :: proc(t: ^testi
 	testing.expect(t, sim.battle.ended)
 	testing.expect_value(t, ship.ship_cargo(sim.player), before + REWARD_PAYOUT)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 }
 
 @(test)
@@ -1562,7 +1563,7 @@ winning_a_fight_pays_the_sunk_opponents_hold_into_the_player :: proc(t: ^testing
 	fight := fight_stage(&sim, 1) // 1 Hull: sinks in a round
 	WRECK_HOLD :: 20
 	ship.ship_stow_cargo(fight.opponent.layout, WRECK_HOLD) // a controlled hold within the player's headroom
-	sim_seat_at_stage(&sim, 1, &events, fight)
+	sim_seat_at_stage(&sim, &events, fight)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_FIRE}))
@@ -1572,7 +1573,7 @@ winning_a_fight_pays_the_sunk_opponents_hold_into_the_player :: proc(t: ^testing
 	testing.expect_value(t, ship.ship_cargo(sim.player), before + WRECK_HOLD) // looted the wreck, within capacity
 	testing.expect(t, has_event(events[:], Event_Ship_Updated)) // presentation learns the cargo moved (ADR-0001)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1]) // a bare [Fight] resolves the node on victory
+	testing.expect(t, sim.resolved[sim.current]) // a bare [Fight] resolves the node on victory
 }
 
 @(test)
@@ -1593,7 +1594,7 @@ winning_a_fight_surfaces_the_wreck_cargo_that_overflows_the_hold :: proc(t: ^tes
 	fight := fight_stage(&sim, 1) // 1 Hull: sinks in a round, before it could jettison
 	ship.ship_stow_cargo(fight.opponent.layout, capacity) // a hold larger than the player's headroom
 	gross := ship.ship_cargo(fight.opponent) // what the wreck actually holds after the stow
-	sim_seat_at_stage(&sim, 1, &events, fight)
+	sim_seat_at_stage(&sim, &events, fight)
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_FIRE}))
 	refit_tick(&sim, &events)
@@ -1698,7 +1699,7 @@ a_repair_lands_before_the_guns_and_saves_a_ship_that_would_have_sunk :: proc(t: 
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the round
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the round
 
 	arm_with_repair(&sim, 5)
 	incoming := combat.combat_phase_output_this_round(&sim.battle, .B, .Fire)
@@ -1733,7 +1734,7 @@ a_repair_never_heals_past_the_ships_maximum :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	ready_for_battle(&sim) // full hull
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000))
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000))
 
 	arm_with_repair(&sim, 10_000) // far larger than any gap a round can open
 
@@ -1770,7 +1771,7 @@ jettisoning_sheds_less_every_time_and_never_empties_the_slot :: proc(t: ^testing
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the heaves
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the heaves
 
 	laden := -1
 	for layout_slot, i in sim.player.layout {
@@ -1846,7 +1847,7 @@ a_press_spends_the_battles_one_press_and_the_menu_stops_offering_it :: proc(t: ^
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the round
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000)) // durable: the battle outlives the round
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Battle_Command)
 	testing.expect(t, battle_menu(events[:]).may_press) // in hand at the opening decision
 
@@ -1873,7 +1874,7 @@ committing_in_battle_multiplies_the_repair_and_lands_no_damage :: proc(t: ^testi
 	defer delete(events)
 
 	ready_for_battle(&sim)
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000))
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000))
 
 	arm_with_repair(&sim, 5)
 	sim.player.hull = 100 // room for the repair to land in full
@@ -1912,7 +1913,7 @@ a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	before := ship.ship_cargo(sim.player)
-	sim_seat_at_stage(&sim, 1, &events, offer_stage(), reward_stage())
+	sim_seat_at_stage(&sim, &events, offer_stage(), reward_stage())
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
 	testing.expect_value(t, ship.ship_cargo(sim.player), before) // stage 1 not reached yet
 
@@ -1925,7 +1926,7 @@ a_reward_pays_out_behind_a_stage_that_is_not_a_fight :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, ship.ship_cargo(sim.player), before + REWARD_PAYOUT)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 }
 
 @(test)
@@ -1940,7 +1941,7 @@ winning_a_fight_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^tes
 
 	ready_for_battle(&sim)
 	before := sim.player.max_hull
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 1), trade_stage())
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 1), trade_stage())
 
 	for fight_round(&sim, &events) {
 		// hold until the opponent goes down
@@ -1953,7 +1954,7 @@ winning_a_fight_completes_it_and_the_walk_reaches_the_next_stage :: proc(t: ^tes
 	accept_trade(t, &sim, &events)
 	testing.expect_value(t, sim.player.max_hull, before + TRADE_GAIN)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 }
 
 @(test)
@@ -1971,7 +1972,7 @@ sinking_ends_the_voyage_without_walking_on_to_a_later_stage :: proc(t: ^testing.
 	before := sim.player.max_hull
 	sim.player.hull = 1 // goes down in the first round
 	sim.player.speed = 50
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000), trade_stage())
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000), trade_stage())
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}))
 	ev := refit_tick(&sim, &events)
@@ -2031,7 +2032,7 @@ one_encounter_emits_one_snapshot_however_many_stages_resolve :: proc(t: ^testing
 	before := ship.ship_cargo(sim.player)
 	fight := fight_stage(&sim, 1) // 1 Hull: sinks in a round
 	ship.ship_stow_cargo(fight.opponent.layout, 0) // broke wreck: this test is about the ghost cadence, not the payout
-	sim_seat_at_stage(&sim, 1, &events, fight, reward_stage())
+	sim_seat_at_stage(&sim, &events, fight, reward_stage())
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = PRESS_FIRE}))
 	ev := refit_tick(&sim, &events)
@@ -2061,7 +2062,7 @@ a_halted_encounter_emits_a_snapshot_of_the_ship_that_walked_away :: proc(t: ^tes
 
 	ready_for_battle(&sim)
 	before := ship.ship_cargo(sim.player)
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000), reward_stage()) // too tough to sink quickly
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000), reward_stage()) // too tough to sink quickly
 
 	// Hold until the Speed-gated escape unlocks (ADR-0006), then take it.
 	for combat.BASELINE_ROUND_COUNT * 2 > sim.battle.round {
@@ -2077,7 +2078,7 @@ a_halted_encounter_emits_a_snapshot_of_the_ship_that_walked_away :: proc(t: ^tes
 
 	snaps := resolved_snapshots(ev)
 	defer delete(snaps)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 	testing.expect_value(t, len(snaps), 1)
 	testing.expect_value(t, ship.ship_cargo(snaps[0].ship), before) // fled: the ghost is unpaid too
 }
@@ -2098,7 +2099,7 @@ a_sinking_emits_no_snapshot :: proc(t: ^testing.T) {
 
 	sim.player.hull = 1 // goes down in the first round
 	sim.player.speed = 50
-	sim_seat_at_stage(&sim, 1, &events, fight_stage(&sim, 10_000), reward_stage())
+	sim_seat_at_stage(&sim, &events, fight_stage(&sim, 10_000), reward_stage())
 
 	sim_submit_captain_choice(&sim, Command(Command_Battle_Choice{combat_command = combat.Command_Hold{}}))
 	ev := refit_tick(&sim, &events)
@@ -2107,7 +2108,7 @@ a_sinking_emits_no_snapshot :: proc(t: ^testing.T) {
 	defer delete(snaps)
 	testing.expect(t, sim.player.hull <= 0)
 	testing.expect_value(t, len(snaps), 0)
-	testing.expect(t, !sim.resolved[1]) // the walk stopped: the node never resolved
+	testing.expect(t, !sim.resolved[sim.current]) // the walk stopped: the node never resolved
 	testing.expect(t, has_event(ev, Event_Voyage_Ended))
 }
 
@@ -2160,7 +2161,7 @@ the_snapshot_carries_every_purchase_made_at_a_shop :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 90) // afford the visit outright; the hull's full capacity (ADR-0020)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events) // stock position i is roster[i]
+	seat_at_shop(&sim, flat_stock(.Splash), &events) // stock position i is roster[i]
 
 	// Buy option 0 ("Deckhands"), install it, and return to the refilled shelf.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2202,15 +2203,16 @@ a_resolved_node_emits_no_second_snapshot_when_the_ship_returns :: proc(t: ^testi
 	defer delete(events)
 
 	before := ship.ship_cargo(sim.player)
-	sim_seat_at_stage(&sim, 1, &events, reward_stage())
+	sim_seat_at_stage(&sim, &events, reward_stage())
 
 	first := resolved_snapshots(events[:])
 	defer delete(first)
 	testing.expect_value(t, len(first), 1)
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 
-	sim.current = 0 // retrace: node 1 is a neighbour of Start on this seed
-	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = 1}))
+	seated := sim.current
+	sim.current = 0 // retrace: the seated node is a Start neighbour on this seed
+	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = seated}))
 	clear(&events)
 	sim_tick(&sim, &events)
 
@@ -2248,10 +2250,10 @@ flat_stock :: proc(tier: ship.Tier, count := voyage.SHOP_STOCK_MAX) -> voyage.St
 	return shop
 }
 
-// seat_at_shop seats the ship in front of a [Shop] encounter at node `id` — what a Port is
-// (ADR-0014), and the shorthand the shop scenarios below open with.
-seat_at_shop :: proc(sim: ^Sim, id: Node_ID, shop: voyage.Stage_Shop, events: ^[dynamic]Event) {
-	sim_seat_at_stage(sim, id, events, shop)
+// seat_at_shop seats the ship in front of a [Shop] encounter — what a Port is (ADR-0014),
+// and the shorthand the shop scenarios below open with.
+seat_at_shop :: proc(sim: ^Sim, shop: voyage.Stage_Shop, events: ^[dynamic]Event) {
+	sim_seat_at_stage(sim, events, shop)
 }
 
 // option_cost is the price shown at option position i. It asserts the position is
@@ -2278,28 +2280,10 @@ arriving_at_a_generated_port_opens_its_baked_shop :: proc(t: ^testing.T) {
 
 	// Any generated Port will do, and it is seated at rather than sailed to: no port sits on
 	// a zone's entrance layer, so none is a Start neighbour and reaching one honestly would
-	// mean pathfinding a scenario this test isn't about. Seating with no stages leaves the
-	// node's own generated content in place — the point here.
-	//
-	// The node is found by **what it opens with** — there is no kind left to find it
-	// by, since #137 retired Node_Kind.Port. That is the same question the walk, the
-	// Sim's mask and the map view all ask, so this test reaches its port the way the
-	// production code does. Since ADR-0016 the question also cannot pick up a merchant
-	// by mistake: revealing ⟺ opening on a Shop ⟺ being a Port.
-	port := Node_ID(-1)
-	for p in sim.voyage_map.nodes {
-		encounter, has_encounter := p.encounter.?
-		if !has_encounter {
-			continue
-		}
-		if voyage.voyage_encounter_reveals(encounter) {
-			port = p.id
-			break
-		}
-	}
-	testing.expect(t, port >= 0)
-
-	sim_seat_at_stage(&sim, port, &events)
+	// mean pathfinding a scenario this test isn't about. Seating at generated content leaves
+	// the node's own baked stock in place — the point here. Naming .Shop cannot pick up a
+	// merchant by mistake: opening on a Shop ⟺ being a Port (ADR-0016).
+	sim_seat_at_generated(&sim, .Shop, &events)
 
 	// A Shop parks the walk in the option-list decision every option-bearing stage
 	// shares (#131), so the stock arrives as presented options rather than a shelf of
@@ -2312,7 +2296,7 @@ arriving_at_a_generated_port_opens_its_baked_shop :: proc(t: ^testing.T) {
 			filled += 1
 		}
 	}
-	testing.expectf(t, filled == voyage.SHOP_SHELF_SIZE, "generated port %d dealt %d shelf cards, want %d", port, filled, voyage.SHOP_SHELF_SIZE)
+	testing.expectf(t, filled == voyage.SHOP_SHELF_SIZE, "generated port %d dealt %d shelf cards, want %d", sim.current, filled, voyage.SHOP_SHELF_SIZE)
 }
 
 @(test)
@@ -2327,7 +2311,7 @@ buying_an_affordable_item_deducts_cargo_and_opens_a_refit :: proc(t: ^testing.T)
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(1)}))
 	ev := refit_tick(&sim, &events)
 
@@ -2361,7 +2345,7 @@ buying_a_fitting_over_a_cargo_hold_conserves_the_displaced_cargo :: proc(t: ^tes
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50) // the starting cargo: holds full, forecastle empty
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 
 	// Buy option 0 (Deckhands, Small, cost 10): the spend re-stows the cargo to 40.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2393,7 +2377,7 @@ buying_a_fitting_that_overflows_the_hold_loses_only_the_true_overflow :: proc(t:
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 90) // brim-full: the whole 90-capacity hull laden
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 
 	// Buy option 2 (Deck Cannon, Medium, a Splash card's 10): the spend re-stows the
 	// cargo to 80.
@@ -2429,7 +2413,7 @@ an_unaffordable_item_is_refused_and_the_shop_stays_open :: proc(t: ^testing.T) {
 	shop := flat_stock(.Splash)
 	shop.stock[2].tier = .Deep
 	ship.ship_stow_cargo(sim.player.layout, ship.ship_item_cost(.Deep) - 1)
-	seat_at_shop(&sim, 1, shop, &events)
+	seat_at_shop(&sim, shop, &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(2)}))
 	ev := refit_tick(&sim, &events)
 
@@ -2454,7 +2438,7 @@ leaving_a_shop_completes_it_and_returns_to_travel :: proc(t: ^testing.T) {
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = nil}))
 	ev := refit_tick(&sim, &events)
 
@@ -2480,7 +2464,7 @@ arriving_at_a_shop_presents_the_top_of_its_stock :: proc(t: ^testing.T) {
 	events: [dynamic]Event
 	defer delete(events)
 
-	seat_at_shop(&sim, 1, flat_stock(.Shallow), &events)
+	seat_at_shop(&sim, flat_stock(.Shallow), &events)
 
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
 	options := presented_options(events[:])
@@ -2505,11 +2489,31 @@ a_node_holding_no_encounter_leaves_the_ship_at_a_travel_choice :: proc(t: ^testi
 	defer delete(events)
 
 	sim.phase = .Awaiting_Option_Choice // anything but travel, so the walk has to set it
-	sim_seat_at_stage(&sim, 0, &events) // node 0 is Start
+	sim_seat_at_waypoint(&sim, &events)
 
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, !has_event(events[:], Event_Options_Presented))
-	testing.expect(t, !sim.resolved[0]) // nothing was walked, so nothing resolved
+	testing.expect(t, !sim.resolved[sim.current]) // nothing was walked, so nothing resolved
+}
+
+@(test)
+each_seating_faces_a_fresh_node :: proc(t: ^testing.T) {
+	// The seating owns its node choice: every planted seat lands on an unvisited, zoned
+	// node, so a scenario that seats twice (shop against shop, say) faces two distinct
+	// nodes without either call naming one.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	sim_seat_at_stage(&sim, &events, reward_stage())
+	first := sim.current
+
+	sim_seat_at_stage(&sim, &events, reward_stage())
+	second := sim.current
+
+	testing.expect(t, first != second)
+	testing.expect(t, first != 0 && second != 0) // never Start: a planted stage needs a zone to scale by
 }
 
 @(test)
@@ -2524,7 +2528,7 @@ buying_a_shelf_card_refills_the_slot_from_the_deck_on_the_refits_finish :: proc(
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
 	refit_tick(&sim, &events) // buy: deduct, open the refit (cursor stays on the Shop)
@@ -2555,7 +2559,7 @@ multiple_items_can_be_bought_in_one_visit_before_leaving :: proc(t: ^testing.T) 
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 
 	for _ in 0 ..< 3 {
 		testing.expect_value(t, sim.phase, Phase.Awaiting_Option_Choice)
@@ -2646,7 +2650,7 @@ a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied :: proc(t: ^testing.T) 
 
 	// Every buy is made with the hold topped up (buy_with_a_full_hold), so what runs out
 	// is the *stock* and never the money — the point is that the shelf empties.
-	seat_at_shop(&sim, 1, flat_stock(.Splash, 6), &events)
+	seat_at_shop(&sim, flat_stock(.Splash, 6), &events)
 	testing.expect_value(t, filled_option_count(sim.stage_options), voyage.SHOP_SHELF_SIZE)
 
 	// One buy: the lone reserve card refills the slot, so the shelf is still full.
@@ -2676,7 +2680,7 @@ a_narrow_hold_shrinks_as_it_is_bought_and_can_be_emptied :: proc(t: ^testing.T) 
 	ev := refit_tick(&sim, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
 	testing.expect(t, has_event(ev, Event_Travel_Options))
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 }
 
 @(test)
@@ -2697,7 +2701,7 @@ a_chandlerys_reserve_outlasts_the_cargo_a_captain_brings :: proc(t: ^testing.T) 
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, ship.STARTING_CARGO + ship.CAPTAIN_STARTING_CARGO)
-	seat_at_shop(&sim, 1, flat_stock(.Splash, voyage.voyage_stock_pool(.Chandlery).depth), &events)
+	seat_at_shop(&sim, flat_stock(.Splash, voyage.voyage_stock_pool(.Chandlery).depth), &events)
 
 	bought := 0
 	for buy_first_available(&sim, &events) {
@@ -2729,7 +2733,7 @@ a_shop_is_walked_once_and_resolves_like_any_other_encounter :: proc(t: ^testing.
 	defer delete(events)
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 
 	// Buy the top card, finish its refit, then leave.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2743,13 +2747,14 @@ a_shop_is_walked_once_and_resolves_like_any_other_encounter :: proc(t: ^testing.
 	// The node is resolved, node-level and once — so a retrace back to it re-opens
 	// nothing. This is the property that makes the persistence question moot rather
 	// than answered: there is no second visit to persist into.
-	testing.expect(t, sim.resolved[1])
+	testing.expect(t, sim.resolved[sim.current])
 
 	// Prove it end to end through the real arrival path rather than the walk directly:
 	// re-arriving at a resolved node presents nothing and leaves the ship at travel.
+	seated := sim.current
 	sim.awaiting_decision = true
 	sim.current = 0
-	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = 1}))
+	sim_submit_captain_choice(&sim, Command(Command_Travel_To{node_id = seated}))
 	clear(&events)
 	sim_tick(&sim, &events)
 	testing.expect_value(t, sim.phase, Phase.Awaiting_Travel_Choice)
@@ -2771,7 +2776,7 @@ each_shop_deals_its_own_fresh_shelf :: proc(t: ^testing.T) {
 	ship.ship_stow_cargo(sim.player.layout, 50)
 	roster := ship.ship_item_roster()
 
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
 	refit_tick(&sim, &events)
 	submit_refit(&sim, Refit_Finish{})
@@ -2781,7 +2786,7 @@ each_shop_deals_its_own_fresh_shelf :: proc(t: ^testing.T) {
 
 	// Shop 2 is untouched: its shelf opens on its stock's top card at the plain tier
 	// price, with the previous shop's purchase count discarded rather than carried in.
-	seat_at_shop(&sim, 2, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 	options := presented_options(events[:])
 	testing.expect_value(t, option_name(options, 0), roster[0].fitting.name)
 	testing.expect_value(t, option_cost(options, 0), 10)
@@ -2801,7 +2806,7 @@ two_shops_in_one_recipe_each_deal_fresh :: proc(t: ^testing.T) {
 
 	ship.ship_stow_cargo(sim.player.layout, 50)
 	roster := ship.ship_item_roster()
-	sim_seat_at_stage(&sim, 1, &events, flat_stock(.Splash), flat_stock(.Splash))
+	sim_seat_at_stage(&sim, &events, flat_stock(.Splash), flat_stock(.Splash))
 
 	// Shop 1: buy the top card, then leave to complete it.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2818,7 +2823,7 @@ two_shops_in_one_recipe_each_deal_fresh :: proc(t: ^testing.T) {
 	options := presented_options(ev)
 	testing.expect_value(t, option_name(options, 0), roster[0].fitting.name)
 	testing.expect_value(t, option_cost(options, 0), 10)
-	testing.expect(t, !sim.resolved[1]) // the encounter isn't over: a stage is still open
+	testing.expect(t, !sim.resolved[sim.current]) // the encounter isn't over: a stage is still open
 }
 
 @(test)
@@ -2834,7 +2839,7 @@ successive_buys_at_a_port_escalate_in_price :: proc(t: ^testing.T) {
 
 	base := ship.ship_item_cost(.Splash) // the cheapest card the roster prices
 	ship.ship_stow_cargo(sim.player.layout, 90) // the hull's full capacity — the ceiling a cargo can reach (ADR-0020)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 
 	cargo := 90
 	for n in 0 ..< 3 {
@@ -2875,7 +2880,7 @@ the_depth_surcharge_is_scoped_to_one_visit :: proc(t: ^testing.T) {
 
 	base := ship.ship_item_cost(.Splash) // the cheapest card the roster prices
 	ship.ship_stow_cargo(sim.player.layout, 90) // the hull's full capacity (ADR-0020)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 
 	// One buy at the plain tier price, then leave.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
@@ -2892,7 +2897,7 @@ the_depth_surcharge_is_scoped_to_one_visit :: proc(t: ^testing.T) {
 
 	// A different shop starts at the plain tier price: the depth was this visit's, not
 	// the voyage's.
-	seat_at_shop(&sim, 2, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 	testing.expect_value(t, option_cost(presented_options(events[:]), 0), base)
 }
 
@@ -2910,7 +2915,7 @@ a_surcharge_can_make_a_buy_unaffordable_and_the_shop_stays_open :: proc(t: ^test
 	base := ship.ship_item_cost(.Splash) // the cheapest card the roster prices
 	// Covers one buy at base with a little to spare, but not base + step for the next.
 	ship.ship_stow_cargo(sim.player.layout, base + (base + voyage.SHOP_DEPTH_SURCHARGE_STEP) - 1)
-	seat_at_shop(&sim, 1, flat_stock(.Splash), &events)
+	seat_at_shop(&sim, flat_stock(.Splash), &events)
 
 	// First buy at the plain tier price succeeds.
 	sim_submit_captain_choice(&sim, Command(Command_Choose_Option{selection = Option_Index(0)}))
