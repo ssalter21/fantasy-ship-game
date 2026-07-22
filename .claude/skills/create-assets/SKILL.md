@@ -92,8 +92,9 @@ then measure it — the same discipline run-game's style loop uses, don't trust 
 An asset that ships as a loose file breaks ADR-0009's self-contained `game.exe` — the same reason the font is
 embedded, not shipped beside the binary. Follow the font's worked example in `presentation/ui.odin`:
 
-- **Embed with `#load`**, as `PIXELIFY_SANS_TTF :: #load("../../assets/fonts/PixelifySans.ttf")` does. Put art
-  under `assets/` beside `fonts/`.
+- **Embed with `#load`**, as `PIXEL_OPERATOR_TTF :: #load("../assets/fonts/PixelOperator.ttf")` does — the
+  path is relative to the source file, so from `presentation/` it is one level up. Put art under `assets/`
+  beside `fonts/`.
 - **Load the texture after `InitWindow`** (the atlas is a GPU resource) and **set its filter to `POINT`** —
   `rl.SetTextureFilter(tex, .POINT)`. raylib defaults to bilinear, which softens pixel art on upload and undoes
   the whole point of generating at native resolution. This is the identical trap the font atlas hits.
