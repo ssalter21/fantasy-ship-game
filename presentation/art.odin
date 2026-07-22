@@ -1,4 +1,5 @@
-package main
+#+private
+package presentation
 
 import rl "vendor:raylib"
 
@@ -17,14 +18,14 @@ import rl "vendor:raylib"
 // locally by a scrim behind the title instead (draw_menu_title_scrim, chart_table.odin).
 // A ramp-conformed dusk variant that *does* satisfy the rule globally is kept beside it
 // as menu-island-night.png; swap the #load path to use it (and drop the title scrim).
-MENU_ISLAND_PNG :: #load("../../assets/art/menu-island-day.png")
+MENU_ISLAND_PNG :: #load("../assets/art/menu-island-day.png")
 
 // The parchment treasure-map page (spec 0001 §2/§9): the warm aged sheet the Chart is
 // inked onto, with its rough torn deckled edge (Sand→Cliff→Rock) baked into the same
 // texture. The page and its rim are one object — a torn sheet of paper on the table — so a
 // blit fills the centred MAP_AREA and the transparent surround shows the darkened Build
 // behind it.
-PARCHMENT_PAGE_PNG :: #load("../../assets/art/parchment-page.png")
+PARCHMENT_PAGE_PNG :: #load("../assets/art/parchment-page.png")
 
 // The sailing ship (spec 0001 §5/§9): a PixelLab 8-direction pixel-art sprite — deliberately
 // the one raster on the otherwise-procedural live layer, a little vessel *on* the map rather
@@ -32,7 +33,7 @@ PARCHMENT_PAGE_PNG :: #load("../../assets/art/parchment-page.png")
 // parchment. The eight baked headings (N, NE, E, SE, S, SW, W, NW) are laid out left-to-right
 // in a single horizontal strip, each frame a square the sheet's own height, so a heading
 // indexes a column (view.odin draw_ship_sprite).
-SHIP_SPRITE_PNG :: #load("../../assets/art/ship-sprite.png")
+SHIP_SPRITE_PNG :: #load("../assets/art/ship-sprite.png")
 
 // The uploaded atlases. GPU resources like the font, so they are loaded after InitWindow
 // and freed by art_unload.

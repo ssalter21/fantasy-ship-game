@@ -2,7 +2,7 @@ package cutaway
 
 import "core:testing"
 
-import ship "../../../core/ship"
+import ship "../../core/ship"
 import rl "vendor:raylib"
 
 // The layout contract, asserted without a window (ADR-0003 keeps pixels out of unit

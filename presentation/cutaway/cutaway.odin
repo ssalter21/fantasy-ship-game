@@ -1,6 +1,6 @@
 package cutaway
 
-import ship "../../../core/ship"
+import ship "../../core/ship"
 import rl "vendor:raylib"
 
 // The cutaway module owns where the ship's cross-section puts every slot (#426): given a

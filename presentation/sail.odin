@@ -1,7 +1,8 @@
-package main
+#+private
+package presentation
 
 import "core:math"
-import voyage "../../core/voyage"
+import voyage "../core/voyage"
 import rl "vendor:raylib"
 
 // SAIL_DURATION is the seconds a leg takes end to end (spec §5): snappy enough that travel never

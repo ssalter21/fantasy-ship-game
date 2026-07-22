@@ -1,8 +1,9 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
-import voyage "../../core/voyage"
-import sim "../../core/sim"
+import voyage "../core/voyage"
+import sim "../core/sim"
 import rl "vendor:raylib"
 
 // The Trade stage (#318, #310, ADR-0024): a permanent stat-for-stat swap, drawn as two cards

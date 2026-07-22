@@ -1,11 +1,12 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
-import voyage "../../core/voyage"
-import ship "../../core/ship"
+import voyage "../core/voyage"
+import ship "../core/ship"
 import rl "vendor:raylib"
 
 MAP_AREA := rl.Rectangle{x = 20, y = 20, width = 620, height = 640}

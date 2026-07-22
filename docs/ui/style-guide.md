@@ -279,7 +279,7 @@ now the house style, not, as it was under Pixelify, a workaround for a face with
 
 The scale is **two `rl.Font`s, not one font drawn at two sizes.** One `rl.Font` is one glyph atlas rasterized
 at one size: ask `DrawTextEx` for 16px from an atlas baked at 32 and it resamples, giving up exactly the
-pixel-exactness the table was measured to buy. Bake each size once and keep both (`cmd/game/ui.odin`'s
+pixel-exactness the table was measured to buy. Bake each size once and keep both (`presentation/ui.odin`'s
 `ui_font_title` / `ui_font_body`).
 
 Two things that go with it, both mandatory and neither obvious:

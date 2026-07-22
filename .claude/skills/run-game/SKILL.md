@@ -1,6 +1,6 @@
 ---
 name: run-game
-description: Build, launch, drive and screenshot the game, and iterate on its UI against the style guide. Use when running or driving the game, capturing its screens, verifying a change in the real window, or building/changing any UI in cmd/game.
+description: Build, launch, drive and screenshot the game, and iterate on its UI against the style guide. Use when running or driving the game, capturing its screens, verifying a change in the real window, or building/changing any UI in the presentation package.
 ---
 
 # Running the game and seeing its UI
@@ -25,7 +25,7 @@ Two rules from it that decide the *shape* of your code, so you want them before 
   buttons missing. `draw_chart_table` and `draw_option_screen` are the worked examples; the other four screens
   are the counter-example.
 - **Reach for no layout system.** A centred stack is a pure function of a few constants, hit-tested and drawn
-  from one call — see `chart_table_buttons` in `cmd/game/chart_table.odin`.
+  from one call — see `chart_table_buttons` in `presentation/chart_table.odin`.
 
 Found a gap in the guide? **Fix the guide**, don't make a one-off decision at the call site. #281 found six and
 fixed all six there.
@@ -36,26 +36,23 @@ fixed all six there.
 odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
-foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','cmd/game','cmd/game/cutaway','cmd/headless') { odin test $pkg }
-# 395 core (52+131+138+74), 67 cmd/game, 4 cmd/game/cutaway, 4 cmd/headless — same list CI runs
+foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','presentation','presentation/cutaway','cmd/headless') { odin test $pkg }
+# 400 core (54+131+140+75), 70 presentation, 4 presentation/cutaway, 4 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
 files"). Name each package. CI checks `$LASTEXITCODE` after every invocation for a real reason — a later
 passing package resets it and masks an earlier failure.
 
-**`odin test cmd/game` deletes the `game.exe` you just built** — the test binary takes the same name and is
-cleaned up on the way out. So **test first, then build**. A launch that fails with "no such file" right after a
-green test run is this, not your change.
+**A test binary is named for its package directory and deleted on the way out** — so `odin test presentation`
+writes and removes `presentation.exe`, which no longer collides with the `game.exe` a build produces
+(`cmd/game` holds only the thin main, #433). CI still passes `-out:` to send each test binary to the runner's
+temp dir, keeping every invocation's path its own.
 
-**CI runs all six packages** ([#292](https://github.com/ssalter21/fantasy-ship-game/issues/292)), the UI tests
-included — `.github/workflows/ci.yml` executes the same list in the same order, so a green PR check does mean
-`chart_table_test.odin`, `capture_test.odin` and `main_test.odin` passed. Run them locally anyway — the loop
-is a few seconds, and it's the difference between finding a break now and finding it after a push.
-
-Don't copy CI's commands, though. It dodges the `game.exe` collision by passing `-out:` to send each test
-binary to the runner's temp dir, which is why it can build before it tests. The bare `odin test cmd/game` you
-type has no such protection, so the rule above stands locally.
+**CI runs the same package list**, the UI tests included ([#292](https://github.com/ssalter21/fantasy-ship-game/issues/292))
+— `.github/workflows/ci.yml` executes it in the same order, so a green PR check does mean
+`chart_table_test.odin`, `capture_test.odin` and `presentation_test.odin` passed. Run them locally anyway —
+the loop is a few seconds, and it's the difference between finding a break now and finding it after a push.
 
 ## Capture: the screens, without playing the game
 
@@ -189,7 +186,7 @@ eye. **`ClientToScreen` is not optional** — raylib's coordinates are client-re
 the origin.
 
 **Closing the window quits the game, from anywhere** — including mid-voyage (ADR-0023). One
-`window_quit_if_closed()` in `cmd/game/main.odin` is the only thing that answers a close; every blocking loop
+`window_quit_if_closed()` in `presentation/presentation.odin` is the only thing that answers a close; every blocking loop
 calls it once per frame and no loop has a close-fallback. If you add a render loop, call it — a loop that
 polls `rl.WindowShouldClose()` itself will silently swallow the close.
 
@@ -207,9 +204,9 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
   prefix is silently dropped. `capture_write` moves each shot into `docs/ui/shots/` afterwards.
 - Capture draws every frame **twice** before shooting. `TakeScreenshot` reads back the framebuffer
   `EndDrawing` just presented, so a single draw screenshots the *previous* frame. Keep the double draw.
-- There is no `cmd/capture`: `draw_scene`, `Game_State` and `dispatch` are all `package main`, so Odin rejects
-  a sibling executable. Capture lives in `cmd/game` behind `--capture` on purpose (ADR-0003 argues against
-  linking the renderer into `cmd/headless`, not against this).
+- There is no `cmd/capture`: capture lives in the presentation package beside the private `draw_scene`,
+  `Game_State` and `dispatch` it photographs, and `cmd/game` enters it behind `--capture` (ADR-0003 argues
+  against linking the renderer into `cmd/headless`, not against this).
 - The scripted walk declines everything and cannot target a *particular* screen — it reaches *a* screen of most
   kinds, and never opens a Refit at all.
 

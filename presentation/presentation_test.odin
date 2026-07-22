@@ -1,10 +1,10 @@
-package main
+package presentation
 
 import "core:testing"
-import combat "../../core/combat"
-import voyage "../../core/voyage"
-import ship "../../core/ship"
-import sim "../../core/sim"
+import combat "../core/combat"
+import voyage "../core/voyage"
+import ship "../core/ship"
+import sim "../core/sim"
 
 // These smoke tests call the Input_Source/Event_Sink procs directly rather
 // than through a live window: rl.IsWindowReady() is false under `odin

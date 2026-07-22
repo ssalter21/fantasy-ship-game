@@ -1,4 +1,5 @@
-package main
+#+private
+package presentation
 
 import rl "vendor:raylib"
 
@@ -44,7 +45,7 @@ UI_BODY_SIZE :: 16
 // beside it: ADR-0009 (playtest distribution) commits to a self-contained game.exe
 // proven against a real tester's machine, which a sidecar font file breaks.
 // CC0 1.0 (public domain) — see assets/fonts/PixelOperator-LICENSE.txt.
-PIXEL_OPERATOR_TTF :: #load("../../assets/fonts/PixelOperator.ttf")
+PIXEL_OPERATOR_TTF :: #load("../assets/fonts/PixelOperator.ttf")
 
 // ui_font_title and ui_font_body are the same face baked at the scale's two sizes.
 // One rl.Font is one glyph atlas rasterized at one size, so a size is a font here:

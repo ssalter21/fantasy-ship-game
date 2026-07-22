@@ -1,11 +1,12 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
 import "core:strings"
-import combat "../../core/combat"
-import voyage "../../core/voyage"
-import ship "../../core/ship"
-import sim "../../core/sim"
+import combat "../core/combat"
+import voyage "../core/voyage"
+import ship "../core/ship"
+import sim "../core/sim"
 import rl "vendor:raylib"
 
 BEAT_MAX_SECONDS :: 1.2
