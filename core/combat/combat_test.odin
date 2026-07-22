@@ -18,7 +18,14 @@ round_with_no_fittings_and_no_commands_deals_no_damage :: proc(t: ^testing.T) {
 	testing.expect_value(t, battle.round, 1)
 	testing.expect_value(t, a.hull, 20)
 	testing.expect_value(t, b.hull, 20)
-	testing.expect_value(t, len(events), 0)
+	// Even a round in which nothing landed closes with its hull report (#429): the
+	// stream states both hulls after every resolved round, quiet ones included.
+	testing.expect_value(t, len(events), 1)
+	resolved, ok := events[0].(Event_Round_Resolved)
+	testing.expect(t, ok)
+	testing.expect_value(t, resolved.round, 1)
+	testing.expect_value(t, resolved.hull[.A], 20)
+	testing.expect_value(t, resolved.hull[.B], 20)
 	testing.expect(t, !battle.ended)
 }
 
@@ -41,11 +48,72 @@ fire_fitting_deals_its_full_magnitude_to_the_target :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, b.hull, 20 - 10)
 	testing.expect_value(t, a.hull, 20)
-	testing.expect_value(t, len(events), 1)
+	testing.expect_value(t, len(events), 2) // the hit, then the round's hull report (#429)
 	dealt, ok := events[0].(Event_Damage_Dealt)
 	testing.expect(t, ok)
 	testing.expect_value(t, dealt.target, Side.B)
 	testing.expect_value(t, dealt.damage, 10)
+}
+
+// The round's closing report (#429): every round the phases resolved ends by stating both
+// sides' hull outright, so presentation and transcripts render hulls straight off the
+// stream instead of replaying the repair/damage deltas and re-clamping (ADR-0001).
+@(test)
+a_resolved_round_closes_with_both_sides_hull :: proc(t: ^testing.T) {
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(10)))
+	a := ship.Ship{
+		hull = 20, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
+	}
+	b := ship.Ship{hull = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+
+	resolved, ok := events[len(events) - 1].(Event_Round_Resolved)
+	testing.expect(t, ok) // the report closes a continuing round
+	testing.expect_value(t, resolved.round, 1)
+	testing.expect_value(t, resolved.hull[.A], 20)
+	testing.expect_value(t, resolved.hull[.B], 10)
+}
+
+// Overkill is the case the report exists for: the hull the event states is the floored
+// value the ship actually stands at, so no consumer ever has to clamp a negative. On a
+// sinking round the report still lands, ahead of the Ship_Sunk that reads off it.
+@(test)
+the_round_report_floors_an_overkilled_hull_and_precedes_the_sinking :: proc(t: ^testing.T) {
+	cannon := ship.ship_fitting_with_effects(ship.Fitting{name = "Cannon"}, ship.effect_phase_contribution(ship.expr_const(25)))
+	a := ship.Ship{
+		hull = 20, speed = 5,
+		layout = []ship.Layout_Slot{{slot = ship.Slot{size = .Large}, fitting = cannon}},
+	}
+	b := ship.Ship{hull = 20, speed = 5}
+	battle := combat_battle_create(&a, &b)
+
+	events: [dynamic]Event
+	defer delete(events)
+	cmds: [Side]Maybe(Command)
+	combat_resolve_round(&battle, cmds, &events)
+
+	resolved_at, sunk_at := -1, -1
+	hulls: [Side]int
+	for event, i in events {
+		#partial switch e in event {
+		case Event_Round_Resolved:
+			resolved_at = i
+			hulls = e.hull
+		case Event_Ship_Sunk:
+			sunk_at = i
+		}
+	}
+	testing.expect(t, resolved_at >= 0)
+	testing.expect(t, sunk_at >= 0)
+	testing.expect(t, resolved_at < sunk_at) // hulls are stated before the sinking is called
+	testing.expect_value(t, hulls[.A], 20)
+	testing.expect_value(t, hulls[.B], 0) // floored, never 20 - 25
 }
 
 // A Brace fitting adds to its own hull rather than subtracting from the hit (ADR-0027):
@@ -75,6 +143,7 @@ a_brace_fitting_repairs_instead_of_reducing_the_incoming_damage :: proc(t: ^test
 	testing.expect(t, ok) // and said first, ahead of the hit
 	testing.expect_value(t, repaired.side, Side.B)
 	testing.expect_value(t, repaired.amount, 4)
+	testing.expect_value(t, repaired.hull, 24) // the event states the hull it leaves (#429)
 	dealt, dealt_ok := events[1].(Event_Damage_Dealt)
 	testing.expect(t, dealt_ok)
 	testing.expect_value(t, dealt.damage, 10) // nothing was subtracted from the hit

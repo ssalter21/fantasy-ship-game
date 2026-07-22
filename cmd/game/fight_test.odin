@@ -178,7 +178,7 @@ fight_escape_text_reads_the_escape_window :: proc(t: ^testing.T) {
 }
 
 @(test)
-fight_exchange_batches_a_round_and_drains_both_hulls :: proc(t: ^testing.T) {
+fight_exchange_batches_a_round_and_lands_hulls_from_the_round_report :: proc(t: ^testing.T) {
 	state := Game_State{player = ship.ship_starting_ship()}
 	defer delete(state.player.layout)
 	opponent := ship.ship_starting_ship()
@@ -189,16 +189,28 @@ fight_exchange_batches_a_round_and_drains_both_hulls :: proc(t: ^testing.T) {
 	player_hull_before := state.player.hull
 	opp_hull_before := opponent.hull
 
-	// A round's two hits accumulate into one pending exchange and drain each struck hull as
-	// they land — the opponent's, which no Event_Ship_Updated carries, and the player's.
+	// A round's two hits accumulate into one pending exchange — and move no hull. The
+	// deltas are playback numbers only; the hulls land from the round's report (#429),
+	// so presentation never re-derives or re-clamps a hull from a hit.
 	dispatch_battle_event(&state, combat.Event(combat.Event_Damage_Dealt{target = .B, damage = 10}))
 	dispatch_battle_event(&state, combat.Event(combat.Event_Damage_Dealt{target = .A, damage = 6}))
 
 	testing.expect(t, state.exchange_active)
 	testing.expect(t, state.pending_exchange[.A] == 6)
 	testing.expect(t, state.pending_exchange[.B] == 10)
-	testing.expect(t, state.player.hull == player_hull_before - 6)
+	testing.expect(t, state.player.hull == player_hull_before)
 	opp, ok := state.sighted_opponent.?
+	testing.expect(t, ok && opp.hull == opp_hull_before)
+
+	// The round report writes both hulls as the Event states them — the opponent's, which
+	// no Event_Ship_Updated carries, and the player's, kept in step until one re-lands it.
+	report := combat.Event_Round_Resolved {
+		round = 1,
+		hull  = {.A = player_hull_before - 6, .B = opp_hull_before - 10},
+	}
+	dispatch_battle_event(&state, combat.Event(report))
+	testing.expect(t, state.player.hull == player_hull_before - 6)
+	opp, ok = state.sighted_opponent.?
 	testing.expect(t, ok && opp.hull == opp_hull_before - 10)
 
 	// The round boundary flushes the exchange (the beat itself is a no-op without a window),
@@ -206,6 +218,26 @@ fight_exchange_batches_a_round_and_drains_both_hulls :: proc(t: ^testing.T) {
 	fight_flush_exchange(&state)
 	testing.expect(t, !state.exchange_active)
 	testing.expect(t, state.pending_exchange[.A] == 0 && state.pending_exchange[.B] == 0)
+}
+
+// A repair plays as its own beat ahead of the round's guns (ADR-0027), so its event states
+// the hull it leaves and the screen shows that number — not a locally-added delta (#429).
+@(test)
+fight_repair_beat_shows_the_hull_the_event_states :: proc(t: ^testing.T) {
+	state := Game_State{player = ship.ship_starting_ship()}
+	defer delete(state.player.layout)
+	opponent := ship.ship_starting_ship()
+	defer delete(opponent.layout)
+	state.sighted_opponent = opponent
+	state.in_battle = true
+
+	dispatch_battle_event(&state, combat.Event(combat.Event_Hull_Repaired{side = .B, amount = 4, hull = 17}))
+	opp, ok := state.sighted_opponent.?
+	testing.expect(t, ok)
+	testing.expect_value(t, opp.hull, 17)
+
+	dispatch_battle_event(&state, combat.Event(combat.Event_Hull_Repaired{side = .A, amount = 2, hull = 9}))
+	testing.expect_value(t, state.player.hull, 9)
 }
 
 @(test)
