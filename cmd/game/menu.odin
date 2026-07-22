@@ -33,30 +33,13 @@ play_beat :: proc(state: ^Game_State, headline: string) {
 	}
 }
 
-// play_stage_entry_beat announces a Reward stage (issue #139). Reward is the one stage
-// primitive that parks on no screen of its own — a Fight, Offer, Shop, or Trade each
-// present their own menu — so it pays out and the walk carries straight on, and without
-// this beat its loot is cargo that grew silently. Exactly one beat, only for the stage
-// with no screen.
-play_stage_entry_beat :: proc(state: ^Game_State, e: sim.Event_Stage_Entered) {
-	if e.kind != .Reward {
-		return
-	}
-	stage, known := encounter_stage(state, e.index)
-	if !known {
-		return
-	}
-	reward, is_reward := stage.(voyage.Stage_Reward)
-	if !is_reward {
-		return
-	}
-	// The overflow (#157) the reward can't fit, named at the ship seam rather than by
-	// capacity math in the render layer. It reads state.player pre-payout — a Reward
-	// changes no slots, so current capacity is the real one — and predicts the loss,
-	// because the beat runs before the stow (Event_Stage_Entered precedes it) and so
-	// cannot read ship_stow_cargo's return.
-	spilled := ship.ship_stow_spill(state.player, ship.ship_cargo(state.player) + reward.cargo)
-	play_beat(state, fmt.tprintf("Salvage! You haul aboard %d cargo.%s", reward.cargo, spill_note(spilled)))
+// reward_beat_text renders a Reward stage's payout beat (issue #139): Reward is the one
+// stage primitive that parks on no screen of its own — a Fight, Offer, Shop, or Trade
+// each present their own menu — so without this beat its loot is cargo that grew
+// silently. `gross` and `spilled` come off Event_Reward_Paid (#431), the stow's own
+// outcome, so the beat reports what happened rather than predicting it.
+reward_beat_text :: proc(gross: int, spilled: int) -> string {
+	return fmt.tprintf("Salvage! You haul aboard %d cargo.%s", gross, spill_note(spilled))
 }
 
 // spill_note is the clause a payout beat appends when a full hold sent cargo overboard

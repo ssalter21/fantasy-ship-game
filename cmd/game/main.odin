@@ -269,16 +269,20 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		}
 
 	case sim.Event_Wreck_Looted:
-		// A won Fight's payout has no screen of its own (unlike a Reward, which gets
-		// play_stage_entry_beat), so it is said out loud here — the haul, and any of it
-		// spilled overboard because the hold was full.
+		// A won Fight's payout has no screen of its own, so it is said out loud here —
+		// the haul, and any of it spilled overboard because the hold was full.
 		play_beat(state, wreck_loot_beat_text(e.gross, e.spilled))
+
+	case sim.Event_Reward_Paid:
+		// A Reward's payout likewise parks on no screen (#139): its beat is the only
+		// place the loot is seen, and it reads the Sim's outcome — spill included —
+		// rather than forecasting it (#431).
+		play_beat(state, reward_beat_text(e.gross, e.spilled))
 
 	case sim.Event_Stage_Entered:
 		// The cursor moved: remember it so draw_encounter_strip can show the sequence
 		// and where in it the captain is.
 		state.stage_progress = e
-		play_stage_entry_beat(state, e)
 
 	case sim.Event_Encounter_Halted:
 		// A halt is the one outcome with nothing to show for itself, so it is said out

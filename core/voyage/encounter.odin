@@ -282,8 +282,12 @@ voyage_apply_trade :: proc(s: ^ship.Ship, trade: Stage_Trade) {
 // so unlike voyage_apply_trade there is no affordability gate and no caller-side choice.
 // It always completes, which is what makes [Fight, Reward] read as "win, then loot" — the
 // halt on fleeing is Fight's, not Reward's.
-voyage_apply_reward :: proc(s: ^ship.Ship, reward: Stage_Reward) {
+//
+// `spilled` is the part of the payout the hold had no room for, straight from the stow
+// rather than a caller's before/after subtraction — the same reporting shape as
+// voyage_finish_ship_battle's.
+voyage_apply_reward :: proc(s: ^ship.Ship, reward: Stage_Reward) -> (spilled: int) {
 	// The reward stows into the holds (ADR-0020): a payout above remaining cargo
 	// capacity is lost (#157), the mainline case once a rich ship's slots are full.
-	ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^) + reward.cargo)
+	return ship.ship_stow_cargo(s.layout, ship.ship_cargo(s^) + reward.cargo)
 }

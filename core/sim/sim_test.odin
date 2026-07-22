@@ -1473,6 +1473,47 @@ a_reward_pays_out_and_completes_without_stopping_for_the_captain :: proc(t: ^tes
 	// the cadence tests above are where that distinction is asked properly.
 	testing.expect(t, has_event(events[:], Event_Ship_Updated))
 	testing.expect(t, has_event(events[:], Event_Encounter_Resolved))
+
+	// The payout announces itself (#431): the common in-capacity case names the haul
+	// and reports no spill.
+	paid := reward_paid(t, events[:])
+	testing.expect_value(t, paid.gross, REWARD_PAYOUT)
+	testing.expect_value(t, paid.spilled, 0)
+}
+
+@(test)
+a_reward_that_overflows_the_hold_reports_the_spill_on_its_event :: proc(t: ^testing.T) {
+	// #431: the Reward's own event carries what actually spilled, straight from the
+	// stow — the counterpart of Event_Wreck_Looted's overflow surfacing (#201) — so
+	// presentation reports the outcome instead of predicting it and the two cannot
+	// disagree. A brim-full hold makes the whole payout overflow.
+	sim := sim_create(0)
+	defer sim_destroy(&sim)
+	events: [dynamic]Event
+	defer delete(events)
+
+	capacity := ship.ship_cargo_capacity(sim.player)
+	ship.ship_stow_cargo(sim.player.layout, capacity)
+	sim_seat_at_stage(&sim, 1, &events, reward_stage())
+
+	testing.expect_value(t, ship.ship_cargo(sim.player), capacity) // filled to the ceiling, no further
+
+	paid := reward_paid(t, events[:])
+	testing.expect_value(t, paid.gross, REWARD_PAYOUT) // the whole boon is named
+	testing.expect_value(t, paid.spilled, REWARD_PAYOUT) // and all of it went overboard
+}
+
+// reward_paid picks the batch's Event_Reward_Paid, failing the test if the payout
+// never announced itself.
+reward_paid :: proc(t: ^testing.T, events: []Event) -> (paid: Event_Reward_Paid) {
+	found := false
+	for e in events {
+		if p, ok := e.(Event_Reward_Paid); ok {
+			paid, found = p, true
+		}
+	}
+	testing.expect(t, found, "the batch carries no Event_Reward_Paid")
+	return
 }
 
 @(test)

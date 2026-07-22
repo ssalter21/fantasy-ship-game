@@ -341,24 +341,6 @@ tag_cargo_is_authored_and_never_derived :: proc(t: ^testing.T) {
 }
 
 @(test)
-ship_stow_spill_predicts_the_overflow_a_stow_would_drop :: proc(t: ^testing.T) {
-	// The predictive twin agrees with the mutating stow's return across the range, so a
-	// caller that must name the loss before stowing (the Reward beat) gets the same
-	// number ship_stow_cargo would report after.
-	for amount in ([]int{0, 30, 50, 65, 120}) {
-		predicted_layout, actual_layout := make_held_layout(), make_held_layout()
-		predicted := Ship{layout = predicted_layout[:]}
-		actual := Ship{layout = actual_layout[:]}
-		testing.expectf(
-			t,
-			ship_stow_spill(predicted, amount) == ship_stow_cargo(actual.layout, amount),
-			"ship_stow_spill disagreed with ship_stow_cargo at amount %d",
-			amount,
-		)
-	}
-}
-
-@(test)
 ship_with_no_captain_assigned_has_no_captain :: proc(t: ^testing.T) {
 	s := Ship{}
 

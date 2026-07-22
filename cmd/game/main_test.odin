@@ -395,23 +395,16 @@ the_encounter_strip_tracks_the_walk_and_clears_when_it_is_over :: proc(t: ^testi
 }
 
 @(test)
-only_a_stage_with_no_screen_of_its_own_gets_an_entry_beat :: proc(t: ^testing.T) {
-	// The pacing rule #139 settled: a stage that parks for a decision is seen as its own
-	// screen, so the strip is all it needs. Reward parks nowhere (#133) — it pays out and
-	// the walk carries straight on — so without a beat a [Fight, Reward]'s whole loot is a
-	// cargo that silently grew. Under `odin test` play_beat is a no-op, so this pins the
-	// selection rule rather than the render: every kind is handled, and only Reward looks
-	// its content up.
-	nodes := [1]voyage.Node{node_of(voyage.Stage_Reward{cargo = 30})}
-	state := Game_State{voyage_map = voyage.Map{nodes = nodes[:]}}
-
-	for kind in voyage.Stage_Kind {
-		play_stage_entry_beat(&state, sim.Event_Stage_Entered{kind = kind, index = 0, count = 1})
-	}
-
-	// A Reward beat reads its amount off the arrival copy, so an index past the encounter
-	// (which the Sim cannot emit) must decline rather than index out of bounds.
-	play_stage_entry_beat(&state, sim.Event_Stage_Entered{kind = .Reward, index = 2, count = 3})
+the_reward_beat_reports_the_haul_and_names_any_spill :: proc(t: ^testing.T) {
+	// The beat renders Event_Reward_Paid's outcome as-is (#431) — no capacity math of
+	// its own — so what it says and what the Sim did are one fact. The spill clause
+	// appears only when something actually went overboard.
+	testing.expect_value(t, reward_beat_text(30, 0), "Salvage! You haul aboard 30 cargo.")
+	testing.expect_value(
+		t,
+		reward_beat_text(30, 12),
+		"Salvage! You haul aboard 30 cargo. 12 spills overboard — your hold is full.",
+	)
 }
 
 @(test)

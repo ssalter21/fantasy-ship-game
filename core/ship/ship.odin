@@ -945,16 +945,6 @@ ship_stow_cargo :: proc(layout: []Layout_Slot, amount: int) -> (spilled: int) {
 	return remaining // the cargo that found no room — lost above capacity, never stored
 }
 
-// ship_stow_spill reports how much of a prospective new total `amount` would fall
-// overboard (ADR-0020, #157) — the overflow a stow would drop — without touching the
-// hold. It reads the same capacity ship_stow_cargo fills, so it equals the `spilled`
-// that stow would return. It exists for the caller that must name the loss *before*
-// the stow happens (the Reward beat), where ship_stow_cargo's after-the-fact return
-// is out of reach.
-ship_stow_spill :: proc(s: Ship, amount: int) -> int {
-	return max(0, amount - ship_cargo_capacity(s))
-}
-
 // ship_jettison_cargo empties the cargo out of `layout`'s fitting at `slot` and
 // re-stows what is left across the whole layout, returning the fitting as it stood
 // with its load so a caller can name what went over the side. The **fitting stays
