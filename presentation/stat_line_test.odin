@@ -1,8 +1,8 @@
-package main
+package presentation
 
 import "core:fmt"
 import "core:testing"
-import ship "../../core/ship"
+import ship "../core/ship"
 
 // ship_stat_line is the one formatter for the ship-stat readout (#428); these pin the
 // vocabulary (Cargo, per the glossary — Hold is a fitting), the middot separator, and the

@@ -1,7 +1,7 @@
-package main
+package presentation
 
 import "core:testing"
-import voyage "../../core/voyage"
+import voyage "../core/voyage"
 import rl "vendor:raylib"
 
 // The sail phase's pure half (spec 0001 §5): the tween, the 8-way heading snap, and the

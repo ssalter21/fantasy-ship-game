@@ -1,10 +1,10 @@
-package main
+package presentation
 
 import "core:fmt"
 import "core:strings"
 import "core:testing"
-import ship "../../core/ship"
-import sim "../../core/sim"
+import ship "../core/ship"
+import sim "../core/sim"
 
 // The Offer/Shop screen's drag mapping and its refit bridge, tested as pure functions the way
 // build_drop_command is — no window, so `odin test` exercises the gesture's decisions without

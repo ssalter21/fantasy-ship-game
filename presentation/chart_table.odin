@@ -1,4 +1,5 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
 import rl "vendor:raylib"

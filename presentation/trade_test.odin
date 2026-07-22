@@ -1,7 +1,7 @@
-package main
+package presentation
 
 import "core:testing"
-import voyage "../../core/voyage"
+import voyage "../core/voyage"
 import rl "vendor:raylib"
 
 // The Trade screen's text and layout helpers, tested as pure functions (#318) — no window, so

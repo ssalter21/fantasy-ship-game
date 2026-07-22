@@ -1,7 +1,7 @@
-package main
+package presentation
 
 import "core:testing"
-import sim "../../core/sim"
+import sim "../core/sim"
 
 // These cover the scripted half of capture — the half that has no window in it.
 // The drawing half can't be tested here for the same reason the menu loops can't:

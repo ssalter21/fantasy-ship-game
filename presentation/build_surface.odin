@@ -1,10 +1,11 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
 import "core:math/linalg"
 import cutaway "./cutaway"
-import ship "../../core/ship"
-import sim "../../core/sim"
+import ship "../core/ship"
+import sim "../core/sim"
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 

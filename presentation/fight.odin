@@ -1,10 +1,11 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
-import combat "../../core/combat"
+import combat "../core/combat"
 import cutaway "./cutaway"
-import ship "../../core/ship"
-import sim "../../core/sim"
+import ship "../core/ship"
+import sim "../core/sim"
 import rl "vendor:raylib"
 
 // The Fight stage (#315, #305, ADR-0024): the most complex of the five stages, drawn as

@@ -1,10 +1,11 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
 import cutaway "./cutaway"
-import voyage "../../core/voyage"
-import ship "../../core/ship"
-import sim "../../core/sim"
+import voyage "../core/voyage"
+import ship "../core/ship"
+import sim "../core/sim"
 import rl "vendor:raylib"
 
 // The Offer and Shop stages (#312, #304, ADR-0024): both are the Build surface — the ship

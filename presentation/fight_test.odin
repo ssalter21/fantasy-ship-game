@@ -1,9 +1,9 @@
-package main
+package presentation
 
 import "core:fmt"
 import "core:testing"
-import combat "../../core/combat"
-import ship "../../core/ship"
+import combat "../core/combat"
+import ship "../core/ship"
 
 // The Fight screen's decision logic tested as pure functions the way build_drop_command and
 // offer_shop_drop_command are — no window, so `odin test` exercises the action set, the escape

@@ -1,8 +1,9 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
-import voyage "../../core/voyage"
-import ship "../../core/ship"
+import voyage "../core/voyage"
+import ship "../core/ship"
 import rl "vendor:raylib"
 
 // The shared encounter frame (#304, ADR-0024): the constant chrome every encounter stage

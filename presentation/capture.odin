@@ -1,14 +1,14 @@
-package main
+package presentation
 
 import "core:fmt"
 import "core:os"
 import "core:slice"
 import "core:strings"
-import combat "../../core/combat"
+import combat "../core/combat"
 import cutaway "./cutaway"
-import ship "../../core/ship"
-import sim "../../core/sim"
-import voyage "../../core/voyage"
+import ship "../core/ship"
+import sim "../core/sim"
+import voyage "../core/voyage"
 import rl "vendor:raylib"
 
 // Capture mode is the third Input_Source/Event_Sink pair (ADR-0002), beside the
@@ -16,14 +16,12 @@ import rl "vendor:raylib"
 // screenshots it, and returns a *scripted* command so the session walks itself.
 // That is the whole idea — no player, but a real window and the real render code.
 //
-// It lives in cmd/game rather than a cmd/capture of its own, and that is a finding
-// rather than a preference: draw_scene, Game_State and dispatch are all `package
-// main` here, and Odin rejects a second main package importing this one
-// ("Duplicate declaration of 'package main'"). A sibling executable could only
-// reuse the render code if it were first extracted into a library package.
-// Capture renders, so ADR-0003's reason for splitting headless out (never link the
-// renderer) does not argue for splitting capture out.
+// It lives beside the render code it photographs — draw_scene, Game_State and
+// dispatch are package-private, so capture sees exactly the screens the game
+// draws. Capture renders, so ADR-0003's reason for splitting headless out (never
+// link the renderer) does not argue for a capture executable of its own.
 
+@(private)
 CAPTURE_DIR :: "docs/ui/shots"
 
 // Capture_State drives the scripted walk and numbers the shots. The Game_State it
@@ -31,6 +29,7 @@ CAPTURE_DIR :: "docs/ui/shots"
 // screens the game draws rather than a second, drifting copy: the two halves take
 // separate rawptrs, so capture's Input_Source and the game's Event_Sink can read
 // different structs without either knowing about the other.
+@(private)
 Capture_State :: struct {
 	game:  Game_State,
 	shots: int,
@@ -88,6 +87,7 @@ capture_main :: proc() {
 // script instead of from a click. Unlike the game's menu loops it blocks on
 // nothing, and unlike headless's it draws — which is the whole point of the third
 // implementation.
+@(private)
 capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Capture_State)data
 
@@ -96,6 +96,7 @@ capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Com
 }
 
 // capture_shot renders one frame of the current decision screen and writes it out.
+@(private)
 capture_shot :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	if !rl.IsWindowReady() {
 		return
@@ -110,6 +111,7 @@ capture_shot :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) 
 // script, and none of the un-photographable beats a scripted walk pays for its screens.
 // It is the one screen capture can shoot without a Sim at all, because #278 made the
 // Chart Table stateless and made it precede any voyage.
+@(private)
 capture_shot_chart_table :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
 		return
@@ -128,6 +130,7 @@ capture_shot_chart_table :: proc(state: ^Capture_State) {
 // Game_State populates both states without a scripted walk — which has no mouse to raise the
 // tab. The first tick emits only Event_Voyage_Started and Event_Travel_Options, neither of which
 // plays a beat, so dispatching them here is safe.
+@(private)
 capture_shot_home :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
 		return
@@ -172,6 +175,7 @@ capture_shot_home :: proc(state: ^Capture_State) {
 // it needs no Sim — the surface reads only the ship — so it is shot standalone here rather
 // than from the scripted walk, which never opens a Refit. The drag state is hard-coded, the
 // same trick the run-game skill uses to photograph a hover capture otherwise can't see.
+@(private)
 capture_shot_build_surface :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
 		return
@@ -243,6 +247,7 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 // stage — header naming it in its category colour, the top-right stat line, the view-only
 // chart tab, the vignette — and the playback layer over it, the Reward beat that is only
 // this overlay.
+@(private)
 capture_shot_encounter_frame :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
 		return
@@ -268,6 +273,7 @@ capture_shot_encounter_frame :: proc(state: ^Capture_State) {
 // uses. Two shots: the shelf at rest — priced cards, one dearer than the hold can pay so its
 // dimmed, undraggable read shows — and a buy in flight, the amber ghost over the empty Large
 // forecastle with the stat line ghosting the post-buy cargo (`Cargo 80/90 → 62/90`).
+@(private)
 capture_shot_offer_shop :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
 		return
@@ -313,6 +319,7 @@ capture_shot_offer_shop :: proc(state: ^Capture_State) {
 // per-slot visibility badges, the round / stage readouts, the no-amber action row — the
 // round-exchange beat, both damage numbers floating over their hulls under the shared scrim,
 // and Jettison's target step.
+@(private)
 capture_shot_fight :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
 		return
@@ -353,6 +360,7 @@ capture_shot_fight :: proc(state: ^Capture_State) {
 // framebuffer that EndDrawing just presented, so a single draw would screenshot
 // whatever was on screen *before* this one. Drawing the same scene into both buffers
 // makes the read-back land on this frame regardless of which buffer is read.
+@(private)
 capture_write :: proc(state: ^Capture_State, label: string) {
 	// rl.TakeScreenshot runs the filename through GetFileName() and writes into the
 	// process's working directory, so a path prefix here is silently dropped — the shot
@@ -376,6 +384,7 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 // draw_scene, which renders the scene *without* that screen's chrome — its controls are still
 // welded inside its blocking menu loop. The remaining gap is the finding, not an oversight: see
 // issue #277.
+@(private)
 capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	#partial switch awaiting {
 	case .Awaiting_Travel_Choice:
@@ -395,6 +404,7 @@ capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: s
 // thing distinguishing one screen from another here, which is itself a limit worth
 // naming: capture can ask for "the trade screen", not for "the trade screen at the
 // third Deep node".
+@(private)
 capture_phase_slug :: proc(awaiting: sim.Phase) -> string {
 	switch awaiting {
 	case .Awaiting_Travel_Choice:
@@ -415,9 +425,9 @@ capture_phase_slug :: proc(awaiting: sim.Phase) -> string {
 
 // capture_scripted_command answers every decision without a player, mirroring
 // cmd/headless's auto-player: sail forward, hold in a battle, decline every offer.
-// It is a re-implementation rather than a reuse for the same reason capture lives
-// here at all — cmd/headless is also `package main`, so its auto-player cannot be
-// imported either.
+// It is a re-implementation rather than a reuse — cmd/headless is a `package main`,
+// so its auto-player cannot be imported.
+@(private)
 capture_scripted_command :: proc(state: ^Capture_State, awaiting: sim.Phase) -> sim.Command {
 	switch awaiting {
 	case .Awaiting_Travel_Choice:

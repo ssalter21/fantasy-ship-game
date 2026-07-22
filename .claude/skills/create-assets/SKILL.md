@@ -90,7 +90,7 @@ then measure it — the same discipline run-game's style loop uses, don't trust 
 ## Make it self-contained
 
 An asset that ships as a loose file breaks ADR-0009's self-contained `game.exe` — the same reason the font is
-embedded, not shipped beside the binary. Follow the font's worked example in `cmd/game/ui.odin`:
+embedded, not shipped beside the binary. Follow the font's worked example in `presentation/ui.odin`:
 
 - **Embed with `#load`**, as `PIXELIFY_SANS_TTF :: #load("../../assets/fonts/PixelifySans.ttf")` does. Put art
   under `assets/` beside `fonts/`.

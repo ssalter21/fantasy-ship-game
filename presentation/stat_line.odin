@@ -1,7 +1,8 @@
-package main
+#+private
+package presentation
 
 import "core:fmt"
-import ship "../../core/ship"
+import ship "../core/ship"
 
 // The one formatter for the ship-stat readout (#428): every screen that prints a ship's
 // stat line composes it here, so the vocabulary and shape are a one-place edit.
