@@ -75,17 +75,14 @@ Shelf_Drag :: struct {
 	cost:         Maybe(int),
 }
 
-// offer_shop_kind names which primitive this list is, read off the prices — a priced list
-// is a Shop, an unpriced one an Offer — so the header, its tint, and the Leave/Skip wording
-// all come from the same tell the old option screen used. Costs are per-option, so it asks
-// the list rather than assuming the stage.
-offer_shop_kind :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) -> voyage.Stage_Kind {
-	for slot in options {
-		if option, filled := slot.?; filled {
-			if _, has_cost := option.cost.?; has_cost {
-				return .Shop
-			}
-		}
+// offer_shop_kind names which primitive this screen is presenting — the header, its tint,
+// and the Leave/Skip wording all read it. It is the kind the Sim announced on entry
+// (Event_Stage_Entered, kept in state.stage_progress), not inferred from the options, so a
+// Shop whose items happen to carry no cost still presents as a Shop (#430). The screen only
+// runs while a stage is walked; nil stage_progress falls back to Offer, the humbler read.
+offer_shop_kind :: proc(state: ^Game_State) -> voyage.Stage_Kind {
+	if progress, walking := state.stage_progress.?; walking {
+		return progress.kind
 	}
 	return .Offer
 }
@@ -282,7 +279,7 @@ draw_offer_shop :: proc(state: ^Game_State, drag: Shelf_Drag, mouse: rl.Vector2)
 
 	rl.ClearBackground(COLOUR_DEEP)
 
-	kind := offer_shop_kind(state.stage_options)
+	kind := offer_shop_kind(state)
 	dragging := drag.active
 
 	region := offer_shop_ship_region()

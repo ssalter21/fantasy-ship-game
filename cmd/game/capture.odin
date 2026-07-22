@@ -275,6 +275,9 @@ capture_shot_offer_shop :: proc(state: ^Capture_State) {
 
 	game := Game_State{player = ship.ship_starting_ship()}
 	defer delete(game.player.layout)
+	// The screen reads its kind off the stage-entered Event (#430), so the synthesized
+	// stop announces itself a Shop the way a real walk would.
+	game.stage_progress = sim.Event_Stage_Entered{kind = .Shop, index = 0, count = 1}
 	names := [?]string{"Long Nines", "Chain & Bar Shot", "Titan's Heart", "Outriggers"}
 	costs := [?]int{18, 34, 120, 26} // the 120 sits above the starting hold, so it dims
 	for name, i in names {
