@@ -14,6 +14,9 @@ import sim "../../core/sim"
 offer_shop_kind_reads_the_stage_entered_event :: proc(t: ^testing.T) {
 	state: Game_State
 
+	// Between stages (nil stage_progress — never a live screen) the fallback is Offer.
+	testing.expect(t, offer_shop_kind(&state) == .Offer)
+
 	// A costless Shop still presents as a Shop: the kind is the Event's, not a price scan.
 	state.stage_progress = sim.Event_Stage_Entered{kind = .Shop, index = 0, count = 1}
 	state.stage_options[0] = sim.Stage_Option{} // no cost
