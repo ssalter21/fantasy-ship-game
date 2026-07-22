@@ -11,14 +11,21 @@ import sim "../../core/sim"
 // a render loop.
 
 @(test)
-offer_shop_kind_reads_shop_from_a_priced_list :: proc(t: ^testing.T) {
-	priced: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)
-	priced[0] = sim.Stage_Option{cost = 3}
-	testing.expect(t, offer_shop_kind(priced) == .Shop)
+offer_shop_kind_reads_the_stage_entered_event :: proc(t: ^testing.T) {
+	state: Game_State
 
-	free: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)
-	free[0] = sim.Stage_Option{} // no cost
-	testing.expect(t, offer_shop_kind(free) == .Offer)
+	// Between stages (nil stage_progress — never a live screen) the fallback is Offer.
+	testing.expect(t, offer_shop_kind(&state) == .Offer)
+
+	// A costless Shop still presents as a Shop: the kind is the Event's, not a price scan.
+	state.stage_progress = sim.Event_Stage_Entered{kind = .Shop, index = 0, count = 1}
+	state.stage_options[0] = sim.Stage_Option{} // no cost
+	testing.expect(t, offer_shop_kind(&state) == .Shop)
+
+	// And an Offer never presents as one, whatever its options carry.
+	state.stage_progress = sim.Event_Stage_Entered{kind = .Offer, index = 0, count = 1}
+	state.stage_options[0] = sim.Stage_Option{cost = 3}
+	testing.expect(t, offer_shop_kind(&state) == .Offer)
 }
 
 @(test)
