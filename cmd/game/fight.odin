@@ -12,8 +12,9 @@ import rl "vendor:raylib"
 // inside the shared encounter frame. It is the design #305 settled:
 //
 //   - Facing cutaways. Each ship is the same Cutaway as the Build surface (#308) — the
-//     deck's exposed stations above a drawn waterline, the belly's holds below — reusing
-//     build_slot_rects / draw_build_hull at a reduced scale so the two ships share the width.
+//     deck's exposed stations above a drawn waterline, the belly's holds below — laid out by
+//     the cutaway module (fight_ship_region, #426) at a reduced scale so the two ships share
+//     the width, the hull painted by draw_build_hull.
 //   - Per-slot concealment (ADR-0030). Each slot carries its own seen / concealed badge from
 //     its base visibility, decoupled from the waterline (a layout may put a concealed station
 //     above the line or an exposed hold below it, and the screen renders exactly that). A
@@ -392,7 +393,8 @@ draw_fight_visibility_badge :: proc(rect: rl.Rectangle, visibility: ship.Visibil
 // scouted opponent's hold / weight stay behind the concealment gate (ADR-0030), so its block
 // stops at Hull · SPD. Centred over the ship's region, title cream, stats steel.
 draw_fight_statblock :: proc(s: ^ship.Ship, area_x: f32, title: string, gate: bool) {
-	centre_x := area_x + FIGHT_REGION_W / 2
+	region := fight_ship_region(area_x)
+	centre_x := region.x + region.w / 2
 
 	tctext := fmt.ctprintf("%s", title)
 	tsize := rl.MeasureTextEx(ui_font_body, tctext, UI_BODY_SIZE, 1)
@@ -592,13 +594,16 @@ draw_fight_exchange :: proc(state: ^Game_State, dmg_a: int, dmg_b: int) {
 
 // draw_fight_damage_number floats a round's damage over a ship's deck in the Fight hue
 // (#A6485A, stage_tint's one warm), at title size for impact — never amber (damage is the
-// world talking, not a control to act on). Nothing drawn when the side took no damage.
+// world talking, not a control to act on). Nothing drawn when the side took no damage. The
+// deck line comes off the same region the ship drew in, so the number can't drift from the
+// cutaway it floats over.
 draw_fight_damage_number :: proc(area_x: f32, damage: int) {
 	if damage <= 0 {
 		return
 	}
+	region := fight_ship_region(area_x)
 	text := fmt.ctprintf("-%d", damage)
 	size := rl.MeasureTextEx(ui_font_title, text, UI_TITLE_SIZE, 1)
-	centre_x := area_x + FIGHT_REGION_W / 2
-	rl.DrawTextEx(ui_font_title, text, rl.Vector2{centre_x - size.x / 2, FIGHT_DECK_Y + 20}, UI_TITLE_SIZE, 1, stage_tint(.Fight))
+	centre_x := region.x + region.w / 2
+	rl.DrawTextEx(ui_font_title, text, rl.Vector2{centre_x - size.x / 2, region.deck_y + 20}, UI_TITLE_SIZE, 1, stage_tint(.Fight))
 }

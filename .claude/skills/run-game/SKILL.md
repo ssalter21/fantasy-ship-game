@@ -36,8 +36,8 @@ fixed all six there.
 odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
-foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','cmd/game','cmd/headless') { odin test $pkg }
-# 305 core (45+124+75+61), 25 cmd/game, 4 cmd/headless — same list CI runs
+foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','cmd/game','cmd/game/cutaway','cmd/headless') { odin test $pkg }
+# 395 core (52+131+138+74), 67 cmd/game, 4 cmd/game/cutaway, 4 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
