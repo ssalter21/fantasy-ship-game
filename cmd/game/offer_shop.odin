@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import cutaway "./cutaway"
 import voyage "../../core/voyage"
 import ship "../../core/ship"
 import sim "../../core/sim"
@@ -47,6 +48,20 @@ OFFER_SHOP_SHELF_GAP :: 12
 // OFFER_SHOP_SHIP_W is the ship's region: from its left margin up to the gap before the
 // shelf panel, so the two never overlap and the ship rows centre in what is left.
 OFFER_SHOP_SHIP_W :: OFFER_SHOP_SHELF_X - OFFER_SHOP_SHIP_X - 12
+
+// offer_shop_ship_region is the encounter ship's reduced-scale left region, spelled once so
+// hull, cards and the slot hit-test read the same cross-section (#426).
+offer_shop_ship_region :: proc() -> cutaway.Region {
+	return cutaway.Region {
+		x           = OFFER_SHOP_SHIP_X,
+		w           = OFFER_SHOP_SHIP_W,
+		deck_y      = OFFER_SHOP_DECK_Y,
+		waterline_y = OFFER_SHOP_WATERLINE_Y,
+		hold_y      = OFFER_SHOP_HOLD_Y,
+		keel_y      = OFFER_SHOP_KEEL_Y,
+		scale       = OFFER_SHOP_SCALE,
+	}
+}
 
 // Shelf_Drag is a shelf card in flight — the same press-drag-release primitive the Build
 // surface uses, but lifted from an option rather than a slot. It carries the option's index
@@ -99,7 +114,7 @@ offer_shop_shelf_rects :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Op
 		if !filled {
 			continue
 		}
-		w, h := build_card_dims(option.fitting.size, OFFER_SHOP_SCALE)
+		w, h := cutaway.cutaway_card_dims(option.fitting.size, OFFER_SHOP_SCALE)
 		rects[i] = rl.Rectangle{x = OFFER_SHOP_SHELF_CARD_X, y = y, width = w, height = h}
 		y += h + OFFER_SHOP_SHELF_GAP
 	}
@@ -129,23 +144,10 @@ offer_shop_leave_rect :: proc() -> rl.Rectangle {
 	}
 }
 
-// offer_shop_ship_slot_at returns the ship slot whose card the point is over, or nil, using
-// the encounter's reduced-scale left-region layout.
+// offer_shop_ship_slot_at returns the ship slot whose card the point is over, or nil —
+// asked of the cutaway module over the same region the drawing uses.
 offer_shop_ship_slot_at :: proc(state: ^Game_State, point: rl.Vector2) -> Maybe(ship.Slot_Index) {
-	rects, n := build_slot_rects(
-		state.player.layout,
-		OFFER_SHOP_SHIP_X,
-		OFFER_SHOP_SHIP_W,
-		OFFER_SHOP_DECK_Y,
-		OFFER_SHOP_HOLD_Y,
-		OFFER_SHOP_SCALE,
-	)
-	for i in 0 ..< n {
-		if rl.CheckCollisionPointRec(point, rects[i]) {
-			return ship.Slot_Index(i)
-		}
-	}
-	return nil
+	return cutaway.cutaway_slot_at(state.player.layout, offer_shop_ship_region(), point)
 }
 
 // offer_shop_begin_drag lifts the affordable shelf card under a press into a drag, or starts
@@ -283,25 +285,13 @@ draw_offer_shop :: proc(state: ^Game_State, drag: Shelf_Drag, mouse: rl.Vector2)
 	kind := offer_shop_kind(state.stage_options)
 	dragging := drag.active
 
-	draw_build_hull(
-		OFFER_SHOP_SHIP_X,
-		OFFER_SHOP_SHIP_W,
-		OFFER_SHOP_DECK_Y - 22,
-		OFFER_SHOP_WATERLINE_Y,
-		OFFER_SHOP_KEEL_Y,
-	)
+	region := offer_shop_ship_region()
+	draw_build_hull(region)
 
 	// The ship's slots, at the encounter scale. A drag dims every berth that is not a legal
 	// landing for it and lights the ones that are, exactly as the Build surface does — the
 	// same draw_build_card, so a slot reads identically here and at Home.
-	rects, n := build_slot_rects(
-		state.player.layout,
-		OFFER_SHOP_SHIP_X,
-		OFFER_SHOP_SHIP_W,
-		OFFER_SHOP_DECK_Y,
-		OFFER_SHOP_HOLD_Y,
-		OFFER_SHOP_SCALE,
-	)
+	rects, n := cutaway.cutaway_slot_rects(state.player.layout, region)
 	for i in 0 ..< n {
 		legal := dragging && offer_shop_legal_berth(drag.fitting, state.player.layout[i])
 		draw_build_card(rects[i], state.player.layout[i], dragging && !legal, legal)
