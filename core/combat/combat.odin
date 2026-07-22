@@ -266,16 +266,13 @@ combat_timings :: proc(battle: ^Battle, side: Side, round: int) -> (timings: shi
 }
 
 // combat_phase_output sums the magnitude of every effect on `side`'s ship whose phase is
-// `phase`, in fixed slot order and then in authored effect order (ADR-0006). Routing is on
-// the **effect's own phase**, so one fitting may feed both phases and a Modify_Speed effect
-// feeds neither — it acts through ship_effective_speed, above the phase totals.
-//
-// Takes the round's completed context — pass two, `round` plus both sides' `speeds` — so
-// every quantity a magnitude tree may read is answered against live battle state, plus
-// `timings`, the round's already-advanced timing readings: an effect that does not fire
-// this round resolves to 0 (ship.effect_magnitude), and a ramp's growth arrives with it.
-// self_slot is set per fitting so a tree reading its own visibility reads the slot the
-// effect sits in.
+// `phase`: the shared walk (ship.ship_resolve_effects) over pass two's completed context —
+// `round` plus both sides' `speeds` — so every quantity a magnitude tree may read is
+// answered against live battle state. `timings` is the round's already-advanced timing
+// readings: an effect that does not fire this round resolves to 0 (ship.effect_magnitude),
+// and a ramp's growth arrives with it. Routing is on the **effect's own phase**, so one
+// fitting may feed both phases and a Modify_Speed effect feeds neither — it acts through
+// ship_effective_speed, above the phase totals.
 combat_phase_output :: proc(
 	battle: ^Battle,
 	side: Side,
@@ -284,24 +281,8 @@ combat_phase_output :: proc(
 	speeds: ship.Speeds,
 	timings: ship.Effect_Timings,
 ) -> int {
-	s := battle.ships[side]
-	total := 0
-	ctx := ship.ship_effect_context_in_battle(s, round, speeds)
-	for layout_slot, slot_index in s.layout {
-		fitting, has_fitting := layout_slot.fitting.?
-		if !has_fitting {
-			continue
-		}
-		ctx.self_slot = layout_slot
-		for effect_index in 0 ..< fitting.effect_count {
-			effect := fitting.effects[effect_index]
-			if effect_phase, feeds := effect.phase.?; !feeds || effect_phase != phase {
-				continue
-			}
-			total += int(ship.effect_magnitude(effect, ctx, timings[slot_index][effect_index]))
-		}
-	}
-	return total
+	ctx := ship.ship_effect_context_in_battle(battle.ships[side], round, speeds)
+	return ship.ship_resolve_effects(ctx, phase, timings)
 }
 
 // combat_phase_output_this_round is combat_phase_output for the round the battle is

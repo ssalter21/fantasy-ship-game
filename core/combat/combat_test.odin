@@ -1040,7 +1040,7 @@ a_below_half_hull_conditional_offense_fitting_contributes_only_below_the_thresho
 @(test)
 a_while_concealed_conditional_offense_fitting_reads_its_own_slot_visibility :: proc(t: ^testing.T) {
 	// The own-concealment trigger resolves against the slot the fitting sits in
-	// (combat_phase_output fills self_slot per fitting): the same fitting in a
+	// (ship.ship_resolve_effects fills self_slot per slot): the same fitting in a
 	// concealed slot contributes, in an exposed slot does not.
 	ambush := ship.ship_fitting_with_effects(ship.Fitting{name = "Ambush Cannon", size = .Large}, ship.effect_phase_contribution(ship.expr_while_concealed(8)))
 

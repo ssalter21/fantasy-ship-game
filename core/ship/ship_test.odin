@@ -701,6 +701,81 @@ a_full_hold_floors_the_starting_ship_speed_at_zero_never_below :: proc(t: ^testi
 	testing.expect(t, ship_effective_speed(&s) > full) // emptiness is what varies
 }
 
+// --- The one effect-resolution walk ------------------------------------------
+//
+// ship_resolve_effects is the single walk both production resolvers route through
+// (ship_effective_speed, combat's phase output). These pin its three duties: route each
+// effect to the phase it names, complete the context with the slot the effect sits in,
+// and read each effect's timing off its own table cell.
+
+@(test)
+resolve_effects_routes_each_effect_to_the_phase_it_names :: proc(t: ^testing.T) {
+	// One fitting feeding both phases, one feeding the speed layer: a walk filtered to
+	// a phase sums exactly the effects that name it, and nil — the Modify_Speed layer —
+	// picks up neither round phase.
+	hybrid := ship_fitting_with_effects(
+		Fitting{name = "Boarding Crew", size = .Medium, tags = {.Crew}},
+		effect_phase_contribution(expr_const(7)),
+		effect_repair(expr_const(4)),
+	)
+	sails := ship_fitting_with_effects(Fitting{name = "Fast Sails", size = .Small}, effect_modify_speed(expr_const(3)))
+	s := Ship{
+		max_hull = 20,
+		layout = []Layout_Slot{
+			{slot = Slot{size = .Medium}, fitting = hybrid},
+			{slot = Slot{size = .Small}, fitting = sails},
+		},
+	}
+
+	ctx := ship_effect_context(&s)
+	testing.expect_value(t, ship_resolve_effects(ctx, Phase.Fire), 7)
+	testing.expect_value(t, ship_resolve_effects(ctx, Phase.Brace), 4)
+	testing.expect_value(t, ship_resolve_effects(ctx, nil), 3)
+}
+
+@(test)
+resolve_effects_completes_the_context_with_each_effects_own_slot :: proc(t: ^testing.T) {
+	// A magnitude gated on its own concealment: the walk resolves each effect against
+	// the slot it sits in, so the same fitting reads differently across two slots and
+	// no caller seeds self_slot.
+	lurker := ship_fitting_with_effects(
+		Fitting{name = "Hidden Battery", size = .Small, tags = {.Weapon}},
+		effect_phase_contribution(expr_while_concealed(5)),
+	)
+	s := Ship{
+		max_hull = 20,
+		layout = []Layout_Slot{
+			{slot = Slot{size = .Small, base_visibility = .Concealed}, fitting = lurker},
+			{slot = Slot{size = .Small, base_visibility = .Exposed}, fitting = lurker},
+		},
+	}
+
+	testing.expect_value(t, ship_resolve_effects(ship_effect_context(&s), Phase.Fire), 5)
+}
+
+@(test)
+resolve_effects_reads_each_effects_timing_off_its_own_cell :: proc(t: ^testing.T) {
+	// A dormant reading silences exactly the effect whose (slot, effect) cell carries
+	// it; its shipmates resolve normally. The zero table — every effect firing — is the
+	// default, which is what an off-battle caller resolves against.
+	gun := ship_fitting_with_effects(
+		Fitting{name = "Gun Deck", size = .Large, tags = {.Weapon}},
+		effect_phase_contribution(expr_const(7)),
+		effect_phase_contribution(expr_const(2)),
+	)
+	s := Ship{
+		max_hull = 20,
+		layout = []Layout_Slot{{slot = Slot{size = .Large}, fitting = gun}},
+	}
+	ctx := ship_effect_context(&s)
+
+	testing.expect_value(t, ship_resolve_effects(ctx, Phase.Fire), 9)
+
+	timings: Effect_Timings
+	timings[0][0] = Timing_Reading{dormant = true}
+	testing.expect_value(t, ship_resolve_effects(ctx, Phase.Fire, timings), 2)
+}
+
 // --- Trees at the magnitude seam ---------------------------------------------
 //
 // An effect's magnitude is an authored tree (expr.odin's composed shapes), resolved by
