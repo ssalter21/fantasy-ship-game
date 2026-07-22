@@ -595,8 +595,8 @@ draw_fight_exchange :: proc(state: ^Game_State, dmg_a: int, dmg_b: int) {
 // draw_fight_damage_number floats a round's damage over a ship's deck in the Fight hue
 // (#A6485A, stage_tint's one warm), at title size for impact — never amber (damage is the
 // world talking, not a control to act on). Nothing drawn when the side took no damage. The
-// deck line comes off the same region the ship drew in (#427), so the number can't drift
-// from the cutaway it floats over.
+// deck line comes off the same region the ship drew in, so the number can't drift from the
+// cutaway it floats over.
 draw_fight_damage_number :: proc(area_x: f32, damage: int) {
 	if damage <= 0 {
 		return
