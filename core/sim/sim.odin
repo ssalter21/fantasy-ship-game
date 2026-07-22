@@ -310,8 +310,7 @@ Event_Battle_Menu :: struct {
 }
 
 // Event_Battle_Event wraps one event emitted by core/combat's combat_resolve_round for a
-// single round (Event_Damage_Dealt, Event_Ship_Sunk, Event_Cargo_Jettisoned,
-// Event_Battle_Ended) — the ADR-0002 "UI plays this batch back with animation" case.
+// single round — the ADR-0002 "UI plays this batch back with animation" case.
 Event_Battle_Event :: struct {
 	inner: combat.Event,
 }

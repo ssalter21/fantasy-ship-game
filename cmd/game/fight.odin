@@ -485,23 +485,28 @@ draw_fight_action_row :: proc(state: ^Game_State, mouse: rl.Vector2) {
 }
 
 // dispatch_battle_event routes one combat round event (#315): a damage hit is accumulated into
-// the round's exchange and drained from the struck hull rather than played on its own, so the
-// whole round lands as one beat (fight_flush_exchange); a Ship_Sunk or Battle_Ended flushes
-// that pending exchange first and then plays as its own beat; a jettison or a repair, which
-// land at round start before any damage, play immediately. Battle_Ended is where the in-battle
-// UI state is torn down. Called from dispatch, so it runs on the same rawptr-shared Game_State
-// the render loop reads.
+// the round's exchange so the whole round lands as one beat (fight_flush_exchange), the round's
+// closing Round_Resolved lands both hulls as the Event states them (#429); a Ship_Sunk or
+// Battle_Ended flushes that pending exchange first and then plays as its own beat; a jettison
+// or a repair, which land at round start before any damage, play immediately. Battle_Ended is
+// where the in-battle UI state is torn down. Called from dispatch, so it runs on the same
+// rawptr-shared Game_State the render loop reads.
 dispatch_battle_event :: proc(state: ^Game_State, event: combat.Event) {
 	switch e in event {
 	case combat.Event_Hull_Repaired:
 		// Repair lands ahead of the round's guns (ADR-0027), so it plays as its own beat
-		// rather than joining the exchange.
-		fight_move_hull(state, e.side, e.amount)
+		// rather than joining the exchange — showing the hull its event states.
+		fight_set_hull(state, e.side, e.hull)
 		play_beat(state, battle_event_text(event))
 	case combat.Event_Damage_Dealt:
+		// The hit is a playback number only: the hulls land from Event_Round_Resolved,
+		// so presentation never re-derives a hull from a delta.
 		state.pending_exchange[e.target] += e.damage
 		state.exchange_active = true
-		fight_move_hull(state, e.target, -e.damage)
+	case combat.Event_Round_Resolved:
+		for side in combat.Side {
+			fight_set_hull(state, side, e.hull[side])
+		}
 	case combat.Event_Ship_Sunk:
 		fight_flush_exchange(state)
 		play_beat(state, battle_event_text(event))
@@ -515,15 +520,15 @@ dispatch_battle_event :: proc(state: ^Game_State, event: combat.Event) {
 	}
 }
 
-// fight_move_hull applies `delta` to the hull the beat about to render will show, clamped
-// the way the Sim clamps it. Presentation keeps its own copy of both ships: the opponent's
-// hull has no Event_Ship_Updated to carry it, and the player's is kept in step with the
-// Sim's authoritative copy that Event_Ship_Updated re-lands after.
-fight_move_hull :: proc(state: ^Game_State, side: combat.Side, delta: int) {
+// fight_set_hull lands a side's hull as the Event stated it (#429). Presentation still keeps
+// its own copy of both ships as render state — the opponent's has no Event_Ship_Updated to
+// carry it, and the player's is kept in step until the authoritative copy re-lands — but every
+// value written here comes off the stream, never re-derived or re-clamped (ADR-0001).
+fight_set_hull :: proc(state: ^Game_State, side: combat.Side, hull: int) {
 	if side == .A {
-		state.player.hull = clamp(state.player.hull + delta, 0, state.player.max_hull)
+		state.player.hull = hull
 	} else if opponent, ok := state.sighted_opponent.?; ok {
-		opponent.hull = clamp(opponent.hull + delta, 0, opponent.max_hull)
+		opponent.hull = hull
 		state.sighted_opponent = opponent
 	}
 }

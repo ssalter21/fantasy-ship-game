@@ -132,6 +132,10 @@ battle_event_text :: proc(event: combat.Event) -> string {
 		return fmt.tprintf("%v repairs %d hull.", e.side, e.amount)
 	case combat.Event_Damage_Dealt:
 		return fmt.tprintf("%v takes %d damage!", e.target, e.damage)
+	case combat.Event_Round_Resolved:
+		// The round's closing hull report is render state, not a beat: dispatch_battle_event
+		// lands it silently, so it has no line.
+		return ""
 	case combat.Event_Ship_Sunk:
 		return fmt.tprintf("%v's ship is sunk!", e.side)
 	case combat.Event_Cargo_Jettisoned:

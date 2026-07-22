@@ -106,6 +106,7 @@ Round_State :: struct {
 Event :: union {
 	Event_Hull_Repaired,
 	Event_Damage_Dealt,
+	Event_Round_Resolved,
 	Event_Ship_Sunk,
 	Event_Cargo_Jettisoned,
 	Event_Battle_Ended,
@@ -113,11 +114,15 @@ Event :: union {
 
 // Event_Hull_Repaired reports the Hull a side's Brace phase restored this round:
 // `amount` is what actually landed after the max-Hull cap, so a repair into a full
-// hull emits nothing at all rather than an amount of 0.
+// hull emits nothing at all rather than an amount of 0. `hull` is the side's hull as
+// the repair leaves it — a repair plays as its own beat ahead of the round's guns
+// (ADR-0027), so a consumer showing it mid-round displays this number rather than
+// adding the amount itself (#429).
 Event_Hull_Repaired :: struct {
 	round:  int,
 	side:   Side,
 	amount: int,
+	hull:   int,
 }
 
 // Damage is one number, not a raw/final pair: ADR-0026 deleted the subtraction
@@ -126,6 +131,18 @@ Event_Damage_Dealt :: struct {
 	round:  int,
 	target: Side,
 	damage: int,
+}
+
+// Event_Round_Resolved closes every round the phases resolved: both sides' hull as the
+// round leaves them, stated outright so a consumer renders hulls straight off the stream
+// (#429) instead of re-deriving them from the repair/damage deltas — damage overkills a
+// hull already near 0, so a replayed hull needs a re-clamp the Event boundary shouldn't
+// ask of its consumers (ADR-0001). Emitted after the round's damage lands and before any
+// Ship_Sunk that reads off it; a round ended by Break Off resolves no phases, touches no
+// hull, and closes with Event_Battle_Ended alone.
+Event_Round_Resolved :: struct {
+	round: int,
+	hull:  [Side]int,
 }
 
 Event_Ship_Sunk :: struct {
@@ -320,7 +337,7 @@ combat_apply_repair :: proc(battle: ^Battle, side: Side, amount: int, events: ^[
 		return
 	}
 	s.hull += restored
-	append(events, Event(Event_Hull_Repaired{round = battle.round, side = side, amount = restored}))
+	append(events, Event(Event_Hull_Repaired{round = battle.round, side = side, amount = restored, hull = s.hull}))
 }
 
 // combat_may_break_off reports whether side is escape-eligible for the round
@@ -473,6 +490,18 @@ combat_resolve_round :: proc(battle: ^Battle, cmds: [Side]Maybe(Command), events
 			append(events, Event(Event_Damage_Dealt{round = battle.round, target = target, damage = damage}))
 		}
 	}
+
+	// The round's closing hull report (#429): both hulls as the phases left them, said
+	// once by the authority that owns them, quiet rounds included. Built through a local
+	// with per-element assignments: dev-2026-06 miscompiles an enumerated-array literal
+	// nested in a union literal (the same family as battle_menu_loop's fold bug) into an
+	// Illegal_Instruction trap under `odin test`. Inline the literal once the ci.yml pin
+	// moves to a nightly that compiles it correctly.
+	report := Event_Round_Resolved{round = battle.round}
+	for side in Side {
+		report.hull[side] = battle.ships[side].hull
+	}
+	append(events, Event(report))
 
 	for side in Side {
 		if battle.ships[side].hull <= 0 {
