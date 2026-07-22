@@ -5,6 +5,7 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import combat "../../core/combat"
+import cutaway "./cutaway"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import voyage "../../core/voyage"
@@ -196,7 +197,7 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 
 	// Mid-drag: the granted item lifted, its ghost over the empty Large forecastle, legal
 	// berths lit and the rest dimmed. The forecastle is the fourth deck slot.
-	rects, n := build_slot_rects(game.player.layout)
+	rects, n := cutaway.cutaway_slot_rects(game.player.layout, cutaway.cutaway_home_region(WINDOW_WIDTH))
 	drag := Build_Drag{active = true, from_slot = nil, fitting = granted.fitting}
 	over := NO_MOUSE
 	if n > 3 {
@@ -291,14 +292,7 @@ capture_shot_offer_shop :: proc(state: ^Capture_State) {
 		return
 	}
 	drag := Shelf_Drag{active = true, option_index = sim.Option_Index(0), fitting = item.fitting, cost = 18}
-	rects, n := build_slot_rects(
-		game.player.layout,
-		OFFER_SHOP_SHIP_X,
-		OFFER_SHOP_SHIP_W,
-		OFFER_SHOP_DECK_Y,
-		OFFER_SHOP_HOLD_Y,
-		OFFER_SHOP_SCALE,
-	)
+	rects, n := cutaway.cutaway_slot_rects(game.player.layout, offer_shop_ship_region())
 	over := NO_MOUSE
 	if n > 3 {
 		over = rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}

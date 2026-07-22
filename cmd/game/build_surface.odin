@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:math/linalg"
+import cutaway "./cutaway"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
@@ -19,14 +20,9 @@ import rlgl "vendor:raylib/rlgl"
 // Split composition (draw_build_surface) from polling (build_surface_loop) like the Chart
 // Table, so --capture photographs it (#277, style guide).
 
-// Layout constants. A pure function of the window and the slot sizes, hit-tested and
-// drawn from one place (build_slot_rects) — the same no-layout-system idiom the Chart
-// Table established.
-BUILD_MAX_SLOTS :: 8
-BUILD_SLOT_GAP :: 18
-BUILD_DECK_Y :: 100
-BUILD_WATERLINE_Y :: 290
-BUILD_HOLD_Y :: 312
+// Chrome constants — the ledger, heading and shelf are the Build surface's own furniture.
+// The slot geometry is not: the cutaway module owns it (#426), and this surface asks
+// cutaway_home_region / cutaway_slot_rects rather than keeping positions of its own.
 BUILD_LEDGER_Y :: 650
 BUILD_LEDGER_H :: 34
 BUILD_HEADING_Y :: 28
@@ -49,88 +45,10 @@ Build_Drag :: struct {
 	fitting:   ship.Fitting,
 }
 
-// build_card_dims is a card's footprint by slot size — Large > Medium > Small — so size
-// reads off the card's own size (#302), no number needed. `scale` shrinks the whole
-// size-language uniformly, so the encounter stages (#312) can sit the same ship beside a
-// shelf without re-deciding what a Large card is; Home draws it at scale 1.
-build_card_dims :: proc(size: ship.Slot_Size, scale: f32 = 1) -> (w: f32, h: f32) {
-	switch size {
-	case .Small:
-		return 140 * scale, 110 * scale
-	case .Medium:
-		return 190 * scale, 130 * scale
-	case .Large:
-		return 250 * scale, 150 * scale
-	}
-	return 140 * scale, 110 * scale
-}
-
-// build_slot_rects lays every slot out into two centred rows — exposed stations on the
-// deck, concealed holds in the belly — in layout order within each row, card size
-// tracking slot size. A pure function of the layout, so draw and hit-test both ask for it
-// rather than sharing a local (the split that lets capture draw a screen it never clicks).
-// Value array, no allocation; `n` is how many of the BUILD_MAX_SLOTS entries are live.
-//
-// The rows are centred within [area_x, area_x + area_w] rather than the whole window, and
-// sized at `scale`, so the encounter stages (#312) can pin the ship to a left region and
-// clear a right-hand shelf while Home keeps the full width at scale 1 (the defaults).
-build_slot_rects :: proc(
-	layout: []ship.Layout_Slot,
-	area_x: f32 = 0,
-	area_w: f32 = WINDOW_WIDTH,
-	deck_y: f32 = BUILD_DECK_Y,
-	hold_y: f32 = BUILD_HOLD_Y,
-	scale: f32 = 1,
-) -> (rects: [BUILD_MAX_SLOTS]rl.Rectangle, n: int) {
-	n = min(len(layout), BUILD_MAX_SLOTS)
-	gap := BUILD_SLOT_GAP * scale
-
-	// A row is centred: sum its cards' widths and the gaps between them, then start it so
-	// the whole run is centred in the area.
-	row_width :: proc(layout: []ship.Layout_Slot, want: ship.Visibility, n: int, gap, scale: f32) -> f32 {
-		total: f32 = 0
-		count := 0
-		for ls, i in layout {
-			if i >= n || ls.slot.base_visibility != want {
-				continue
-			}
-			w, _ := build_card_dims(ls.slot.size, scale)
-			total += w
-			count += 1
-		}
-		if count > 1 {
-			total += f32(count - 1) * gap
-		}
-		return total
-	}
-
-	place_row :: proc(
-		layout: []ship.Layout_Slot,
-		rects: ^[BUILD_MAX_SLOTS]rl.Rectangle,
-		want: ship.Visibility,
-		row_y, area_x, area_w, gap, scale: f32,
-		n: int,
-	) {
-		x := area_x + (area_w - row_width(layout, want, n, gap, scale)) / 2
-		for ls, i in layout {
-			if i >= n || ls.slot.base_visibility != want {
-				continue
-			}
-			w, h := build_card_dims(ls.slot.size, scale)
-			rects[i] = rl.Rectangle{x = x, y = row_y, width = w, height = h}
-			x += w + gap
-		}
-	}
-
-	place_row(layout, &rects, .Exposed, deck_y, area_x, area_w, gap, scale, n)
-	place_row(layout, &rects, .Concealed, hold_y, area_x, area_w, gap, scale, n)
-	return rects, n
-}
-
 // build_shelf_rect is where a granted item rests, centred below the holds — the one thing
 // on the surface to act on, so it takes the screen's single amber (#302, the amber rule).
 build_shelf_rect :: proc(incoming: ship.Fitting) -> rl.Rectangle {
-	w, h := build_card_dims(incoming.size)
+	w, h := cutaway.cutaway_card_dims(incoming.size)
 	return rl.Rectangle{x = (WINDOW_WIDTH - w) / 2, y = BUILD_SHELF_Y, width = w, height = h}
 }
 
@@ -238,15 +156,10 @@ build_confirm_command :: proc(confirm: Build_Confirm) -> sim.Command {
 	return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = confirm.slot}})
 }
 
-// build_slot_at returns the slot whose card the point is over, or nil.
+// build_slot_at returns the slot whose card the point is over, or nil — asked of the
+// cutaway module, so the click resolves against the same rects the drawing used.
 build_slot_at :: proc(state: ^Game_State, point: rl.Vector2) -> Maybe(ship.Slot_Index) {
-	rects, n := build_slot_rects(state.player.layout)
-	for i in 0 ..< n {
-		if rl.CheckCollisionPointRec(point, rects[i]) {
-			return ship.Slot_Index(i)
-		}
-	}
-	return nil
+	return cutaway.cutaway_slot_at(state.player.layout, cutaway.cutaway_home_region(WINDOW_WIDTH), point)
 }
 
 // build_begin_drag decides whether a press starts a drag, and from where: the shelf item
@@ -359,8 +272,9 @@ draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(
 draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2, at_home: bool) {
 	rl.ClearBackground(COLOUR_DEEP)
 
-	draw_build_hull()
-	rects, n := build_slot_rects(state.player.layout)
+	region := cutaway.cutaway_home_region(WINDOW_WIDTH)
+	draw_build_hull(region)
+	rects, n := cutaway.cutaway_slot_rects(state.player.layout, region)
 
 	// A drag dims everything that is not a legal berth for it, so the eye is drawn to where
 	// the fitting can land (#302). With no drag, nothing dims.
@@ -368,7 +282,7 @@ draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: M
 	dragging := drag.active
 
 	draw_build_zone_label(rl.Vector2{45, 74}, "TOPSIDE", .Exposed)
-	draw_build_zone_label(rl.Vector2{45, BUILD_WATERLINE_Y + 6}, "BELOW", .Concealed)
+	draw_build_zone_label(rl.Vector2{45, region.waterline_y + 6}, "BELOW", .Concealed)
 
 	for i in 0 ..< n {
 		// The slot the drag was lifted from reads as empty while the fitting is in the air.
@@ -448,16 +362,14 @@ build_is_legal_berth :: proc(state: ^Game_State, drag: Build_Drag, slot: ship.Sl
 // draw_build_hull sketches the ship's cross-section behind the cards: a faint hull outline
 // and the waterline that splits deck from belly. Kept quiet (low-alpha steel) — it frames
 // the split, it must never outshine the cards or the chrome (the guide's world-vs-chrome
-// rule). The hull spans [area_x, area_x + area_w] with its lines at the given heights, so
-// the encounter stages (#312) can draw a narrower, higher cross-section beside a shelf
-// while Home fills the window (the defaults).
-draw_build_hull :: proc(
-	area_x: f32 = 0,
-	area_w: f32 = WINDOW_WIDTH,
-	deck_top_y: f32 = BUILD_DECK_Y - 22,
-	waterline_y: f32 = BUILD_WATERLINE_Y,
-	keel_y: f32 = BUILD_LEDGER_Y - 40,
-) {
+// rule). Where the lines sit is the region's answer (the cutaway module); this proc only
+// paints them, which is why it stays in this package with the palette.
+draw_build_hull :: proc(region: cutaway.Region) {
+	area_x := region.x
+	area_w := region.w
+	deck_top_y := region.deck_y - 22
+	waterline_y := region.waterline_y
+	keel_y := region.keel_y
 	area_r := area_x + area_w
 
 	// The belly reads a shade deeper than the deck's air, so "below the waterline" is a
@@ -656,7 +568,7 @@ draw_build_shelf :: proc(incoming: ship.Fitting) {
 // draw_build_ghost draws the fitting under the cursor while it is dragged — a translucent
 // amber card centred on the mouse, so the thing in hand reads as the thing to place.
 draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
-	w, h := build_card_dims(fitting.size)
+	w, h := cutaway.cutaway_card_dims(fitting.size)
 	rect := rl.Rectangle{x = mouse.x - w / 2, y = mouse.y - h / 2, width = w, height = h}
 	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_AMBER, 0.85))
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", fitting.name), rl.Vector2{rect.x + 12, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK)

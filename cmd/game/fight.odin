@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import combat "../../core/combat"
+import cutaway "./cutaway"
 import ship "../../core/ship"
 import sim "../../core/sim"
 import rl "vendor:raylib"
@@ -43,7 +44,6 @@ FIGHT_PLAYER_X :: FIGHT_MARGIN
 FIGHT_OPP_X :: FIGHT_MARGIN + FIGHT_REGION_W + FIGHT_CENTER_GAP
 FIGHT_STATBLOCK_Y :: 64
 FIGHT_DECK_Y :: 150
-FIGHT_HULL_TOP_Y :: FIGHT_DECK_Y - 22
 FIGHT_WATERLINE_Y :: 268
 FIGHT_HOLD_Y :: 286
 FIGHT_KEEL_Y :: 430
@@ -300,12 +300,28 @@ draw_fight_scene :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	draw_chart_table_version_stamp()
 }
 
+// fight_ship_region is one ship's half-width cutaway region — the player's or the
+// opponent's, told apart only by `area_x`. Spelled once so hull, cards and any hit-test
+// read the same cross-section (#426).
+fight_ship_region :: proc(area_x: f32) -> cutaway.Region {
+	return cutaway.Region {
+		x           = area_x,
+		w           = FIGHT_REGION_W,
+		deck_y      = FIGHT_DECK_Y,
+		waterline_y = FIGHT_WATERLINE_Y,
+		hold_y      = FIGHT_HOLD_Y,
+		keel_y      = FIGHT_KEEL_Y,
+		scale       = FIGHT_SHIP_SCALE,
+	}
+}
+
 // draw_fight_ship_body draws one ship's cutaway — the faint hull, then each slot's card — in
 // its region. `gate` is the ADR-0030 concealment gate: true for a scouted opponent, whose
 // concealed fittings read "???"; false for your own ship, seen whole.
 draw_fight_ship_body :: proc(s: ^ship.Ship, area_x: f32, gate: bool) {
-	draw_build_hull(area_x, FIGHT_REGION_W, FIGHT_HULL_TOP_Y, FIGHT_WATERLINE_Y, FIGHT_KEEL_Y)
-	rects, n := build_slot_rects(s.layout, area_x, FIGHT_REGION_W, FIGHT_DECK_Y, FIGHT_HOLD_Y, FIGHT_SHIP_SCALE)
+	region := fight_ship_region(area_x)
+	draw_build_hull(region)
+	rects, n := cutaway.cutaway_slot_rects(s.layout, region)
 	for i in 0 ..< n {
 		draw_fight_card(rects[i], s.layout[i], gate)
 	}
