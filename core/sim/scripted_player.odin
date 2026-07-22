@@ -3,14 +3,14 @@ package sim
 import "../combat"
 import "../voyage"
 
-// scripted_command is the no-player captain shared by the headless runner and the
+// scripted_player_command is the no-player captain shared by the headless runner and the
 // capture harness: both wrap it in their Input_Source, feeding it the voyage state
 // their Event_Sink tracked (the map from Event_Voyage_Started, the current node,
 // the latest Event_Travel_Options). It resolves every decision deterministically —
 // sail forward, Hold every battle round, decline everything else — and node kinds
 // are hidden, so the plan depends only on the graph shape, never on what an
 // unvisited node holds.
-scripted_command :: proc(
+scripted_player_command :: proc(
 	voyage_map: voyage.Map,
 	current: Node_ID,
 	travel_options: []Node_ID,
@@ -36,7 +36,7 @@ scripted_command :: proc(
 		// finishes it rather than editing the loadout.
 		return Command(Command_Refit{command = Refit_Finish{}})
 	case .Ended:
-		panic("scripted_command called while the sim isn't awaiting a decision")
+		panic("scripted_player_command called while the sim isn't awaiting a decision")
 	}
 	panic("unreachable")
 }

@@ -32,10 +32,10 @@ Headless_State :: struct {
 }
 
 // get_captain_choice is the headless Input_Source: it hands the shared scripted
-// player (sim.scripted_command) the voyage state dispatch tracked.
+// player (sim.scripted_player_command) the voyage state dispatch tracked.
 get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Headless_State)data
-	return sim.scripted_command(state.voyage_map, state.current, state.travel_options, awaiting)
+	return sim.scripted_player_command(state.voyage_map, state.current, state.travel_options, awaiting)
 }
 
 // dispatch is the headless Event_Sink: print and count every event, and track the current node

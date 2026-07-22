@@ -82,7 +82,7 @@ capture_main :: proc() {
 
 // capture_get_captain_choice is the capture Input_Source: draw the decision screen
 // the player would have been shown, screenshot it, then answer the decision from
-// the shared scripted player (sim.scripted_command) instead of from a click —
+// the shared scripted player (sim.scripted_player_command) instead of from a click —
 // fed the voyage state the real dispatch tracked into Game_State. Unlike the
 // game's menu loops it blocks on nothing, and unlike headless's it draws — which
 // is the whole point of the third Input_Source.
@@ -91,7 +91,7 @@ capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Com
 	state := cast(^Capture_State)data
 
 	capture_shot(state, awaiting, capture_phase_slug(awaiting))
-	return sim.scripted_command(
+	return sim.scripted_player_command(
 		state.game.voyage_map,
 		state.game.current_node_id,
 		state.game.travel_options,
