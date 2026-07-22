@@ -4,8 +4,7 @@ import "core:fmt"
 import ship "../../core/ship"
 
 // The one formatter for the ship-stat readout (#428): every screen that prints a ship's
-// stat line — the encounter frame, the Fight statblocks, the Build ledger, the map-scene
-// ship panel — composes it here, so the vocabulary and shape are a one-place edit.
+// stat line composes it here, so the vocabulary and shape are a one-place edit.
 //
 // The line is the derived reads (ADR-0020) a captain weighs a decision against — effective
 // Speed, cargo against capacity — never the raw fields. The wealth stat reads "Cargo" (the
