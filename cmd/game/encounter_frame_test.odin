@@ -1,29 +1,10 @@
 package main
 
-import "core:fmt"
 import "core:testing"
-import ship "../../core/ship"
 
 // The drawing half of the frame can't be tested here — rl.IsWindowReady() is false under
-// `odin test` — so these cover the pure layout and text procs the drawing reads from.
-
-@(test)
-encounter_stat_line_reads_hull_speed_and_cargo :: proc(t: ^testing.T) {
-	s := ship.ship_starting_ship()
-	defer delete(s.layout)
-
-	// The stat line is derived reads (ADR-0020), so it must match the ship procs, not the raw
-	// fields — this pins the order, the labels, and the middot separators.
-	want := fmt.tprintf(
-		"Hull %d/%d · SPD %d · Cargo %d/%d",
-		s.hull,
-		s.max_hull,
-		ship.ship_effective_speed(&s),
-		ship.ship_cargo(s),
-		ship.ship_cargo_capacity(s),
-	)
-	testing.expect_value(t, encounter_stat_line_text(&s), want)
-}
+// `odin test` — so these cover the pure layout procs the drawing reads from. The stat
+// line's text is ship_stat_line's (#428), pinned in stat_line_test.odin.
 
 @(test)
 encounter_chart_tab_is_centred_on_the_bottom_edge :: proc(t: ^testing.T) {

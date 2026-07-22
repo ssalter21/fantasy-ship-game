@@ -316,14 +316,14 @@ draw_offer_shop :: proc(state: ^Game_State, drag: Shelf_Drag, mouse: rl.Vector2)
 }
 
 // offer_shop_cargo_preview_text is the stat line with the cargo field ghosted forward to its
-// post-buy figure — the third of the Shop's three cost reads. It mirrors
-// encounter_stat_line_text's layout so only the cargo term changes. The projection arrow is
+// post-buy figure — the third of the Shop's three cost reads. It composes over
+// ship_stat_line so only the cargo term changes. The projection arrow is
 // ASCII "->" rather than "→": Pixelify Sans carries no U+2192, so the glyph would render as a
 // blank box (see UI_FONT_EXTRA_CODEPOINTS).
 offer_shop_cargo_preview_text :: proc(s: ^ship.Ship, cost: int) -> string {
 	return fmt.tprintf(
 		"%s -> %d/%d",
-		encounter_stat_line_text(s),
+		ship_stat_line(s),
 		ship.ship_cargo(s^) - cost,
 		ship.ship_cargo_capacity(s^),
 	)
