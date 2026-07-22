@@ -65,8 +65,8 @@ sim_seat_at_waypoint :: proc(sim: ^Sim, events: ^[dynamic]Event) {
 // sim_seatable_node picks the node a planted seating lands on: the lowest-id unvisited node
 // bearing a zone. A zone is required because a planted stage is scaled by the stakes of the
 // node it sits on; unvisited, so consecutive seatings face fresh nodes rather than re-planting
-// one. Lowest-id keeps the choice deterministic — the first zoned node sits on the first
-// zone's entrance layer at depth 0, so planted content scales identically on every seed.
+// one. Lowest-id keeps the choice deterministic, and the first seating always lands on the
+// first zone's entrance layer at depth 0 — the flattest stakes a map deals — on every seed.
 sim_seatable_node :: proc(sim: ^Sim) -> Node_ID {
 	for node in sim.voyage_map.nodes {
 		if _, zoned := node.zone.?; zoned && !sim.visited[node.id] {
