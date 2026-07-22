@@ -193,12 +193,15 @@ sim_enter_stage :: proc(sim: ^Sim, stage: voyage.Stage, events: ^[dynamic]Event)
 	case voyage.Stage_Reward:
 		// The one primitive that parks nowhere (#132, #133): a boon has nothing to
 		// decline, so it pays out and hands back .Completed in the same breath, and
-		// sim_walk_encounter's loop carries straight on to whatever follows. Event_Ship_Updated
-		// is how presentation learns the cargo moved (ADR-0001 — it learns nothing except
-		// through Events) and the only event a payout owes: the node's ghost is captured
-		// once where the walk ends, not here (same as an accepted Trade).
-		voyage.voyage_apply_reward(&sim.player, s)
+		// sim_walk_encounter's loop carries straight on to whatever follows.
+		// Event_Ship_Updated is how presentation learns the cargo moved (ADR-0001 — it
+		// learns nothing except through Events); Event_Reward_Paid carries the payout's
+		// own facts — the haul and what spilled (#431) — the way a wreck's does. The
+		// node's ghost is captured once where the walk ends, not here (same as an
+		// accepted Trade).
+		spilled := voyage.voyage_apply_reward(&sim.player, s)
 		append(events, Event(Event_Ship_Updated{ship = sim.player}))
+		append(events, Event(Event_Reward_Paid{gross = s.cargo, spilled = spilled}))
 		return .Completed
 	}
 	unreachable()

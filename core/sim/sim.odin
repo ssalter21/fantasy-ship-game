@@ -248,6 +248,7 @@ Event :: union {
 	Event_Battle_Event,
 	Event_Ship_Updated,
 	Event_Wreck_Looted,
+	Event_Reward_Paid,
 	Event_Stage_Entered,
 	Event_Encounter_Halted,
 	Event_Options_Presented,
@@ -330,6 +331,17 @@ Event_Ship_Updated :: struct {
 // the spilled cargo is by definition not on the post-payout ship, so it cannot be re-derived
 // from Event_Ship_Updated's copy. `spilled` is 0 for the common in-capacity payout.
 Event_Wreck_Looted :: struct {
+	gross:   int,
+	spilled: int,
+}
+
+// Event_Reward_Paid is dispatched when a Reward stage pays out (#431): `gross` is the
+// stage's whole boon, `spilled` how much fell overboard because the hold was full —
+// Event_Wreck_Looted's shape, for the same reason: the spilled cargo is by definition not
+// on the post-payout ship, so presentation cannot re-derive it from Event_Ship_Updated's
+// copy, and carrying the stow's own answer is what stops presentation predicting the
+// spill with capacity math of its own. `spilled` is 0 for the common in-capacity payout.
+Event_Reward_Paid :: struct {
 	gross:   int,
 	spilled: int,
 }
