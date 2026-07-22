@@ -274,9 +274,8 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		play_beat(state, wreck_loot_beat_text(e.gross, e.spilled))
 
 	case sim.Event_Reward_Paid:
-		// A Reward's payout likewise parks on no screen (#139): its beat is the only
-		// place the loot is seen, and it reads the Sim's outcome — spill included —
-		// rather than forecasting it (#431).
+		// A Reward's payout likewise parks on no screen: its beat is the only place
+		// the loot is seen — the haul, and any of it spilled overboard.
 		play_beat(state, reward_beat_text(e.gross, e.spilled))
 
 	case sim.Event_Stage_Entered:

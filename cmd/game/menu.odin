@@ -36,8 +36,7 @@ play_beat :: proc(state: ^Game_State, headline: string) {
 // reward_beat_text renders a Reward stage's payout beat (issue #139): Reward is the one
 // stage primitive that parks on no screen of its own — a Fight, Offer, Shop, or Trade
 // each present their own menu — so without this beat its loot is cargo that grew
-// silently. `gross` and `spilled` come off Event_Reward_Paid (#431), the stow's own
-// outcome, so the beat reports what happened rather than predicting it.
+// silently. `gross` and `spilled` come off Event_Reward_Paid, the stow's own outcome.
 reward_beat_text :: proc(gross: int, spilled: int) -> string {
 	return fmt.tprintf("Salvage! You haul aboard %d cargo.%s", gross, spill_note(spilled))
 }
