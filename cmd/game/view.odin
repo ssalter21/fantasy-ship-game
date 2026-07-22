@@ -806,39 +806,21 @@ draw_ship_panel :: proc(s: ^ship.Ship, origin: rl.Vector2, title: string, gate_v
 	x := i32(origin.x)
 	y := i32(origin.y)
 	rl.DrawText(fmt.ctprintf("%s", title), x, y, 20, rl.DARKGRAY)
-	// SPD is the *effective* Speed (ADR-0020): s.speed is only the base term; a ship's
-	// real Speed reads its weight via ship_effective_speed. Printing the raw base would
-	// overstate a heavily-laden ship.
+	// The shared ship_stat_line (#428) with its Weight term; the gate hides the wealth reads
+	// (cargo, weight) for a scouted opponent (ADR-0030), the same reason its fittings read
+	// "???" below.
 	//
 	// DARKGRAY, not BLACK: the panel sits on the COLOUR_DEEP canvas now, where black text is
-	// invisible. This matches the title/Hold lines already in this proc — a legibility stopgap
-	// on the unstyled panel; its real restyle (Pixelify, the tone hierarchy) is the Build
-	// screen's (#302).
+	// invisible. This matches the title/fitting lines already in this proc — a legibility
+	// stopgap on the unstyled panel; its real restyle (Pixelify, the tone hierarchy) is the
+	// Build screen's (#302).
 	rl.DrawText(
-		fmt.ctprintf("Hull %d/%d   SPD %d", s.hull, s.max_hull, ship.ship_effective_speed(s)),
+		fmt.ctprintf("%s", ship_stat_line(s = s, gate = gate_visibility, weight = true)),
 		x,
 		y + 26,
 		16,
 		rl.DARKGRAY,
 	)
-	// Hold and Weight, drawn own-ship only: a scouted opponent's wealth stays behind the
-	// concealment gate (ADR-0030), the same reason its fittings read "???" below. "Hold X/Y"
-	// is cargo against hull capacity; Weight is the term ship_effective_speed reads down
-	// from Speed.
-	if !gate_visibility {
-		rl.DrawText(
-			fmt.ctprintf(
-				"Hold %d/%d   Weight %d",
-				ship.ship_cargo(s^),
-				ship.ship_cargo_capacity(s^),
-				ship.ship_weight(s^),
-			),
-			x,
-			y + 46,
-			14,
-			rl.DARKGRAY,
-		)
-	}
 
 	for layout_slot, i in s.layout {
 		row_y := y + 62 + i32(i) * 24

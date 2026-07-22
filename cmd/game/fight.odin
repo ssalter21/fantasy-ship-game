@@ -389,8 +389,8 @@ draw_fight_visibility_badge :: proc(rect: rl.Rectangle, visibility: ship.Visibil
 }
 
 // draw_fight_statblock names a ship and prints its own stats over its cutaway — the source the
-// Fight uses instead of the shared frame's one stat line (#305). Your ship shows its hold; a
-// scouted opponent's hold / weight stay behind the concealment gate (ADR-0030), so its block
+// Fight uses instead of the shared frame's one stat line (#305). Your ship shows its cargo; a
+// scouted opponent's cargo / weight stay behind the concealment gate (ADR-0030), so its block
 // stops at Hull · SPD. Centred over the ship's region, title cream, stats steel.
 draw_fight_statblock :: proc(s: ^ship.Ship, area_x: f32, title: string, gate: bool) {
 	region := fight_ship_region(area_x)
@@ -400,20 +400,7 @@ draw_fight_statblock :: proc(s: ^ship.Ship, area_x: f32, title: string, gate: bo
 	tsize := rl.MeasureTextEx(ui_font_body, tctext, UI_BODY_SIZE, 1)
 	rl.DrawTextEx(ui_font_body, tctext, rl.Vector2{centre_x - tsize.x / 2, FIGHT_STATBLOCK_Y}, UI_BODY_SIZE, 1, COLOUR_CREAM)
 
-	stats: string
-	if gate {
-		stats = fmt.tprintf("Hull %d/%d · SPD %d", s.hull, s.max_hull, ship.ship_effective_speed(s))
-	} else {
-		stats = fmt.tprintf(
-			"Hull %d/%d · SPD %d · Hold %d/%d",
-			s.hull,
-			s.max_hull,
-			ship.ship_effective_speed(s),
-			ship.ship_cargo(s^),
-			ship.ship_cargo_capacity(s^),
-		)
-	}
-	sctext := fmt.ctprintf("%s", stats)
+	sctext := fmt.ctprintf("%s", ship_stat_line(s, gate))
 	ssize := rl.MeasureTextEx(ui_font_body, sctext, UI_BODY_SIZE, 1)
 	rl.DrawTextEx(ui_font_body, sctext, rl.Vector2{centre_x - ssize.x / 2, FIGHT_STATBLOCK_Y + 24}, UI_BODY_SIZE, 1, COLOUR_STEEL)
 }

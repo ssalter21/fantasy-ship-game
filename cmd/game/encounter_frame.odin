@@ -34,24 +34,11 @@ draw_encounter_header :: proc(kind: voyage.Stage_Kind) {
 	)
 }
 
-// encounter_stat_line_text is the compact top-right readout: the derived reads (ADR-0020) a
-// captain weighs a decision against — effective Speed, cargo against capacity — not the raw
-// fields. Split from its drawing so the wiring (order, labels, separators) is unit-testable.
-encounter_stat_line_text :: proc(s: ^ship.Ship) -> string {
-	return fmt.tprintf(
-		"Hull %d/%d · SPD %d · Cargo %d/%d",
-		s.hull,
-		s.max_hull,
-		ship.ship_effective_speed(s),
-		ship.ship_cargo(s^),
-		ship.ship_cargo_capacity(s^),
-	)
-}
-
-// draw_encounter_stat_line draws that readout steel and right-aligned, so the top-right
-// corner is identical on all five stages (#304). A readout, never amber.
+// draw_encounter_stat_line draws the compact top-right readout — the shared ship_stat_line
+// (#428) — steel and right-aligned, so the top-right corner is identical on all five stages
+// (#304). A readout, never amber.
 draw_encounter_stat_line :: proc(s: ^ship.Ship) {
-	draw_encounter_stat_line_text(encounter_stat_line_text(s))
+	draw_encounter_stat_line_text(ship_stat_line(s))
 }
 
 // draw_encounter_stat_line_text right-aligns an already-composed stat string into the
