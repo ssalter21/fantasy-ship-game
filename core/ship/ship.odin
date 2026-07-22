@@ -40,7 +40,7 @@ Slot :: struct {
 // Magnitude is an Effect's strength, distinct from a plain int (ADR-0011) so it
 // can't be confused at a call site with an index or other bare-int domain value.
 // A caller that folds it into a raw combat total casts back to int explicitly
-// (see core/combat's combat_phase_output).
+// (see ship_resolve_effects).
 Magnitude :: distinct int
 
 // Verb is an Effect's **verb**: what its resolved magnitude does, and thereby
@@ -327,8 +327,8 @@ effect_with_timing :: proc(effect: Effect, timing: Timing) -> Effect {
 // The two-pass build falls out of the type. Pass one resolves Modify_Speed effects with
 // `speeds` left nil — not zeroed, absent — so a speed-reading tree could not be answered
 // there even if authoring had let one through. Pass two fills it and resolves everything
-// else against a complete round. `self_slot` is set per-slot by every resolve site that
-// iterates a layout (ship_effective_speed, combat_phase_output).
+// else against a complete round. `self_slot` is set per-slot by the one walk that
+// iterates a layout (ship_resolve_effects) — never by a builder's caller.
 Effect_Context :: struct {
 	owner:     ^Ship,
 	self_slot: Maybe(Layout_Slot),
@@ -516,8 +516,8 @@ ship_count_matching :: proc(s: ^Ship, selector: Selector) -> int {
 }
 
 // ship_effect_context builds the off-battle Effect_Context for ship s: owner only, no
-// round and no speeds. The effective-stat readers use it, filling self_slot per
-// iteration; combat builds the two in-battle shapes below.
+// round and no speeds. The effective-stat readers use it; combat builds the two
+// in-battle shapes below.
 ship_effect_context :: proc(s: ^Ship) -> Effect_Context {
 	return Effect_Context{owner = s}
 }
@@ -534,7 +534,7 @@ ship_effect_context_pre_speed :: proc(s: ^Ship, round: Round_Facts) -> Effect_Co
 
 // ship_effect_context_in_battle is **pass two**: the same round, now with both sides'
 // effective Speeds filled in from pass one. Everything that is not a Modify_Speed resolves
-// here, against a complete round (callers still fill self_slot per slot).
+// here, against a complete round.
 ship_effect_context_in_battle :: proc(s: ^Ship, round: Round_Facts, speeds: Speeds) -> Effect_Context {
 	return Effect_Context{owner = s, round = round, speeds = speeds}
 }
@@ -735,18 +735,37 @@ ship_replace_fitting :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> boo
 	return true
 }
 
-// ship_fitting_stat_contribution sums the resolved magnitude of a fitting's stat-modifier
-// effects of `verb`. Every one of its effects is considered, so a stat modifier may sit at
-// any index; only effects whose Verb matches count, so a phase verb never leaks into
-// a stat total.
+// ship_resolve_effects is **the** walk over a ship's fitted effects: every installed
+// fitting of ctx.owner's layout in fixed slot order, every effect in authored order
+// (ADR-0006), filtered to the ones `phase` consumes and summed through effect_magnitude.
+// Routing is on the **effect's own phase** — one fitting may feed both phases — and nil
+// selects the Modify_Speed layer, the one verb no round phase consumes (ship_verb_phase).
+// Both production resolvers route through here (ship_effective_speed, combat's
+// combat_phase_output), so slot order, phase routing and the slot each effect resolves
+// against have one statement.
 //
-// No timing reading is passed: a stat verb is Always by construction (effect_with_timing),
-// which is what lets a stat be answered off the battlefield at all.
-ship_fitting_stat_contribution :: proc(fitting: Fitting, verb: Verb, ctx: Effect_Context) -> int {
+// The walk completes the context it was handed: `self_slot` is set per slot here and
+// nowhere else, so an effect gated on its own concealment reads the slot it sits in and
+// no caller patches a context after a builder returns it. `timings` is the round's
+// already-advanced readings, indexed like the counters they came from (combat_timings).
+// Its zero value is every effect firing normally, which is the only table an off-battle
+// caller could have: the one verb resolved there is Always by construction
+// (effect_with_timing).
+ship_resolve_effects :: proc(ctx: Effect_Context, phase: Maybe(Phase), timings: Effect_Timings = {}) -> int {
+	s := ctx.owner
+	assert(s != nil, "ship_resolve_effects walks ctx.owner's layout: build the context from a ship")
+	assert(len(s.layout) <= SHIP_MAX_SLOTS, "a ship's layout is wider than the timing table")
 	total := 0
-	for i in 0 ..< fitting.effect_count {
-		if effect := fitting.effects[i]; effect.verb == verb {
-			total += int(effect_magnitude(effect, ctx))
+	slot_ctx := ctx
+	for layout_slot, slot_index in s.layout {
+		fitting := layout_slot.fitting.? or_continue
+		slot_ctx.self_slot = layout_slot
+		for effect_index in 0 ..< fitting.effect_count {
+			effect := fitting.effects[effect_index]
+			if effect.phase != phase {
+				continue
+			}
+			total += int(effect_magnitude(effect, slot_ctx, timings[slot_index][effect_index]))
 		}
 	}
 	return total
@@ -755,8 +774,8 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, verb: Verb, ctx: Effect
 // ship_effective_speed is a ship's Speed as combat and escape read it: the raw base
 // field, plus every installed fitting's Modify_Speed contribution, less its weight
 // (ADR-0020) — `base + Σ Modify_Speed − weight/10`, so no ship's Speed can be read
-// without asking what it carries. self_slot is set per iteration so a modifier gated on
-// its own concealment resolves against the slot it actually sits in.
+// without asking what it carries. The modifier sum is the shared walk filtered to the
+// nil phase (ship_resolve_effects): the Modify_Speed layer, which no round phase consumes.
 //
 // `round` is **pass one of the round's two-pass context build**: given the round's facts,
 // a speed modifier gated on the round number, the captain's order or the damage taken last
@@ -771,18 +790,11 @@ ship_fitting_stat_contribution :: proc(fitting: Fitting, verb: Verb, ctx: Effect
 // `base − weight/10 >= 0` at every ship's realistic full hold (the floor invariant),
 // so `max(0, …)` is never written.
 ship_effective_speed :: proc(s: ^Ship, round: Maybe(Round_Facts) = nil) -> int {
-	modifiers := 0
 	ctx := ship_effect_context(s)
 	if in_round, has_round := round.?; has_round {
 		ctx = ship_effect_context_pre_speed(s, in_round)
 	}
-	for layout_slot in s.layout {
-		if fitting, has_fitting := layout_slot.fitting.?; has_fitting {
-			ctx.self_slot = layout_slot
-			modifiers += ship_fitting_stat_contribution(fitting, .Modify_Speed, ctx)
-		}
-	}
-	return s.speed + modifiers - ship_weight(s^) / 10
+	return s.speed + ship_resolve_effects(ctx, nil) - ship_weight(s^) / 10
 }
 
 // ship_fitting_weight is what one fitting adds to its ship's weight (ADR-0020): its
