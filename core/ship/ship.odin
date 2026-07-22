@@ -328,7 +328,7 @@ effect_with_timing :: proc(effect: Effect, timing: Timing) -> Effect {
 // `speeds` left nil — not zeroed, absent — so a speed-reading tree could not be answered
 // there even if authoring had let one through. Pass two fills it and resolves everything
 // else against a complete round. `self_slot` is set per-slot by the one walk that
-// iterates a layout (ship_resolve_effects) — never by a builder's caller.
+// iterates a layout (ship_resolve_effects); no resolver fills it by hand.
 Effect_Context :: struct {
 	owner:     ^Ship,
 	self_slot: Maybe(Layout_Slot),
@@ -739,7 +739,9 @@ ship_replace_fitting :: proc(layout_slot: ^Layout_Slot, fitting: Fitting) -> boo
 // fitting of ctx.owner's layout in fixed slot order, every effect in authored order
 // (ADR-0006), filtered to the ones `phase` consumes and summed through effect_magnitude.
 // Routing is on the **effect's own phase** — one fitting may feed both phases — and nil
-// selects the Modify_Speed layer, the one verb no round phase consumes (ship_verb_phase).
+// selects every effect no round phase consumes (ship_verb_phase). That filter is
+// structural, not a Modify_Speed lookup: a second phase-less verb would land in it, and
+// its nil-filtering callers would need to route on verb instead.
 // Both production resolvers route through here (ship_effective_speed, combat's
 // combat_phase_output), so slot order, phase routing and the slot each effect resolves
 // against have one statement.
