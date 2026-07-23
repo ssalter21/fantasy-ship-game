@@ -339,10 +339,10 @@ proto_build_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [8]Proto_Room, 
 
 	// Exposed berths -> weather-deck structures, in layout order.
 	slots := [4]Proto_Room {
-		{c = {-2.45, PROTO_DECK_Y + 0.44, 0}, hx = 1.0, hy = 0.44, hz = PROTO_ZB - 0.12, kind = .Sterncastle},
-		{c = {-2.7, PROTO_DECK_Y + 1.12, 0}, hx = 0.64, hy = 0.34, hz = PROTO_ZB - 0.2, kind = .Poop},
-		{c = {0.45, PROTO_DECK_Y + 0.46, 0}, hx = 1.4, hy = 0.46, hz = PROTO_ZB - 0.06, kind = .Waist},
-		{c = {2.72, PROTO_DECK_Y + 0.42, 0}, hx = 0.84, hy = 0.42, hz = PROTO_ZB - 0.12, kind = .Forecastle},
+		{c = {-2.45, PROTO_DECK_Y + 0.36, 0}, hx = 1.0, hy = 0.36, hz = PROTO_ZB - 0.12, kind = .Sterncastle},
+		{c = {-2.7, PROTO_DECK_Y + 0.92, 0}, hx = 0.64, hy = 0.3, hz = PROTO_ZB - 0.2, kind = .Poop},
+		{c = {0.45, PROTO_DECK_Y + 0.4, 0}, hx = 1.4, hy = 0.4, hz = PROTO_ZB - 0.06, kind = .Waist},
+		{c = {2.72, PROTO_DECK_Y + 0.34, 0}, hx = 0.84, hy = 0.34, hz = PROTO_ZB - 0.12, kind = .Forecastle},
 	}
 	for k in 0 ..< min(nex, 4) {
 		r := slots[k]
@@ -354,21 +354,30 @@ proto_build_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [8]Proto_Room, 
 	return rooms, ri
 }
 
-// proto_room_bounds is a room's screen-space footprint: the bounding rect of its eight
-// projected corners, used to hit-test the mouse against the room itself.
-proto_room_bounds :: proc(r: Proto_Room, cam: rl.Camera3D) -> rl.Rectangle {
-	lo := rl.Vector2{1e30, 1e30}
-	hi := rl.Vector2{-1e30, -1e30}
-	for sx in ([2]f32{-1, 1}) {
-		for sy in ([2]f32{-1, 1}) {
-			for sz in ([2]f32{-1, 1}) {
-				p := rl.GetWorldToScreen(rl.Vector3{r.c.x + sx * r.hx, r.c.y + sy * r.hy, r.c.z + sz * r.hz}, cam)
-				lo.x = min(lo.x, p.x);lo.y = min(lo.y, p.y)
-				hi.x = max(hi.x, p.x);hi.y = max(hi.y, p.y)
+// proto_room_hit reports whether the mouse is over a room's open front face — the slot you
+// look into. It projects the four front-face corners and does a point-in-quad test, so the
+// hover tracks the actual fitting slot rather than a loose bounding box around the whole room.
+proto_room_hit :: proc(mouse: rl.Vector2, r: Proto_Room, cam: rl.Camera3D) -> bool {
+	q: [4]rl.Vector2
+	q[0] = rl.GetWorldToScreen(rl.Vector3{r.c.x - r.hx, r.c.y - r.hy, r.c.z + r.hz}, cam)
+	q[1] = rl.GetWorldToScreen(rl.Vector3{r.c.x + r.hx, r.c.y - r.hy, r.c.z + r.hz}, cam)
+	q[2] = rl.GetWorldToScreen(rl.Vector3{r.c.x + r.hx, r.c.y + r.hy, r.c.z + r.hz}, cam)
+	q[3] = rl.GetWorldToScreen(rl.Vector3{r.c.x - r.hx, r.c.y + r.hy, r.c.z + r.hz}, cam)
+
+	// Ray-cast point-in-polygon across the four projected corners.
+	inside := false
+	j := 3
+	for i in 0 ..< 4 {
+		a, b := q[i], q[j]
+		if (a.y > mouse.y) != (b.y > mouse.y) {
+			x := a.x + (mouse.y - a.y) / (b.y - a.y) * (b.x - a.x)
+			if mouse.x < x {
+				inside = !inside
 			}
 		}
+		j = i
 	}
-	return rl.Rectangle{x = lo.x, y = lo.y, width = hi.x - lo.x, height = hi.y - lo.y}
+	return inside
 }
 
 draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
@@ -376,20 +385,20 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 
 	rooms, nrooms := proto_build_rooms(state.player.layout[:])
 
-	// Off-the-bow-quarter camera: yawed ~28 deg so the bow swings toward the viewer, a little
-	// above the deck so we look into the open rooms rather than straight along the side.
+	// Off-the-bow-quarter camera: yawed ~40 deg so the bow swings well toward the viewer, a
+	// little above the deck so we look into the open rooms rather than straight along the side.
 	camera := rl.Camera3D {
-		position   = rl.Vector3{6.1, 3.1, 11.5},
-		target     = rl.Vector3{0.2, 0.45, 0},
+		position   = rl.Vector3{8.6, 3.2, 10.3},
+		target     = rl.Vector3{0.2, 0.5, 0},
 		up         = rl.Vector3{0, 1, 0},
 		fovy       = 40,
 		projection = .PERSPECTIVE,
 	}
 
 	// Project each room's nameplate before the 3D pass so we can tint the hovered one. Holds
-	// label below the hull; the weather-deck rooms label above. Hover keys off the room's own
-	// projected footprint — you highlight a berth by pointing at the room, not at its label —
-	// and when footprints overlap the nearer (bow-ward) room wins.
+	// label below the hull; the weather-deck rooms label above. Hover keys off the open front
+	// face of the fitting slot — you highlight a berth by pointing into the room itself — and
+	// when two slots overlap on screen the nearer (bow-ward) one wins.
 	plates: [8]rl.Rectangle
 	hovered := -1
 	best := f32(1e30)
@@ -399,7 +408,7 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 		anchor := rl.GetWorldToScreen(rl.Vector3{r.c.x, ay, r.hz}, camera)
 		dy := r.kind == .Hold ? f32(30) : f32(-30)
 		plates[i] = proto_nameplate_rect(anchor.x, anchor.y + dy - 11, state.player.layout[r.slot])
-		if rl.CheckCollisionPointRec(mouse, proto_room_bounds(r, camera)) {
+		if proto_room_hit(mouse, r, camera) {
 			d := rl.Vector3Distance(camera.position, r.c)
 			if d < best {
 				best = d
@@ -517,7 +526,7 @@ draw_proto_deck_room :: proc(c: rl.Vector3, hx, hy, hz: f32, base: rl.Color) {
 draw_proto_rig :: proc() {
 	deck := PROTO_DECK_Y + 0.04
 	masts := [3]f32{1.85, 0.4, -1.15} // fore (bow), main (centre), mizzen (stern)
-	heights := [3]f32{2.9, 3.7, 2.6}
+	heights := [3]f32{3.1, 3.9, 2.8}
 	tiers := [3]int{2, 3, 2} // sails carried per mast
 	for mx, mi in masts {
 		h := heights[mi]
@@ -531,7 +540,7 @@ draw_proto_rig :: proc() {
 		for ti in 0 ..< nt {
 			frac := f32(ti) / f32(max(nt, 1))
 			sw := base_w * (1.0 - frac * 0.4)
-			sy := deck + h * 0.42 + f32(ti) * tier_h
+			sy := deck + h * 0.5 + f32(ti) * tier_h
 			rl.DrawCube(rl.Vector3{mx, sy, 0.04}, sw, tier_h * 0.86, 0.04, PROTO_CREAM)
 			rl.DrawCubeWires(rl.Vector3{mx, sy, 0.04}, sw, tier_h * 0.86, 0.04, PROTO_SAND)
 			// Yard across the top of each sail.
@@ -564,18 +573,18 @@ draw_proto_ornament :: proc() {
 
 	// Gilded trim capping the tops of the three deck structures. (Positions track the slots
 	// array in proto_build_rooms.)
-	rl.DrawCube(rl.Vector3{-2.45, PROTO_DECK_Y + 0.9, 0}, 2.08, 0.07, 2 * (PROTO_ZB - 0.12), gold) // sterncastle
-	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.48, 0}, 1.34, 0.07, 2 * (PROTO_ZB - 0.2), gold) // poop
-	rl.DrawCube(rl.Vector3{2.72, PROTO_DECK_Y + 0.86, 0}, 1.74, 0.07, 2 * (PROTO_ZB - 0.12), gold) // forecastle
+	rl.DrawCube(rl.Vector3{-2.45, PROTO_DECK_Y + 0.74, 0}, 2.08, 0.07, 2 * (PROTO_ZB - 0.12), gold) // sterncastle
+	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.24, 0}, 1.34, 0.07, 2 * (PROTO_ZB - 0.2), gold) // poop
+	rl.DrawCube(rl.Vector3{2.72, PROTO_DECK_Y + 0.7, 0}, 1.74, 0.07, 2 * (PROTO_ZB - 0.12), gold) // forecastle
 
 	// Stern lantern crowning the poop.
-	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.66, 0}, 0.2, 0.3, 0.2, PROTO_PARCHMENT)
-	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.86, 0}, 0.1, 0.12, 0.1, gold)
+	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.4, 0}, 0.2, 0.3, 0.2, PROTO_PARCHMENT)
+	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.6, 0}, 0.1, 0.12, 0.1, gold)
 
 	// Lit great-cabin windows across the sterncastle's inner (far) wall — the stern gallery.
 	for wx := f32(-3.2); wx <= -1.7; wx += 0.36 {
-		rl.DrawCube(rl.Vector3{wx, PROTO_DECK_Y + 0.48, -(PROTO_ZB - 0.16)}, 0.22, 0.36, 0.03, PROTO_SHALLOW)
-		rl.DrawCubeWires(rl.Vector3{wx, PROTO_DECK_Y + 0.48, -(PROTO_ZB - 0.16)}, 0.22, 0.36, 0.03, gold)
+		rl.DrawCube(rl.Vector3{wx, PROTO_DECK_Y + 0.38, -(PROTO_ZB - 0.16)}, 0.22, 0.32, 0.03, PROTO_SHALLOW)
+		rl.DrawCubeWires(rl.Vector3{wx, PROTO_DECK_Y + 0.38, -(PROTO_ZB - 0.16)}, 0.22, 0.32, 0.03, gold)
 	}
 
 	// Figurehead and beakhead ornament at the bow.
