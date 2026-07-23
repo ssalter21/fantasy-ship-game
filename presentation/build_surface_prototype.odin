@@ -390,14 +390,16 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 
 	rooms, nrooms := proto_build_rooms(state.player.layout[:])
 
-	// Off the port bow quarter: the camera sits to -z (the cut-open port side) and forward of
-	// amidships, a little above the deck, so we look into the open rooms along the port side with
-	// the bow angling toward the viewer on the left.
+	// Off the port bow quarter, drawn in close and low: the camera sits to -z (the cut-open port
+	// side), well forward of amidships (a ~49-degree yaw so the bow swings hard toward the viewer
+	// on the left), close to the hull and near the waterline so the ship looms. The short throw and
+	// the wide field pull the vanishing point into frame — the near bow reads much larger than the
+	// receding stern.
 	camera := rl.Camera3D {
-		position   = rl.Vector3{8.6, 3.2, -10.3},
-		target     = rl.Vector3{0.2, 0.5, 0},
+		position   = rl.Vector3{6.0, 1.4, -4.9},
+		target     = rl.Vector3{0.2, 0.55, 0},
 		up         = rl.Vector3{0, 1, 0},
-		fovy       = 40,
+		fovy       = 52,
 		projection = .PERSPECTIVE,
 	}
 
