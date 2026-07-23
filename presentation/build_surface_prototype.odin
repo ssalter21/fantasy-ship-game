@@ -25,6 +25,7 @@ package presentation
 // it.
 
 import "core:fmt"
+import "core:math"
 import ship "../core/ship"
 import sim "../core/sim"
 import rl "vendor:raylib"
@@ -58,6 +59,16 @@ Proto_Variant :: enum {
 
 // The chosen direction is the default: opening the ship screen shows the 3D cutaway.
 proto_variant: Proto_Variant = .Ship_Cutaway
+
+// Live camera-tuning knobs — the floating slider panel writes these every frame so the camera can
+// be dialled in by hand instead of by re-editing constants. Throwaway, like the rest of the file.
+// The defaults reproduce the round-13 shot: ~50-degree yaw, backed off, low, wide.
+proto_cam_yaw: f32 = 49.6 // bow-toward-viewer swing, degrees
+proto_cam_dist: f32 = 8.27 // horizontal distance from the target (dolly / zoom)
+proto_cam_height: f32 = 1.0 // camera height above the origin plane (waterline closeness)
+proto_cam_look: f32 = 0.4 // target height — tilts the view up or down
+proto_cam_fov: f32 = 60 // field of view, degrees
+proto_slider_active := -1 // which slider owns the current drag, or -1
 
 proto_variant_label :: proc(v: Proto_Variant) -> string {
 	switch v {
@@ -390,16 +401,20 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 
 	rooms, nrooms := proto_build_rooms(state.player.layout[:])
 
-	// Off the port bow quarter, low and wide: the camera sits to -z (the cut-open port side), well
-	// forward of amidships (a ~50-degree yaw so the bow swings hard toward the viewer on the left),
-	// near the waterline so the ship looms. It sits back along that same bearing far enough that the
-	// whole ship — mastheads to keel — reads in frame, while the wide 60-degree field keeps the
-	// vanishing point in view so the near bow still bulges larger than the receding stern.
+	// Off the port bow quarter, low and wide, but every lever is live: the slider panel drives yaw
+	// (bow swing toward the viewer at -z), distance (dolly), height (waterline closeness), the look
+	// height (pitch), and the field of view. The camera is derived from those knobs each frame.
+	yaw := proto_cam_yaw * math.PI / 180
+	target := rl.Vector3{0.2, proto_cam_look, 0}
 	camera := rl.Camera3D {
-		position   = rl.Vector3{6.5, 1.0, -5.35},
-		target     = rl.Vector3{0.2, 0.4, 0},
+		position   = rl.Vector3 {
+			target.x + proto_cam_dist * math.sin(yaw),
+			proto_cam_height,
+			-proto_cam_dist * math.cos(yaw),
+		},
+		target     = target,
 		up         = rl.Vector3{0, 1, 0},
-		fovy       = 60,
+		fovy       = proto_cam_fov,
 		projection = .PERSPECTIVE,
 	}
 
@@ -445,6 +460,64 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	}
 	draw_build_heading("At Anchor")
 	draw_proto_stat_strip(state)
+	draw_proto_cam_sliders(mouse)
+}
+
+// draw_proto_cam_sliders is the floating camera-tuning panel: white-on-near-black scaffolding in
+// the top-right sky, one slider each for yaw, distance, height, look and fov, with the live value
+// printed beside every label so the dialled-in numbers can be read straight off. Hidden during
+// capture (no real mouse), so screenshots stay clean.
+draw_proto_cam_sliders :: proc(mouse: rl.Vector2) {
+	if mouse == NO_MOUSE {
+		return
+	}
+	if rl.IsMouseButtonReleased(.LEFT) {
+		proto_slider_active = -1
+	}
+
+	pw, ph := f32(238), f32(214)
+	px, py := WINDOW_WIDTH - pw - 10, f32(86)
+	panel := rl.Rectangle{px, py, pw, ph}
+	rl.DrawRectangleRec(panel, rl.Color{0, 0, 0, 190})
+	rl.DrawRectangleLinesEx(panel, 2, rl.WHITE)
+	rl.DrawTextEx(ui_font_body, "PROTOTYPE camera", rl.Vector2{px + 12, py + 8}, UI_BODY_SIZE, 1, rl.Color{255, 255, 255, 150})
+
+	tx := px + 14
+	tw := pw - 28
+	th := f32(10)
+	y := py + 52
+	proto_cam_yaw = proto_slider(0, rl.Rectangle{tx, y, tw, th}, mouse, "yaw", proto_cam_yaw, 0, 90)
+	y += 34
+	proto_cam_dist = proto_slider(1, rl.Rectangle{tx, y, tw, th}, mouse, "dist", proto_cam_dist, 3, 16)
+	y += 34
+	proto_cam_height = proto_slider(2, rl.Rectangle{tx, y, tw, th}, mouse, "height", proto_cam_height, -0.5, 5)
+	y += 34
+	proto_cam_look = proto_slider(3, rl.Rectangle{tx, y, tw, th}, mouse, "look", proto_cam_look, -1, 3)
+	y += 34
+	proto_cam_fov = proto_slider(4, rl.Rectangle{tx, y, tw, th}, mouse, "fov", proto_cam_fov, 25, 90)
+}
+
+// proto_slider is one immediate-mode slider: it captures the drag on mouse-down over its (padded)
+// track, follows the mouse while held, draws track/fill/handle and "label value", and returns the
+// updated value. proto_slider_active keeps one slider from stealing another's drag.
+proto_slider :: proc(id: int, track: rl.Rectangle, mouse: rl.Vector2, label: string, value, lo, hi: f32) -> f32 {
+	v := value
+	hit := rl.Rectangle{track.x - 4, track.y - 8, track.width + 8, track.height + 16}
+	if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, hit) {
+		proto_slider_active = id
+	}
+	if proto_slider_active == id && rl.IsMouseButtonDown(.LEFT) {
+		t := clamp((mouse.x - track.x) / track.width, 0, 1)
+		v = lo + t * (hi - lo)
+	}
+
+	frac := clamp((v - lo) / (hi - lo), 0, 1)
+	rl.DrawRectangleRec(track, rl.Color{255, 255, 255, 45})
+	rl.DrawRectangleRec(rl.Rectangle{track.x, track.y, track.width * frac, track.height}, rl.Color{255, 255, 255, 120})
+	hx := track.x + track.width * frac
+	rl.DrawRectangleRec(rl.Rectangle{hx - 3, track.y - 4, 6, track.height + 8}, rl.WHITE)
+	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s  %.2f", label, v), rl.Vector2{track.x, track.y - 17}, UI_BODY_SIZE, 1, rl.WHITE)
+	return v
 }
 
 // draw_proto_slot_outline traces the hovered slot's open front face with a bright line, so the
