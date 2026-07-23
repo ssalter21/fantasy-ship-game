@@ -781,7 +781,6 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 	for {
 		window_quit_if_closed()
 		mouse := rl.GetMousePosition()
-		proto_map_home(state) // PROTOTYPE: the raised chart owns this screen — full-width page (fullscreen_proto.odin)
 
 		// The chart eases toward its toggle target each frame. A lowered, un-touched chart is
 		// already at its target, so this is a no-op on the resting Build surface.
