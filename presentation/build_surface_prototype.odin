@@ -62,12 +62,13 @@ proto_variant: Proto_Variant = .Ship_Cutaway
 
 // Live camera-tuning knobs — the floating slider panel writes these every frame so the camera can
 // be dialled in by hand instead of by re-editing constants. Throwaway, like the rest of the file.
-// The defaults reproduce the round-13 shot: ~50-degree yaw, backed off, low, wide.
-proto_cam_yaw: f32 = 49.6 // bow-toward-viewer swing, degrees
-proto_cam_dist: f32 = 8.27 // horizontal distance from the target (dolly / zoom)
-proto_cam_height: f32 = 1.0 // camera height above the origin plane (waterline closeness)
-proto_cam_look: f32 = 0.4 // target height — tilts the view up or down
-proto_cam_fov: f32 = 60 // field of view, degrees
+// The defaults are the hand-dialled round-15 shot: a hard yaw, drawn in close, right down at the
+// waterline, tilted up, a touch narrower.
+proto_cam_yaw: f32 = 55.75 // bow-toward-viewer swing, degrees
+proto_cam_dist: f32 = 6.92 // horizontal distance from the target (dolly / zoom)
+proto_cam_height: f32 = 0.0 // camera height above the origin plane (waterline closeness)
+proto_cam_look: f32 = 0.92 // target height — tilts the view up or down
+proto_cam_fov: f32 = 55.24 // field of view, degrees
 proto_slider_active := -1 // which slider owns the current drag, or -1
 
 proto_variant_label :: proc(v: Proto_Variant) -> string {
@@ -211,7 +212,10 @@ draw_proto_cloud :: proc(cx, cy: f32) {
 	rl.DrawRectangleRec(rl.Rectangle{x = cx - 28, y = cy - 14, width = 62, height = 18}, PROTO_CLOUD)
 }
 
-PROTO_HORIZON :: f32(300) // 2D sea horizon behind the ship
+// The 2D sea horizon, set to meet the true horizon of the low waterline camera (which looks
+// slightly up, so the horizon falls well below screen centre). Drop it and the ship rides higher
+// and prouder above the water instead of sitting cut off at the deck.
+PROTO_HORIZON :: f32(440)
 
 draw_proto_backdrop :: proc() {
 	rl.ClearBackground(PROTO_SKY_HIGH)
