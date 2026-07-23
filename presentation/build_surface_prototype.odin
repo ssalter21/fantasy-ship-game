@@ -220,14 +220,15 @@ draw_proto_backdrop :: proc() {
 	}
 }
 
-// draw_proto_room_base picks a deck's wood tone: greyer for holds, cooler/darker below water.
+// draw_proto_room_base picks a room's wood tone: a rich warm oak for the exposed decks, a
+// greyer stowage timber for the holds, cooled and darkened where it sits below the waterline.
 draw_proto_room_base :: proc(ls: ship.Layout_Slot, submerged: bool) -> rl.Color {
-	base := PROTO_CLIFF
+	base := rl.Color{156, 104, 58, 255} // rich warm oak
 	if proto_slot_is_hold(ls) {
-		base = rl.Color{150, 132, 96, 255}
+		base = rl.Color{138, 118, 84, 255}
 	}
 	if submerged {
-		base = proto_shade(base, 0.82)
+		base = proto_shade(base, 0.78)
 	}
 	return base
 }
@@ -338,10 +339,10 @@ proto_build_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [8]Proto_Room, 
 
 	// Exposed berths -> weather-deck structures, in layout order.
 	slots := [4]Proto_Room {
-		{c = {-2.45, PROTO_DECK_Y + 0.56, 0}, hx = 1.0, hy = 0.56, hz = PROTO_ZB - 0.12, kind = .Sterncastle},
-		{c = {-2.7, PROTO_DECK_Y + 1.42, 0}, hx = 0.64, hy = 0.42, hz = PROTO_ZB - 0.2, kind = .Poop},
-		{c = {0.45, PROTO_DECK_Y + 0.52, 0}, hx = 1.4, hy = 0.5, hz = PROTO_ZB - 0.06, kind = .Waist},
-		{c = {2.72, PROTO_DECK_Y + 0.62, 0}, hx = 0.84, hy = 0.6, hz = PROTO_ZB - 0.12, kind = .Forecastle},
+		{c = {-2.45, PROTO_DECK_Y + 0.44, 0}, hx = 1.0, hy = 0.44, hz = PROTO_ZB - 0.12, kind = .Sterncastle},
+		{c = {-2.7, PROTO_DECK_Y + 1.12, 0}, hx = 0.64, hy = 0.34, hz = PROTO_ZB - 0.2, kind = .Poop},
+		{c = {0.45, PROTO_DECK_Y + 0.46, 0}, hx = 1.4, hy = 0.46, hz = PROTO_ZB - 0.06, kind = .Waist},
+		{c = {2.72, PROTO_DECK_Y + 0.42, 0}, hx = 0.84, hy = 0.42, hz = PROTO_ZB - 0.12, kind = .Forecastle},
 	}
 	for k in 0 ..< min(nex, 4) {
 		r := slots[k]
@@ -353,33 +354,57 @@ proto_build_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [8]Proto_Room, 
 	return rooms, ri
 }
 
+// proto_room_bounds is a room's screen-space footprint: the bounding rect of its eight
+// projected corners, used to hit-test the mouse against the room itself.
+proto_room_bounds :: proc(r: Proto_Room, cam: rl.Camera3D) -> rl.Rectangle {
+	lo := rl.Vector2{1e30, 1e30}
+	hi := rl.Vector2{-1e30, -1e30}
+	for sx in ([2]f32{-1, 1}) {
+		for sy in ([2]f32{-1, 1}) {
+			for sz in ([2]f32{-1, 1}) {
+				p := rl.GetWorldToScreen(rl.Vector3{r.c.x + sx * r.hx, r.c.y + sy * r.hy, r.c.z + sz * r.hz}, cam)
+				lo.x = min(lo.x, p.x);lo.y = min(lo.y, p.y)
+				hi.x = max(hi.x, p.x);hi.y = max(hi.y, p.y)
+			}
+		}
+	}
+	return rl.Rectangle{x = lo.x, y = lo.y, width = hi.x - lo.x, height = hi.y - lo.y}
+}
+
 draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	draw_proto_backdrop()
 
 	rooms, nrooms := proto_build_rooms(state.player.layout[:])
 
-	// Off-the-bow-quarter camera: yawed ~20 deg so the bow angles toward the viewer, a little
+	// Off-the-bow-quarter camera: yawed ~28 deg so the bow swings toward the viewer, a little
 	// above the deck so we look into the open rooms rather than straight along the side.
 	camera := rl.Camera3D {
-		position   = rl.Vector3{4.5, 3.0, 12.2},
-		target     = rl.Vector3{0.15, 0.5, 0},
+		position   = rl.Vector3{6.1, 3.1, 11.5},
+		target     = rl.Vector3{0.2, 0.45, 0},
 		up         = rl.Vector3{0, 1, 0},
 		fovy       = 40,
 		projection = .PERSPECTIVE,
 	}
 
 	// Project each room's nameplate before the 3D pass so we can tint the hovered one. Holds
-	// label below the hull; the weather-deck rooms label above.
+	// label below the hull; the weather-deck rooms label above. Hover keys off the room's own
+	// projected footprint — you highlight a berth by pointing at the room, not at its label —
+	// and when footprints overlap the nearer (bow-ward) room wins.
 	plates: [8]rl.Rectangle
 	hovered := -1
+	best := f32(1e30)
 	for i in 0 ..< nrooms {
 		r := rooms[i]
 		ay := r.kind == .Hold ? r.c.y - r.hy : r.c.y + r.hy
 		anchor := rl.GetWorldToScreen(rl.Vector3{r.c.x, ay, r.hz}, camera)
 		dy := r.kind == .Hold ? f32(30) : f32(-30)
 		plates[i] = proto_nameplate_rect(anchor.x, anchor.y + dy - 11, state.player.layout[r.slot])
-		if rl.CheckCollisionPointRec(mouse, plates[i]) {
-			hovered = i
+		if rl.CheckCollisionPointRec(mouse, proto_room_bounds(r, camera)) {
+			d := rl.Vector3Distance(camera.position, r.c)
+			if d < best {
+				best = d
+				hovered = i
+			}
 		}
 	}
 
@@ -429,10 +454,13 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 // the underside as strips following the hull silhouette, the main deck plank, and the bow stem
 // and stern transom that cap the ends. The near side is left open — that is the cutaway.
 draw_proto_hull_body :: proc() {
-	dark := proto_shade(PROTO_TRUNK, 0.8)
-	darker := proto_shade(PROTO_TRUNK, 0.62)
+	hull :: rl.Color{104, 66, 38, 255} // deep, warm hull timber
+	dark := proto_shade(hull, 0.9)
+	darker := proto_shade(hull, 0.66)
+	deck_cx := (PROTO_STERN_X + PROTO_BOW_X) / 2
 
-	// Far inner wall as vertical strips following the hull silhouette (keel up to the sheer).
+	// Far inner wall as vertical strips following the hull silhouette (keel up to the sheer),
+	// each strip a touch darker toward the aft so the interior falls into shadow.
 	strip := f32(0.16)
 	for x := PROTO_STERN_X; x < PROTO_BOW_X - 0.001; x += strip {
 		xm := x + strip / 2
@@ -441,7 +469,9 @@ draw_proto_hull_body :: proc() {
 		if tp - b < 0.05 {
 			continue
 		}
-		rl.DrawCube(rl.Vector3{xm, (b + tp) / 2, -PROTO_ZB}, strip + 0.006, tp - b, 0.09, dark)
+		t := clamp((xm - PROTO_STERN_X) / (PROTO_BOW_X - PROTO_STERN_X), 0, 1)
+		shade := 0.78 + t * 0.28 // aft in shadow, bow catching light
+		rl.DrawCube(rl.Vector3{xm, (b + tp) / 2, -PROTO_ZB}, strip + 0.006, tp - b, 0.09, proto_shade(hull, shade))
 	}
 
 	// Hull bottom: strips spanning the beam, following the keel curve — the ship's underside.
@@ -452,8 +482,12 @@ draw_proto_hull_body :: proc() {
 	}
 
 	// Main (weather) deck plank spanning the hull: ceiling of the holds, floor of the waist.
-	deck_cx := (PROTO_STERN_X + PROTO_BOW_X) / 2
-	rl.DrawCube(rl.Vector3{deck_cx, PROTO_DECK_Y, 0}, PROTO_BOW_X - PROTO_STERN_X - 0.4, 0.08, 2 * PROTO_ZB, PROTO_CLIFF)
+	rl.DrawCube(rl.Vector3{deck_cx, PROTO_DECK_Y, 0}, PROTO_BOW_X - PROTO_STERN_X - 0.4, 0.08, 2 * PROTO_ZB, proto_shade(hull, 1.15))
+
+	// A gilded wale and a dark rubbing strake band the hull just below the sheer — flagship trim.
+	wale_len := PROTO_BOW_X - PROTO_STERN_X - 0.5
+	rl.DrawCube(rl.Vector3{deck_cx, PROTO_DECK_Y - 0.09, -PROTO_ZB + 0.05}, wale_len, 0.07, 0.05, PROTO_SAND)
+	rl.DrawCube(rl.Vector3{deck_cx, PROTO_DECK_Y - 0.19, -PROTO_ZB + 0.05}, wale_len, 0.06, 0.05, darker)
 
 	// Bow stem and stern transom, capping the ends above the waterline.
 	rl.DrawCube(rl.Vector3{PROTO_BOW_X - 0.14, proto_sheer_y(PROTO_BOW_X) - 0.1, 0}, 0.28, 0.95, 2 * PROTO_ZB - 0.04, dark)
@@ -464,12 +498,14 @@ draw_proto_hull_body :: proc() {
 // walls; the front (+z) and top are open, so the camera looks in from the bow quarter.
 draw_proto_deck_room :: proc(c: rl.Vector3, hx, hy, hz: f32, base: rl.Color) {
 	t :: f32(0.05)
-	rl.DrawCube(rl.Vector3{c.x, c.y - hy, c.z}, 2 * hx, t, 2 * hz, proto_shade(base, 0.56)) // floor
-	rl.DrawCube(rl.Vector3{c.x, c.y, c.z - hz}, 2 * hx, 2 * hy, t, proto_shade(base, 0.9)) // back
-	rl.DrawCube(rl.Vector3{c.x - hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 0.72)) // aft end
-	rl.DrawCube(rl.Vector3{c.x + hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 1.06)) // fore end
+	// Wide spread between the lit fore end and the deep-shadowed floor and aft corner gives the
+	// open room strong interior modelling.
+	rl.DrawCube(rl.Vector3{c.x, c.y - hy, c.z}, 2 * hx, t, 2 * hz, proto_shade(base, 0.44)) // floor
+	rl.DrawCube(rl.Vector3{c.x, c.y, c.z - hz}, 2 * hx, 2 * hy, t, proto_shade(base, 0.82)) // back
+	rl.DrawCube(rl.Vector3{c.x - hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 0.58)) // aft end (shadow)
+	rl.DrawCube(rl.Vector3{c.x + hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 1.14)) // fore end (lit)
 
-	wire := rl.Fade(PROTO_INK, 0.55)
+	wire := rl.Fade(PROTO_INK, 0.6)
 	rl.DrawCubeWires(rl.Vector3{c.x, c.y - hy, c.z}, 2 * hx, t, 2 * hz, wire)
 	rl.DrawCubeWires(rl.Vector3{c.x, c.y, c.z - hz}, 2 * hx, 2 * hy, t, wire)
 }
@@ -481,20 +517,21 @@ draw_proto_deck_room :: proc(c: rl.Vector3, hx, hy, hz: f32, base: rl.Color) {
 draw_proto_rig :: proc() {
 	deck := PROTO_DECK_Y + 0.04
 	masts := [3]f32{1.85, 0.4, -1.15} // fore (bow), main (centre), mizzen (stern)
-	heights := [3]f32{2.7, 3.4, 2.4}
+	heights := [3]f32{2.9, 3.7, 2.6}
 	tiers := [3]int{2, 3, 2} // sails carried per mast
 	for mx, mi in masts {
 		h := heights[mi]
 		rl.DrawCylinder(rl.Vector3{mx, deck, 0}, 0.05, 0.09, h, 10, PROTO_TRUNK)
 
-		// Stacked square sails: a course low and wide, topsails narrowing above it.
+		// Stacked square sails: a course low and wide, topsails narrowing above it. They start
+		// high on the mast so they ride clear above the lowered castles.
 		nt := tiers[mi]
 		base_w := f32(1.75)
-		tier_h := h * 0.28
+		tier_h := h * 0.26
 		for ti in 0 ..< nt {
 			frac := f32(ti) / f32(max(nt, 1))
 			sw := base_w * (1.0 - frac * 0.4)
-			sy := deck + h * 0.3 + f32(ti) * tier_h
+			sy := deck + h * 0.42 + f32(ti) * tier_h
 			rl.DrawCube(rl.Vector3{mx, sy, 0.04}, sw, tier_h * 0.86, 0.04, PROTO_CREAM)
 			rl.DrawCubeWires(rl.Vector3{mx, sy, 0.04}, sw, tier_h * 0.86, 0.04, PROTO_SAND)
 			// Yard across the top of each sail.
@@ -527,18 +564,18 @@ draw_proto_ornament :: proc() {
 
 	// Gilded trim capping the tops of the three deck structures. (Positions track the slots
 	// array in proto_build_rooms.)
-	rl.DrawCube(rl.Vector3{-2.45, PROTO_DECK_Y + 1.14, 0}, 2.08, 0.07, 2 * (PROTO_ZB - 0.12), gold) // sterncastle
-	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.86, 0}, 1.34, 0.07, 2 * (PROTO_ZB - 0.2), gold) // poop
-	rl.DrawCube(rl.Vector3{2.72, PROTO_DECK_Y + 1.24, 0}, 1.74, 0.07, 2 * (PROTO_ZB - 0.12), gold) // forecastle
+	rl.DrawCube(rl.Vector3{-2.45, PROTO_DECK_Y + 0.9, 0}, 2.08, 0.07, 2 * (PROTO_ZB - 0.12), gold) // sterncastle
+	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.48, 0}, 1.34, 0.07, 2 * (PROTO_ZB - 0.2), gold) // poop
+	rl.DrawCube(rl.Vector3{2.72, PROTO_DECK_Y + 0.86, 0}, 1.74, 0.07, 2 * (PROTO_ZB - 0.12), gold) // forecastle
 
 	// Stern lantern crowning the poop.
-	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 2.06, 0}, 0.2, 0.3, 0.2, PROTO_PARCHMENT)
-	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 2.26, 0}, 0.1, 0.12, 0.1, gold)
+	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.66, 0}, 0.2, 0.3, 0.2, PROTO_PARCHMENT)
+	rl.DrawCube(rl.Vector3{-2.7, PROTO_DECK_Y + 1.86, 0}, 0.1, 0.12, 0.1, gold)
 
 	// Lit great-cabin windows across the sterncastle's inner (far) wall — the stern gallery.
 	for wx := f32(-3.2); wx <= -1.7; wx += 0.36 {
-		rl.DrawCube(rl.Vector3{wx, PROTO_DECK_Y + 0.6, -(PROTO_ZB - 0.16)}, 0.22, 0.4, 0.03, PROTO_SHALLOW)
-		rl.DrawCubeWires(rl.Vector3{wx, PROTO_DECK_Y + 0.6, -(PROTO_ZB - 0.16)}, 0.22, 0.4, 0.03, gold)
+		rl.DrawCube(rl.Vector3{wx, PROTO_DECK_Y + 0.48, -(PROTO_ZB - 0.16)}, 0.22, 0.36, 0.03, PROTO_SHALLOW)
+		rl.DrawCubeWires(rl.Vector3{wx, PROTO_DECK_Y + 0.48, -(PROTO_ZB - 0.16)}, 0.22, 0.36, 0.03, gold)
 	}
 
 	// Figurehead and beakhead ornament at the bow.
