@@ -16,6 +16,16 @@ letterbox_fit_pillarboxes_a_wide_screen :: proc(t: ^testing.T) {
 }
 
 @(test)
+letterbox_fit_fills_a_16x9_monitor :: proc(t: ^testing.T) {
+	// The acceptance monitor (#451): 1244x700 is within half a pixel of 16:9 at this
+	// scale, so the frame fills 1920x1080 edge-to-edge with at most sub-pixel bars.
+	_, dst := letterbox_fit(1920, 1080)
+	testing.expect_value(t, dst.height, f32(1080))
+	testing.expect(t, dst.width > 1918, "frame spans the screen width")
+	testing.expect(t, dst.x < 1, "pillar bars are sub-pixel")
+}
+
+@(test)
 letterbox_fit_letterboxes_a_tall_screen :: proc(t: ^testing.T) {
 	// Screen taller than the logical aspect: width fills exactly, equal bars above
 	// and below.

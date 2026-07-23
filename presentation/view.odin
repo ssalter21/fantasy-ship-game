@@ -9,16 +9,15 @@ import voyage "../core/voyage"
 import ship "../core/ship"
 import rl "vendor:raylib"
 
-// The chart page has two widths in the 16:9 frame (#449): the voyage width, sharing the
-// row with the ship panel (which slid right, keeping its exact old 354px), and a
-// full-width stretch when the chart is raised at Home — there it owns the screen, minus
-// the page's own 20px margins. Each chart screen re-asserts its width every frame
-// (map_width_voyage / map_width_home) before drawing and polling, so hit-testing always
-// agrees with what was drawn.
+// The chart page has two widths in the ~16:9 frame (#451): the voyage width, sharing
+// the row with the ship panel, and a full-width stretch when the chart is raised at
+// Home — there it owns the screen, minus the page's own 20px margins. Each chart screen
+// re-asserts its width every frame (map_width_set) before drawing and polling, so
+// hit-testing always agrees with what was drawn.
 MAP_VOYAGE_W :: 840
 MAP_HOME_W :: WINDOW_WIDTH - 40
 MAP_AREA := rl.Rectangle{x = 20, y = 20, width = MAP_VOYAGE_W, height = 640}
-SHIP_PANEL_X :: 890 // tracks the widened window and voyage-width page; was 670 at 1024-wide
+SHIP_PANEL_X :: 890 // a 30px gap right of the voyage-width page (20 + MAP_VOYAGE_W + 30)
 NODE_RADIUS :: 12
 // MAP_PAD_X / MAP_PAD_Y inset the node field from MAP_AREA, and differ because the layout drives
 // the axes differently: `fx` runs the full 0..1 across layers, putting the Start and the Haven
@@ -30,6 +29,11 @@ NODE_RADIUS :: 12
 // same room there would only squash the map.
 MAP_PAD_X :: 85
 MAP_PAD_Y :: 34
+
+// MAP_PAD_REF_W is the page width MAP_PAD_X is tuned against. The deckled rim baked
+// into the parchment art stretches with the page, so compute_node_positions scales the
+// live x-inset as width * MAP_PAD_X / MAP_PAD_REF_W rather than using the constant raw.
+MAP_PAD_REF_W :: 620
 
 // The parchment Chart's ink palette (spec 0001 §8). The reskin drops the blue
 // nautical-chart tones on this surface — steel rings, blue chart routes, the amber
@@ -84,14 +88,6 @@ map_width_set :: proc(state: ^Game_State, width: f32) {
 	}
 }
 
-map_width_voyage :: proc(state: ^Game_State) {
-	map_width_set(state, MAP_VOYAGE_W)
-}
-
-map_width_home :: proc(state: ^Game_State) {
-	map_width_set(state, MAP_HOME_W)
-}
-
 // compute_node_positions places each node from the generator's layer/lane
 // metadata: layer is the column (Start left, Haven right), lane the row within
 // it, evenly spread and centered so the whole graph fits with no camera or
@@ -107,10 +103,9 @@ compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 		layer_counts[p.layer] += 1
 	}
 
-	// The page stretches to two widths (map_width_set), and the deckled rim baked into
-	// the art stretches with it — so the x-inset scales with the live width instead of
-	// staying the constant tuned for the original 620px page.
-	pad_x := MAP_AREA.width * f32(MAP_PAD_X) / 620
+	// The page stretches to two widths (map_width_set), so the x-inset scales with the
+	// live width (see MAP_PAD_REF_W).
+	pad_x := MAP_AREA.width * f32(MAP_PAD_X) / MAP_PAD_REF_W
 	usable_w := MAP_AREA.width - 2 * pad_x
 	usable_h := MAP_AREA.height - 2 * MAP_PAD_Y
 	for p in voyage_map.nodes {
@@ -1078,7 +1073,7 @@ draw_stage_chip :: proc(state: ^Game_State, chip: rl.Rectangle, index: int, curs
 draw_scene_contents :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 	rl.ClearBackground(COLOUR_DEEP)
 
-	map_width_voyage(state) // the page shares the row with the ship panel
+	map_width_set(state, MAP_VOYAGE_W) // the page shares the row with the ship panel
 	draw_map(state, mouse)
 	draw_ship_panel(&state.player, rl.Vector2{SHIP_PANEL_X, 20}, "Your Ship", false)
 
