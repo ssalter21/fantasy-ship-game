@@ -192,8 +192,8 @@ draw_encounter_chrome :: proc(state: ^Game_State, kind: voyage.Stage_Kind, stat_
 // rather than calling this — clear, draw its body, then draw_encounter_chrome — exactly as
 // draw_build_surface inlines its chrome.
 draw_encounter_frame :: proc(state: ^Game_State, kind: voyage.Stage_Kind, headline: string) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	rl.ClearBackground(COLOUR_DEEP)

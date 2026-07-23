@@ -9,8 +9,11 @@ import voyage "../core/voyage"
 import ship "../core/ship"
 import rl "vendor:raylib"
 
-MAP_AREA := rl.Rectangle{x = 20, y = 20, width = 620, height = 640}
-SHIP_PANEL_X :: 670
+// PROTOTYPE (fullscreen_proto.odin): the page now has two widths — the voyage width here
+// (sharing the row with the ship panel, which slides right to keep its old 354px), and a
+// full-width stretch when raised at Home. Each screen re-asserts its width every frame.
+MAP_AREA := rl.Rectangle{x = 20, y = 20, width = PROTO_MAP_VOYAGE_W, height = 640}
+SHIP_PANEL_X :: 890 // PROTOTYPE: was 670; +220 tracks the widened window and page
 NODE_RADIUS :: 12
 // MAP_PAD_X / MAP_PAD_Y inset the node field from MAP_AREA, and differ because the layout drives
 // the axes differently: `fx` runs the full 0..1 across layers, putting the Start and the Haven
@@ -76,14 +79,18 @@ compute_node_positions :: proc(voyage_map: voyage.Map) -> []rl.Vector2 {
 		layer_counts[p.layer] += 1
 	}
 
-	usable_w := MAP_AREA.width - 2 * MAP_PAD_X
+	// PROTOTYPE: the page stretches to two widths now (fullscreen_proto.odin), and the
+	// deckled rim baked into the art stretches with it — so the x-inset scales with the
+	// live width instead of staying the constant tuned for the old 620px page.
+	pad_x := MAP_AREA.width * f32(MAP_PAD_X) / 620
+	usable_w := MAP_AREA.width - 2 * pad_x
 	usable_h := MAP_AREA.height - 2 * MAP_PAD_Y
 	for p in voyage_map.nodes {
 		fx := max_layer > 0 ? f32(p.layer) / f32(max_layer) : 0
 		w := layer_counts[p.layer]
 		fy := f32(p.lane + 1) / f32(w + 1)
 		positions[p.id] = rl.Vector2{
-			MAP_AREA.x + MAP_PAD_X + fx * usable_w,
+			MAP_AREA.x + pad_x + fx * usable_w,
 			MAP_AREA.y + MAP_PAD_Y + fy * usable_h,
 		}
 	}
@@ -1043,6 +1050,7 @@ draw_stage_chip :: proc(state: ^Game_State, chip: rl.Rectangle, index: int, curs
 draw_scene_contents :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 	rl.ClearBackground(COLOUR_DEEP)
 
+	proto_map_voyage(state) // PROTOTYPE: page shares the row with the ship panel (fullscreen_proto.odin)
 	draw_map(state, mouse)
 	draw_ship_panel(&state.player, rl.Vector2{SHIP_PANEL_X, 20}, "Your Ship", false)
 
@@ -1078,8 +1086,8 @@ draw_version_stamp :: proc() {
 // fallback. `mouse` is threaded to the map's hover; a caller with no live pointer (capture)
 // passes an off-screen {-1, -1} so nothing rings.
 draw_scene :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	draw_scene_contents(state, overlay, mouse)
@@ -1092,8 +1100,8 @@ draw_scene :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 // on the two ships the captain is looking at, #315), otherwise the map/travel scene. Its own
 // Begin/EndDrawing pair, like draw_scene.
 draw_beat :: proc(state: ^Game_State, headline: string) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	if state.in_battle {

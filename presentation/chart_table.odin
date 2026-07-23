@@ -105,8 +105,8 @@ chart_table_hovered :: proc(buttons: []Chart_Table_Button) -> int {
 draw_chart_table :: proc(hovered: int) {
 	buttons := chart_table_buttons()
 
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	draw_chart_table_ground()

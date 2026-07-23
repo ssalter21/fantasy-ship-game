@@ -163,8 +163,8 @@ trade_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 // when unaffordable, and the shared encounter chrome over it all. Split from trade_menu_loop so
 // composing and polling are separate acts — capture draws and never polls (#277).
 draw_trade :: proc(state: ^Game_State, mouse: rl.Vector2) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	rl.ClearBackground(COLOUR_DEEP)

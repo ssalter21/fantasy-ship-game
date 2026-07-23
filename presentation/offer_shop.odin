@@ -274,8 +274,8 @@ offer_shop_loop :: proc(state: ^Game_State) -> sim.Command {
 // shared encounter chrome over it all. Split from offer_shop_loop so composing and polling
 // are separate acts — capture draws and never polls (#277).
 draw_offer_shop :: proc(state: ^Game_State, drag: Shelf_Drag, mouse: rl.Vector2) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	rl.ClearBackground(COLOUR_DEEP)

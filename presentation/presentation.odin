@@ -14,8 +14,10 @@ import ship "../core/ship"
 import sim "../core/sim"
 import rl "vendor:raylib"
 
+// PROTOTYPE (fullscreen_proto.odin): 1244x700 is 16:9, so the scaled frame fills a
+// 1920x1080 monitor edge-to-edge instead of pillarboxing the old 1024-wide frame.
 @(private)
-WINDOW_WIDTH :: 1024
+WINDOW_WIDTH :: 1244
 @(private)
 WINDOW_HEIGHT :: 700
 
@@ -61,6 +63,8 @@ window_quit_if_closed :: proc() {
 run :: proc() {
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game")
 	defer rl.CloseWindow()
+	proto_fullscreen_init() // PROTOTYPE: borderless fullscreen + scale-to-fit (fullscreen_proto.odin)
+	defer proto_fullscreen_shutdown()
 	rl.SetTargetFPS(60)
 
 	ui_fonts_load()
