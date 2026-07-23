@@ -390,13 +390,13 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 
 	rooms, nrooms := proto_build_rooms(state.player.layout[:])
 
-	// Off the port bow quarter, drawn in tight and low: the camera sits to -z (the cut-open port
-	// side), well forward of amidships (a ~50-degree yaw so the bow swings hard toward the viewer
-	// on the left), right up against the hull and almost down at the waterline so the ship looms.
-	// The very short throw and the very wide field throw the vanishing point deep into frame — the
-	// near bow bulges huge while the stern falls away small.
+	// Off the port bow quarter, low and wide: the camera sits to -z (the cut-open port side), well
+	// forward of amidships (a ~50-degree yaw so the bow swings hard toward the viewer on the left),
+	// near the waterline so the ship looms. It sits back along that same bearing far enough that the
+	// whole ship — mastheads to keel — reads in frame, while the wide 60-degree field keeps the
+	// vanishing point in view so the near bow still bulges larger than the receding stern.
 	camera := rl.Camera3D {
-		position   = rl.Vector3{4.63, 0.8, -3.74},
+		position   = rl.Vector3{6.5, 1.0, -5.35},
 		target     = rl.Vector3{0.2, 0.4, 0},
 		up         = rl.Vector3{0, 1, 0},
 		fovy       = 60,
@@ -441,17 +441,10 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	// itself carries no labels, so nothing obscures the hull.
 	if hovered >= 0 {
 		draw_proto_slot_outline(rooms[hovered], camera)
-		draw_proto_tooltip(state, rooms[hovered].slot, proto_hover_anchor(rooms[hovered], camera))
+		draw_proto_tooltip(state, rooms[hovered], camera)
 	}
 	draw_build_heading("At Anchor")
 	draw_proto_stat_strip(state)
-}
-
-// proto_hover_anchor is the little screen rect the tooltip parks beside: the top fore corner of
-// the hovered slot's open face, projected to logical screen space.
-proto_hover_anchor :: proc(r: Proto_Room, cam: rl.Camera3D) -> rl.Rectangle {
-	p := proto_project(rl.Vector3{r.c.x + r.hx, r.c.y + r.hy, r.c.z - r.hz}, cam)
-	return rl.Rectangle{x = p.x - 4, y = p.y - 4, width = 8, height = 8}
 }
 
 // draw_proto_slot_outline traces the hovered slot's open front face with a bright line, so the
@@ -556,10 +549,13 @@ draw_proto_rig :: proc() {
 			frac := f32(ti) / f32(max(nt, 1))
 			sw := base_w * (1.0 - frac * 0.4)
 			sy := deck + h * 0.5 + f32(ti) * tier_h
-			rl.DrawCube(rl.Vector3{mx, sy, 0.04}, sw, tier_h * 0.86, 0.04, PROTO_CREAM)
-			rl.DrawCubeWires(rl.Vector3{mx, sy, 0.04}, sw, tier_h * 0.86, 0.04, PROTO_SAND)
-			// Yard across the top of each sail.
-			rl.DrawCube(rl.Vector3{mx, sy + tier_h * 0.48, 0}, sw + 0.18, 0.05, 0.05, PROTO_TRUNK)
+			// Square sails hang athwartships from a yard that crosses the mast: the sail spans the
+			// beam (z) and faces fore-and-aft (thin in x), so from the bow quarter we read it at an
+			// angle, the way a square-rigger's canvas actually sits.
+			rl.DrawCube(rl.Vector3{mx, sy, 0}, 0.04, tier_h * 0.86, sw, PROTO_CREAM)
+			rl.DrawCubeWires(rl.Vector3{mx, sy, 0}, 0.04, tier_h * 0.86, sw, PROTO_SAND)
+			// Yard crossing the mast athwartships, above the sail.
+			rl.DrawCube(rl.Vector3{mx, sy + tier_h * 0.48, 0}, 0.05, 0.05, sw + 0.18, PROTO_TRUNK)
 		}
 
 		// Pennant streaming from the masthead.
@@ -576,8 +572,8 @@ draw_proto_rig :: proc() {
 		8,
 		PROTO_TRUNK,
 	)
-	rl.DrawCube(rl.Vector3{PROTO_BOW_X + 0.7, PROTO_DECK_Y + 0.95, 0.03}, 0.7, 0.5, 0.03, PROTO_CREAM)
-	rl.DrawCubeWires(rl.Vector3{PROTO_BOW_X + 0.7, PROTO_DECK_Y + 0.95, 0.03}, 0.7, 0.5, 0.03, PROTO_SAND)
+	rl.DrawCube(rl.Vector3{PROTO_BOW_X + 0.7, PROTO_DECK_Y + 0.95, 0}, 0.03, 0.5, 0.7, PROTO_CREAM)
+	rl.DrawCubeWires(rl.Vector3{PROTO_BOW_X + 0.7, PROTO_DECK_Y + 0.95, 0}, 0.03, 0.5, 0.7, PROTO_SAND)
 }
 
 // draw_proto_ornament is the flagship's finery: gilded caps along the tops of the castles, a
@@ -629,22 +625,27 @@ draw_proto_nameplate_at :: proc(rect: rl.Rectangle, ls: ship.Layout_Slot, hot: b
 	)
 }
 
-// draw_proto_tooltip is the hovered deck's full description, a parchment card clamped
-// on-screen beside the deck — no persistent panel to occlude a room.
-draw_proto_tooltip :: proc(state: ^Game_State, slot: int, near: rl.Rectangle) {
+// draw_proto_tooltip is the hovered slot's full description, projected off the hull into a clear
+// margin and tied back to the slot by a leader line, so the card never occludes the ship. The
+// card parks in whichever bottom corner is away from the bow, over open water.
+draw_proto_tooltip :: proc(state: ^Game_State, r: Proto_Room, cam: rl.Camera3D) {
 	tw, th := f32(300), f32(150)
-	tx := near.x + near.width + 12
-	if tx + tw > WINDOW_WIDTH - 8 {
-		tx = near.x - tw - 12
-	}
-	tx = clamp(tx, 8, WINDOW_WIDTH - 8 - tw)
-	ty := clamp(near.y, 46, WINDOW_HEIGHT - 8 - th)
 
-	card := rl.Rectangle{x = tx, y = ty, width = tw, height = th}
+	// Anchor the leader on the slot's open-face centre; drop the card into the bottom-right corner
+	// over open water — the looming bow fills the left and the stat strip sits bottom-left, so the
+	// right corner is the reliably clear one.
+	anchor := proto_project(rl.Vector3{r.c.x, r.c.y, r.c.z - r.hz}, cam)
+	card := rl.Rectangle{x = WINDOW_WIDTH - tw - 14, y = WINDOW_HEIGHT - th - 14, width = tw, height = th}
+
+	tie := rl.Vector2{card.x + 12, card.y + 10}
+	rl.DrawLineEx(anchor, tie, 2, rl.Fade(PROTO_INK, 0.7))
+	rl.DrawCircleV(anchor, 5, rl.Fade(PROTO_FOAM, 0.9))
+	rl.DrawCircleLinesV(anchor, 5, PROTO_SEA_DEEP)
+
 	rl.DrawRectangleRec(card, PROTO_PARCHMENT)
 	rl.DrawRectangleLinesEx(card, 2, PROTO_SEA_DEEP)
 
-	title, spec, intent, extra := proto_lines(state.player.layout[slot])
+	title, spec, intent, extra := proto_lines(state.player.layout[r.slot])
 	px := card.x + 14
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{px, card.y + 12}, UI_BODY_SIZE, 1, PROTO_INK)
 	rl.DrawRectangleRec(rl.Rectangle{x = px, y = card.y + 34, width = card.width - 28, height = 2}, PROTO_SAND)
