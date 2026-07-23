@@ -1,9 +1,9 @@
 #+private
 // Borderless fullscreen for the player session (#449). Every frame draws unchanged at
-// the fixed 1024x700 logical size, but into an offscreen render texture; frame_end
+// the fixed 1244x700 logical size, but into an offscreen render texture; frame_end
 // blits that texture scaled-to-fit (letterboxed on black) onto the monitor-sized
 // framebuffer, and the hardware mouse is remapped into logical coordinates so every
-// GetMousePosition hit-test against 1024x700 rects works untouched. When fullscreen
+// GetMousePosition hit-test against 1244x700 rects works untouched. When fullscreen
 // isn't initialised (capture mode, tests), frame_begin/frame_end degrade to plain
 // Begin/EndDrawing — capture keeps shooting frames at exact logical size.
 package presentation
@@ -32,7 +32,7 @@ fullscreen_shutdown :: proc() {
 	fullscreen_active = false
 }
 
-// letterbox_fit is the scale-to-fit mapping from the 1024x700 logical frame to a
+// letterbox_fit is the scale-to-fit mapping from the 1244x700 logical frame to a
 // screen_w x screen_h screen: one uniform scale factor and the centred destination
 // rectangle, letterboxed on whichever axis has room to spare.
 letterbox_fit :: proc(screen_w, screen_h: f32) -> (scale: f32, dst: rl.Rectangle) {
