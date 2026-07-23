@@ -33,7 +33,7 @@ letterbox_fit_is_identity_at_logical_size :: proc(t: ^testing.T) {
 	// and a windowed fallback would see.
 	scale, dst := letterbox_fit(WINDOW_WIDTH, WINDOW_HEIGHT)
 	testing.expect_value(t, scale, f32(1))
-	testing.expect_value(t, dst, rl.Rectangle{0, 0, WINDOW_WIDTH, WINDOW_HEIGHT})
+	testing.expect_value(t, dst, rl.Rectangle{width = WINDOW_WIDTH, height = WINDOW_HEIGHT})
 }
 
 @(test)

@@ -19,7 +19,7 @@ fullscreen_init :: proc() {
 	rl.ToggleBorderlessWindowed()
 	fullscreen_target = rl.LoadRenderTexture(WINDOW_WIDTH, WINDOW_HEIGHT)
 	// A non-integer upscale with POINT would shimmer; BILINEAR trades a hint of
-	// softness for even scaling (#449 accepts the trade).
+	// softness for even scaling.
 	rl.SetTextureFilter(fullscreen_target.texture, .BILINEAR)
 	fullscreen_active = true
 }
@@ -39,7 +39,7 @@ letterbox_fit :: proc(screen_w, screen_h: f32) -> (scale: f32, dst: rl.Rectangle
 	scale = min(screen_w / WINDOW_WIDTH, screen_h / WINDOW_HEIGHT)
 	w := f32(WINDOW_WIDTH) * scale
 	h := f32(WINDOW_HEIGHT) * scale
-	dst = rl.Rectangle{(screen_w - w) / 2, (screen_h - h) / 2, w, h}
+	dst = rl.Rectangle{x = (screen_w - w) / 2, y = (screen_h - h) / 2, width = w, height = h}
 	return
 }
 
@@ -69,7 +69,7 @@ frame_end :: proc() {
 	_, dst := letterbox_fit(f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight()))
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
-	src := rl.Rectangle{0, 0, f32(WINDOW_WIDTH), -f32(WINDOW_HEIGHT)} // render textures are y-flipped
+	src := rl.Rectangle{width = WINDOW_WIDTH, height = -WINDOW_HEIGHT} // render textures are y-flipped
 	rl.DrawTexturePro(fullscreen_target.texture, src, dst, rl.Vector2{0, 0}, 0, rl.WHITE)
 	rl.EndDrawing()
 }
