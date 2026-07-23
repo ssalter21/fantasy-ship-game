@@ -155,6 +155,11 @@ capture_shot_home :: proc(state: ^Capture_State) {
 		dispatch(&game, e)
 	}
 
+	// home_loop asserts the full-width chart page every frame; capture bypasses the loop,
+	// so assert it here or the raised chart shoots at the voyage width the live game
+	// never shows on this screen.
+	map_width_set(&game, MAP_HOME_W)
+
 	// At anchor: the ship in refit as the resting home, no granted item, no amber.
 	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
 	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
@@ -392,6 +397,9 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	#partial switch awaiting {
 	case .Awaiting_Travel_Choice:
+		// home_loop asserts the full-width chart page every frame; capture bypasses the
+		// loop, so assert it here to shoot what the player would see.
+		map_width_set(&state.game, MAP_HOME_W)
 		draw_home(&state.game, Build_Drag{}, nil, NO_MOUSE, 0)
 	case .Awaiting_Option_Choice:
 		draw_offer_shop(&state.game, Shelf_Drag{}, NO_MOUSE)
