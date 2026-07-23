@@ -3,28 +3,26 @@ package presentation
 
 // PROTOTYPE — THROWAWAY. Branch worktree-prototype-ship-side-view; never merges to main.
 //
-// Question under test: what should the main ship screen (Home / Build surface) look like as
-// a *mostly-side, 3D-feeling view of the ship*, with the fittings' descriptions read more
-// clearly than the current cutaway's name + chip + terse intent?
+// Round 2. Round 1 put three layouts up (3D ghost hull + inspector / labelled diagram /
+// profile + manifest — history: 6f583bb); the verdict picked A's shape: the ship large,
+// name chips pinned on it, a docked inspector carrying the hovered fitting's full story.
 //
-// Three structurally different variants, cycled with the LEFT/RIGHT arrow keys or the
-// floating top-centre bar (deliberately styled foreign to the palette — it is not part of
-// any design being evaluated):
+// Question now under test: that layout on the NEW style guide (docs/ui/style-guide.md —
+// bright, saturated, warm-vs-cool; sea #1FA9D0 as the field, parchment #EBD9A6 wherever
+// words sit) instead of the shipped navy constants — and what the ship itself should be.
+// The variants are now *ship art styles* on that one bright scene:
 //
-//   Current  — today's flat cutaway, untouched, as the baseline to flip against.
-//   A        — a true 3D ghost hull (raylib Camera3D, mostly side-on): slots are markers on
-//              deck and in the belly, name chips pinned to them, and a docked inspector
-//              panel on the right carries the full description of the hovered fitting.
-//   B        — a labelled diagram: a large painted side elevation with an oblique deck for
-//              depth, and every fitting's description always visible in callout boxes with
-//              leader lines — nothing is behind a hover.
-//   C        — profile + manifest: the ship as a big side profile with numbered berth pins,
-//              and a full-width manifest table below giving each fitting a whole row of
-//              description. Hovering a row lights its pin and vice versa.
+//   Current    — today's flat navy cutaway, untouched, as the baseline to flip against.
+//   A1         — the ship drawn in-engine with raylib primitives from the new roster
+//                (no assets; the ADR-0009-clean option).
+//   A2–A5      — generated pixel-art ship sprites (PixelLab), one per style register:
+//                classic 16-bit / chunky 8-bit / painterly lineless / 3/4 view.
+//                Sprites live in docs/ui/proto-art/ and load lazily; a missing file
+//                draws a note instead of crashing.
 //
-// While a variant is up it owns the whole frame (the skill's rule: a variant may throw out
-// the layout); drag-refit is inert (read-only prototype). The Current screen keeps every
-// behaviour it has on main.
+// The new-roster colours are PROTO_* locals here on purpose: the style guide explicitly
+// leaves the shipped COLOUR_* constants navy until the real migration, and a throwaway
+// file must not front-run that.
 
 import "core:fmt"
 import "core:math"
@@ -32,11 +30,35 @@ import ship "../core/ship"
 import sim "../core/sim"
 import rl "vendor:raylib"
 
+// --- The new roster (style-guide values, prototype-local) --------------------------------
+
+PROTO_SEA :: rl.Color{31, 169, 208, 255} // sea — field
+PROTO_SEA_BRIGHT :: rl.Color{44, 195, 222, 255}
+PROTO_SHALLOW :: rl.Color{99, 226, 236, 255}
+PROTO_SEA_DEEP :: rl.Color{23, 134, 188, 255}
+PROTO_FOAM :: rl.Color{242, 251, 251, 255}
+PROTO_SKY_HIGH :: rl.Color{63, 121, 192, 255}
+PROTO_SKY :: rl.Color{90, 147, 210, 255}
+PROTO_HAZE :: rl.Color{143, 188, 232, 255}
+PROTO_CLOUD :: rl.Color{238, 241, 248, 255}
+PROTO_CLOUD_SHADOW :: rl.Color{183, 188, 224, 255}
+PROTO_PARCHMENT :: rl.Color{235, 217, 166, 255}
+PROTO_SAND :: rl.Color{210, 169, 104, 255}
+PROTO_CLIFF :: rl.Color{185, 138, 80, 255}
+PROTO_ROCK :: rl.Color{126, 92, 58, 255}
+PROTO_TRUNK :: rl.Color{135, 95, 56, 255}
+PROTO_INK :: rl.Color{18, 51, 63, 255}
+PROTO_INK_MUTED :: rl.Color{76, 115, 133, 255}
+PROTO_INK_FADED :: rl.Color{156, 138, 99, 255}
+PROTO_CREAM :: rl.Color{243, 230, 196, 255}
+
 Proto_Variant :: enum {
 	Current,
-	Hull_3D,
-	Diagram,
-	Manifest,
+	Bright_Engine,
+	Pixel_16bit,
+	Pixel_Chunky,
+	Pixel_Painterly,
+	Pixel_34,
 }
 
 proto_variant: Proto_Variant = .Current
@@ -44,13 +66,17 @@ proto_variant: Proto_Variant = .Current
 proto_variant_label :: proc(v: Proto_Variant) -> string {
 	switch v {
 	case .Current:
-		return "Current — flat cutaway"
-	case .Hull_3D:
-		return "A — 3D hull + inspector"
-	case .Diagram:
-		return "B — labelled diagram"
-	case .Manifest:
-		return "C — profile + manifest"
+		return "Current — navy cutaway"
+	case .Bright_Engine:
+		return "A1 — engine-drawn ship"
+	case .Pixel_16bit:
+		return "A2 — pixel: 16-bit"
+	case .Pixel_Chunky:
+		return "A3 — pixel: chunky 8-bit"
+	case .Pixel_Painterly:
+		return "A4 — pixel: painterly"
+	case .Pixel_34:
+		return "A5 — pixel: 3/4 view"
 	}
 	return ""
 }
@@ -121,7 +147,7 @@ draw_proto_switcher :: proc(mouse: rl.Vector2) {
 	rl.DrawTextEx(ui_font_body, hint, rl.Vector2{bar.x + (bar.width - hw) / 2, bar.y + bar.height + 4}, UI_BODY_SIZE, 1, rl.Color{255, 255, 255, 140})
 }
 
-// proto_lines is the one description formatter all three variants read, so "what a clearer
+// proto_lines is the one description formatter every variant reads, so "what a clearer
 // description says" is a single edit: title, the spec line (size · phase · tags), the effect
 // intent, and the material facts (weight, cargo, the berth and its visibility).
 proto_lines :: proc(ls: ship.Layout_Slot) -> (title, spec, intent, extra: string) {
@@ -158,38 +184,162 @@ proto_slot_is_hold :: proc(ls: ship.Layout_Slot) -> bool {
 	return filled && ship.ship_fitting_is_hold(fitting)
 }
 
+// --- Sprite loading ----------------------------------------------------------------------
+
+Proto_Ship_Art :: enum {
+	Bit16,
+	Chunky,
+	Painterly,
+	ThreeQuarter,
+}
+
+proto_art_paths := [Proto_Ship_Art]cstring {
+	.Bit16        = "docs/ui/proto-art/ship-16bit.png",
+	.Chunky       = "docs/ui/proto-art/ship-chunky.png",
+	.Painterly    = "docs/ui/proto-art/ship-painterly.png",
+	.ThreeQuarter = "docs/ui/proto-art/ship-34view.png",
+}
+
+proto_art_tex: [Proto_Ship_Art]rl.Texture2D
+proto_art_tried: [Proto_Ship_Art]bool
+
+// proto_art_texture lazy-loads a sprite the first time its variant is shown. id 0 means
+// the file was missing; the variant then draws a note instead. POINT filter keeps the
+// pixels square under the 2x scale.
+proto_art_texture :: proc(a: Proto_Ship_Art) -> rl.Texture2D {
+	if !proto_art_tried[a] {
+		proto_art_tried[a] = true
+		tex := rl.LoadTexture(proto_art_paths[a])
+		if tex.id != 0 {
+			rl.SetTextureFilter(tex, .POINT)
+		}
+		proto_art_tex[a] = tex
+	}
+	return proto_art_tex[a]
+}
+
 draw_ship_prototype :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	switch proto_variant {
 	case .Current:
 	// unreachable — the hook only enters on a non-Current variant
-	case .Hull_3D:
-		draw_proto_hull3d(state, mouse)
-	case .Diagram:
-		draw_proto_diagram(state, mouse)
-	case .Manifest:
-		draw_proto_manifest(state, mouse)
+	case .Bright_Engine:
+		draw_proto_bright(state, mouse, nil)
+	case .Pixel_16bit:
+		draw_proto_bright(state, mouse, Proto_Ship_Art.Bit16)
+	case .Pixel_Chunky:
+		draw_proto_bright(state, mouse, Proto_Ship_Art.Chunky)
+	case .Pixel_Painterly:
+		draw_proto_bright(state, mouse, Proto_Ship_Art.Painterly)
+	case .Pixel_34:
+		draw_proto_bright(state, mouse, Proto_Ship_Art.ThreeQuarter)
 	}
 }
 
-// ---------------------------------------------------------------------------------------
-// Variant A — true 3D ghost hull. Mostly side-on Camera3D; translucent hull cubes with
-// solid wires so the belly slots read through the near side; name chips projected from the
-// markers; the right-hand inspector carries the hovered (or first) fitting's whole story.
-// ---------------------------------------------------------------------------------------
+// --- The one bright scene ----------------------------------------------------------------
+// Sky over sea, the ship large on the left, name chips pinned to its berths, and the
+// parchment inspector on the right. Every variant shares it; only the ship differs.
 
-draw_proto_hull3d :: proc(state: ^Game_State, mouse: rl.Vector2) {
-	rl.ClearBackground(COLOUR_DEEP)
+// Where the ship lives. Sprites are 368x256 drawn at 2x; the engine ship paints the same
+// rectangle so the chips land in the same places on every variant.
+PROTO_SHIP :: rl.Rectangle{x = 70, y = 96, width = 736, height = 512}
+PROTO_HORIZON :: f32(330)
+PROTO_WATERLINE :: f32(578) // where the hull meets the sea; the cover band starts here
 
-	camera := rl.Camera3D {
-		position   = rl.Vector3{4.4, 2.9, 9.0},
-		target     = rl.Vector3{0, 1.5, 0},
-		up         = rl.Vector3{0, 1, 0},
-		fovy       = 42,
-		projection = .PERSPECTIVE,
+draw_proto_bright :: proc(state: ^Game_State, mouse: rl.Vector2, art: Maybe(Proto_Ship_Art)) {
+	// Sky: three flat bands and blocky clouds — hard edges, no gradients, per the guide's
+	// 16-bit register.
+	rl.ClearBackground(PROTO_SKY_HIGH)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = 120, width = WINDOW_WIDTH, height = 110}, PROTO_SKY)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = 230, width = WINDOW_WIDTH, height = PROTO_HORIZON - 230}, PROTO_HAZE)
+	draw_proto_cloud(150, 120)
+	draw_proto_cloud(700, 70)
+	draw_proto_cloud(1080, 170)
+
+	// Sea: a deep band at the horizon for distance, the field below, foam on the line.
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_HORIZON, width = WINDOW_WIDTH, height = 30}, PROTO_SEA_DEEP)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_HORIZON + 30, width = WINDOW_WIDTH, height = WINDOW_HEIGHT - PROTO_HORIZON - 30}, PROTO_SEA)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_HORIZON, width = WINDOW_WIDTH, height = 2}, PROTO_FOAM)
+
+	// Sparkle: fixed pseudo-random dashes of the brighter sea tones.
+	for i in 0 ..< 70 {
+		sx := f32((i * 211) % 1160) + 40
+		sy := PROTO_HORIZON + 44 + f32((i * 137) % 290)
+		tone := i % 3 == 0 ? PROTO_SHALLOW : PROTO_SEA_BRIGHT
+		rl.DrawRectangleRec(rl.Rectangle{x = sx, y = sy, width = 24, height = 3}, rl.Fade(tone, 0.55))
 	}
 
-	// World-space anchor per slot: exposed spread along the deck, concealed along the belly.
+	// The ship.
+	missing_art := false
+	if a, is_sprite := art.?; is_sprite {
+		tex := proto_art_texture(a)
+		if tex.id != 0 {
+			rl.DrawTextureEx(tex, rl.Vector2{PROTO_SHIP.x, PROTO_SHIP.y}, 0, 2, rl.WHITE)
+		} else {
+			missing_art = true
+		}
+	} else {
+		draw_proto_engine_ship()
+	}
+
+	// The water the hull sits in: an opaque band over the keel, foam at the contact line.
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_WATERLINE, width = WINDOW_WIDTH, height = WINDOW_HEIGHT - PROTO_WATERLINE}, PROTO_SEA)
+	for i in 0 ..< 26 {
+		fx := PROTO_SHIP.x - 20 + f32(i) * 32
+		rl.DrawRectangleRec(rl.Rectangle{x = fx, y = PROTO_WATERLINE - 2, width = 20, height = 4}, rl.Fade(PROTO_FOAM, i % 2 == 0 ? 0.9 : 0.5))
+	}
+	for i in 0 ..< 18 {
+		sx := f32((i * 257) % 1160) + 40
+		sy := PROTO_WATERLINE + 24 + f32((i * 149) % 70)
+		rl.DrawRectangleRec(rl.Rectangle{x = sx, y = sy, width = 24, height = 3}, rl.Fade(PROTO_SEA_BRIGHT, 0.55))
+	}
+
+	if missing_art {
+		note := rl.Rectangle{x = PROTO_SHIP.x + 120, y = PROTO_SHIP.y + 180, width = 480, height = 60}
+		rl.DrawRectangleRec(note, PROTO_PARCHMENT)
+		rl.DrawRectangleLinesEx(note, 2, PROTO_CLIFF)
+		if a, is_sprite := art.?; is_sprite {
+			rl.DrawTextEx(ui_font_body, fmt.ctprintf("art not on disk yet: %s", proto_art_paths[a]), rl.Vector2{note.x + 14, note.y + 20}, UI_BODY_SIZE, 1, PROTO_INK)
+		}
+	}
+
+	draw_proto_chips_and_inspector(state, mouse)
+
+	draw_build_heading("At Anchor")
+
+	// Stat line on a parchment strip — words live on parchment, even short ones.
+	stat := fmt.ctprintf("%s", ship_stat_line(s = &state.player, weight = true))
+	sw := rl.MeasureTextEx(ui_font_body, stat, UI_BODY_SIZE, 1).x
+	strip := rl.Rectangle{x = 38, y = WINDOW_HEIGHT - 42, width = sw + 20, height = 26}
+	rl.DrawRectangleRec(strip, rl.Fade(PROTO_PARCHMENT, 0.92))
+	rl.DrawRectangleLinesEx(strip, 2, PROTO_CLIFF)
+	rl.DrawTextEx(ui_font_body, stat, rl.Vector2{strip.x + 10, strip.y + 5}, UI_BODY_SIZE, 1, PROTO_INK)
+}
+
+// draw_proto_cloud stacks three blocky rects — a pixel cloud, no curves.
+draw_proto_cloud :: proc(cx, cy: f32) {
+	rl.DrawRectangleRec(rl.Rectangle{x = cx - 70, y = cy + 14, width = 150, height = 22}, PROTO_CLOUD_SHADOW)
+	rl.DrawRectangleRec(rl.Rectangle{x = cx - 60, y = cy, width = 120, height = 24}, PROTO_CLOUD)
+	rl.DrawRectangleRec(rl.Rectangle{x = cx - 28, y = cy - 14, width = 62, height = 18}, PROTO_CLOUD)
+}
+
+// --- Chips + inspector (shared by all bright variants) -----------------------------------
+
+// Berth anchors as fractions of PROTO_SHIP: exposed along the deck line, concealed low in
+// the hull. Fractions, so swapping the sprite never moves the chips.
+proto_anchor :: proc(exposed: bool, t: f32) -> rl.Vector2 {
+	if exposed {
+		return rl.Vector2{PROTO_SHIP.x + PROTO_SHIP.width * (0.16 + 0.66 * t), PROTO_SHIP.y + PROTO_SHIP.height * 0.55}
+	}
+	return rl.Vector2{PROTO_SHIP.x + PROTO_SHIP.width * (0.24 + 0.52 * t), PROTO_SHIP.y + PROTO_SHIP.height * 0.79}
+}
+
+draw_proto_chips_and_inspector :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	n := min(len(state.player.layout), 8)
+
+	anchors: [8]rl.Vector2
+	chips: [8]rl.Rectangle
+	hovered := -1
+	ei, ci := 0, 0
 	exposed_total, concealed_total := 0, 0
 	for i in 0 ..< n {
 		if state.player.layout[i].slot.base_visibility == .Exposed {
@@ -198,393 +348,124 @@ draw_proto_hull3d :: proc(state: ^Game_State, mouse: rl.Vector2) {
 			concealed_total += 1
 		}
 	}
-	anchors: [8]rl.Vector3
-	ei, ci := 0, 0
 	for i in 0 ..< n {
 		ls := state.player.layout[i]
-		if ls.slot.base_visibility == .Exposed {
-			t := f32(ei + 1) / f32(exposed_total + 1)
+		exposed := ls.slot.base_visibility == .Exposed
+		t: f32
+		if exposed {
+			t = f32(ei) / f32(max(exposed_total - 1, 1))
 			ei += 1
-			anchors[i] = rl.Vector3{-4.2 + 8.4 * t, 2.35, 0}
 		} else {
-			t := f32(ci + 1) / f32(concealed_total + 1)
+			t = f32(ci) / f32(max(concealed_total - 1, 1))
 			ci += 1
-			anchors[i] = rl.Vector3{-3.2 + 6.4 * t, 1.05, 0}
 		}
-	}
+		anchors[i] = proto_anchor(exposed, t)
 
-	// Project the anchors and hit-test their chips before drawing, so the 3D pass can tint
-	// the hovered marker.
-	chips: [8]rl.Rectangle
-	screens: [8]rl.Vector2
-	hovered := -1
-	for i in 0 ..< n {
-		p := rl.GetWorldToScreen(anchors[i], camera)
-		screens[i] = p
-		label := fmt.ctprintf("%s", proto_slot_title(state.player.layout[i]))
+		label := fmt.ctprintf("%s", proto_slot_title(ls))
 		w := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1).x
-		above := state.player.layout[i].slot.base_visibility == .Exposed
-		chip_y := above ? p.y - 64 - f32(i % 2) * 26 : p.y + 30 + f32(i % 2) * 26
-		chips[i] = rl.Rectangle{x = p.x - w / 2 - 6, y = chip_y, width = w + 12, height = 22}
+		chip_y := exposed ? anchors[i].y - 190 - f32(i % 2) * 30 : anchors[i].y + 96 + f32(i % 2) * 30
+		chips[i] = rl.Rectangle{x = anchors[i].x - w / 2 - 8, y = chip_y, width = w + 16, height = 24}
 		if rl.CheckCollisionPointRec(mouse, chips[i]) {
 			hovered = i
 		}
 	}
 
-	rl.BeginMode3D(camera)
-
-	// The sea, at the waterline.
-	rl.DrawPlane(rl.Vector3{0, 0.55, 0}, rl.Vector2{60, 60}, rl.Fade(COLOUR_MID, 0.95))
-
-	// Slot markers first, hull after: the hull's translucent faces write depth, so cubes
-	// drawn later would be culled inside it — drawn first, the belly markers show through
-	// the ghost hull as things behind glass (measured: the first cut lost all four).
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		s: f32
-		switch ls.slot.size {
-		case .Small:
-			s = 0.44
-		case .Medium:
-			s = 0.58
-		case .Large:
-			s = 0.74
-		}
-		tint := COLOUR_STEEL
-		if proto_slot_is_hold(ls) {
-			tint = COLOUR_BLUE_RECESSIVE
-		}
-		if i == hovered {
-			tint = COLOUR_CYAN
-		}
-		if _, filled := ls.fitting.?; filled {
-			rl.DrawCube(anchors[i], s, s, s, rl.Fade(tint, 0.85))
-		}
-		rl.DrawCubeWires(anchors[i], s, s, s, tint)
-	}
-
-	// The ghost hull: main run, bow taper, sprit block, aftcastle, overlapped so the masses
-	// read as one hull; the wires carry the shape.
-	hull_fill := rl.Fade(COLOUR_SHALLOW, 0.38)
-	wire := rl.Fade(COLOUR_STEEL, 0.75)
-	rl.DrawCube(rl.Vector3{0, 1.0, 0}, 7.4, 1.9, 2.4, hull_fill)
-	rl.DrawCubeWires(rl.Vector3{0, 1.0, 0}, 7.4, 1.9, 2.4, wire)
-	rl.DrawCube(rl.Vector3{4.0, 1.1, 0}, 1.6, 1.7, 1.8, hull_fill)
-	rl.DrawCubeWires(rl.Vector3{4.0, 1.1, 0}, 1.6, 1.7, 1.8, wire)
-	rl.DrawCube(rl.Vector3{4.9, 1.25, 0}, 0.9, 1.3, 1.0, hull_fill)
-	rl.DrawCubeWires(rl.Vector3{4.9, 1.25, 0}, 0.9, 1.3, 1.0, wire)
-	rl.DrawCube(rl.Vector3{-3.9, 1.55, 0}, 1.3, 2.5, 2.1, hull_fill)
-	rl.DrawCubeWires(rl.Vector3{-3.9, 1.55, 0}, 1.3, 2.5, 2.1, wire)
-
-	// Deck plank at the exposed/concealed split — the waterline of ADR-0030's geography.
-	rl.DrawCube(rl.Vector3{0, 1.98, 0}, 7.4, 0.08, 2.3, rl.Fade(COLOUR_STEEL, 0.25))
-
-	// Masts and fore-and-aft sails (spanning x so they read from the side).
-	rl.DrawCylinder(rl.Vector3{-1.5, 2.0, 0}, 0.06, 0.1, 3.6, 8, rl.Fade(COLOUR_STEEL, 0.9))
-	rl.DrawCylinder(rl.Vector3{1.9, 2.0, 0}, 0.05, 0.09, 3.0, 8, rl.Fade(COLOUR_STEEL, 0.9))
-	rl.DrawCube(rl.Vector3{-1.5, 4.5, 0}, 2.2, 1.6, 0.06, rl.Fade(COLOUR_CREAM, 0.16))
-	rl.DrawCubeWires(rl.Vector3{-1.5, 4.5, 0}, 2.2, 1.6, 0.06, rl.Fade(COLOUR_CREAM, 0.4))
-	rl.DrawCube(rl.Vector3{1.9, 4.1, 0}, 1.8, 1.3, 0.06, rl.Fade(COLOUR_CREAM, 0.16))
-	rl.DrawCubeWires(rl.Vector3{1.9, 4.1, 0}, 1.8, 1.3, 0.06, rl.Fade(COLOUR_CREAM, 0.4))
-
-	rl.EndMode3D()
-
-	// Leaders and name chips, in screen space over the scene.
+	// Leaders, pins, chips. Chips are parchment — words live on parchment.
 	for i in 0 ..< n {
 		chip := chips[i]
 		hot := i == hovered
-		leader_end := rl.Vector2{chip.x + chip.width / 2, chip.y + (chip.y < screens[i].y ? chip.height : 0)}
-		rl.DrawLineEx(screens[i], leader_end, 1, rl.Fade(hot ? COLOUR_CYAN : COLOUR_STEEL, 0.5))
-		rl.DrawRectangleRec(chip, rl.Fade(COLOUR_GROUND, 0.85))
-		rl.DrawRectangleLinesEx(chip, 1, hot ? COLOUR_CYAN : rl.Fade(COLOUR_STEEL, 0.7))
-		name_tone := proto_slot_is_hold(state.player.layout[i]) ? rl.Fade(COLOUR_CREAM, 0.7) : COLOUR_CREAM
+		leader_end := rl.Vector2{chip.x + chip.width / 2, chip.y + (chip.y < anchors[i].y ? chip.height : 0)}
+		rl.DrawLineEx(anchors[i], leader_end, hot ? 2 : 1, hot ? PROTO_FOAM : rl.Fade(PROTO_INK, 0.55))
+
+		is_hold := proto_slot_is_hold(state.player.layout[i])
+		pin_tone := hot ? PROTO_FOAM : (is_hold ? PROTO_SEA_DEEP : PROTO_INK)
+		rl.DrawCircleV(anchors[i], 5, pin_tone)
+		rl.DrawCircleLines(i32(anchors[i].x), i32(anchors[i].y), 8, rl.Fade(pin_tone, 0.7))
+
+		rl.DrawRectangleRec(chip, rl.Fade(PROTO_PARCHMENT, hot ? 1.0 : 0.92))
+		rl.DrawRectangleLinesEx(chip, hot ? 2 : 1, hot ? PROTO_SEA_DEEP : PROTO_CLIFF)
+		name_tone := is_hold ? PROTO_INK_MUTED : PROTO_INK
 		rl.DrawTextEx(
 			ui_font_body,
 			fmt.ctprintf("%s", proto_slot_title(state.player.layout[i])),
-			rl.Vector2{chip.x + 6, chip.y + 3},
+			rl.Vector2{chip.x + 8, chip.y + 4},
 			UI_BODY_SIZE,
 			1,
-			hot ? COLOUR_CYAN : name_tone,
+			name_tone,
 		)
 	}
 
-	// The inspector: the hovered fitting's full description, or the first berth's while
-	// nothing is hovered — the panel never sits empty.
+	// The inspector: parchment panel, ink hierarchy — the hovered fitting's full story, or
+	// the first berth's while nothing is hovered, so it never sits empty.
 	shown := hovered >= 0 ? hovered : 0
-	panel := rl.Rectangle{x = WINDOW_WIDTH - 352, y = 64, width = 332, height = 168}
-	rl.DrawRectangleRec(panel, rl.Fade(COLOUR_GROUND, 0.88))
-	rl.DrawRectangleLinesEx(panel, 2, hovered >= 0 ? COLOUR_CYAN : COLOUR_BLUE_RECESSIVE)
+	panel := rl.Rectangle{x = WINDOW_WIDTH - 342, y = 64, width = 322, height = 186}
+	rl.DrawRectangleRec(panel, rl.Fade(PROTO_PARCHMENT, 0.96))
+	rl.DrawRectangleLinesEx(panel, 2, hovered >= 0 ? PROTO_SEA_DEEP : PROTO_CLIFF)
 	if n > 0 {
 		title, spec, intent, extra := proto_lines(state.player.layout[shown])
 		px := panel.x + 14
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{px, panel.y + 12}, UI_BODY_SIZE, 1, COLOUR_CREAM)
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", spec), rl.Vector2{px, panel.y + 40}, UI_BODY_SIZE, 1, COLOUR_STEEL)
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), rl.Vector2{px, panel.y + 68}, UI_BODY_SIZE, 1, COLOUR_CYAN_DIM)
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", extra), rl.Vector2{px, panel.y + 96}, UI_BODY_SIZE, 1, COLOUR_BLUE_RECESSIVE)
-		rl.DrawTextEx(ui_font_body, "hover a name chip to inspect", rl.Vector2{px, panel.y + 136}, UI_BODY_SIZE, 1, rl.Fade(COLOUR_STEEL, 0.5))
+		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{px, panel.y + 12}, UI_BODY_SIZE, 1, PROTO_INK)
+		rl.DrawRectangleRec(rl.Rectangle{x = px, y = panel.y + 34, width = panel.width - 28, height = 2}, PROTO_SAND)
+		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), rl.Vector2{px, panel.y + 46}, UI_BODY_SIZE, 1, PROTO_INK)
+		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", spec), rl.Vector2{px, panel.y + 74}, UI_BODY_SIZE, 1, PROTO_INK_MUTED)
+		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", extra), rl.Vector2{px, panel.y + 102}, UI_BODY_SIZE, 1, PROTO_INK_MUTED)
+		rl.DrawTextEx(ui_font_body, "hover a name chip to inspect", rl.Vector2{px, panel.y + 154}, UI_BODY_SIZE, 1, PROTO_INK_FADED)
 	}
-
-	draw_build_heading("At Anchor")
-	draw_proto_stat_line(state, rl.Vector2{45, WINDOW_HEIGHT - 36})
 }
 
-// ---------------------------------------------------------------------------------------
-// Variant B — labelled diagram. A large painted side elevation with an oblique deck plane
-// for depth; every fitting's description always on screen in a callout box, leader-lined
-// to its pin on the hull. Exposed callouts above the ship, concealed below.
-// ---------------------------------------------------------------------------------------
+// --- A1: the engine-drawn ship -----------------------------------------------------------
+// The no-assets option: hull, castle, masts, and sails from raylib primitives in the new
+// roster's warm column, painted into the same PROTO_SHIP rectangle the sprites occupy.
 
-draw_proto_diagram :: proc(state: ^Game_State, mouse: rl.Vector2) {
-	rl.ClearBackground(COLOUR_DEEP)
+draw_proto_engine_ship :: proc() {
+	deck_y := PROTO_SHIP.y + PROTO_SHIP.height * 0.52 // ~362
+	x0 := PROTO_SHIP.x + 30 // stern
+	x1 := PROTO_SHIP.x + PROTO_SHIP.width - 30 // bow
 
-	deck_y := f32(300)
-	waterline_y := f32(420)
-	keel_y := f32(496)
-	x0 := f32(250) // stern
-	x1 := f32(1010) // bow
-
-	// Oblique deck plane: rows sliding right as they rise, a parallelogram of depth.
-	OX :: f32(48)
-	OY :: f32(22)
-	for k in 0 ..< 11 {
-		t := f32(k) / 10
-		yy := deck_y - OY * (1 - t)
-		shift := OX * (1 - t)
-		rl.DrawRectangleRec(
-			rl.Rectangle{x = x0 + shift + 20, y = yy, width = (x1 - 90) - (x0 + 20), height = 2.4},
-			rl.Fade(COLOUR_SHALLOW, 0.5),
-		)
+	// Hull: horizontal strips from deck to waterline, stern nearly plumb, bow sweeping in.
+	// Cliff body with sand plank highlights every fourth strip — flat blocks, no gradients.
+	for yy := deck_y; yy < PROTO_WATERLINE + 20; yy += 4 {
+		t := (yy - deck_y) / (PROTO_WATERLINE + 20 - deck_y)
+		stern_inset := 26 * t * t
+		bow_inset := 120 * t * math.sqrt_f32(t)
+		tone := PROTO_CLIFF
+		if int(yy - deck_y) % 16 < 4 {
+			tone = PROTO_SAND
+		}
+		rl.DrawRectangleRec(rl.Rectangle{x = x0 + stern_inset, y = yy, width = (x1 - bow_inset) - (x0 + stern_inset), height = 4}, tone)
 	}
-	// Far rail atop the oblique plane.
-	rl.DrawLineEx(rl.Vector2{x0 + OX + 20, deck_y - OY}, rl.Vector2{x1 - 90 + OX, deck_y - OY}, 2, rl.Fade(COLOUR_STEEL, 0.5))
+	// A rock shadow line under the bulwark, and the keel shadow at the water.
+	rl.DrawRectangleRec(rl.Rectangle{x = x0, y = deck_y, width = x1 - x0, height = 3}, PROTO_ROCK)
 
-	// The hull: horizontal strips, stern nearly plumb, bow sweeping to a point.
-	for yy := deck_y; yy < keel_y; yy += 2 {
-		t := (yy - deck_y) / (keel_y - deck_y)
-		stern_inset := 34 * t * t
-		bow_inset := 130 * t * math.sqrt_f32(t)
-		below := yy >= waterline_y
-		tint := below ? rl.Fade(COLOUR_MID, 0.9) : rl.Fade(COLOUR_SHALLOW, 0.65)
-		rl.DrawRectangleRec(rl.Rectangle{x = x0 + stern_inset, y = yy, width = (x1 - bow_inset) - (x0 + stern_inset), height = 2}, tint)
-	}
+	// Bulwark and the stern castle.
+	rl.DrawRectangleRec(rl.Rectangle{x = x0 - 6, y = deck_y - 16, width = x1 - x0 - 60, height = 16}, PROTO_SAND)
+	rl.DrawRectangleRec(rl.Rectangle{x = x0 - 6, y = deck_y - 16, width = x1 - x0 - 60, height = 3}, PROTO_ROCK)
+	rl.DrawRectangleRec(rl.Rectangle{x = x0 - 10, y = deck_y - 66, width = 132, height = 50}, PROTO_CLIFF)
+	rl.DrawRectangleRec(rl.Rectangle{x = x0 - 10, y = deck_y - 66, width = 132, height = 8}, PROTO_SAND)
+	rl.DrawRectangleLinesEx(rl.Rectangle{x = x0 - 10, y = deck_y - 66, width = 132, height = 50}, 2, PROTO_ROCK)
+	// Two castle windows.
+	rl.DrawRectangleRec(rl.Rectangle{x = x0 + 18, y = deck_y - 48, width = 18, height = 18}, PROTO_SEA_DEEP)
+	rl.DrawRectangleRec(rl.Rectangle{x = x0 + 62, y = deck_y - 48, width = 18, height = 18}, PROTO_SEA_DEEP)
 
-	// Bulwark, aftcastle, bowsprit — enough superstructure to say "ship", quietly.
-	rl.DrawRectangleRec(rl.Rectangle{x = x0, y = deck_y - 14, width = x1 - x0 - 30, height = 14}, rl.Fade(COLOUR_SHALLOW, 0.8))
-	rl.DrawRectangleRec(rl.Rectangle{x = x0, y = deck_y - 60, width = 130, height = 46}, rl.Fade(COLOUR_SHALLOW, 0.7))
-	rl.DrawRectangleLinesEx(rl.Rectangle{x = x0, y = deck_y - 60, width = 130, height = 46}, 1, rl.Fade(COLOUR_STEEL, 0.5))
-	rl.DrawLineEx(rl.Vector2{x1 - 60, deck_y - 12}, rl.Vector2{x1 + 80, deck_y - 52}, 3, rl.Fade(COLOUR_STEEL, 0.7))
+	// Bowsprit.
+	rl.DrawLineEx(rl.Vector2{x1 - 40, deck_y - 8}, rl.Vector2{x1 + 60, deck_y - 52}, 5, PROTO_TRUNK)
 
-	// Masts and sails.
-	masts := [3]f32{470, 690, 880}
-	heights := [3]f32{180, 205, 150}
+	// Masts and square-rigged cream sails; trunk timber, rock caps.
+	masts := [2]f32{PROTO_SHIP.x + 250, PROTO_SHIP.x + 480}
+	heights := [2]f32{250, 215}
 	for mx, mi in masts {
-		rl.DrawLineEx(rl.Vector2{mx, deck_y - 12}, rl.Vector2{mx, deck_y - 12 - heights[mi]}, 3, rl.Fade(COLOUR_STEEL, 0.8))
-		sail := rl.Rectangle{x = mx - 56, y = deck_y - 10 - heights[mi] + 18, width = 112, height = heights[mi] * 0.5}
-		rl.DrawRectangleRec(sail, rl.Fade(COLOUR_CREAM, 0.12))
-		rl.DrawRectangleLinesEx(sail, 1, rl.Fade(COLOUR_CREAM, 0.35))
+		top := deck_y - 16 - heights[mi]
+		rl.DrawRectangleRec(rl.Rectangle{x = mx - 3, y = top, width = 6, height = heights[mi]}, PROTO_TRUNK)
+		sail := rl.Rectangle{x = mx - 78, y = top + 24, width = 156, height = heights[mi] * 0.62}
+		rl.DrawRectangleRec(sail, PROTO_CREAM)
+		rl.DrawRectangleRec(rl.Rectangle{x = sail.x, y = sail.y + sail.height - 10, width = sail.width, height = 10}, PROTO_CLOUD_SHADOW)
+		rl.DrawRectangleLinesEx(sail, 2, PROTO_SAND)
+		// Yard.
+		rl.DrawRectangleRec(rl.Rectangle{x = mx - 84, y = top + 18, width = 168, height = 5}, PROTO_TRUNK)
 	}
-
-	// Waterline rule with ticks, the same language as the current cutaway.
-	rl.DrawLineEx(rl.Vector2{60, waterline_y}, rl.Vector2{WINDOW_WIDTH - 60, waterline_y}, 2, rl.Fade(COLOUR_CYAN_DIM, 0.5))
-	for x := f32(80); x < WINDOW_WIDTH - 80; x += 26 {
-		rl.DrawLineEx(rl.Vector2{x, waterline_y}, rl.Vector2{x + 8, waterline_y + 4}, 1, rl.Fade(COLOUR_CYAN_DIM, 0.3))
-	}
-
-	// Pins and callouts. Exposed pins ride the deck, boxes fanned across the top; concealed
-	// pins sit in the belly, boxes across the bottom.
-	n := min(len(state.player.layout), 8)
-	BOX_W :: f32(280)
-	BOTTOM_W :: f32(258)
-	BOX_H :: f32(100)
-	// The bottom row leaves a centre gutter for Home's chart tab (a real ~180px control at
-	// x 533–711 this prototype must live beside, not under); the top row spreads evenly.
-	top_xs := [4]f32{16, 326, 636, 946}
-	bottom_xs := [4]f32{4, 268, 714, 980}
-
-	ei, ci := 0, 0
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		exposed := ls.slot.base_visibility == .Exposed
-		pin: rl.Vector2
-		box: rl.Rectangle
-		if exposed {
-			t := f32(ei + 1) / 5
-			pin = rl.Vector2{x0 + 90 + (x1 - x0 - 220) * t, deck_y - 20}
-			box = rl.Rectangle{x = top_xs[min(ei, 3)], y = 64, width = BOX_W, height = BOX_H}
-			ei += 1
-		} else {
-			t := f32(ci + 1) / 5
-			pin = rl.Vector2{x0 + 70 + (x1 - x0 - 260) * t, deck_y + 62}
-			box = rl.Rectangle{x = bottom_xs[min(ci, 3)], y = 540, width = BOTTOM_W, height = BOX_H}
-			ci += 1
-		}
-
-		hot := rl.CheckCollisionPointRec(mouse, box) || rl.CheckCollisionPointCircle(mouse, pin, 14)
-		line_tone := rl.Fade(hot ? COLOUR_CYAN : COLOUR_STEEL, hot ? 0.9 : 0.4)
-		anchor := rl.Vector2{box.x + box.width / 2, exposed ? box.y + box.height : box.y}
-		rl.DrawLineEx(pin, anchor, 1, line_tone)
-
-		is_hold := proto_slot_is_hold(ls)
-		pin_tone := hot ? COLOUR_CYAN : (is_hold ? COLOUR_BLUE_RECESSIVE : COLOUR_STEEL)
-		rl.DrawCircleV(pin, 6, pin_tone)
-		rl.DrawCircleLines(i32(pin.x), i32(pin.y), 9, rl.Fade(pin_tone, 0.6))
-
-		title, spec, intent, extra := proto_lines(ls)
-		rl.DrawRectangleRec(box, rl.Fade(COLOUR_GROUND, 0.85))
-		rl.DrawRectangleLinesEx(box, hot ? 2 : 1, hot ? COLOUR_CYAN : rl.Fade(COLOUR_STEEL, 0.55))
-		bx := box.x + 10
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{bx, box.y + 8}, UI_BODY_SIZE, 1, COLOUR_CREAM)
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), rl.Vector2{bx, box.y + 30}, UI_BODY_SIZE, 1, COLOUR_CYAN_DIM)
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", spec), rl.Vector2{bx, box.y + 52}, UI_BODY_SIZE, 1, COLOUR_STEEL)
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", extra), rl.Vector2{bx, box.y + 74}, UI_BODY_SIZE, 1, COLOUR_BLUE_RECESSIVE)
-	}
-
-	draw_build_heading("At Anchor")
-	draw_proto_stat_line(state, rl.Vector2{45, WINDOW_HEIGHT - 32})
 }
 
-// ---------------------------------------------------------------------------------------
-// Variant C — profile + manifest. The ship large across the top as a side profile with a
-// hinted stern face; numbered pins on every berth; below, a manifest table giving each
-// fitting a full row. Hover links row and pin both ways.
-// ---------------------------------------------------------------------------------------
-
-draw_proto_manifest :: proc(state: ^Game_State, mouse: rl.Vector2) {
-	rl.ClearBackground(COLOUR_DEEP)
-
-	deck_y := f32(170)
-	waterline_y := f32(268)
-	keel_y := f32(330)
-	x0 := f32(180)
-	x1 := f32(1080)
-
-	// Hull strips, as B but larger; a darker stern face hints the 3D turn of the quarter.
-	for yy := deck_y; yy < keel_y; yy += 2 {
-		t := (yy - deck_y) / (keel_y - deck_y)
-		stern_inset := 30 * t * t
-		bow_inset := 150 * t * math.sqrt_f32(t)
-		below := yy >= waterline_y
-		tint := below ? rl.Fade(COLOUR_MID, 0.9) : rl.Fade(COLOUR_SHALLOW, 0.65)
-		rl.DrawRectangleRec(rl.Rectangle{x = x0 + stern_inset, y = yy, width = (x1 - bow_inset) - (x0 + stern_inset), height = 2}, tint)
-	}
-	// The stern face: a shaded band with a slight oblique top, the "mostly" in mostly-side.
-	for yy := deck_y - 8; yy < waterline_y; yy += 2 {
-		t := (yy - (deck_y - 8)) / (waterline_y - (deck_y - 8))
-		w := 42 * (1 - 0.3 * t)
-		rl.DrawRectangleRec(rl.Rectangle{x = x0 - w, y = yy, width = w, height = 2}, rl.Fade(COLOUR_MID, 0.95))
-	}
-	rl.DrawRectangleLinesEx(rl.Rectangle{x = x0 - 42, y = deck_y - 8, width = 42, height = waterline_y - deck_y + 8}, 1, rl.Fade(COLOUR_STEEL, 0.35))
-
-	// Bulwark, aftcastle, bowsprit, masts.
-	rl.DrawRectangleRec(rl.Rectangle{x = x0, y = deck_y - 12, width = x1 - x0 - 40, height = 12}, rl.Fade(COLOUR_SHALLOW, 0.8))
-	rl.DrawRectangleRec(rl.Rectangle{x = x0, y = deck_y - 52, width = 150, height = 40}, rl.Fade(COLOUR_SHALLOW, 0.7))
-	rl.DrawLineEx(rl.Vector2{x1 - 20, deck_y - 6}, rl.Vector2{x1 + 90, deck_y - 42}, 3, rl.Fade(COLOUR_STEEL, 0.7))
-	masts := [2]f32{520, 810}
-	heights := [2]f32{120, 105}
-	for mx, mi in masts {
-		rl.DrawLineEx(rl.Vector2{mx, deck_y - 10}, rl.Vector2{mx, deck_y - 10 - heights[mi]}, 3, rl.Fade(COLOUR_STEEL, 0.8))
-		sail := rl.Rectangle{x = mx - 50, y = deck_y - 8 - heights[mi] + 12, width = 100, height = heights[mi] * 0.5}
-		rl.DrawRectangleRec(sail, rl.Fade(COLOUR_CREAM, 0.12))
-		rl.DrawRectangleLinesEx(sail, 1, rl.Fade(COLOUR_CREAM, 0.35))
-	}
-	rl.DrawLineEx(rl.Vector2{60, waterline_y}, rl.Vector2{WINDOW_WIDTH - 60, waterline_y}, 2, rl.Fade(COLOUR_CYAN_DIM, 0.5))
-
-	// Pins and rows share hover, so resolve the manifest geometry first.
-	n := min(len(state.player.layout), 8)
-	// Rows end above Home's chart tab (y 604): 350 + 24 + 8×28 = 598.
-	HEADER_Y :: f32(350)
-	ROW_H :: f32(28)
-	row_rect :: proc(i: int) -> rl.Rectangle {
-		return rl.Rectangle{x = 30, y = HEADER_Y + 24 + f32(i) * ROW_H, width = WINDOW_WIDTH - 60, height = ROW_H}
-	}
-
-	pins: [8]rl.Vector2
-	ei, ci := 0, 0
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		if ls.slot.base_visibility == .Exposed {
-			t := f32(ei + 1) / 5
-			pins[i] = rl.Vector2{x0 + 100 + (x1 - x0 - 260) * t, deck_y - 24}
-			ei += 1
-		} else {
-			t := f32(ci + 1) / 5
-			pins[i] = rl.Vector2{x0 + 80 + (x1 - x0 - 300) * t, deck_y + 48}
-			ci += 1
-		}
-	}
-	hovered := -1
-	for i in 0 ..< n {
-		if rl.CheckCollisionPointRec(mouse, row_rect(i)) || rl.CheckCollisionPointCircle(mouse, pins[i], 14) {
-			hovered = i
-		}
-	}
-
-	// Pins: numbered discs, cyan when their row (or they) are hovered.
-	for i in 0 ..< n {
-		hot := i == hovered
-		is_hold := proto_slot_is_hold(state.player.layout[i])
-		tone := hot ? COLOUR_CYAN : (is_hold ? COLOUR_BLUE_RECESSIVE : COLOUR_STEEL)
-		rl.DrawCircleV(pins[i], 11, rl.Fade(COLOUR_GROUND, 0.9))
-		rl.DrawCircleLines(i32(pins[i].x), i32(pins[i].y), 11, tone)
-		num := fmt.ctprintf("%d", i + 1)
-		nw := rl.MeasureTextEx(ui_font_body, num, UI_BODY_SIZE, 1).x
-		rl.DrawTextEx(ui_font_body, num, rl.Vector2{pins[i].x - nw / 2, pins[i].y - 8}, UI_BODY_SIZE, 1, tone)
-	}
-
-	// The manifest. Header row, then one full-width row per berth: number, name, the whole
-	// description in-line, and the material facts right-aligned.
-	rl.DrawTextEx(ui_font_body, "#", rl.Vector2{44, HEADER_Y}, UI_BODY_SIZE, 1, rl.Fade(COLOUR_STEEL, 0.7))
-	rl.DrawTextEx(ui_font_body, "FITTING", rl.Vector2{80, HEADER_Y}, UI_BODY_SIZE, 1, rl.Fade(COLOUR_STEEL, 0.7))
-	rl.DrawTextEx(ui_font_body, "WHAT IT DOES", rl.Vector2{330, HEADER_Y}, UI_BODY_SIZE, 1, rl.Fade(COLOUR_STEEL, 0.7))
-	rl.DrawTextEx(ui_font_body, "BERTH / LOAD", rl.Vector2{930, HEADER_Y}, UI_BODY_SIZE, 1, rl.Fade(COLOUR_STEEL, 0.7))
-	rl.DrawLineEx(rl.Vector2{30, HEADER_Y + 20}, rl.Vector2{WINDOW_WIDTH - 30, HEADER_Y + 20}, 1, rl.Fade(COLOUR_STEEL, 0.4))
-
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		rect := row_rect(i)
-		hot := i == hovered
-		if hot {
-			rl.DrawRectangleRec(rect, rl.Fade(COLOUR_CYAN, 0.08))
-			rl.DrawRectangleRec(rl.Rectangle{x = rect.x, y = rect.y, width = 3, height = rect.height}, COLOUR_CYAN)
-		} else if i % 2 == 1 {
-			rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, 0.4))
-		}
-
-		title, spec, intent, extra := proto_lines(ls)
-		_ = extra
-		is_hold := proto_slot_is_hold(ls)
-		ty := rect.y + (ROW_H - UI_BODY_SIZE) / 2
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%d", i + 1), rl.Vector2{44, ty}, UI_BODY_SIZE, 1, COLOUR_BLUE_RECESSIVE)
-		name_tone := is_hold ? rl.Fade(COLOUR_CREAM, 0.7) : COLOUR_CREAM
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{80, ty}, UI_BODY_SIZE, 1, hot ? COLOUR_CYAN : name_tone)
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s — %s", intent, spec), rl.Vector2{330, ty}, UI_BODY_SIZE, 1, COLOUR_STEEL)
-
-		load: string
-		if fitting, filled := ls.fitting.?; filled {
-			load = fmt.tprintf("%s · wt %d · %d/%d", ls.slot.name, fitting.weight, fitting.cargo_held, ship.ship_fitting_capacity(fitting))
-		} else {
-			load = fmt.tprintf("%s · empty", ls.slot.name)
-		}
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", load), rl.Vector2{930, ty}, UI_BODY_SIZE, 1, COLOUR_BLUE_RECESSIVE)
-	}
-
-	draw_build_heading("At Anchor")
-	draw_proto_stat_line(state, rl.Vector2{45, BUILD_HEADING_Y + 28})
-}
-
-// draw_proto_stat_line prints the shared derived stat line where each variant asks for it.
-draw_proto_stat_line :: proc(state: ^Game_State, pos: rl.Vector2) {
-	rl.DrawTextEx(
-		ui_font_body,
-		fmt.ctprintf("%s", ship_stat_line(s = &state.player, weight = true)),
-		pos,
-		UI_BODY_SIZE,
-		1,
-		COLOUR_STEEL,
-	)
-}
-
-// capture_shot_ship_prototypes photographs the three variants the same way capture_shot_home
+// capture_shot_ship_prototypes photographs every bright variant the way capture_shot_home
 // shoots Home: a throwaway Sim ticked once into a fresh Game_State, one shot per variant,
 // the global put back to Current on the way out. Prototype-only, removed with this file.
 capture_shot_ship_prototypes :: proc(state: ^Capture_State) {
@@ -608,10 +489,16 @@ capture_shot_ship_prototypes :: proc(state: ^Capture_State) {
 	}
 	map_width_set(&game, MAP_HOME_W)
 
-	shots := [3]struct {
+	shots := [5]struct {
 		variant: Proto_Variant,
 		label:   string,
-	}{{.Hull_3D, "proto-a-hull3d"}, {.Diagram, "proto-b-diagram"}, {.Manifest, "proto-c-manifest"}}
+	} {
+		{.Bright_Engine, "proto-a1-engine"},
+		{.Pixel_16bit, "proto-a2-16bit"},
+		{.Pixel_Chunky, "proto-a3-chunky"},
+		{.Pixel_Painterly, "proto-a4-painterly"},
+		{.Pixel_34, "proto-a5-34view"},
+	}
 
 	for shot in shots {
 		proto_variant = shot.variant
