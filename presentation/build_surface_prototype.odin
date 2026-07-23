@@ -3,34 +3,26 @@ package presentation
 
 // PROTOTYPE — THROWAWAY. Branch worktree-prototype-ship-side-view; never merges to main.
 //
-// Round 3. The verdict on round 2 (a big ship sprite/painting on a bright sea) was: it lost
-// the 3D, look-into-the-ship perspective the original vision (round 1's Variant A, a real
-// Camera3D ghost hull) had. This round brings that perspective back and puts it *inside the
-// slots*: every berth is now an EMPTY ROOM you look into — a placeholder chamber that later
-// gets its own bespoke sprites and animations per slot and per fitting.
+// Round 4. The verdict on round 3 picked the true-3D open-room look (old "B2"), with two
+// changes: the rooms must stack ONE PER FLOOR (decks), not sit side-by-side on a single
+// floor, and the whole thing must read as a SHIP. So this round is a mostly-side 3D cutaway
+// of a galleon: a wooden hull with a curved profile, a stern castle, a main deck, mast and
+// bowsprit — cut open on the near side so you look into the stacked decks. Each berth is one
+// empty deck-room, a placeholder chamber for the bespoke per-slot / per-fitting art to come.
+// Holds sit below the waterline, topside stations above it.
 //
-// Three structurally different takes on "each slot is an empty room", cycled with LEFT/RIGHT
-// or the floating top-centre bar (styled foreign to the palette on purpose — scaffolding):
+//   Current      — today's flat navy cutaway, untouched, as the baseline to flip against.
+//   Ship_Cutaway — the chosen direction, and now the default: the 3D stacked-deck ship.
 //
-//   Current — today's flat navy cutaway, untouched, as the baseline to flip against.
-//   B1      — cutaway rooms, oblique: the exact cutaway slot layout, but each slot card is a
-//             one-point-perspective empty room carved into the hull. Pixel-flat fills, hard
-//             edges. The original perspective, brought inside the slots, in pixel art.
-//   B2      — cutaway rooms, true 3D: round 1's Camera3D revived, each slot an open, roofless
-//             compartment you look down into. The literal original 3D perspective.
-//   B3      — cutaway rooms, isometric: the same empty rooms in a 3/4 iso register.
-//
-// The name of each fitting rides a parchment nameplate on its room; hovering a room loads the
-// full description into the docked inspector. Rooms are drawn empty by design — the art that
-// fills them is the thing we are NOT building yet. Drag-refit is inert (read-only prototype).
+// Names ride parchment nameplates beside each deck; hovering a deck pops a description
+// tooltip. Rooms are empty by design — the art that fills them is what we are NOT building
+// yet. Drag-refit is inert (read-only prototype).
 //
 // The new-roster colours are PROTO_* locals here on purpose: the style guide leaves the
 // shipped COLOUR_* constants navy until the real migration, and a throwaway must not front-run
-// it. The bright scene (sky/sea) is kept from round 2; only the ship is reconceived as rooms.
+// it.
 
 import "core:fmt"
-import "core:math"
-import cutaway "./cutaway"
 import ship "../core/ship"
 import sim "../core/sim"
 import rl "vendor:raylib"
@@ -59,23 +51,18 @@ PROTO_CREAM :: rl.Color{243, 230, 196, 255}
 
 Proto_Variant :: enum {
 	Current,
-	Rooms_Oblique,
-	Rooms_3D,
-	Rooms_Iso,
+	Ship_Cutaway,
 }
 
-proto_variant: Proto_Variant = .Current
+// The chosen direction is the default: opening the ship screen shows the 3D cutaway.
+proto_variant: Proto_Variant = .Ship_Cutaway
 
 proto_variant_label :: proc(v: Proto_Variant) -> string {
 	switch v {
 	case .Current:
 		return "Current — navy cutaway"
-	case .Rooms_Oblique:
-		return "B1 — cutaway rooms (oblique)"
-	case .Rooms_3D:
-		return "B2 — cutaway rooms (true 3D)"
-	case .Rooms_Iso:
-		return "B3 — cutaway rooms (isometric)"
+	case .Ship_Cutaway:
+		return "Ship cutaway — 3D stacked decks"
 	}
 	return ""
 }
@@ -108,7 +95,7 @@ proto_poll :: proc() {
 	}
 }
 
-PROTO_BAR_W :: 430
+PROTO_BAR_W :: 460
 PROTO_BAR_H :: 30
 
 proto_bar_rect :: proc() -> rl.Rectangle {
@@ -146,8 +133,8 @@ draw_proto_switcher :: proc(mouse: rl.Vector2) {
 	rl.DrawTextEx(ui_font_body, hint, rl.Vector2{bar.x + (bar.width - hw) / 2, bar.y + bar.height + 4}, UI_BODY_SIZE, 1, rl.Color{255, 255, 255, 140})
 }
 
-// proto_lines is the one description formatter every variant reads: title, the spec line
-// (size · phase · tags), the effect intent, and the material facts (weight, cargo, berth).
+// proto_lines is the one description formatter: title, the spec line (size · phase · tags),
+// the effect intent, and the material facts (weight, cargo, berth).
 proto_lines :: proc(ls: ship.Layout_Slot) -> (title, spec, intent, extra: string) {
 	fitting, filled := ls.fitting.?
 	if !filled {
@@ -186,19 +173,14 @@ draw_ship_prototype :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	switch proto_variant {
 	case .Current:
 	// unreachable — the hook only enters on a non-Current variant
-	case .Rooms_Oblique:
-		draw_proto_rooms_oblique(state, mouse)
-	case .Rooms_3D:
-		draw_proto_rooms_3d(state, mouse)
-	case .Rooms_Iso:
-		draw_proto_rooms_iso(state, mouse)
+	case .Ship_Cutaway:
+		draw_proto_ship_cutaway(state, mouse)
 	}
 }
 
 // --- Shared paint helpers ----------------------------------------------------------------
 
-// proto_shade multiplies a colour's rgb by f (clamped) — one base wood tone lit five ways
-// gives a room its floor/back/wall shading without five hand-picked constants.
+// proto_shade multiplies a colour's rgb by f (clamped) — one base wood tone lit several ways.
 proto_shade :: proc(c: rl.Color, f: f32) -> rl.Color {
 	m :: proc(v: u8, f: f32) -> u8 {
 		r := f32(v) * f
@@ -209,15 +191,6 @@ proto_shade :: proc(c: rl.Color, f: f32) -> rl.Color {
 	return rl.Color{m(c.r, f), m(c.g, f), m(c.b, f), c.a}
 }
 
-// proto_quad fills a four-corner face. Drawn in both windings so a face never vanishes to
-// 2D back-face culling whichever way its corners wound — overdraw is free at this scale.
-proto_quad :: proc(a, b, c, d: rl.Vector2, col: rl.Color) {
-	rl.DrawTriangle(a, b, c, col)
-	rl.DrawTriangle(a, c, d, col)
-	rl.DrawTriangle(a, c, b, col)
-	rl.DrawTriangle(a, d, c, col)
-}
-
 // draw_proto_cloud stacks three blocky rects — a pixel cloud, no curves.
 draw_proto_cloud :: proc(cx, cy: f32) {
 	rl.DrawRectangleRec(rl.Rectangle{x = cx - 70, y = cy + 14, width = 150, height = 22}, PROTO_CLOUD_SHADOW)
@@ -225,394 +198,248 @@ draw_proto_cloud :: proc(cx, cy: f32) {
 	rl.DrawRectangleRec(rl.Rectangle{x = cx - 28, y = cy - 14, width = 62, height = 18}, PROTO_CLOUD)
 }
 
-PROTO_WATER_Y :: f32(290) // the waterline: exposed rooms above, concealed holds below
+PROTO_HORIZON :: f32(300) // 2D sea horizon behind the ship
 
 draw_proto_backdrop :: proc() {
 	rl.ClearBackground(PROTO_SKY_HIGH)
-	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = 84, width = WINDOW_WIDTH, height = 80}, PROTO_SKY)
-	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = 164, width = WINDOW_WIDTH, height = PROTO_WATER_Y - 164}, PROTO_HAZE)
-	draw_proto_cloud(210, 96)
-	draw_proto_cloud(940, 62)
-	draw_proto_cloud(1130, 150)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = 96, width = WINDOW_WIDTH, height = 96}, PROTO_SKY)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = 192, width = WINDOW_WIDTH, height = PROTO_HORIZON - 192}, PROTO_HAZE)
+	draw_proto_cloud(220, 92)
+	draw_proto_cloud(1010, 70)
 
-	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_WATER_Y, width = WINDOW_WIDTH, height = 26}, PROTO_SEA_DEEP)
-	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_WATER_Y + 26, width = WINDOW_WIDTH, height = WINDOW_HEIGHT - PROTO_WATER_Y - 26}, PROTO_SEA)
-	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_WATER_Y, width = WINDOW_WIDTH, height = 2}, PROTO_FOAM)
-	for i in 0 ..< 60 {
-		sx := f32((i * 211) % 1160) + 40
-		sy := PROTO_WATER_Y + 40 + f32((i * 137) % 360)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_HORIZON, width = WINDOW_WIDTH, height = 24}, PROTO_SEA_DEEP)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_HORIZON + 24, width = WINDOW_WIDTH, height = WINDOW_HEIGHT - PROTO_HORIZON - 24}, PROTO_SEA)
+	rl.DrawRectangleRec(rl.Rectangle{x = 0, y = PROTO_HORIZON, width = WINDOW_WIDTH, height = 2}, PROTO_FOAM)
+	for i in 0 ..< 64 {
+		sx := f32((i * 211) % 1180) + 30
+		sy := PROTO_HORIZON + 36 + f32((i * 137) % 340)
 		tone := i % 3 == 0 ? PROTO_SHALLOW : PROTO_SEA_BRIGHT
-		rl.DrawRectangleRec(rl.Rectangle{x = sx, y = sy, width = 24, height = 3}, rl.Fade(tone, 0.5))
+		rl.DrawRectangleRec(rl.Rectangle{x = sx, y = sy, width = 22, height = 3}, rl.Fade(tone, 0.5))
 	}
 }
 
-// draw_proto_room_base picks a room's wood tone: cooler/darker for holds and for anything
-// below the waterline, so a glance reads exposed-vs-hold and above-vs-below off the wood.
+// draw_proto_room_base picks a deck's wood tone: greyer for holds, cooler/darker below water.
 draw_proto_room_base :: proc(ls: ship.Layout_Slot, submerged: bool) -> rl.Color {
 	base := PROTO_CLIFF
 	if proto_slot_is_hold(ls) {
-		base = rl.Color{150, 132, 96, 255} // a greyer, cargo-store timber
+		base = rl.Color{150, 132, 96, 255}
 	}
 	if submerged {
-		base = proto_shade(base, 0.8)
+		base = proto_shade(base, 0.82)
 	}
 	return base
 }
 
-// --- B1: cutaway rooms, oblique ----------------------------------------------------------
-// The shipped cutaway's own slot layout (cutaway_slot_rects), but each slot card is drawn as
-// a one-point-perspective empty room set into the hull.
+// --- The 3D stacked-deck ship cutaway ----------------------------------------------------
+// World axes: x = ship length (bow +x, stern -x), y = up (decks stack), z = beam. The near
+// side (+z) is cut away; the camera looks mostly along -z, a touch from +x and above, so we
+// read the side profile and look into every open deck.
 
-draw_proto_rooms_oblique :: proc(state: ^Game_State, mouse: rl.Vector2) {
+PROTO_ZB :: f32(1.15) // half-beam
+PROTO_KEEL_Y :: f32(0.3) // floor of the lowest deck
+PROTO_DH :: f32(0.6) // height of one deck; the hull stands n decks tall
+PROTO_MARGIN :: f32(0.12) // hull planking inset around each deck
+
+// proto_hull_x is the hull's side profile: the fore (right) and aft (left) x at a given deck
+// height, as a fraction of hull height so it scales to however many decks the ship has. The
+// hull swells to full length amidships and narrows toward the keel and the sheer.
+proto_hull_x :: proc(y, deck_top: f32, right: bool) -> f32 {
+	frac := (y - PROTO_KEEL_Y) / (deck_top - PROTO_KEEL_Y)
+	fr := [5]f32{0.0, 0.22, 0.5, 0.82, 1.0}
+	ls := [5]f32{-2.2, -3.7, -4.1, -4.05, -3.9}
+	rs := [5]f32{2.0, 3.5, 3.9, 3.7, 3.4}
+	vs := right ? rs : ls
+	if frac <= 0 {
+		return vs[0]
+	}
+	for i in 1 ..< 5 {
+		if frac <= fr[i] {
+			t := (frac - fr[i - 1]) / (fr[i] - fr[i - 1])
+			return vs[i - 1] + (vs[i] - vs[i - 1]) * t
+		}
+	}
+	return vs[4]
+}
+
+draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	draw_proto_backdrop()
-	draw_proto_hull_frame()
 
-	region := cutaway.cutaway_home_region(WINDOW_WIDTH)
-	rects, n := cutaway.cutaway_slot_rects(state.player.layout[:], region)
-
-	// Hover is the room card itself — the whole opening is the target.
-	hovered := -1
-	for i in 0 ..< n {
-		if rl.CheckCollisionPointRec(mouse, rects[i]) {
-			hovered = i
+	// Order the berths bottom-to-top: holds (concealed) fill the lower decks below the water,
+	// topside stations (exposed) the upper decks — one berth per deck.
+	n := min(len(state.player.layout), 8)
+	order: [8]int
+	concealed := 0
+	di := 0
+	for pass in 0 ..< 2 {
+		want: ship.Visibility = pass == 0 ? .Concealed : .Exposed
+		for i in 0 ..< n {
+			if state.player.layout[i].slot.base_visibility == want {
+				order[di] = i
+				di += 1
+				if want == .Concealed {
+					concealed += 1
+				}
+			}
 		}
 	}
 
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		exposed := ls.slot.base_visibility == .Exposed
-		base := draw_proto_room_base(ls, !exposed)
-		draw_proto_room(rects[i], base, exposed, i == hovered)
+	deck_top := PROTO_KEEL_Y + f32(n) * PROTO_DH
+	wl := PROTO_KEEL_Y + f32(concealed) * PROTO_DH // waterline sits atop the holds
+	deck_mid := (PROTO_KEEL_Y + deck_top) / 2
 
-		// Nameplate on the room's sill.
-		plate_y := rects[i].y + rects[i].height - 26
-		draw_proto_nameplate(rects[i].x + rects[i].width / 2, plate_y, ls, i == hovered)
-	}
-
-	if hovered >= 0 {
-		draw_proto_tooltip(state, hovered, rects[hovered])
-	}
-	draw_build_heading("At Anchor")
-	draw_proto_stat_strip(state)
-}
-
-// draw_proto_room paints an empty one-point-perspective chamber inside r: the back wall
-// inset uniformly, floor/ceiling/side walls as the four connecting quads, the opening left
-// open. Flat fills, hard edges — a pixel-art room waiting for its bespoke sprite.
-draw_proto_room :: proc(r: rl.Rectangle, base: rl.Color, exposed, hot: bool) {
-	d := f32(20)
-	if r.width < 150 || r.height < 116 {
-		d = 15
-	}
-	ftl := rl.Vector2{r.x, r.y}
-	ftr := rl.Vector2{r.x + r.width, r.y}
-	fbl := rl.Vector2{r.x, r.y + r.height}
-	fbr := rl.Vector2{r.x + r.width, r.y + r.height}
-	btl := rl.Vector2{r.x + d, r.y + d}
-	btr := rl.Vector2{r.x + r.width - d, r.y + d}
-	bbl := rl.Vector2{r.x + d, r.y + r.height - d}
-	bbr := rl.Vector2{r.x + r.width - d, r.y + r.height - d}
-
-	// Back wall, then the four receding faces.
-	rl.DrawRectangleRec(rl.Rectangle{x = btl.x, y = btl.y, width = btr.x - btl.x, height = bbl.y - btl.y}, proto_shade(base, 0.9))
-	proto_quad(fbl, fbr, bbr, bbl, proto_shade(base, 0.56)) // floor
-	proto_quad(ftl, ftr, btr, btl, proto_shade(base, 0.68)) // ceiling
-	proto_quad(ftl, btl, bbl, fbl, proto_shade(base, 0.78)) // left wall
-	proto_quad(ftr, btr, bbr, fbr, proto_shade(base, 1.1)) // right wall (lit)
-
-	// Floorboard perspective lines toward the vanishing centre.
-	for k in 1 ..< 4 {
-		t := f32(k) / 4
-		fp := rl.Vector2{fbl.x + (fbr.x - fbl.x) * t, fbl.y}
-		bp := rl.Vector2{bbl.x + (bbr.x - bbl.x) * t, bbl.y}
-		rl.DrawLineEx(fp, bp, 1, proto_shade(base, 0.46))
-	}
-
-	// One quiet feature on the back wall so the empty room still reads "ship": a porthole to
-	// the sea for exposed rooms, a floor hatch for the holds below.
-	bw := btr.x - btl.x
-	bh := bbl.y - btl.y
-	if exposed {
-		cx := (btl.x + btr.x) / 2
-		cy := btl.y + bh * 0.42
-		rr := min(bw, bh) * 0.16
-		rl.DrawCircleV(rl.Vector2{cx, cy}, rr + 3, PROTO_TRUNK)
-		rl.DrawCircleV(rl.Vector2{cx, cy}, rr, PROTO_SEA_BRIGHT)
-		rl.DrawRectangleRec(rl.Rectangle{x = cx - rr, y = cy, width = rr * 2, height = rr}, rl.Fade(PROTO_SEA_DEEP, 0.85))
-		rl.DrawCircleLines(i32(cx), i32(cy), rr, PROTO_FOAM)
-	} else {
-		hs := bw * 0.16
-		cx := (bbl.x + bbr.x) / 2
-		cy := (bbl.y + fbl.y) / 2
-		rl.DrawRectangleRec(rl.Rectangle{x = cx - hs, y = cy - hs * 0.4, width = hs * 2, height = hs * 0.8}, proto_shade(base, 0.38))
-	}
-
-	// Crisp linework: opening, depth edges, back-wall frame.
-	edge := rl.Fade(PROTO_INK, 0.5)
-	rl.DrawLineEx(ftl, btl, 1, edge)
-	rl.DrawLineEx(ftr, btr, 1, edge)
-	rl.DrawLineEx(fbl, bbl, 1, edge)
-	rl.DrawLineEx(fbr, bbr, 1, edge)
-	rl.DrawRectangleLinesEx(rl.Rectangle{x = btl.x, y = btl.y, width = bw, height = bh}, 1, edge)
-	rl.DrawRectangleLinesEx(r, hot ? 3 : 2, hot ? PROTO_SEA_DEEP : PROTO_INK)
-}
-
-// draw_proto_hull_frame is the wooden ship the rooms are cut into: a side-profile hull from
-// deck to keel (stern nearly plumb, bow sweeping), a deck cap, a stern castle, two masts
-// into the sky, and a sea tint over the submerged run. Drawn before the rooms, which sit on
-// top; the gaps between rooms read as the hull's own beams.
-draw_proto_hull_frame :: proc() {
-	deck := f32(84)
-	keel := f32(636)
-	x0 := f32(120)
-	x1 := f32(1128)
-
-	for yy := deck; yy < keel; yy += 4 {
-		t := (yy - deck) / (keel - deck)
-		stern_inset := 46 * t * t
-		bow_inset := 150 * t * math.sqrt_f32(t)
-		tone := yy >= PROTO_WATER_Y ? proto_shade(PROTO_TRUNK, 0.72) : PROTO_TRUNK
-		rl.DrawRectangleRec(rl.Rectangle{x = x0 + stern_inset, y = yy, width = (x1 - bow_inset) - (x0 + stern_inset), height = 4}, tone)
-	}
-
-	// Deck cap and stern castle.
-	rl.DrawRectangleRec(rl.Rectangle{x = x0, y = deck - 12, width = x1 - x0 - 44, height = 14}, PROTO_CLIFF)
-	rl.DrawRectangleRec(rl.Rectangle{x = x0, y = deck - 12, width = x1 - x0 - 44, height = 3}, PROTO_SAND)
-	rl.DrawRectangleRec(rl.Rectangle{x = x0 - 6, y = deck - 66, width = 132, height = 56}, PROTO_TRUNK)
-	rl.DrawRectangleRec(rl.Rectangle{x = x0 - 6, y = deck - 66, width = 132, height = 6}, PROTO_SAND)
-	rl.DrawRectangleLinesEx(rl.Rectangle{x = x0 - 6, y = deck - 66, width = 132, height = 56}, 2, PROTO_ROCK)
-	// Two dark windows in the stern castle, echoing the topside portholes.
-	rl.DrawRectangleRec(rl.Rectangle{x = x0 + 22, y = deck - 50, width = 20, height = 22}, PROTO_SEA_DEEP)
-	rl.DrawRectangleRec(rl.Rectangle{x = x0 + 66, y = deck - 50, width = 20, height = 22}, PROTO_SEA_DEEP)
-
-	// Bowsprit off the bow (kept low so it clears the top UI; masts are omitted — the cutaway
-	// rooms and hull carry the ship read without rigging climbing into the switcher bar).
-	rl.DrawLineEx(rl.Vector2{x1 - 70, deck - 4}, rl.Vector2{x1 + 40, deck - 30}, 5, PROTO_TRUNK)
-
-	// Waterline rule and a translucent tint over the submerged hull run.
-	rl.DrawRectangleRec(rl.Rectangle{x = x0 - 40, y = PROTO_WATER_Y, width = (x1 + 40) - (x0 - 40), height = PROTO_WATER_Y < keel ? keel - PROTO_WATER_Y : 0}, rl.Fade(PROTO_SEA, 0.16))
-	rl.DrawLineEx(rl.Vector2{40, PROTO_WATER_Y}, rl.Vector2{WINDOW_WIDTH - 40, PROTO_WATER_Y}, 2, rl.Fade(PROTO_FOAM, 0.8))
-}
-
-// --- B2: cutaway rooms, true 3D ----------------------------------------------------------
-// Round 1's Camera3D, mostly side-on, but the slots are now open, roofless compartment boxes
-// you look down and in to — the original 3D perspective made literal, rooms left empty.
-
-draw_proto_rooms_3d :: proc(state: ^Game_State, mouse: rl.Vector2) {
-	draw_proto_backdrop()
-
-	// Raised, closer camera looking down the length: top-down enough to see into the roofless
-	// rooms, side enough to keep the "mostly-side" read.
+	// Near-level camera, a touch above and to the side: mostly-side, just enough 3D to look
+	// into each open deck rather than down onto its floor.
 	camera := rl.Camera3D {
-		position   = rl.Vector3{3.6, 5.6, 8.4},
-		target     = rl.Vector3{0, 0.9, 0},
+		position   = rl.Vector3{1.5, deck_mid + 0.5, 16.5},
+		target     = rl.Vector3{-0.2, deck_mid, 0},
 		up         = rl.Vector3{0, 1, 0},
-		fovy       = 46,
+		fovy       = 34,
 		projection = .PERSPECTIVE,
 	}
 
-	n := min(len(state.player.layout), 8)
-	exposed_total, concealed_total := 0, 0
-	for i in 0 ..< n {
-		if state.player.layout[i].slot.base_visibility == .Exposed {
-			exposed_total += 1
-		} else {
-			concealed_total += 1
-		}
-	}
-	// Two ranks in depth (z), not height: exposed forward (near, +z), concealed aft (far, -z),
-	// both on one floor so the camera looks down into every open room instead of stacking them.
-	anchors: [8]rl.Vector3
-	halfs: [8]f32
-	ei, ci := 0, 0
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		switch ls.slot.size {
-		case .Small:
-			halfs[i] = 0.62
-		case .Medium:
-			halfs[i] = 0.78
-		case .Large:
-			halfs[i] = 0.95
-		}
-		if ls.slot.base_visibility == .Exposed {
-			t := f32(ei + 1) / f32(exposed_total + 1)
-			ei += 1
-			anchors[i] = rl.Vector3{-3.9 + 7.8 * t, 0.95, 1.35}
-		} else {
-			t := f32(ci + 1) / f32(concealed_total + 1)
-			ci += 1
-			anchors[i] = rl.Vector3{-3.3 + 6.6 * t, 0.95, -1.35}
-		}
-	}
-
-	// Project centres and hit-test nameplates before the 3D pass, so it can tint the hovered.
+	// Deck centres/sizes, and the projected nameplate for each, resolved before the 3D pass so
+	// it can tint the hovered deck.
+	centres: [8]rl.Vector3
+	hxs, hys, hzs: [8]f32
 	plates: [8]rl.Rectangle
 	hovered := -1
-	for i in 0 ..< n {
-		p := rl.GetWorldToScreen(rl.Vector3{anchors[i].x, anchors[i].y + halfs[i], anchors[i].z}, camera)
-		plates[i] = proto_nameplate_rect(p.x, p.y - 30, state.player.layout[i])
-		if rl.CheckCollisionPointRec(mouse, plates[i]) {
-			hovered = i
+	for d in 0 ..< n {
+		y_bot := PROTO_KEEL_Y + f32(d) * PROTO_DH
+		ymid := y_bot + PROTO_DH * 0.5
+		lx := proto_hull_x(ymid, deck_top, false) + PROTO_MARGIN
+		rx := proto_hull_x(ymid, deck_top, true) - PROTO_MARGIN
+		centres[d] = rl.Vector3{(lx + rx) / 2, ymid, 0}
+		hxs[d] = (rx - lx) / 2
+		hys[d] = PROTO_DH * 0.5 - 0.05
+		hzs[d] = PROTO_ZB - PROTO_MARGIN
+
+		// Nameplate to the right of the deck's open front, projected to screen.
+		p := rl.GetWorldToScreen(rl.Vector3{rx, ymid, PROTO_ZB}, camera)
+		plates[d] = proto_nameplate_rect(p.x + 70, p.y - 11, state.player.layout[order[d]])
+		if rl.CheckCollisionPointRec(mouse, plates[d]) {
+			hovered = d
 		}
 	}
 
 	rl.BeginMode3D(camera)
 
-	// A wireframe hull cage — the near wall cut away — so every open room reads through it
-	// instead of being fogged inside a solid block.
-	rl.DrawCubeWires(rl.Vector3{0, 0.95, 0}, 8.6, 2.0, 3.4, rl.Fade(PROTO_CREAM, 0.5))
-	rl.DrawCubeWires(rl.Vector3{-4.3, 1.4, 0}, 1.1, 2.6, 3.2, rl.Fade(PROTO_CREAM, 0.4)) // stern castle
-	// A faint deck floor plane the rooms sit on.
-	rl.DrawPlane(rl.Vector3{0, -0.02, 0}, rl.Vector2{9.0, 3.6}, rl.Fade(PROTO_TRUNK, 0.55))
+	draw_proto_hull_body(deck_top)
 
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		base := draw_proto_room_base(ls, false)
-		if i == hovered {
+	for d in 0 ..< n {
+		ls := state.player.layout[order[d]]
+		base := draw_proto_room_base(ls, centres[d].y < wl)
+		if d == hovered {
 			base = PROTO_SEA_BRIGHT
 		}
-		draw_proto_room_3d(anchors[i], halfs[i], base)
+		draw_proto_deck_room(centres[d], hxs[d], hys[d], hzs[d], base)
 	}
+
+	draw_proto_rig(deck_top)
+
+	// A translucent sea slab filling the hull below the waterline — the submerged holds read as
+	// underwater. Drawn after the opaque hull so it blends over it.
+	rl.DrawCube(rl.Vector3{0, wl - 12, 0.2}, 40, 24, 40, rl.Fade(PROTO_SEA, 0.32))
+
 	rl.EndMode3D()
 
-	for i in 0 ..< n {
-		draw_proto_nameplate_at(plates[i], state.player.layout[i], i == hovered)
+	// Nameplates and leader ticks over the scene.
+	for d in 0 ..< n {
+		anchor := rl.GetWorldToScreen(rl.Vector3{proto_hull_x(centres[d].y, deck_top, true) - PROTO_MARGIN, centres[d].y, PROTO_ZB}, camera)
+		hot := d == hovered
+		rl.DrawLineEx(anchor, rl.Vector2{plates[d].x, plates[d].y + plates[d].height / 2}, hot ? 2 : 1, rl.Fade(hot ? PROTO_FOAM : PROTO_INK, 0.6))
+		draw_proto_nameplate_at(plates[d], state.player.layout[order[d]], hot)
 	}
 
 	if hovered >= 0 {
-		draw_proto_tooltip(state, hovered, plates[hovered])
+		draw_proto_tooltip(state, order[hovered], plates[hovered])
 	}
 	draw_build_heading("At Anchor")
 	draw_proto_stat_strip(state)
 }
 
-// draw_proto_room_3d draws one open, roofless compartment: floor, back wall, two side walls;
-// front and top left open so the camera looks down and in. Wire outlines keep the edges crisp.
-draw_proto_room_3d :: proc(c: rl.Vector3, h: f32, base: rl.Color) {
-	t :: f32(0.06)
-	floor := proto_shade(base, 0.58)
-	back := proto_shade(base, 0.9)
-	lwall := proto_shade(base, 0.76)
-	rwall := proto_shade(base, 1.08)
+// draw_proto_hull_body paints the wooden ship the decks are cut into: the far side wall as
+// horizontal bands following the hull profile (with a belly narrowing to the keel), a stern
+// transom and stern castle, a forecastle, and the main deck plank. The near side is left open
+// — that is the cutaway. The bands show through the margins between decks as the hull's beams.
+draw_proto_hull_body :: proc(deck_top: f32) {
+	far := -PROTO_ZB
+	dark := proto_shade(PROTO_TRUNK, 0.82)
 
-	rl.DrawCube(rl.Vector3{c.x, c.y - h, c.z}, 2 * h, t, 2 * h, floor)
-	rl.DrawCube(rl.Vector3{c.x, c.y, c.z - h}, 2 * h, 2 * h, t, back)
-	rl.DrawCube(rl.Vector3{c.x - h, c.y, c.z}, t, 2 * h, 2 * h, lwall)
-	rl.DrawCube(rl.Vector3{c.x + h, c.y, c.z}, t, 2 * h, 2 * h, rwall)
-
-	wire := rl.Fade(PROTO_INK, 0.6)
-	rl.DrawCubeWires(rl.Vector3{c.x, c.y - h, c.z}, 2 * h, t, 2 * h, wire)
-	rl.DrawCubeWires(rl.Vector3{c.x, c.y, c.z - h}, 2 * h, 2 * h, t, wire)
-}
-
-// --- B3: cutaway rooms, isometric --------------------------------------------------------
-// The same empty rooms in a 3/4 iso register: two rows of iso chambers, floor diamond and two
-// back walls, open front and top.
-
-draw_proto_rooms_iso :: proc(state: ^Game_State, mouse: rl.Vector2) {
-	draw_proto_backdrop()
-
-	n := min(len(state.player.layout), 8)
-	exposed_total, concealed_total := 0, 0
-	for i in 0 ..< n {
-		if state.player.layout[i].slot.base_visibility == .Exposed {
-			exposed_total += 1
+	// Far wall + belly, in fine horizontal bands.
+	band := f32(0.12)
+	for y := f32(-0.4); y < deck_top; y += band {
+		ymid := y + band * 0.5
+		l, r: f32
+		if ymid < PROTO_KEEL_Y {
+			// Belly: taper both ends toward the keel point.
+			f := clamp((ymid + 0.4) / (PROTO_KEEL_Y + 0.4), 0, 1)
+			l = proto_hull_x(PROTO_KEEL_Y, deck_top, false) * f
+			r = proto_hull_x(PROTO_KEEL_Y, deck_top, true) * f
 		} else {
-			concealed_total += 1
+			l = proto_hull_x(ymid, deck_top, false)
+			r = proto_hull_x(ymid, deck_top, true)
 		}
+		if r - l < 0.05 {
+			continue
+		}
+		rl.DrawCube(rl.Vector3{(l + r) / 2, ymid, far}, r - l, band + 0.01, 0.1, dark)
 	}
 
-	centres: [8]rl.Vector2
-	w2s: [8]f32
-	ei, ci := 0, 0
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		switch ls.slot.size {
-		case .Small:
-			w2s[i] = 62
-		case .Medium:
-			w2s[i] = 78
-		case .Large:
-			w2s[i] = 96
-		}
-		if ls.slot.base_visibility == .Exposed {
-			t := f32(ei) / f32(max(exposed_total - 1, 1))
-			ei += 1
-			centres[i] = rl.Vector2{170 + 900 * t, 250}
-		} else {
-			t := f32(ci) / f32(max(concealed_total - 1, 1))
-			ci += 1
-			centres[i] = rl.Vector2{210 + 820 * t, 470}
-		}
-	}
+	// Hull bottom: a shallow keel slab spanning the beam, so the ship has an underside.
+	rl.DrawCube(rl.Vector3{0, PROTO_KEEL_Y - 0.34, 0}, 6.2, 0.55, 2 * PROTO_ZB, proto_shade(PROTO_TRUNK, 0.7))
 
-	// Nameplates sit below each iso room; hover them.
-	plates: [8]rl.Rectangle
-	hovered := -1
-	for i in 0 ..< n {
-		plates[i] = proto_nameplate_rect(centres[i].x, centres[i].y + w2s[i] * 0.5 + 12, state.player.layout[i])
-		if rl.CheckCollisionPointRec(mouse, plates[i]) {
-			hovered = i
-		}
-	}
+	// Stern transom (flat aft face) and a stern castle standing above the main deck.
+	sx := proto_hull_x(deck_top * 0.5, deck_top, false)
+	rl.DrawCube(rl.Vector3{sx + 0.05, deck_top * 0.5, 0}, 0.16, deck_top, 2 * PROTO_ZB, dark)
+	rl.DrawCube(rl.Vector3{sx + 0.55, deck_top + 0.55, 0}, 1.3, 1.3, 2 * PROTO_ZB - 0.08, PROTO_TRUNK)
+	rl.DrawCubeWires(rl.Vector3{sx + 0.55, deck_top + 0.55, 0}, 1.3, 1.3, 2 * PROTO_ZB - 0.08, proto_shade(PROTO_ROCK, 0.9))
 
-	for i in 0 ..< n {
-		ls := state.player.layout[i]
-		base := draw_proto_room_base(ls, ls.slot.base_visibility != .Exposed)
-		draw_proto_room_iso(centres[i], w2s[i], base, i == hovered)
-		draw_proto_nameplate_at(plates[i], ls, i == hovered)
-	}
+	// Forecastle at the bow.
+	bx := proto_hull_x(deck_top * 0.86, deck_top, true)
+	rl.DrawCube(rl.Vector3{bx - 0.55, deck_top + 0.4, 0}, 1.2, 1.0, 2 * PROTO_ZB - 0.08, PROTO_TRUNK)
 
-	if hovered >= 0 {
-		draw_proto_tooltip(state, hovered, plates[hovered])
-	}
-	draw_build_heading("At Anchor")
-	draw_proto_stat_strip(state)
+	// Main deck plank across the top of the stacked decks.
+	rl.DrawCube(rl.Vector3{-0.3, deck_top + 0.05, 0}, 7.6, 0.12, 2 * PROTO_ZB, PROTO_CLIFF)
 }
 
-// draw_proto_room_iso paints an iso empty room centred at c: a floor diamond (half-width w2,
-// 2:1 iso), two back walls rising by wall height, open front and top.
-draw_proto_room_iso :: proc(c: rl.Vector2, w2: f32, base: rl.Color, hot: bool) {
-	h2 := w2 * 0.5
-	H := w2 * 0.62 // short walls: the floor dominates, so it reads as an open room, not a crate
+// draw_proto_deck_room paints one empty deck: floor, back wall (far z), fore and aft end
+// walls; the front (+z) and top are open, so the camera looks in and the deck above closes it.
+draw_proto_deck_room :: proc(c: rl.Vector3, hx, hy, hz: f32, base: rl.Color) {
+	t :: f32(0.05)
+	rl.DrawCube(rl.Vector3{c.x, c.y - hy, c.z}, 2 * hx, t, 2 * hz, proto_shade(base, 0.56)) // floor
+	rl.DrawCube(rl.Vector3{c.x, c.y, c.z - hz}, 2 * hx, 2 * hy, t, proto_shade(base, 0.9)) // back
+	rl.DrawCube(rl.Vector3{c.x - hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 0.72)) // aft end
+	rl.DrawCube(rl.Vector3{c.x + hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 1.06)) // fore end
 
-	top := rl.Vector2{c.x, c.y - h2}
-	right := rl.Vector2{c.x + w2, c.y}
-	bot := rl.Vector2{c.x, c.y + h2}
-	left := rl.Vector2{c.x - w2, c.y}
-
-	// Floor diamond.
-	proto_quad(top, right, bot, left, proto_shade(base, 0.58))
-
-	// Back-left and back-right walls, rising by H.
-	tlu := rl.Vector2{top.x, top.y - H}
-	llu := rl.Vector2{left.x, left.y - H}
-	rlu := rl.Vector2{right.x, right.y - H}
-	proto_quad(left, top, tlu, llu, proto_shade(base, 0.8)) // back-left
-	proto_quad(top, right, rlu, tlu, proto_shade(base, 1.06)) // back-right
-
-	// A small porthole on the back-right wall so the empty room still reads "ship".
-	pc := rl.Vector2{(top.x + right.x) / 2 + 2, (top.y + right.y) / 2 - H * 0.5}
-	rl.DrawCircleV(pc, w2 * 0.12 + 2, PROTO_TRUNK)
-	rl.DrawCircleV(pc, w2 * 0.12, PROTO_SEA_BRIGHT)
-	rl.DrawCircleLines(i32(pc.x), i32(pc.y), w2 * 0.12, PROTO_FOAM)
-
-	// Crisp edges.
-	ink := hot ? PROTO_SEA_DEEP : PROTO_INK
-	th := f32(hot ? 3 : 2)
-	rl.DrawLineEx(left, top, th, ink)
-	rl.DrawLineEx(top, right, th, ink)
-	rl.DrawLineEx(left, bot, th, ink)
-	rl.DrawLineEx(bot, right, th, ink)
-	rl.DrawLineEx(left, llu, th, ink)
-	rl.DrawLineEx(top, tlu, th, ink)
-	rl.DrawLineEx(right, rlu, th, ink)
-	rl.DrawLineEx(llu, tlu, th, ink)
-	rl.DrawLineEx(tlu, rlu, th, ink)
+	wire := rl.Fade(PROTO_INK, 0.55)
+	rl.DrawCubeWires(rl.Vector3{c.x, c.y - hy, c.z}, 2 * hx, t, 2 * hz, wire)
+	rl.DrawCubeWires(rl.Vector3{c.x, c.y, c.z - hz}, 2 * hx, 2 * hy, t, wire)
 }
 
-// --- Nameplates, inspector, stat strip (shared) ------------------------------------------
+// draw_proto_rig is the standing masts, sails and bowsprit above the main deck — the silhouette
+// that says "ship" over the cutaway decks.
+draw_proto_rig :: proc(deck_top: f32) {
+	deck := deck_top + 0.1
+	masts := [2]f32{-1.0, 1.4}
+	heights := [2]f32{2.3, 2.0}
+	for mx, mi in masts {
+		top := deck + heights[mi]
+		rl.DrawCylinder(rl.Vector3{mx, deck, 0}, 0.05, 0.07, heights[mi], 8, PROTO_TRUNK)
+		// A square sail: a thin cube spanning x, facing the camera.
+		sw := f32(1.6)
+		sh := heights[mi] * 0.58
+		sy := deck + heights[mi] * 0.52
+		rl.DrawCube(rl.Vector3{mx, sy, 0.05}, sw, sh, 0.04, PROTO_CREAM)
+		rl.DrawCubeWires(rl.Vector3{mx, sy, 0.05}, sw, sh, 0.04, PROTO_SAND)
+		// Yard.
+		rl.DrawCube(rl.Vector3{mx, top - 0.15, 0}, sw + 0.2, 0.06, 0.06, PROTO_TRUNK)
+	}
+	// Bowsprit off the bow.
+	bx := proto_hull_x(deck_top * 0.9, deck_top, true)
+	rl.DrawCylinder(rl.Vector3{bx - 0.2, deck, 0}, 0.05, 0.03, 1.4, 8, PROTO_TRUNK)
+}
+
+// --- Nameplates, tooltip, stat strip (shared) --------------------------------------------
 
 proto_nameplate_rect :: proc(center_x, y: f32, ls: ship.Layout_Slot) -> rl.Rectangle {
 	label := fmt.ctprintf("%s", proto_slot_title(ls))
@@ -620,12 +447,6 @@ proto_nameplate_rect :: proc(center_x, y: f32, ls: ship.Layout_Slot) -> rl.Recta
 	return rl.Rectangle{x = center_x - w / 2 - 8, y = y, width = w + 16, height = 22}
 }
 
-// draw_proto_nameplate positions and paints a plate centred on center_x at y.
-draw_proto_nameplate :: proc(center_x, y: f32, ls: ship.Layout_Slot, hot: bool) {
-	draw_proto_nameplate_at(proto_nameplate_rect(center_x, y, ls), ls, hot)
-}
-
-// draw_proto_nameplate_at paints a pre-placed plate — parchment, ink text; words on parchment.
 draw_proto_nameplate_at :: proc(rect: rl.Rectangle, ls: ship.Layout_Slot, hot: bool) {
 	is_hold := proto_slot_is_hold(ls)
 	rl.DrawRectangleRec(rect, rl.Fade(PROTO_PARCHMENT, hot ? 1.0 : 0.94))
@@ -640,13 +461,9 @@ draw_proto_nameplate_at :: proc(rect: rl.Rectangle, ls: ship.Layout_Slot, hot: b
 	)
 }
 
-// draw_proto_tooltip is the hovered room's full description, drawn as a parchment card next
-// to that room and clamped on-screen — no persistent panel to occlude a room that a fixed
-// dock would sit over. Nothing hovered draws nothing; the nameplates carry the names.
-draw_proto_tooltip :: proc(state: ^Game_State, hovered: int, near: rl.Rectangle) {
-	if hovered < 0 {
-		return
-	}
+// draw_proto_tooltip is the hovered deck's full description, a parchment card clamped
+// on-screen beside the deck — no persistent panel to occlude a room.
+draw_proto_tooltip :: proc(state: ^Game_State, slot: int, near: rl.Rectangle) {
 	tw, th := f32(300), f32(150)
 	tx := near.x + near.width + 12
 	if tx + tw > WINDOW_WIDTH - 8 {
@@ -659,7 +476,7 @@ draw_proto_tooltip :: proc(state: ^Game_State, hovered: int, near: rl.Rectangle)
 	rl.DrawRectangleRec(card, PROTO_PARCHMENT)
 	rl.DrawRectangleLinesEx(card, 2, PROTO_SEA_DEEP)
 
-	title, spec, intent, extra := proto_lines(state.player.layout[hovered])
+	title, spec, intent, extra := proto_lines(state.player.layout[slot])
 	px := card.x + 14
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{px, card.y + 12}, UI_BODY_SIZE, 1, PROTO_INK)
 	rl.DrawRectangleRec(rl.Rectangle{x = px, y = card.y + 34, width = card.width - 28, height = 2}, PROTO_SAND)
@@ -677,9 +494,8 @@ draw_proto_stat_strip :: proc(state: ^Game_State) {
 	rl.DrawTextEx(ui_font_body, stat, rl.Vector2{strip.x + 10, strip.y + 5}, UI_BODY_SIZE, 1, PROTO_INK)
 }
 
-// capture_shot_ship_prototypes photographs every room variant the way capture_shot_home shoots
-// Home: a throwaway Sim ticked once into a fresh Game_State, one shot per variant, the global
-// put back to Current on the way out. Prototype-only, removed with this file.
+// capture_shot_ship_prototypes photographs the cutaway the way capture_shot_home shoots Home:
+// a throwaway Sim ticked once into a fresh Game_State, the global put back to Current after.
 capture_shot_ship_prototypes :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
 		return
@@ -701,20 +517,9 @@ capture_shot_ship_prototypes :: proc(state: ^Capture_State) {
 	}
 	map_width_set(&game, MAP_HOME_W)
 
-	shots := [3]struct {
-		variant: Proto_Variant,
-		label:   string,
-	} {
-		{.Rooms_Oblique, "proto-b1-rooms-oblique"},
-		{.Rooms_3D, "proto-b2-rooms-3d"},
-		{.Rooms_Iso, "proto-b3-rooms-iso"},
-	}
-
-	for shot in shots {
-		proto_variant = shot.variant
-		draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
-		draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
-		capture_write(state, shot.label)
-	}
+	proto_variant = .Ship_Cutaway
+	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
+	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
+	capture_write(state, "proto-ship-cutaway")
 	proto_variant = .Current
 }
