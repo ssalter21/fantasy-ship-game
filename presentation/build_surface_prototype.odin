@@ -221,16 +221,12 @@ draw_proto_backdrop :: proc() {
 }
 
 // draw_proto_room_base picks a room's wood tone: a rich warm oak for the exposed decks, a
-// greyer stowage timber for the holds, cooled and darkened where it sits below the waterline.
-draw_proto_room_base :: proc(ls: ship.Layout_Slot, submerged: bool) -> rl.Color {
-	base := rl.Color{156, 104, 58, 255} // rich warm oak
+// greyer stowage timber for the holds below deck.
+draw_proto_room_base :: proc(ls: ship.Layout_Slot) -> rl.Color {
 	if proto_slot_is_hold(ls) {
-		base = rl.Color{138, 118, 84, 255}
+		return rl.Color{138, 118, 84, 255}
 	}
-	if submerged {
-		base = proto_shade(base, 0.78)
-	}
-	return base
+	return rl.Color{156, 104, 58, 255} // rich warm oak
 }
 
 // --- The 3/4 galleon cutaway -------------------------------------------------------------
@@ -354,15 +350,24 @@ proto_build_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [8]Proto_Room, 
 	return rooms, ri
 }
 
+// proto_project maps a world point to logical screen coordinates. It must use GetWorldToScreen
+// *Ex* with the fixed 1244x700 logical size, NOT plain GetWorldToScreen: the frame renders into
+// a 1244x700 render texture while the window is a larger borderless-fullscreen surface, and
+// plain GetWorldToScreen would project against the window size — leaving hover-picking and the
+// mouse (which is remapped into logical space) in different coordinate systems.
+proto_project :: proc(p: rl.Vector3, cam: rl.Camera3D) -> rl.Vector2 {
+	return rl.GetWorldToScreenEx(p, cam, WINDOW_WIDTH, WINDOW_HEIGHT)
+}
+
 // proto_room_hit reports whether the mouse is over a room's open front face — the slot you
 // look into. It projects the four front-face corners and does a point-in-quad test, so the
 // hover tracks the actual fitting slot rather than a loose bounding box around the whole room.
 proto_room_hit :: proc(mouse: rl.Vector2, r: Proto_Room, cam: rl.Camera3D) -> bool {
 	q: [4]rl.Vector2
-	q[0] = rl.GetWorldToScreen(rl.Vector3{r.c.x - r.hx, r.c.y - r.hy, r.c.z + r.hz}, cam)
-	q[1] = rl.GetWorldToScreen(rl.Vector3{r.c.x + r.hx, r.c.y - r.hy, r.c.z + r.hz}, cam)
-	q[2] = rl.GetWorldToScreen(rl.Vector3{r.c.x + r.hx, r.c.y + r.hy, r.c.z + r.hz}, cam)
-	q[3] = rl.GetWorldToScreen(rl.Vector3{r.c.x - r.hx, r.c.y + r.hy, r.c.z + r.hz}, cam)
+	q[0] = proto_project(rl.Vector3{r.c.x - r.hx, r.c.y - r.hy, r.c.z + r.hz}, cam)
+	q[1] = proto_project(rl.Vector3{r.c.x + r.hx, r.c.y - r.hy, r.c.z + r.hz}, cam)
+	q[2] = proto_project(rl.Vector3{r.c.x + r.hx, r.c.y + r.hy, r.c.z + r.hz}, cam)
+	q[3] = proto_project(rl.Vector3{r.c.x - r.hx, r.c.y + r.hy, r.c.z + r.hz}, cam)
 
 	// Ray-cast point-in-polygon across the four projected corners.
 	inside := false
@@ -405,7 +410,7 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	for i in 0 ..< nrooms {
 		r := rooms[i]
 		ay := r.kind == .Hold ? r.c.y - r.hy : r.c.y + r.hy
-		anchor := rl.GetWorldToScreen(rl.Vector3{r.c.x, ay, r.hz}, camera)
+		anchor := proto_project(rl.Vector3{r.c.x, ay, r.hz}, camera)
 		dy := r.kind == .Hold ? f32(30) : f32(-30)
 		plates[i] = proto_nameplate_rect(anchor.x, anchor.y + dy - 11, state.player.layout[r.slot])
 		if proto_room_hit(mouse, r, camera) {
@@ -424,19 +429,17 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	for i in 0 ..< nrooms {
 		r := rooms[i]
 		ls := state.player.layout[r.slot]
-		base := draw_proto_room_base(ls, r.c.y < PROTO_WATER_Y)
+		base := draw_proto_room_base(ls)
 		if i == hovered {
 			base = PROTO_SEA_BRIGHT
 		}
-		draw_proto_deck_room(r.c, r.hx, r.hy, r.hz, base)
+		// The waist is the open weather deck: no tall end walls, so nothing walls off the middle
+		// of the main deck. Every other berth keeps its end walls to read as an enclosed room.
+		draw_proto_deck_room(r.c, r.hx, r.hy, r.hz, base, r.kind != .Waist)
 	}
 
 	draw_proto_ornament()
 	draw_proto_rig()
-
-	// A translucent sea slab filling the hull below the waterline — the submerged holds read as
-	// underwater. Drawn after the opaque hull so it blends over it.
-	rl.DrawCube(rl.Vector3{0, PROTO_WATER_Y - 12, 0.2}, 44, 24, 44, rl.Fade(PROTO_SEA, 0.30))
 
 	rl.EndMode3D()
 
@@ -444,7 +447,7 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	for i in 0 ..< nrooms {
 		r := rooms[i]
 		ay := r.kind == .Hold ? r.c.y - r.hy : r.c.y + r.hy
-		anchor := rl.GetWorldToScreen(rl.Vector3{r.c.x, ay, r.hz}, camera)
+		anchor := proto_project(rl.Vector3{r.c.x, ay, r.hz}, camera)
 		hot := i == hovered
 		plate := plates[i]
 		edge := rl.Vector2{plate.x + plate.width / 2, r.kind == .Hold ? plate.y : plate.y + plate.height}
@@ -453,10 +456,24 @@ draw_proto_ship_cutaway :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	}
 
 	if hovered >= 0 {
+		draw_proto_slot_outline(rooms[hovered], camera)
 		draw_proto_tooltip(state, rooms[hovered].slot, plates[hovered])
 	}
 	draw_build_heading("At Anchor")
 	draw_proto_stat_strip(state)
+}
+
+// draw_proto_slot_outline traces the hovered slot's open front face with a bright line, so the
+// berth under the cursor reads unmistakably as selected — the room you point at, outlined.
+draw_proto_slot_outline :: proc(r: Proto_Room, cam: rl.Camera3D) {
+	q: [4]rl.Vector2
+	q[0] = proto_project(rl.Vector3{r.c.x - r.hx, r.c.y - r.hy, r.c.z + r.hz}, cam)
+	q[1] = proto_project(rl.Vector3{r.c.x + r.hx, r.c.y - r.hy, r.c.z + r.hz}, cam)
+	q[2] = proto_project(rl.Vector3{r.c.x + r.hx, r.c.y + r.hy, r.c.z + r.hz}, cam)
+	q[3] = proto_project(rl.Vector3{r.c.x - r.hx, r.c.y + r.hy, r.c.z + r.hz}, cam)
+	for i in 0 ..< 4 {
+		rl.DrawLineEx(q[i], q[(i + 1) % 4], 2.5, PROTO_FOAM)
+	}
 }
 
 // draw_proto_hull_body paints the wooden ship the rooms are cut into: the far inner wall and
@@ -505,14 +522,16 @@ draw_proto_hull_body :: proc() {
 
 // draw_proto_deck_room paints one empty room: floor, back wall (far z), fore and aft end
 // walls; the front (+z) and top are open, so the camera looks in from the bow quarter.
-draw_proto_deck_room :: proc(c: rl.Vector3, hx, hy, hz: f32, base: rl.Color) {
+draw_proto_deck_room :: proc(c: rl.Vector3, hx, hy, hz: f32, base: rl.Color, ends: bool) {
 	t :: f32(0.05)
 	// Wide spread between the lit fore end and the deep-shadowed floor and aft corner gives the
 	// open room strong interior modelling.
 	rl.DrawCube(rl.Vector3{c.x, c.y - hy, c.z}, 2 * hx, t, 2 * hz, proto_shade(base, 0.44)) // floor
 	rl.DrawCube(rl.Vector3{c.x, c.y, c.z - hz}, 2 * hx, 2 * hy, t, proto_shade(base, 0.82)) // back
-	rl.DrawCube(rl.Vector3{c.x - hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 0.58)) // aft end (shadow)
-	rl.DrawCube(rl.Vector3{c.x + hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 1.14)) // fore end (lit)
+	if ends {
+		rl.DrawCube(rl.Vector3{c.x - hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 0.58)) // aft end (shadow)
+		rl.DrawCube(rl.Vector3{c.x + hx, c.y, c.z}, t, 2 * hy, 2 * hz, proto_shade(base, 1.14)) // fore end (lit)
+	}
 
 	wire := rl.Fade(PROTO_INK, 0.6)
 	rl.DrawCubeWires(rl.Vector3{c.x, c.y - hy, c.z}, 2 * hx, t, 2 * hz, wire)
