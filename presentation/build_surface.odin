@@ -256,8 +256,8 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 // never polls (#277). `drag` is the in-flight drag (its ghost drawn at `mouse`), `confirm`
 // a pending discard's slot, `mouse` the cursor for hover and the ghost.
 draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	draw_build_surface_body(state, drag, confirm, mouse, false)
@@ -924,8 +924,8 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 // keeps drawing at its fixed MAP_AREA positions and only the hover mouse is un-shifted back into
 // chart space.
 draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2, raise: f32) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	draw_build_surface_body(state, drag, confirm, mouse, true)

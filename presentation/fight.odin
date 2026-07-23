@@ -227,9 +227,9 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 		window_quit_if_closed()
 		mouse := rl.GetMousePosition()
 
-		rl.BeginDrawing()
+		frame_begin()
 		draw_fight_scene(state, mouse)
-		rl.EndDrawing()
+		frame_end()
 
 		actions, n := fight_action_layout(state)
 		// Only the picked action's `kind` and `command` are read below, both values that
@@ -266,8 +266,8 @@ battle_menu_loop :: proc(state: ^Game_State) -> sim.Command {
 // nothing further to draw on top: --capture's fight shot. The loop and the beat overlay share
 // their own pair around draw_fight_scene instead.
 draw_fight :: proc(state: ^Game_State, mouse: rl.Vector2) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	draw_fight_scene(state, mouse)
@@ -573,8 +573,8 @@ play_round_exchange_beat :: proc(state: ^Game_State, dmg_a: int, dmg_b: int) {
 // drawn over the scrim so it stays bright while the ships dim beneath it. Its own drawing pair,
 // like draw_beat; reused by --capture to shoot the beat.
 draw_fight_exchange :: proc(state: ^Game_State, dmg_a: int, dmg_b: int) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	draw_fight_scene(state, NO_MOUSE)
