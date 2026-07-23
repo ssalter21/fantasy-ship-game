@@ -61,6 +61,8 @@ window_quit_if_closed :: proc() {
 run :: proc() {
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game")
 	defer rl.CloseWindow()
+	proto_fullscreen_init() // PROTOTYPE: borderless fullscreen + scale-to-fit (fullscreen_proto.odin)
+	defer proto_fullscreen_shutdown()
 	rl.SetTargetFPS(60)
 
 	ui_fonts_load()

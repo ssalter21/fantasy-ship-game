@@ -1078,8 +1078,8 @@ draw_version_stamp :: proc() {
 // fallback. `mouse` is threaded to the map's hover; a caller with no live pointer (capture)
 // passes an off-screen {-1, -1} so nothing rings.
 draw_scene :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	draw_scene_contents(state, overlay, mouse)
@@ -1092,8 +1092,8 @@ draw_scene :: proc(state: ^Game_State, overlay: string, mouse: rl.Vector2) {
 // on the two ships the captain is looking at, #315), otherwise the map/travel scene. Its own
 // Begin/EndDrawing pair, like draw_scene.
 draw_beat :: proc(state: ^Game_State, headline: string) {
-	rl.BeginDrawing()
-	defer rl.EndDrawing()
+	frame_begin()
+	defer frame_end()
 	defer free_all(context.temp_allocator)
 
 	if state.in_battle {
