@@ -10,29 +10,36 @@ import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 
 // The Build surface is the ship "always in refit" (#302, ADR-0024): the Cutaway that
-// replaces the modal refit_menu_loop's programmer-art slot list. The ship is drawn as
-// a cross-section — the 4 exposed stations ride the deck, the 4 holds sit in the belly
-// below a drawn waterline — so geography carries the exposed/concealed split (ADR-0030)
-// rather than a badge, and a card's footprint tracks its slot size so size reads without
-// a number. Refit is drag-first: press-drag-release installs / moves / swaps, the
-// exact-size fit rule left to the Sim (an illegal drop returns Event_Refit_Rejected and
-// snaps back). The one amber on the screen is a granted item waiting on the shelf.
+// replaces the modal refit_menu_loop's programmer-art slot list. The ship is drawn as a
+// three-quarter cutaway of the player's own galleon with her port side opened up
+// (ship_cutaway.odin) — the exposed berths standing as her weather-deck structures, the
+// concealed holds sharing one floor down in the belly — so geography carries the
+// exposed/concealed split (ADR-0030) rather than a badge, and a hold's compartment length
+// tracks its slot size so size reads without a number. Refit is drag-first:
+// press-drag-release installs / moves / swaps, the exact-size fit rule left to the Sim (an
+// illegal drop returns Event_Refit_Rejected and snaps back). The one amber on the screen is
+// a granted item waiting on the shelf.
 //
 // Split composition (draw_build_surface) from polling (build_surface_loop) like the Chart
 // Table, so --capture photographs it (#277, style guide).
 
 // Chrome constants — the ledger, heading and shelf are the Build surface's own furniture.
-// The slot geometry is not: the cutaway module owns it (#426), and this surface asks
-// cutaway_home_region / cutaway_slot_rects rather than keeping positions of its own.
+// The ship's geometry is not: the cutaway module owns it (#426), and this surface asks
+// galleon_rooms / galleon_room_at rather than keeping positions of its own.
 BUILD_LEDGER_Y :: 650
 BUILD_LEDGER_H :: 34
 BUILD_HEADING_Y :: 28
 BUILD_SHELF_Y :: 470
 
-// BUILD_DANGER is the discard zone's muted maroon — the Fight stage_tint's hue, the one
-// warm the guide admits beside amber, pulled into the palette's register. Used only to
-// mark "drop here to bin it", never as a fill that competes with the amber shelf card.
-BUILD_DANGER :: rl.Color{166, 72, 90, 255}
+// BUILD_DANGER is the tone of the surface's two destructive drops — the roster's reserved
+// coral. Never a fill that competes with the amber shelf card.
+//
+// The guide holds coral to one appearance per screen, and the discard bin and an armed ledger
+// are both up during a laden drag. That is deliberate here: the two are one signal, "a drop
+// here destroys something", on the only two places it is true, and neither is on screen unless
+// a fitting is already in hand. The rule guards against diluting a scarce colour across
+// unrelated meanings, which is not what this is.
+BUILD_DANGER :: COLOUR_CORAL
 
 // Build_Drag is a press-drag-release in progress: the drag primitive #302 builds here for refit.
 // (The Chart once reused it for a raise/lower swipe; #329 retired that for a click toggle, so the
@@ -53,8 +60,8 @@ build_shelf_rect :: proc(incoming: ship.Fitting) -> rl.Rectangle {
 	return rl.Rectangle{x = (WINDOW_WIDTH - w) / 2, y = BUILD_SHELF_Y, width = w, height = h}
 }
 
-// build_done_rect is the steel "leave the refit" control — a Refit_Finish. It is not
-// amber: the amber is reserved for the granted item, and leaving is never the default.
+// build_done_rect is the "leave the refit" control — a Refit_Finish. It is not amber: the
+// amber is reserved for the granted item, and leaving is never the default.
 build_done_rect :: proc() -> rl.Rectangle {
 	return rl.Rectangle{x = WINDOW_WIDTH - 150, y = BUILD_HEADING_Y - 6, width = 130, height = 34}
 }
@@ -157,10 +164,12 @@ build_confirm_command :: proc(confirm: Build_Confirm) -> sim.Command {
 	return sim.Command(sim.Command_Refit{command = sim.Refit_Remove{slot = confirm.slot}})
 }
 
-// build_slot_at returns the slot whose card the point is over, or nil — asked of the
-// cutaway module, so the click resolves against the same rects the drawing used.
+// build_slot_at returns the slot whose room the point is over, or nil — asked of the cutaway
+// module over the same view the drawing used, so the click resolves against the rooms the eye
+// sees. The view is built at the logical frame size, which is what keeps picking in the same
+// coordinate system as the mouse in the borderless-fullscreen build (cutaway.View).
 build_slot_at :: proc(state: ^Game_State, point: rl.Vector2) -> Maybe(ship.Slot_Index) {
-	return cutaway.cutaway_slot_at(state.player.layout, cutaway.cutaway_home_region(WINDOW_WIDTH), point)
+	return cutaway.galleon_room_at(state.player.layout, point, cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))
 }
 
 // build_begin_drag decides whether a press starts a drag, and from where: the shelf item
@@ -266,36 +275,18 @@ draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(
 // draw_build_surface_body composes the Cutaway without owning the frame's Begin/EndDrawing, so
 // Home (draw_home) can lay the raised chart over the same surface inside one drawing pair.
 // `at_home` is the two Home/Refit differences: a granted Refit is titled "Refit" and shows a
-// steel Done (Refit_Finish); Home is the persistent "At Anchor" ground and shows no Done — it
+// Done control (Refit_Finish); Home is the persistent "At Anchor" ground and shows no Done — it
 // leaves by sailing, not by finishing, so its Home wrapper draws a chart tab over this body
 // instead. Everything else is shared, and the shelf block is naturally skipped at Home, where
 // there is never a granted item.
 draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2, at_home: bool) {
-	rl.ClearBackground(COLOUR_DEEP)
+	// The ship herself, and everything that reads off her rooms: the hover highlight and its
+	// description card, and — while a drag is up — the berths the fitting in hand may land in
+	// lit and the rest dimmed (#302).
+	draw_ship_cutaway(state, drag, mouse)
 
-	region := cutaway.cutaway_home_region(WINDOW_WIDTH)
-	draw_build_hull(region)
-	rects, n := cutaway.cutaway_slot_rects(state.player.layout, region)
-
-	// A drag dims everything that is not a legal berth for it, so the eye is drawn to where
-	// the fitting can land (#302). With no drag, nothing dims.
 	incoming, has_incoming := state.refit_incoming.?
 	dragging := drag.active
-
-	draw_build_zone_label(rl.Vector2{45, 74}, "TOPSIDE", .Exposed)
-	draw_build_zone_label(rl.Vector2{45, region.waterline_y + 6}, "BELOW", .Concealed)
-
-	for i in 0 ..< n {
-		// The slot the drag was lifted from reads as empty while the fitting is in the air.
-		layout_slot := state.player.layout[i]
-		if dragging {
-			if from, ok := drag.from_slot.?; ok && int(from) == i {
-				layout_slot.fitting = nil
-			}
-		}
-		legal := dragging && build_is_legal_berth(state, drag, ship.Slot_Index(i))
-		draw_build_card(rects[i], layout_slot, dragging && !legal, legal)
-	}
 
 	// The ledger arms as a burn target only while a laden berth is in the air: nothing else
 	// can be burned, so it stays an inert stats strip the rest of the time.
@@ -321,11 +312,6 @@ draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: M
 	}
 
 	draw_build_heading(at_home ? "At Anchor" : "Refit")
-	// At Home the parchment page brings its own torn edge as the frame (spec 0001 §2), so no
-	// vignette here; Refit is a separate surface and keeps its own.
-	if !at_home {
-		draw_vignette()
-	}
 	draw_chart_table_version_stamp()
 }
 
@@ -412,21 +398,6 @@ draw_build_hull :: proc(region: cutaway.Region) {
 // granted Refit reads "Refit", the persistent Home "At Anchor".
 draw_build_heading :: proc(title: string) {
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{45, BUILD_HEADING_Y}, UI_BODY_SIZE, 1, COLOUR_CREAM)
-}
-
-// draw_build_zone_label draws a zone's name with a supporting eye / eye-off glyph: what a
-// scout can see (Exposed) and can't (Concealed) per ADR-0030. The glyph is supporting, not
-// load-bearing — geography already carries the split — so it is small and dim.
-draw_build_zone_label :: proc(pos: rl.Vector2, label: string, visibility: ship.Visibility) {
-	eye_c := rl.Vector2{pos.x + 8, pos.y + 9}
-	tint := rl.Fade(COLOUR_STEEL, 0.7)
-	rl.DrawEllipseLines(i32(eye_c.x), i32(eye_c.y), 9, 5, tint)
-	rl.DrawCircleV(eye_c, 2, tint)
-	if visibility == .Concealed {
-		// The eye struck through: a hold is what an opponent cannot see.
-		rl.DrawLineEx(rl.Vector2{eye_c.x - 9, eye_c.y + 5}, rl.Vector2{eye_c.x + 9, eye_c.y - 5}, 2, tint)
-	}
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", label), rl.Vector2{pos.x + 24, pos.y}, UI_BODY_SIZE, 1, tint)
 }
 
 // draw_build_card draws one slot: a filled fitting (steel-bordered, draggable), a bare
@@ -578,8 +549,8 @@ draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
 
 // draw_build_ledger is the stats strip along the bottom, always visible: the shared
 // ship_stat_line (#428) with its Weight term, the derived reads (ADR-0020) not the raw
-// fields. A recessive-blue-bordered translucent panel — inert chrome, framed by its role
-// tone.
+// fields. Words live on parchment (the guide's two grounds), which is also what keeps the
+// numbers legible over open water.
 //
 // `armed` turns it into the burn target (#401): with a laden berth in the air the border
 // takes the danger tone and the strip names what a drop would do, brightening on `hovered`.
@@ -587,10 +558,10 @@ draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
 // ledger is both what the burn costs and where it is paid.
 draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool = false) {
 	panel := build_ledger_rect()
-	rl.DrawRectangleRec(panel, rl.Fade(COLOUR_GROUND, armed && hovered ? 0.8 : 0.6))
-	rl.DrawRectangleLinesEx(panel, 2, armed ? BUILD_DANGER : COLOUR_BLUE_RECESSIVE)
+	rl.DrawRectangleRec(panel, rl.Fade(COLOUR_PARCHMENT, 0.94))
+	rl.DrawRectangleLinesEx(panel, 2, armed ? BUILD_DANGER : COLOUR_CLIFF)
 	if armed {
-		rl.DrawRectangleRec(panel, rl.Fade(BUILD_DANGER, hovered ? 0.28 : 0.12))
+		rl.DrawRectangleRec(panel, rl.Fade(BUILD_DANGER, hovered ? 0.35 : 0.15))
 		hint := fmt.ctprint("drop to burn this cargo")
 		size := rl.MeasureTextEx(ui_font_body, hint, UI_BODY_SIZE, 1)
 		rl.DrawTextEx(
@@ -599,34 +570,49 @@ draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool
 			rl.Vector2{panel.x + panel.width - size.x - 14, panel.y + (BUILD_LEDGER_H - UI_BODY_SIZE) / 2},
 			UI_BODY_SIZE,
 			1,
-			COLOUR_CREAM,
+			COLOUR_INK_PRIMARY,
 		)
 	}
 
 	text := fmt.ctprintf("%s", ship_stat_line(s = &state.player, weight = true))
-	rl.DrawTextEx(ui_font_body, text, rl.Vector2{panel.x + 14, panel.y + (BUILD_LEDGER_H - UI_BODY_SIZE) / 2}, UI_BODY_SIZE, 1, COLOUR_STEEL)
+	rl.DrawTextEx(
+		ui_font_body,
+		text,
+		rl.Vector2{panel.x + 14, panel.y + (BUILD_LEDGER_H - UI_BODY_SIZE) / 2},
+		UI_BODY_SIZE,
+		1,
+		COLOUR_INK_PRIMARY,
+	)
 }
 
-// draw_build_done draws the steel "leave the refit" control, its scrim lifting on hover
-// (hover is carried by the scrim, not by amber — the amber rule).
+// draw_build_done draws the "leave the refit" control: a sea-deep-outlined parchment tag, its
+// ground lifting on hover (hover is carried by the ground, not by amber — the amber rule).
 draw_build_done :: proc(mouse: rl.Vector2) {
 	rect := build_done_rect()
 	hovered := rl.CheckCollisionPointRec(mouse, rect)
-	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, hovered ? 0.75 : 0.55))
-	rl.DrawRectangleLinesEx(rect, 2, COLOUR_STEEL)
-	rl.DrawTextEx(ui_font_body, "Done", rl.Vector2{rect.x + 44, rect.y + (rect.height - UI_BODY_SIZE) / 2}, UI_BODY_SIZE, 1, COLOUR_STEEL)
+	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, hovered ? 1.0 : 0.88))
+	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
+	rl.DrawTextEx(
+		ui_font_body,
+		"Done",
+		rl.Vector2{rect.x + 44, rect.y + (rect.height - UI_BODY_SIZE) / 2},
+		UI_BODY_SIZE,
+		1,
+		COLOUR_INK_PRIMARY,
+	)
 }
 
 // draw_build_discard_zone draws the "this thing leaves the ship" target, only while a drag is
-// up. Muted maroon (the one warm the guide admits beside amber), brighter when the cursor is
-// over it. It is named for what it does to the *fitting* — the word Jettison belongs to cargo
-// (ADR-0028), which is the ledger's drop, so the two destructive targets never share a name.
+// up: a parchment panel washed in the danger tone, deepening when the cursor is over it. It is
+// named for what it does to the *fitting* — the word Jettison belongs to cargo (ADR-0028),
+// which is the ledger's drop, so the two destructive targets never share a name.
 draw_build_discard_zone :: proc(hovered: bool) {
 	rect := build_discard_rect()
-	rl.DrawRectangleRec(rect, rl.Fade(BUILD_DANGER, hovered ? 0.35 : 0.18))
+	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, 0.92))
+	rl.DrawRectangleRec(rect, rl.Fade(BUILD_DANGER, hovered ? 0.4 : 0.2))
 	rl.DrawRectangleLinesEx(rect, 2, BUILD_DANGER)
-	rl.DrawTextEx(ui_font_body, "Over the Side", rl.Vector2{rect.x + 14, rect.y + 12}, UI_BODY_SIZE, 1, COLOUR_STEEL)
-	rl.DrawTextEx(ui_font_body, "drag off to bin", rl.Vector2{rect.x + 14, rect.y + 40}, UI_BODY_SIZE, 1, rl.Fade(COLOUR_STEEL, 0.7))
+	rl.DrawTextEx(ui_font_body, "Over the Side", rl.Vector2{rect.x + 14, rect.y + 12}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
+	rl.DrawTextEx(ui_font_body, "drag off to bin", rl.Vector2{rect.x + 14, rect.y + 40}, UI_BODY_SIZE, 1, COLOUR_INK_MUTED)
 }
 
 // draw_build_confirm draws the release-to-confirm gate: a scrim over the surface and one amber
@@ -945,15 +931,15 @@ draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Con
 }
 
 // draw_home_chart_tab draws the interactive chart tab at Home's bottom-centre slot
-// (home_chart_tab_rect). Unlike the encounter's view-only twin it is a steel control whose
-// scrim lifts on hover, and its caret points up to raise the chart or down to lower it, flipping
-// once the chart passes its midpoint. A shape, not a glyph, wound to survive raylib's clockwise
-// cull.
+// (home_chart_tab_rect). Unlike the encounter's view-only twin it is a live control whose
+// parchment lifts on hover, and its caret points up to raise the chart or down to lower it,
+// flipping once the chart passes its midpoint. A shape, not a glyph, wound to survive raylib's
+// clockwise cull.
 draw_home_chart_tab :: proc(raise: f32, mouse: rl.Vector2) {
 	rect := home_chart_tab_rect()
 	hovered := rl.CheckCollisionPointRec(mouse, rect)
-	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, hovered ? 0.75 : 0.55))
-	draw_subpanel_border(rect, true)
+	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, hovered ? 1.0 : 0.88))
+	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
 
 	// Past the midpoint the tab reads "Lower" and its caret points down; at rest raise is 0 or 1,
 	// so this tracks chart_target, and mid-flip it turns over as the chart crosses halfway.
@@ -970,14 +956,14 @@ draw_home_chart_tab :: proc(raise: f32, mouse: rl.Vector2) {
 			rl.Vector2{caret_cx - 7, cy - 4},
 			rl.Vector2{caret_cx, cy + 6},
 			rl.Vector2{caret_cx + 7, cy - 4},
-			COLOUR_STEEL,
+			COLOUR_INK_PRIMARY,
 		)
 	} else {
 		rl.DrawTriangle(
 			rl.Vector2{caret_cx - 7, cy + 4},
 			rl.Vector2{caret_cx + 7, cy + 4},
 			rl.Vector2{caret_cx, cy - 6},
-			COLOUR_STEEL,
+			COLOUR_INK_PRIMARY,
 		)
 	}
 	rl.DrawTextEx(
@@ -986,6 +972,6 @@ draw_home_chart_tab :: proc(raise: f32, mouse: rl.Vector2) {
 		rl.Vector2{group_x + CARET + GAP, rect.y + (rect.height - UI_BODY_SIZE) / 2},
 		UI_BODY_SIZE,
 		1,
-		COLOUR_STEEL,
+		COLOUR_INK_PRIMARY,
 	)
 }
