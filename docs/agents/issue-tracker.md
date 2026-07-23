@@ -11,6 +11,13 @@ Issues and PRDs for this repo live as GitHub Issues in `ssalter21/fantasy-ship-g
 - Native issue state is the source of truth for open/closed — there is no separate `Status:` line. "Resolved" means the issue is closed with an `## Answer` comment; "claimed" means it's open and assigned.
 - Comments and conversation history are ordinary GitHub issue comments.
 
+## Review boundary
+
+Where human review happens. Two modes; **this repo uses `ticket`**.
+
+- **`ticket`** (default): each implement ticket ends in its own PR to `main`, with `/code-review` run before the PR opens.
+- **`effort`**: one PR per feature. At `/to-tickets` publish time, cut `effort/<slug>` from `main`; each implement ticket carries a `## Target branch` section naming it and lands there as one unsquashed commit (per-ticket `/code-review` is the gate at that granularity). A final **integrate ticket** — blocked by every other ticket — rebases the branch on `main`, runs the full suite and `/code-review` against the merge-base, then opens the single PR `effort/<slug>` → `main`, its body assembled from the spec and the map's Decisions-so-far.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a new issue: `gh issue create --title "<title>" --label "effort:<slug>,type:<kind>,needs-triage" --body "<body>"`. To attach it to a tracking/map issue, wire it as a **native sub-issue** — pass `--parent <map-number>` at creation (or `gh issue edit <map-number> --add-sub-issue <n>` after) rather than only mentioning the parent in the body. See "Wayfinding operations" for the full child-ticket recipe.
