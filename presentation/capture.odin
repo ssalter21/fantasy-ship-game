@@ -61,6 +61,7 @@ capture_main :: proc() {
 
 	capture_shot_chart_table(&state)
 	capture_shot_home(&state)
+	capture_shot_ship_prototypes(&state) // PROTOTYPE: one shot per ship-view variant
 	capture_shot_build_surface(&state)
 	capture_shot_encounter_frame(&state)
 	capture_shot_offer_shop(&state)

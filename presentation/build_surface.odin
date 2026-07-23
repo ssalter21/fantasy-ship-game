@@ -167,6 +167,10 @@ build_slot_at :: proc(state: ^Game_State, point: rl.Vector2) -> Maybe(ship.Slot_
 // if the press is on it, else the filled slot under the press. An empty slot or open water
 // starts nothing.
 build_begin_drag :: proc(state: ^Game_State, point: rl.Vector2) -> (Build_Drag, bool) {
+	// PROTOTYPE: the side-view variants are read-only — no drag starts while one is up.
+	if proto_variant != .Current {
+		return {}, false
+	}
 	if incoming, has_incoming := state.refit_incoming.?; has_incoming {
 		if rl.CheckCollisionPointRec(point, build_shelf_rect(incoming)) {
 			return Build_Drag{active = true, from_slot = nil, fitting = incoming}, true
@@ -205,6 +209,7 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 
 	for {
 		window_quit_if_closed()
+		proto_poll() // PROTOTYPE: arrow keys / bar arrows cycle the ship-view variants
 		mouse := rl.GetMousePosition()
 
 		// Confirm sub-state: a destructive drop is one deliberate click away from committing,
@@ -271,6 +276,15 @@ draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(
 // instead. Everything else is shared, and the shelf block is naturally skipped at Home, where
 // there is never a granted item.
 draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2, at_home: bool) {
+	// PROTOTYPE (worktree-prototype-ship-side-view): while a side-view variant is up it owns
+	// the whole frame; the floating switcher stays on top so the eye can flip straight back.
+	if proto_variant != .Current {
+		draw_ship_prototype(state, mouse)
+		draw_proto_switcher(mouse)
+		draw_chart_table_version_stamp()
+		return
+	}
+
 	rl.ClearBackground(COLOUR_DEEP)
 
 	region := cutaway.cutaway_home_region(WINDOW_WIDTH)
@@ -327,6 +341,7 @@ draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: M
 		draw_vignette()
 	}
 	draw_chart_table_version_stamp()
+	draw_proto_switcher(mouse) // PROTOTYPE: the bar shows on the baseline too, to flip from
 }
 
 // slot_dragged reports whether the in-flight drag is a slot fitting (not the shelf item),
@@ -780,6 +795,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 
 	for {
 		window_quit_if_closed()
+		proto_poll() // PROTOTYPE: arrow keys / bar arrows cycle the ship-view variants
 		mouse := rl.GetMousePosition()
 		map_width_set(state, MAP_HOME_W) // the raised chart owns this screen — full-width page
 
