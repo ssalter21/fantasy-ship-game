@@ -14,8 +14,10 @@ import ship "../core/ship"
 import sim "../core/sim"
 import rl "vendor:raylib"
 
+// PROTOTYPE (fullscreen_proto.odin): 1244x700 is 16:9, so the scaled frame fills a
+// 1920x1080 monitor edge-to-edge instead of pillarboxing the old 1024-wide frame.
 @(private)
-WINDOW_WIDTH :: 1024
+WINDOW_WIDTH :: 1244
 @(private)
 WINDOW_HEIGHT :: 700
 
