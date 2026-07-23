@@ -33,6 +33,46 @@ COLOUR_CYAN :: rl.Color{111, 224, 236, 255} // subtitles and taglines; the eye's
 COLOUR_CYAN_DIM :: rl.Color{87, 181, 195, 255} // hints and secondary help text
 COLOUR_BLUE_RECESSIVE :: rl.Color{58, 90, 130, 255} // present but never read first
 
+// The guide's bright roster — the sea, the sky it sits under, and the warm neutrals of land
+// and timber. The navy ramp above is the superseded direction the other screens still draw
+// from; these are the swatches the ship screen paints its galleon and its water from, and
+// every screen re-coloured after it will take them too.
+//
+// The names track the guide's roster rows, with one forced rename: the roster's "Shallow" is
+// COLOUR_SEA_SHALLOW here, because COLOUR_SHALLOW is already the navy ramp's third stop.
+COLOUR_SEA :: rl.Color{31, 169, 208, 255} // the world backdrop, and the sea itself
+COLOUR_SEA_BRIGHT :: rl.Color{44, 195, 222, 255} // near-surface water, highlights
+COLOUR_SEA_SHALLOW :: rl.Color{99, 226, 236, 255} // brightest cool; where water meets land
+COLOUR_SEA_DEEP :: rl.Color{23, 134, 188, 255} // distance, and interactive borders on parchment
+COLOUR_FOAM :: rl.Color{242, 251, 251, 255} // whitecaps and dividers; the brightest thing allowed
+
+COLOUR_SKY_HIGH :: rl.Color{63, 121, 192, 255}
+COLOUR_SKY :: rl.Color{90, 147, 210, 255}
+COLOUR_HAZE :: rl.Color{143, 188, 232, 255} // the band of sky just above the horizon
+COLOUR_CLOUD :: rl.Color{238, 241, 248, 255}
+COLOUR_CLOUD_SHADOW :: rl.Color{183, 188, 224, 255}
+
+COLOUR_PARCHMENT :: rl.Color{235, 217, 166, 255} // the ground for text: panels and cards
+COLOUR_SAND :: rl.Color{210, 169, 104, 255} // panel shade, dividers, gilding
+COLOUR_CLIFF :: rl.Color{185, 138, 80, 255} // deeper sand; borders, and weather-deck timber
+COLOUR_ROCK :: rl.Color{126, 92, 58, 255} // the darkest warm; hull planking
+COLOUR_TRUNK :: rl.Color{135, 95, 56, 255} // masts, yards, spars
+
+COLOUR_CORAL :: rl.Color{225, 85, 43, 255} // scarce by law: danger and damage
+
+COLOUR_INK_PRIMARY :: rl.Color{18, 51, 63, 255} // titles and body on parchment; deep teal, not black
+COLOUR_INK_MUTED :: rl.Color{76, 115, 133, 255} // secondary and help text on parchment
+
+// colour_shade multiplies a colour's channels by `factor`, clamped to the byte range. A lit
+// face and a shadowed one are then the same roster swatch under different light, rather than
+// two swatches that have to be kept in step by hand.
+colour_shade :: proc(colour: rl.Color, factor: f32) -> rl.Color {
+	channel :: proc(value: u8, factor: f32) -> u8 {
+		return u8(clamp(f32(value) * factor, 0, 255))
+	}
+	return rl.Color{channel(colour.r, factor), channel(colour.g, factor), channel(colour.b, factor), colour.a}
+}
+
 // The size scale, whole. Pixel Operator is a native-16px pixel face: measured 0.0%
 // antialiased at 16 and 32 (both integer multiples of its pixel em) and mush off that
 // grid — 86% at 20px, 40% at 40px. The scale is therefore 32/16, the two crisp sizes

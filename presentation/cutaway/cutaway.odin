@@ -3,29 +3,19 @@ package cutaway
 import ship "../../core/ship"
 import rl "vendor:raylib"
 
-// The cutaway module owns where the ship's cross-section puts every slot (#426): given a
-// layout and a Region, cutaway_slot_rects is the one answer to "where does this slot sit",
-// and drawing and hit-testing both ask it — the two can no longer disagree by convention.
-// The slot-geometry constants live here, unexported, so no screen can grow a private copy.
-// Painting stays with the callers: this package decides *where*, never *how it looks*.
+// The cutaway module owns where a ship's slots sit (#426), in either of the two forms the
+// game draws them: this file's flat cross-section, laid into a Region for the encounter
+// screens, and galleon.odin's three-quarter hull for the ship screen. Each gives one answer to
+// "where does this slot sit", and drawing and hit-testing both ask it — the two can no longer
+// disagree by convention. The geometry constants live here, so no screen can grow a private
+// copy. Painting stays with the callers: this package decides *where*, never *how it looks*.
 
 // MAX_SLOTS bounds a laid-out cutaway — the vertical-slice ship's 8 (#91). Exported because
-// it is the size of cutaway_slot_rects' value-array return.
+// it is the size of the value-array both layouts return.
 MAX_SLOTS :: 8
 
 @(private)
 SLOT_GAP :: 18
-
-// The Home/Build cross-section lines (cutaway_home_region). The keel sits clear above the
-// Build surface's stats ledger (y 650).
-@(private)
-HOME_DECK_Y :: 100
-@(private)
-HOME_WATERLINE_Y :: 290
-@(private)
-HOME_HOLD_Y :: 312
-@(private)
-HOME_KEEL_Y :: 610
 
 // Region is where a ship's cross-section sits on screen: the horizontal span the rows
 // centre in, the four heights the geography hangs off — deck (exposed stations), waterline
@@ -40,21 +30,6 @@ Region :: struct {
 	hold_y:      f32,
 	keel_y:      f32,
 	scale:       f32,
-}
-
-// cutaway_home_region is the full-window region Home and a granted Refit draw at scale 1 —
-// the canonical cutaway, whose lines the encounter screens compress. `w` is the window's
-// width; the caller owns the window, so the one thing the region can't decide comes in.
-cutaway_home_region :: proc(w: f32) -> Region {
-	return Region {
-		x           = 0,
-		w           = w,
-		deck_y      = HOME_DECK_Y,
-		waterline_y = HOME_WATERLINE_Y,
-		hold_y      = HOME_HOLD_Y,
-		keel_y      = HOME_KEEL_Y,
-		scale       = 1,
-	}
 }
 
 // cutaway_card_dims is a card's footprint by slot size — Large > Medium > Small — so size

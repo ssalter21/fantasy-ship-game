@@ -375,10 +375,9 @@ draw_fight_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, gate:
 
 // draw_fight_visibility_badge marks a slot's visibility with a small eye (seen) or
 // struck-through eye (concealed) — a shape, not a font glyph (the guide: glyphs are shapes),
-// the same eye idiom draw_build_zone_label uses for the whole zone, here narrowed to the one
-// slot because a Fight reads visibility per slot (#305). It sits bottom-right, clear of the
-// name (top-left) and the chip / holds line (bottom-left), so a long clipped name never runs
-// under it.
+// narrowed to the one slot because a Fight reads visibility per slot (#305). It sits
+// bottom-right, clear of the name (top-left) and the chip / holds line (bottom-left), so a
+// long clipped name never runs under it.
 draw_fight_visibility_badge :: proc(rect: rl.Rectangle, visibility: ship.Visibility) {
 	c := rl.Vector2{rect.x + rect.width - 13, rect.y + rect.height - 13}
 	tint := rl.Fade(COLOUR_STEEL, 0.85)

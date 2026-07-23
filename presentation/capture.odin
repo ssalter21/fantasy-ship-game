@@ -178,12 +178,32 @@ capture_shot_home :: proc(state: ^Capture_State) {
 	capture_write(state, "home-chart")
 }
 
+// capture_room_centre is where a cursor has to be to point into a berth: the middle of that
+// slot's projected opening. NO_MOUSE (over nothing) when the slot placed no room.
+@(private)
+capture_room_centre :: proc(
+	rooms: [cutaway.MAX_SLOTS]cutaway.Room,
+	n: int,
+	slot: ship.Slot_Index,
+) -> (
+	rl.Vector2,
+	bool,
+) {
+	room, placed := cutaway.galleon_room_for_slot(rooms, n, slot)
+	if !placed {
+		return NO_MOUSE, false
+	}
+	return cutaway.galleon_face_centre(cutaway.galleon_room_face(room, cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))),
+		true
+}
+
 // capture_shot_build_surface photographs the Cutaway Build surface on the real starting
-// ship (#302), the three states capture can reach without a mouse: at rest, with a granted
-// item on the shelf, and mid-drag with the ghost over a legal berth. Like the Chart Table
-// it needs no Sim — the surface reads only the ship — so it is shot standalone here rather
-// than from the scripted walk, which never opens a Refit. The drag state is hard-coded, the
-// same trick the run-game skill uses to photograph a hover capture otherwise can't see.
+// ship (#302), the states capture can reach without a mouse: at rest, hovering a berth, with a
+// granted item on the shelf, mid-drag with the ghost over a legal berth, and the burn's two
+// frames. Like the Chart Table it needs no Sim — the surface reads only the ship — so it is
+// shot standalone here rather than from the scripted walk, which never opens a Refit. The
+// cursor and drag states are hard-coded, the same trick the run-game skill uses to photograph
+// what capture otherwise can't see.
 @(private)
 capture_shot_build_surface :: proc(state: ^Capture_State) {
 	if !rl.IsWindowReady() {
@@ -198,6 +218,16 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
 	capture_write(state, "build")
 
+	// Hovering a berth: its opening lit, and its description card thrown clear of the hull on a
+	// leader line. Capture has no mouse, so the cursor is placed on the sterncastle's opening —
+	// the same point a real hover lands on, and the only way this state is photographable.
+	rooms, n := cutaway.galleon_rooms(game.player.layout)
+	if over, aimed := capture_room_centre(rooms, n, 0); aimed {
+		draw_build_surface(&game, Build_Drag{}, nil, over)
+		draw_build_surface(&game, Build_Drag{}, nil, over)
+		capture_write(state, "build-hover")
+	}
+
 	// A granted Large item waiting on the shelf — the surface's one amber.
 	granted, ok := ship.ship_item_by_name("Long Nines")
 	if !ok {
@@ -210,12 +240,8 @@ capture_shot_build_surface :: proc(state: ^Capture_State) {
 
 	// Mid-drag: the granted item lifted, its ghost over the empty Large forecastle, legal
 	// berths lit and the rest dimmed. The forecastle is the fourth deck slot.
-	rects, n := cutaway.cutaway_slot_rects(game.player.layout, cutaway.cutaway_home_region(WINDOW_WIDTH))
 	drag := Build_Drag{active = true, from_slot = nil, fitting = granted.fitting}
-	over := NO_MOUSE
-	if n > 3 {
-		over = rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}
-	}
+	over, _ := capture_room_centre(rooms, n, 3)
 	draw_build_surface(&game, drag, nil, over)
 	draw_build_surface(&game, drag, nil, over)
 	capture_write(state, "build-placing")
