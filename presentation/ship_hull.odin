@@ -65,10 +65,14 @@ hull_section_t :: proc(x, y: f32) -> f32 {
 }
 
 // hull_cut_t is the top of the port planking below the cut: a long window opened in her side
-// from just under the hold floor, closing up to the rail at the stem so the bow wraps round
-// rather than ending in a slice.
+// over the compartments, closing up to the rail at *both* ends so the bow and the quarter wrap
+// round rather than ending in a slice. Closing it only forward — which is all the first pass
+// did — left her whole after end an open shell with the transom standing behind it, and the
+// gaps between the two read exactly as the holes they were.
 hull_cut_t :: proc(x: f32) -> f32 {
-	closing := clamp((x - 3.05) / 0.62, 0, 1)
+	stem := clamp((x - 3.05) / 0.62, 0, 1)
+	post := clamp((-2.9 - x) / 0.55, 0, 1)
+	closing := max(stem, post)
 	rail := cutaway.galleon_sheer_y(x)
 	return hull_section_t(x, HULL_CUT_Y + (rail - HULL_CUT_Y) * closing * closing)
 }
@@ -81,18 +85,40 @@ hull_bulwark_t :: proc(x: f32) -> f32 {
 	return max(hull_section_t(x, cutaway.GALLEON_DECK_Y - 0.02), hull_cut_t(x))
 }
 
-// hull_timber is a strake's wood at height y: oak topsides in alternating courses, and copper
-// sheathing under the waterline going green with depth. The alternation is what gives the skin
-// planking without a single drawn line.
+// hull_water is the sea laid over a strake that is under it — applied to the *lit* colour, not
+// to the timber, because the water is the last thing between the hull and the eye. Doing it the
+// other way round tints the wood itself and then shades the result down, which is what left her
+// bottom a dark olive wedge beside bright turquoise: it read as a hole in her side rather than
+// as copper seen through a fathom of clear water.
+hull_water :: proc(lit: rl.Color, y: f32) -> rl.Color {
+	if y >= 0 {
+		return lit
+	}
+	sea := colour_mix(COLOUR_SEA_BRIGHT, COLOUR_SEA_SHALLOW, 0.5)
+	return colour_mix(lit, sea, (0.26 + 0.52 * min(-y / 0.95, 1)) * HULL_DEPTH_TINT)
+}
+
+// hull_timber is a strake's wood at height y: oak topsides in alternating courses, and the
+// brighter copper sheathing below the waterline. The alternation is what gives the skin planking
+// without a single drawn line. What the water then does to it is hull_water's business.
 hull_timber :: proc(y: f32, band: int) -> rl.Color {
 	if y < 0 {
-		copper := colour_shade(COLOUR_CLIFF, band % 2 == 0 ? 1.0 : 0.9)
-		return colour_mix(copper, COLOUR_SEA_BRIGHT, min(-y / 0.85, 1) * HULL_DEPTH_TINT)
+		return colour_shade(COLOUR_SAND, band % 2 == 0 ? 1.0 : 0.9)
 	}
 	// Her topsides are deliberately the darkest warm on the ship. Everything built on the deck —
 	// castles, rails, deck planking — is the lighter sand, so the hull reads as one mass under
 	// them instead of the whole ship washing out into a single tan.
 	return colour_shade(COLOUR_ROCK, band % 2 == 0 ? 0.88 : 0.76)
+}
+
+// hull_timber_inner is the same strake seen from *inboard* — the ceiling planking a compartment
+// is looked at across. It takes no depth tint whatever, and that is the whole point of it being
+// its own procedure: the tint is what a fathom of clear tropical water does to a colour seen
+// through it, and there is no water inside a hold. Shading the outer colour for the inner face,
+// which is what the first pass did, filled every compartment below the waterline with teal — and
+// what that reads as, unmistakably, is a hull full of standing water.
+hull_timber_inner :: proc(band: int) -> rl.Color {
+	return colour_shade(COLOUR_CLIFF, band % 2 == 0 ? 0.72 : 0.64)
 }
 
 // draw_ship_hull plates her: the skin both sides, the cut edge, the keel and posts, the wales,
@@ -105,11 +131,14 @@ draw_ship_hull :: proc() {
 	for i in 0 ..< HULL_STRIPS {
 		x0 := stern + f32(i) * step
 		x1 := x0 + step
-		cut := min(hull_cut_t(x0), hull_cut_t(x1))
-		bulwark := max(hull_bulwark_t(x0), hull_bulwark_t(x1))
-		draw_hull_side(x0, x1, 1, 0, 1) // starboard, whole from keel to rail
-		draw_hull_side(x0, x1, -1, 0, cut) // port below the window
-		draw_hull_side(x0, x1, -1, bulwark, 1) // port above it: the bulwark and its rail
+		// Each band is taken to the cut's height *at each end of the strip*, not to one height
+		// for the whole of it. Squaring them off — the lower band to the lowest cut across the
+		// strip, the upper to the highest — leaves a triangular sliver of nothing wherever the
+		// cut is climbing, which it does hard at both her ends. Those slivers were the ragged
+		// wedges of daylight in her bow and quarter.
+		draw_hull_side(x0, x1, 1, 0, 0, 1, 1) // starboard, whole from keel to rail
+		draw_hull_side(x0, x1, -1, 0, 0, hull_cut_t(x0), hull_cut_t(x1)) // port below the window
+		draw_hull_side(x0, x1, -1, hull_bulwark_t(x0), hull_bulwark_t(x1), 1, 1) // the bulwark above it
 		draw_hull_cut_edge(x0, x1, hull_cut_t, 1)
 		draw_hull_cut_edge(x0, x1, hull_bulwark_t, -1)
 		draw_hull_keel(x0, x1)
@@ -123,30 +152,36 @@ draw_ship_hull :: proc() {
 	draw_hull_stem()
 }
 
-// draw_hull_side plates one strip of one side over a run of the section, `lo` to `hi`. Both
-// faces of the planking are laid: the outer skin, and the inner face the cutaway looks across
-// the ship at — lit by the opposite normal, since a hull's inside is in its own shadow. Strakes
-// are counted off the section itself rather than off this run's subdivisions, so the courses
-// line up across a cut instead of stepping at it.
-draw_hull_side :: proc(x0, x1, side, lo, hi: f32) {
-	if hi - lo <= 0.002 {
+// draw_hull_side plates one strip of one side over a run of the section. The run is given at
+// each end of the strip — `lo0`..`hi0` at x0 and `lo1`..`hi1` at x1 — so a band whose top or
+// bottom is climbing keeps its two ends where they belong and meets its neighbour exactly.
+// Both faces of the planking are laid: the outer skin, and the inner face the cutaway looks
+// across the ship at, lit by the opposite normal, since a hull's inside is in its own shadow.
+// Strakes are counted off the section itself rather than off this run's subdivisions, so the
+// courses line up across a cut instead of stepping at it.
+draw_hull_side :: proc(x0, x1, side, lo0, lo1, hi0, hi1: f32) {
+	if hi0 - lo0 <= 0.002 && hi1 - lo1 <= 0.002 {
 		return
 	}
 	for j in 0 ..< HULL_BANDS {
-		t0 := lo + (hi - lo) * f32(j) / HULL_BANDS
-		t1 := lo + (hi - lo) * f32(j + 1) / HULL_BANDS
+		f0 := f32(j) / HULL_BANDS
+		f1 := f32(j + 1) / HULL_BANDS
+		t0 := lo0 + (hi0 - lo0) * f0 // at x0, bottom of the band
+		u0 := lo1 + (hi1 - lo1) * f0 // at x1, bottom
+		t1 := lo0 + (hi0 - lo0) * f1 // at x0, top
+		u1 := lo1 + (hi1 - lo1) * f1 // at x1, top
 
 		a := hull_surface(x0, t0, side)
-		b := hull_surface(x1, t0, side)
-		c := hull_surface(x1, t1, side)
+		b := hull_surface(x1, u0, side)
+		c := hull_surface(x1, u1, side)
 		d := hull_surface(x0, t1, side)
 		normal := hull_normal((x0 + x1) / 2, (t0 + t1) / 2, side)
 		timber := hull_timber((a.y + d.y) / 2, int((t0 + t1) * 7))
 
-		ship_quad_lit(a, b, c, d, timber, normal)
+		ship_quad_flat(a, b, c, d, hull_water(ship_lit(timber, ship_facing((a + c) / 2, normal)), (a.y + d.y) / 2))
 
 		inner := normal * HULL_SKIN
-		ship_quad_lit(a - inner, b - inner, c - inner, d - inner, colour_shade(timber, 0.88), -normal)
+		ship_quad_lit(a - inner, b - inner, c - inner, d - inner, hull_timber_inner(int((t0 + t1) * 7)), -normal)
 	}
 }
 
@@ -172,19 +207,24 @@ draw_hull_cut_edge :: proc(x0, x1: f32, edge: proc(x: f32) -> f32, facing: f32) 
 draw_hull_keel :: proc(x0, x1: f32) {
 	y0 := cutaway.galleon_keel_y(x0)
 	y1 := cutaway.galleon_keel_y(x1)
-	KEEL :: f32(0.075)
+	// The keel narrows into the posts along with her. Carried out to the stem at full width it
+	// is wider than the hull above it — the entry fines to a knife edge and a slab of keel then
+	// stands out either side of it, which reads as a lump stuck on the bow rather than a stem.
+	fullness := cutaway.galleon_half_beam((x0 + x1) / 2) / cutaway.GALLEON_HALF_BEAM
+	KEEL := 0.075 * (0.40 + 0.60 * fullness)
 	DROP :: f32(0.09)
-	oak := colour_mix(colour_shade(COLOUR_ROCK, 0.8), COLOUR_SEA_BRIGHT, min(-(y0 + y1) / 2 / 0.85, 1) * HULL_DEPTH_TINT)
+	oak := colour_shade(COLOUR_ROCK, 1.05)
+	deep := (y0 + y1) / 2 - DROP / 2
 
-	ship_quad_lit({x0, y0 - DROP, -KEEL}, {x1, y1 - DROP, -KEEL}, {x1, y1, -KEEL}, {x0, y0, -KEEL}, oak, {0, 0, -1})
-	ship_quad_lit({x0, y0 - DROP, KEEL}, {x0, y0, KEEL}, {x1, y1, KEEL}, {x1, y1 - DROP, KEEL}, oak, {0, 0, 1})
-	ship_quad_lit(
+	side := hull_water(ship_lit(oak, {0, 0, -1}), deep)
+	ship_quad_flat({x0, y0 - DROP, -KEEL}, {x1, y1 - DROP, -KEEL}, {x1, y1, -KEEL}, {x0, y0, -KEEL}, side)
+	ship_quad_flat({x0, y0 - DROP, KEEL}, {x0, y0, KEEL}, {x1, y1, KEEL}, {x1, y1 - DROP, KEEL}, side)
+	ship_quad_flat(
 		{x0, y0 - DROP, -KEEL},
 		{x0, y0 - DROP, KEEL},
 		{x1, y1 - DROP, KEEL},
 		{x1, y1 - DROP, -KEEL},
-		colour_shade(oak, 0.8),
-		{0, -1, 0},
+		hull_water(ship_lit(oak, {0, -1, 0}), y0 - DROP),
 	)
 }
 
@@ -198,7 +238,12 @@ draw_hull_cap :: proc(x, facing: f32) {
 		s0 := hull_surface(x, t0, 1)
 		s1 := hull_surface(x, t1, 1)
 		p1 := hull_surface(x, t1, -1)
-		ship_quad_lit(p0, s0, s1, p1, hull_timber(p0.y, j), {facing, 0, 0})
+		ship_quad_flat(p0, s0, s1, p1, hull_water(ship_lit(hull_timber(p0.y, j), ship_facing(p0, {facing, 0, 0})), p0.y))
+
+		// And its inboard face, a plank's thickness in. The cut looks straight down the length of
+		// the ship at both of these, so a cap with only an outside is a hole seen from within.
+		in_ := rl.Vector3{facing * HULL_SKIN, 0, 0}
+		ship_quad_lit(p0 - in_, s0 - in_, s1 - in_, p1 - in_, hull_timber_inner(j), {-facing, 0, 0})
 	}
 }
 
@@ -297,24 +342,44 @@ draw_hull_deck :: proc() {
 	}
 }
 
-// draw_hull_transom is her stern: the flat raked face across the quarters, the row of great-
-// cabin lights across it, and the taffrail capping the lot. A galleon is known by her stern
-// before anything else, so it is the one place the ornament is spent freely.
+// draw_hull_transom is her stern: the raked face across the quarters, the row of great-cabin
+// lights across it, and the taffrail capping the lot. A galleon is known by her stern before
+// anything else, so it is the one place the ornament is spent freely.
+//
+// It is built as a closed slab rather than a single plate. A plate has an edge, and every edge
+// of it stood open onto the inside of the ship — you could see daylight between the transom and
+// her quarters from almost anywhere on this camera. Outer face, inner face, and all four edges
+// capped: the stern is now an object.
 draw_hull_transom :: proc() {
 	x := cutaway.GALLEON_STERN_X
 	rail := cutaway.galleon_sheer_y(x)
 	beam := cutaway.galleon_frame_half_beam(x, rail)
 	top := rail + 0.44
+	oak := colour_shade(COLOUR_ROCK, 0.94)
 
-	// The transom face, raked aft as it rises.
-	ship_quad_lit(
+	// The four corners of the raked face, and the same four carried forward into the ship by
+	// the slab's thickness.
+	SLAB :: f32(0.13)
+	outer := [4]rl.Vector3 {
 		{x, rail - 0.08, -beam},
 		{x, rail - 0.08, beam},
 		{x - 0.22, top, beam * 0.94},
 		{x - 0.22, top, -beam * 0.94},
-		colour_shade(COLOUR_ROCK, 0.94),
-		{-0.9, 0.44, 0},
-	)
+	}
+	inner: [4]rl.Vector3
+	for corner, i in outer {
+		inner[i] = corner + rl.Vector3{SLAB, 0, 0}
+	}
+
+	ship_quad_lit(outer[0], outer[1], outer[2], outer[3], oak, {-0.9, 0.44, 0})
+	ship_quad_lit(inner[3], inner[2], inner[1], inner[0], hull_timber_inner(0), {0.9, -0.44, 0})
+	// The four edges of the slab, each capped between the two faces: the quarters either side,
+	// the head under the taffrail, and the heel where it meets her planking.
+	for i in 0 ..< 4 {
+		j := (i + 1) % 4
+		normal := rl.Vector3Normalize(rl.Vector3CrossProduct(outer[j] - outer[i], inner[i] - outer[i]))
+		ship_quad_lit(outer[i], outer[j], inner[j], inner[i], colour_shade(oak, 0.92), normal)
+	}
 
 	// The stern lights: a row of tall windows, warm behind their glazing bars.
 	for k in 0 ..< 5 {
@@ -348,25 +413,41 @@ draw_ship_ornament :: proc(rooms: [cutaway.MAX_SLOTS]cutaway.Room, n: int) {
 		}
 		top := room.centre.y + room.half.y + 0.03
 
-		// The deck over the castle, planked athwartships, and the gilded band capping its side.
+		// The deck over the castle, planked athwartships and following the castle's own taper —
+		// a roof cut to one width over a structure that narrows would overhang her side at the
+		// fine end and stand back from it at the full one.
 		PLANKS :: 6
 		for p in 0 ..< PLANKS {
 			x0 := room.centre.x + (f32(p) / PLANKS * 2 - 1) * (room.half.x + 0.05)
 			x1 := room.centre.x + (f32(p + 1) / PLANKS * 2 - 1) * (room.half.x + 0.05)
+			z0 := cutaway.galleon_room_half_z(room, x0) + 0.04
+			z1 := cutaway.galleon_room_half_z(room, x1) + 0.04
 			ship_quad_lit(
-				{x0, top, room.centre.z - room.half.z - 0.04},
-				{x1, top, room.centre.z - room.half.z - 0.04},
-				{x1, top, room.centre.z + room.half.z + 0.04},
-				{x0, top, room.centre.z + room.half.z + 0.04},
+				{x0, top, room.centre.z - z0},
+				{x1, top, room.centre.z - z1},
+				{x1, top, room.centre.z + z1},
+				{x0, top, room.centre.z + z0},
 				colour_shade(COLOUR_CLIFF, p % 2 == 0 ? 1.0 : 0.9),
 				{0, 1, 0},
 			)
 		}
-		ship_box(
-			{room.centre.x, top - 0.045, room.centre.z},
-			{2 * room.half.x + 0.12, 0.06, 2 * room.half.z + 0.1},
-			COLOUR_SAND,
-		)
+
+		// The gilded band capping her side under that deck, run down both quarters with the same
+		// taper — the strongest horizontal on the castle, and the line that ties roof to wall.
+		for side in ([2]f32{1, -1}) {
+			za := room.centre.z + side * (cutaway.galleon_room_half_z(room, room.centre.x - room.half.x) + 0.04)
+			zf := room.centre.z + side * (cutaway.galleon_room_half_z(room, room.centre.x + room.half.x) + 0.04)
+			x0 := room.centre.x - room.half.x - 0.05
+			x1 := room.centre.x + room.half.x + 0.05
+			ship_quad_lit(
+				{x0, top - 0.075, za},
+				{x1, top - 0.075, zf},
+				{x1, top, zf},
+				{x0, top, za},
+				COLOUR_SAND,
+				{0, 0, side},
+			)
+		}
 
 		// The rail round that deck: a capping bar on stanchions, drawn down her port side and
 		// across her after end, the two runs the camera sees.
@@ -387,8 +468,8 @@ draw_ship_ornament :: proc(rooms: [cutaway.MAX_SLOTS]cutaway.Room, n: int) {
 		// Lights down the far bulkhead of the great cabin, so the sterncastle is a room with
 		// windows in it rather than a crate.
 		if room.kind == .Sterncastle {
-			z := room.centre.z + room.half.z - 0.03
 			for wx := room.centre.x - room.half.x + 0.2; wx < room.centre.x + room.half.x - 0.1; wx += 0.34 {
+				z := room.centre.z + cutaway.galleon_room_half_z(room, wx) - 0.03
 				ship_box({wx, room.centre.y + 0.04, z}, {0.2, 0.3, 0.03}, COLOUR_PARCHMENT)
 				ship_box({wx, room.centre.y - 0.13, z}, {0.23, 0.04, 0.04}, COLOUR_SAND)
 			}
@@ -411,20 +492,26 @@ draw_ornament_bulkhead :: proc(room: cutaway.Room) {
 	x := room.centre.x + room.half.x + 0.03
 	sill := room.centre.y - room.half.y
 	height := 2 * room.half.y
+	// The face is at the room's forward end, so it is that end's width the fittings are set out
+	// across — the forecastle's forward bulkhead is barely a third the width of its after one.
+	half_z := room.half_fore
 	timber := colour_shade(COLOUR_CLIFF, 0.88)
 
 	for k in 0 ..< 5 {
-		z := room.centre.z + (f32(k) / 4 * 2 - 1) * (room.half.z - 0.06)
+		z := room.centre.z + (f32(k) / 4 * 2 - 1) * max(half_z - 0.06, 0.02)
 		ship_box({x, room.centre.y, z}, {0.03, height * 0.92, 0.05}, timber)
 	}
 
 	door := rl.Vector3{x + 0.02, sill + height * 0.34, room.centre.z}
-	ship_box(door, {0.04, height * 0.56, 0.24}, colour_shade(COLOUR_ROCK, 1.0))
-	ship_box({door.x + 0.01, door.y + height * 0.3, door.z}, {0.06, 0.05, 0.32}, COLOUR_SAND)
+	ship_box(door, {0.04, height * 0.56, min(0.24, half_z * 1.1)}, colour_shade(COLOUR_ROCK, 1.0))
+	ship_box({door.x + 0.01, door.y + height * 0.3, door.z}, {0.06, 0.05, min(0.32, half_z * 1.4)}, COLOUR_SAND)
 
-	for side in ([2]f32{1, -1}) {
-		z := room.centre.z + side * (room.half.z * 0.62)
-		ship_box({x + 0.02, sill + height * 0.66, z}, {0.04, height * 0.2, 0.17}, COLOUR_PARCHMENT)
+	// Lights either side of the door — only where the bulkhead is wide enough to carry them.
+	if half_z > 0.34 {
+		for side in ([2]f32{1, -1}) {
+			z := room.centre.z + side * (half_z * 0.62)
+			ship_box({x + 0.02, sill + height * 0.66, z}, {0.04, height * 0.2, 0.17}, COLOUR_PARCHMENT)
+		}
 	}
 }
 
@@ -433,20 +520,33 @@ draw_ornament_bulkhead :: proc(room: cutaway.Room) {
 draw_ornament_rail :: proc(room: cutaway.Room, top: f32) {
 	RAIL :: f32(0.15)
 	post := colour_shade(COLOUR_TRUNK, 1.05)
-	z := room.centre.z - room.half.z - 0.04
 	x_aft := room.centre.x - room.half.x - 0.05
+	x_fore := room.centre.x + room.half.x + 0.05
 
+	// Down her port side, each stanchion set on the roof edge where that edge actually runs.
 	for k in 0 ..< 6 {
-		f := f32(k) / 5
-		ship_box({x_aft + f * 2 * (room.half.x + 0.05), top + RAIL / 2, z}, {0.035, RAIL, 0.035}, post)
+		x := x_aft + f32(k) / 5 * (x_fore - x_aft)
+		z := room.centre.z - cutaway.galleon_room_half_z(room, x) - 0.04
+		ship_box({x, top + RAIL / 2, z}, {0.035, RAIL, 0.035}, post)
 	}
-	ship_box({room.centre.x, top + RAIL, z}, {2 * room.half.x + 0.12, 0.04, 0.05}, COLOUR_SAND)
+	z_aft := room.centre.z - cutaway.galleon_room_half_z(room, x_aft) - 0.04
+	z_fore := room.centre.z - cutaway.galleon_room_half_z(room, x_fore) - 0.04
+	ship_quad_lit(
+		{x_aft, top + RAIL, z_aft},
+		{x_fore, top + RAIL, z_fore},
+		{x_fore, top + RAIL + 0.045, z_fore},
+		{x_aft, top + RAIL + 0.045, z_aft},
+		COLOUR_SAND,
+		{0, 0, -1},
+	)
 
+	// And across her after end.
+	half_aft := room.half_aft + 0.04
 	for k in 0 ..< 4 {
 		f := f32(k) / 3
-		ship_box({x_aft, top + RAIL / 2, z + f * 2 * (room.half.z + 0.04)}, {0.035, RAIL, 0.035}, post)
+		ship_box({x_aft, top + RAIL / 2, room.centre.z - half_aft + f * 2 * half_aft}, {0.035, RAIL, 0.035}, post)
 	}
-	ship_box({x_aft, top + RAIL, room.centre.z}, {0.05, 0.04, 2 * room.half.z + 0.08}, COLOUR_SAND)
+	ship_box({x_aft, top + RAIL, room.centre.z}, {0.05, 0.04, 2 * half_aft}, COLOUR_SAND)
 }
 
 // draw_hull_stem is her bow above water: the stempost carrying up out of the planking, the

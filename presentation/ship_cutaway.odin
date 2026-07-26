@@ -47,6 +47,7 @@ draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector
 		hovered = cutaway.galleon_room_at(state.player.layout, mouse, view)
 	}
 
+	ship_paint_view(view.camera)
 	rl.BeginMode3D(view.camera)
 	draw_ship_hull()
 	for i in 0 ..< n {
@@ -147,40 +148,143 @@ draw_ship_face_highlight :: proc(face: [4]rl.Vector2, highlight: Room_Highlight)
 }
 
 // draw_ship_room paints one empty chamber, open on the cut side and on top so the camera looks
-// straight in. The waist is the open weather deck: it is planking and nothing else, since no
-// wall may stand up in the middle of the main deck.
+// straight in. It follows the room's taper (cutaway.galleon_room_half_z) rather than standing
+// as a box, so a compartment narrows into the ends of the ship along with the planking it is
+// cut into.
+//
+// A structure standing on the weather deck is not given a floor of its own: the deck *is* its
+// floor, and a second one laid at exactly the same height fought the first for the depth buffer
+// and left the castles flickering above a deck they never met. It gets a coaming instead — the
+// raised sill a real deckhouse is framed on — which is a join the eye can actually see.
 draw_ship_room :: proc(room: cutaway.Room, base: rl.Color) {
 	THICKNESS :: f32(0.05)
-	size := 2 * room.half
-
-	// Her decks run fore and aft like the weather deck above them, so a compartment's floor reads
-	// as laid planking rather than as a painted panel.
+	aft := room.centre.x - room.half.x
+	fore := room.centre.x + room.half.x
 	floor_y := room.centre.y - room.half.y
-	PLANKS :: 5
-	for p in 0 ..< PLANKS {
-		z0 := room.centre.z + (f32(p) / PLANKS * 2 - 1) * room.half.z
-		z1 := room.centre.z + (f32(p + 1) / PLANKS * 2 - 1) * room.half.z
-		tone := colour_shade(base, p % 2 == 0 ? 0.50 : 0.44)
-		ship_quad_lit(
-			{room.centre.x - room.half.x, floor_y, z0},
-			{room.centre.x + room.half.x, floor_y, z0},
-			{room.centre.x + room.half.x, floor_y, z1},
-			{room.centre.x - room.half.x, floor_y, z1},
-			tone,
-			{0, 1, 0},
-		)
+	on_deck := abs(floor_y - cutaway.GALLEON_DECK_Y) < 0.03
+
+	if !on_deck {
+		// Her decks run fore and aft like the weather deck above them, so a compartment's floor
+		// reads as laid planking rather than as a painted panel. The planks converge with the
+		// taper, which is what a deck laid in a narrowing hull does.
+		PLANKS :: 5
+		for p in 0 ..< PLANKS {
+			f0 := f32(p) / PLANKS * 2 - 1
+			f1 := f32(p + 1) / PLANKS * 2 - 1
+			z_aft := room.centre.z + f0 * room.half_aft
+			z_fore := room.centre.z + f0 * room.half_fore
+			w_aft := room.centre.z + f1 * room.half_aft
+			w_fore := room.centre.z + f1 * room.half_fore
+			// The floor is the one surface in a compartment turned up at the sky, so it is the one
+			// the light finds. Kept dark it took the last read of depth out of a room that is
+			// otherwise all shadowed wall.
+			tone := colour_shade(base, p % 2 == 0 ? 0.74 : 0.66)
+			ship_quad_lit({aft, floor_y, z_aft}, {fore, floor_y, z_fore}, {fore, floor_y, w_fore}, {aft, floor_y, w_aft}, tone, {0, 1, 0})
+		}
 	}
 
 	if room.kind == .Waist {
+		// The waist is the open weather deck between the castles. It has no floor of its own and
+		// no walls at all — nothing may stand up in the middle of the main deck.
 		return
 	}
 
-	// The bulkheads: aft, forward, and the far side. Lit rather than tinted by hand — the sun
-	// over the port quarter is what darkens the forward bulkhead and catches the after one, and
-	// that spread is what models the room. An open box shaded by one flat colour reads flat.
-	ship_box({room.centre.x, room.centre.y, room.centre.z + room.half.z}, {size.x, size.y, THICKNESS}, base)
-	ship_box({room.centre.x - room.half.x, room.centre.y, room.centre.z}, {THICKNESS, size.y, size.z}, base)
-	ship_box({room.centre.x + room.half.x, room.centre.y, room.centre.z}, {THICKNESS, size.y, size.z}, base)
+	if on_deck {
+		draw_ship_coaming(room, base)
+	}
+
+	// The after bulkhead, whole: it is the back wall of the room, and the sun over her quarter
+	// catches it, which is what gives the chamber its depth.
+	ship_box({aft, room.centre.y, room.centre.z}, {THICKNESS, 2 * room.half.y, 2 * room.half_aft}, base)
+
+	// The forward one is cut through, and that is not a shortcut — it is the whole cutaway. The
+	// camera stands off her bow, so a compartment's *forward* bulkhead is the wall between the
+	// eye and the room, presented near enough face-on to fill the opening. Drawn whole it is a
+	// broad panel turned away from the sun, and a row of them is one flat brown slab across the
+	// ship with every chamber sealed behind it — which is exactly what the belly of her read as.
+	// A cutaway drawing cuts the near end as well as the near side, and leaves the frame of it
+	// standing: sill, header, and the post at the outboard edge.
+	draw_ship_cut_bulkhead(room, base, fore, floor_y)
+
+	// The far side follows the taper, so it is laid as a raked wall rather than a slab: the
+	// outer face, the inner one the camera actually looks at, and the plank edge capping them.
+	top := room.centre.y + room.half.y
+	out_aft := room.centre.z + room.half_aft
+	out_fore := room.centre.z + room.half_fore
+	for inset in ([2]f32{0, THICKNESS}) {
+		za := out_aft - inset
+		zf := out_fore - inset
+		ship_quad_lit({aft, floor_y, za}, {fore, floor_y, zf}, {fore, top, zf}, {aft, top, za}, base, {0, 0, inset == 0 ? 1 : -1})
+	}
+	ship_quad_lit(
+		{aft, top, out_aft},
+		{fore, top, out_fore},
+		{fore, top, out_fore - THICKNESS},
+		{aft, top, out_aft - THICKNESS},
+		colour_shade(base, 1.1),
+		{0, 1, 0},
+	)
+
+	// Her frames, standing up the far side of the compartment. A hold is a space between ribs
+	// and they are the only thing in it — without them the back wall is a painted panel, and no
+	// amount of light on a panel makes it a room.
+	if room.kind == .Hold {
+		for f := f32(0.12); f < 0.99; f += 0.19 {
+			x := aft + f * 2 * room.half.x
+			z := room.centre.z + cutaway.galleon_room_half_z(room, x) - THICKNESS
+			ship_box({x, room.centre.y, z - 0.03}, {0.055, 2 * room.half.y * 0.96, 0.06}, colour_shade(base, 0.82))
+		}
+	}
+}
+
+// draw_ship_cut_bulkhead leaves the frame of a bulkhead the cut has gone through: the sill it
+// stood on, the header under the beams, and the post at its outboard edge — the raw sawn timber
+// of a cut, bright against the shadow inside, so the eye is told the wall was taken away rather
+// than never built. The middle is open, and the room is looked through it.
+draw_ship_cut_bulkhead :: proc(room: cutaway.Room, base: rl.Color, x, floor_y: f32) {
+	THICKNESS :: f32(0.05)
+	FRAME :: f32(0.08)
+	half_z := room.half_fore
+	height := 2 * room.half.y
+	sawn := colour_shade(COLOUR_CLIFF, 1.05)
+
+	ship_box({x, floor_y + FRAME / 2, room.centre.z}, {THICKNESS, FRAME, 2 * half_z}, sawn)
+	ship_box({x, floor_y + height - FRAME / 2, room.centre.z}, {THICKNESS, FRAME, 2 * half_z}, sawn)
+	ship_box({x, room.centre.y, room.centre.z + half_z - FRAME / 2}, {THICKNESS, height, FRAME}, base)
+}
+
+// draw_ship_coaming frames a deck structure onto the deck it stands on: the raised sill its
+// bulkheads are stepped into, run round all four sides of its footprint. It is a small piece
+// and it does a large job — without it a castle is a box resting on a plane, and the eye reads
+// it as floating rather than built.
+draw_ship_coaming :: proc(room: cutaway.Room, base: rl.Color) {
+	deck := cutaway.GALLEON_DECK_Y
+	SILL :: f32(0.075)
+	LIP :: f32(0.05)
+	oak := colour_shade(COLOUR_ROCK, 1.0)
+
+	aft := room.centre.x - room.half.x
+	fore := room.centre.x + room.half.x
+	ship_box({aft, deck + SILL / 2, room.centre.z}, {2 * LIP, SILL, 2 * room.half_aft + 2 * LIP}, oak)
+	ship_box({fore, deck + SILL / 2, room.centre.z}, {2 * LIP, SILL, 2 * room.half_fore + 2 * LIP}, oak)
+
+	// The two long sills, raked with the taper: the far one, and the threshold under the opening
+	// the camera looks over into the room.
+	for side in ([2]f32{1, -1}) {
+		za := room.centre.z + side * (room.half_aft + LIP)
+		zf := room.centre.z + side * (room.half_fore + LIP)
+		for y in ([2]f32{deck, deck + SILL}) {
+			ship_quad_lit(
+				{aft, y, za},
+				{fore, y, zf},
+				{fore, y, zf - side * LIP},
+				{aft, y, za - side * LIP},
+				colour_shade(oak, y == deck ? 0.8 : 1.15),
+				{0, y == deck ? -1 : 1, 0},
+			)
+		}
+		ship_quad_lit({aft, deck, za}, {fore, deck, zf}, {fore, deck + SILL, zf}, {aft, deck + SILL, za}, oak, {0, 0, side})
+	}
 }
 
 // SHIP_CARD is the hovered berth's description card, parked bottom-right over open water: the

@@ -26,7 +26,31 @@ SHIP_SUN :: rl.Vector3{-0.42, 0.80, -0.43}
 SHIP_AMBIENT :: f32(0.60)
 SHIP_SUNLIGHT :: f32(0.52)
 SHIP_SKY_FILL :: f32(0.14)
-SHIP_SEA_FILL :: f32(0.07)
+// The sea fill is large because the sea here is a mirror. The camera is down at the waterline
+// and everything above it — decks, the roofs of her castles, her counter — is seen from
+// *underneath*, so what lights the whole upper half of this ship is turquoise bounced up off
+// the water. Set as low as the sky fill it is balanced against, every underside on the ship
+// goes to flat ambient and she reads as a paper model.
+SHIP_SEA_FILL :: f32(0.24)
+
+// ship_eye is where the camera stands this frame. Lighting needs it because every surface here
+// is drawn two-sided — a cutaway is looked into from an angle that sees the inside of half of
+// what is drawn, and a culled face would be a silent hole — and the two sides of a surface do
+// not face the same way. Shading both from one normal paints the underside of a deck with the
+// sunlight falling on its top, which is why her decks and castle roofs read as flat lids
+// hanging in the air: from a camera at sea level you are looking at the *bottom* of every one
+// of them. ship_paint_view is called once before the 3D pass opens.
+ship_eye: rl.Vector3
+
+ship_paint_view :: proc(camera: rl.Camera3D) {
+	ship_eye = camera.position
+}
+
+// ship_facing turns a surface's outward normal into the normal of the side actually being
+// looked at, so the light lands on the face the eye is on.
+ship_facing :: proc(point: rl.Vector3, normal: rl.Vector3) -> rl.Vector3 {
+	return rl.Vector3DotProduct(ship_eye - point, normal) < 0 ? -normal : normal
+}
 
 // ship_lit is a roster swatch under this sun: one flat shade per surface, off that surface's
 // normal. Flat, not smooth, on purpose — the game's art is blocky, and a faceted hull keeps the
@@ -50,11 +74,22 @@ ship_quad :: proc(a, b, c, d: rl.Vector3, base: rl.Color) {
 // of a curved skin, where the true surface normal is known from the loft and the little quad
 // standing in for it is too nearly degenerate to hand back a usable one.
 ship_quad_lit :: proc(a, b, c, d: rl.Vector3, base: rl.Color, normal: rl.Vector3) {
-	colour := ship_lit(base, normal)
+	colour := ship_lit(base, ship_facing((a + c) / 2, normal))
 	// Wound both ways. raylib culls back faces into nothing, and a cutaway is looked into from
 	// an angle that sees the inside of half of what is drawn — a face culled away would be a
 	// silent hole, the failure mode the run-game skill warns about. Both windings carry the same
 	// shade, so the surface is lit by the normal above whichever side of it the camera is on.
+	rl.DrawTriangle3D(a, b, c, colour)
+	rl.DrawTriangle3D(a, c, d, colour)
+	rl.DrawTriangle3D(c, b, a, colour)
+	rl.DrawTriangle3D(d, c, a, colour)
+}
+
+// ship_quad_flat paints a surface whose colour has already been decided — for the skin below
+// the waterline, where the sun is not the last thing that happens to a strake. Water sits
+// between it and the eye, so the sea's colour goes *over* the lit timber rather than under it,
+// and a call site that needs that order has to do its own lighting first.
+ship_quad_flat :: proc(a, b, c, d: rl.Vector3, colour: rl.Color) {
 	rl.DrawTriangle3D(a, b, c, colour)
 	rl.DrawTriangle3D(a, c, d, colour)
 	rl.DrawTriangle3D(c, b, a, colour)

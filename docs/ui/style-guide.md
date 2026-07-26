@@ -437,6 +437,27 @@ normal**, which `presentation/ship_paint.odin` supplies as `ship_quad` / `ship_q
   see the inside of half of what is drawn. A wrongly-wound face is a silent hole, not a wrong colour.
 - **Cloth is not timber.** Canvas is one thickness with the sun behind it as often as in front, so it is lit off
   `abs(dot)` and brighter for it (`ship_quad_cloth`). Sails shaded like planks come out grey and dead.
+- **Light the side the eye is on.** Winding both ways means half of what is drawn is seen from behind, and the two
+  sides of a surface do not face the same way. `ship_facing` flips the normal toward the camera before shading, so
+  the underside of a deck is lit as an underside. Skip it and every horizontal surface is painted with the sun
+  falling on its *top* — on a camera at the waterline, which sees the bottom of every deck and castle roof on the
+  ship, that alone is the difference between a solid and a stack of flat lids.
+- **Water goes over the light, not under it.** A submerged strake is lit first and washed toward the sea's colour
+  second (`ship_lit` → `hull_water` → `ship_quad_flat`). Tinting the timber and *then* shading the result down
+  turns her copper into a dark olive wedge beside bright turquoise, which reads as a hole in her side.
+
+### A render texture loses alpha, and translucency pays for it
+
+Fullscreen composes into a `RenderTexture` and blits it (`presentation/fullscreen.odin`). raylib's default blend
+multiplies **alpha** by alpha as well as colour, so a target that starts opaque loses alpha wherever anything
+translucent is drawn into it — `a=0.85` over `a=1` leaves `0.87`, and it compounds. Composite that against the
+black letterbox and every soft mark on screen comes back up to a fifth darker than it was drawn.
+
+The blit therefore takes the target's colour verbatim and discards its alpha, via
+`rlgl.SetBlendFactorsSeparate(ONE, ZERO, ONE, ZERO, …)` under `BlendMode.CUSTOM_SEPARATE`. Two things follow:
+**`--capture` cannot photograph this** — capture draws at logical size with no texture in the path — and a
+windowed run cannot either. Sun haze, glitter, foam and highlight washes have to be checked in the **real
+fullscreen window**, by measuring, not by eye.
 
 ## What this guide does not cover
 

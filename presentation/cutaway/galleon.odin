@@ -48,14 +48,31 @@ Room_Kind :: enum {
 	Poop,
 }
 
-// Room is one berth's chamber: a box in hull space, open on the cut (-z) side and on top.
-// `half` is the half-extent on each axis, so the open face spans centre ± half in x and y at
-// z = centre.z - half.z.
+// Room is one berth's chamber in hull space, open on the cut (-z) side and on top. `half` is
+// the half-extent on each axis, and `half_aft`/`half_fore` are how far outboard it actually
+// reaches at its after and forward ends — a taper, because the hull is not a tube.
+//
+// The taper is the whole reason this is not a box. A compartment sized to one width has to
+// pick a width, and every choice is wrong somewhere: size it to its widest station and its
+// narrow end stands *through* her planking, which is what put ragged holes in the bow and the
+// stern; size it to its narrowest and the middle of the ship goes hollow. A room that carries
+// its own two ends fills the space it stands in and never leaves it. `half.z` is the larger of
+// the two, so anything wanting a single bounding number still has one.
 Room :: struct {
-	slot:   ship.Slot_Index,
-	centre: rl.Vector3,
-	half:   rl.Vector3,
-	kind:   Room_Kind,
+	slot:      ship.Slot_Index,
+	centre:    rl.Vector3,
+	half:      rl.Vector3,
+	half_aft:  f32,
+	half_fore: f32,
+	kind:      Room_Kind,
+}
+
+// galleon_room_half_z is how far outboard the room reaches at length x — its taper, read
+// anywhere along it. Both the painter and the picker go through this, so the planking of a
+// compartment and the opening the cursor tests against are the same surface.
+galleon_room_half_z :: proc(room: Room, x: f32) -> f32 {
+	f := clamp((x - (room.centre.x - room.half.x)) / max(2 * room.half.x, 0.001), 0, 1)
+	return room.half_aft + (room.half_fore - room.half_aft) * f
 }
 
 // View is everything needed to put a point in hull space onto the screen: the camera, and the
@@ -126,7 +143,11 @@ galleon_half_beam :: proc(x: f32) -> f32 {
 	f := galleon_length_fraction(x)
 	// Forward of two-thirds she fines away hard into the stem; aft of a third she is still
 	// filling out from the transom. The narrower of the two shapes her at any station.
-	entry := 1 - 0.80 * math.pow(clamp((f - 0.66) / 0.34, 0, 1), 1.6)
+	//
+	// The entry runs almost the whole way in, leaving a stem a hand's breadth across rather
+	// than the foot-wide slab an easier taper leaves. That slab was visible: a bow ending in a
+	// blunt little transom of its own, which no amount of stempost in front of it hid.
+	entry := 1 - 0.92 * math.pow(clamp((f - 0.66) / 0.34, 0, 1), 1.6)
 	run := 0.74 + 0.26 * math.pow(clamp(f / 0.30, 0, 1), 0.65)
 	return GALLEON_HALF_BEAM * min(entry, run)
 }
@@ -148,18 +169,16 @@ galleon_frame_half_beam :: proc(x, y: f32) -> f32 {
 // at the wale, a little below the deck edge. Above it the topsides fall inboard.
 GALLEON_WALE_T :: f32(0.68)
 
+// GALLEON_ROOM_INSET is how far inside her frames a compartment stands: the thickness of the
+// planking it is cut into, plus enough clearance that a corner never shows through it.
+GALLEON_ROOM_INSET :: f32(0.06)
+
 // galleon_room_half_beam is how far outboard a compartment may reach at length x with its floor
-// at y. A room is a box and the hull is a bowl, so a berth takes the beam her frames carry
-// across its own length, measured at its floor — the height where those frames are tightest.
-// The mean of its two ends rather than the tighter of them: a compartment fills the space it
-// stands in, and the last hand's breadth of a corner buried in the planking costs nothing,
-// where sizing every room to its narrow end would leave the ends of the ship visibly hollow.
-// This is what makes the cut openings step inboard toward the bow, following the hull the way
-// the cut in a real cutaway drawing does.
-galleon_room_half_beam :: proc(centre_x, half_x, floor_y: f32) -> f32 {
-	fore := galleon_frame_half_beam(centre_x + half_x, floor_y)
-	aft := galleon_frame_half_beam(centre_x - half_x, floor_y)
-	return (fore + aft) / 2 - 0.05
+// at y — the beam her frame carries there, less the planking. It is asked at each end of a room
+// rather than once for the whole of it, which is what makes the cut openings follow the hull in
+// toward the bow the way the cut in a real cutaway drawing does.
+galleon_room_half_beam :: proc(x, floor_y: f32) -> f32 {
+	return max(galleon_frame_half_beam(x, floor_y) - GALLEON_ROOM_INSET, 0.08)
 }
 
 // galleon_size_weight is how much of the below-deck floor's length one hold claims, by slot
@@ -184,9 +203,12 @@ galleon_size_weight :: proc(size: ship.Slot_Size) -> f32 {
 @(private)
 GALLEON_STRUCTURES :: [4]Room {
 	{centre = {-2.45, GALLEON_DECK_Y + 0.36, 0}, half = {1.0, 0.36, GALLEON_HALF_BEAM - 0.12}, kind = .Sterncastle},
-	{centre = {-2.7, GALLEON_DECK_Y + 0.92, 0}, half = {0.64, 0.3, GALLEON_HALF_BEAM - 0.2}, kind = .Poop},
+	// The poop's floor is the sterncastle's roof, so it is placed to stand *on* that roof rather
+	// than at a height of its own. Sunk into it — which is where the first placement put it — its
+	// own deck is buried and the two read as one lump with a step in it.
+	{centre = {-2.7, GALLEON_DECK_Y + 1.08, 0}, half = {0.64, 0.3, GALLEON_HALF_BEAM - 0.2}, kind = .Poop},
 	{centre = {0.45, GALLEON_DECK_Y + 0.4, 0}, half = {1.4, 0.4, GALLEON_HALF_BEAM - 0.06}, kind = .Waist},
-	{centre = {2.72, GALLEON_DECK_Y + 0.34, 0}, half = {0.84, 0.34, GALLEON_HALF_BEAM - 0.12}, kind = .Forecastle},
+	{centre = {2.62, GALLEON_DECK_Y + 0.34, 0}, half = {0.78, 0.34, GALLEON_HALF_BEAM - 0.12}, kind = .Forecastle},
 }
 
 // The below-deck floor's extent: it stops short of the stem and the transom, and is capped by
@@ -217,8 +239,12 @@ galleon_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [MAX_SLOTS]Room, n:
 	}
 
 	// One floor, cut into compartments whose length is each hold's share of the total weight.
+	// Both ends stop where her rising floors reach the hold deck: carried further forward the
+	// flat floor comes out through the bottom of the hull, which is what opened the gaps under
+	// her bow. GALLEON_HOLD_FLOOR_Y meets galleon_keel_y at x ≈ -3.26 and x ≈ 2.59; these sit
+	// inside that with a frame to spare.
 	floor_x0 := GALLEON_STERN_X + 0.7
-	floor_x1 := GALLEON_BOW_X - 0.9
+	floor_x1 := GALLEON_BOW_X - 1.35
 	total: f32 = 0
 	for k in 0 ..< n_below {
 		total += galleon_size_weight(layout[below[k]].slot.size)
@@ -258,25 +284,31 @@ galleon_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [MAX_SLOTS]Room, n:
 	return rooms, n
 }
 
-// galleon_fit_room_to_hull pulls a room's outboard reach in to the frames around it, and never
-// pushes it out: the placements above spell the widest a chamber would like to be, and the hull
-// says how much of that it can have where it stands. Doing it here, once, is what keeps the
+// galleon_fit_room_to_hull pulls a room's outboard reach in to the frames around it, end by end,
+// and never pushes it out: the placements above spell the widest a chamber would like to be, and
+// the hull says how much of that it can have at each of its ends. Measured at the floor, which is
+// where the frames around a compartment are tightest. Doing it here, once, is what keeps the
 // painted room and the picked room inside the same planking.
 @(private)
 galleon_fit_room_to_hull :: proc(room: ^Room) {
-	fits := galleon_room_half_beam(room.centre.x, room.half.x, room.centre.y - room.half.y)
-	room.half.z = max(min(room.half.z, fits), 0.18)
+	floor := room.centre.y - room.half.y
+	room.half_aft = min(room.half.z, galleon_room_half_beam(room.centre.x - room.half.x, floor))
+	room.half_fore = min(room.half.z, galleon_room_half_beam(room.centre.x + room.half.x, floor))
+	room.half.z = max(room.half_aft, room.half_fore)
 }
 
 // galleon_room_face is a room's open front face projected onto the frame — the four corners of
 // the opening you look into, in winding order.
 galleon_room_face :: proc(room: Room, view: View) -> [4]rl.Vector2 {
-	z := room.centre.z - room.half.z
+	aft := room.centre.x - room.half.x
+	fore := room.centre.x + room.half.x
+	z_aft := room.centre.z - room.half_aft
+	z_fore := room.centre.z - room.half_fore
 	corners := [4]rl.Vector3 {
-		{room.centre.x - room.half.x, room.centre.y - room.half.y, z},
-		{room.centre.x + room.half.x, room.centre.y - room.half.y, z},
-		{room.centre.x + room.half.x, room.centre.y + room.half.y, z},
-		{room.centre.x - room.half.x, room.centre.y + room.half.y, z},
+		{aft, room.centre.y - room.half.y, z_aft},
+		{fore, room.centre.y - room.half.y, z_fore},
+		{fore, room.centre.y + room.half.y, z_fore},
+		{aft, room.centre.y + room.half.y, z_aft},
 	}
 	face: [4]rl.Vector2
 	for corner, i in corners {
