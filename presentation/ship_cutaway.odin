@@ -37,7 +37,10 @@ draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector
 	if eye, flown := ship_debug_eye.?; flown {
 		view = cutaway.galleon_view_from(eye, WINDOW_WIDTH, WINDOW_HEIGHT)
 	}
-	horizon := cutaway.galleon_horizon_y(view)
+	// The horizon goes onto the art lattice before anything is drawn against it. The sky's last
+	// row, the sea's first and the foam standing up her planking all key off this one number, and
+	// a backdrop snapped around an unsnapped horizon leaves a part-pixel seam along the join.
+	horizon := backdrop_snap(cutaway.galleon_horizon_y(view))
 	draw_ship_sky(horizon)
 	draw_ship_sea(horizon)
 	draw_ship_wake(view, horizon)

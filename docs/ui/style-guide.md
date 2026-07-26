@@ -228,6 +228,46 @@ And one trap that a compass rose walks into: **`DrawTriangle` culls clockwise wi
 all.** A rose wound the wrong way renders its hub and none of its spokes — a silent, total no-op. Wind
 counter-clockwise.
 
+## The backdrop is drawn at one art resolution
+
+The world behind the chrome — sky, sun, cloud, island, sea — is **16-bit-era pixel art: hard edges, flat blocks
+of colour, no gradients, limited ramps per hue** (`docs/ui/references/README.md`, "Tonal register"). That is a
+claim about **resolution** before it is one about colour, and it only holds if every mark in the backdrop
+agrees on the same one. A smooth sky behind blocky clouds is two resolutions on one screen; the screen then
+reads as pixel art with a vector field behind it, however good either half is on its own.
+
+**One number fixes it: `BACKDROP_PIXEL` = 4 logical pixels to the art pixel** — a 311×175 art frame inside the
+1244×700 logical one. Both axes divide exactly, so the lattice reaches all four edges with no part-pixel hiding
+at two of them. `presentation/backdrop.odin` is the only place that implements the rule, so the decision is not
+re-taken at a call site.
+
+- **Every backdrop mark snaps to the lattice — position *and* size.** Near edges floor, far edges ceil, and
+  nothing shrinks below one art pixel: a wave crest rounded away to zero width is a hole in the water, not a
+  finer detail. `backdrop_block` is the only way a mark reaches the screen.
+- **A grade is a short ramp of flat stops, never an interpolation.** `rl.DrawRectangleGradientV` interpolates
+  per *screen* pixel — measured on a ship-screen shot, **49 distinct blues across 50 vertical samples of sky**.
+  `backdrop_grade` paints `steps + 1` colours instead, and the same measurement now reads **7**. Choose the
+  count per grade rather than globally: a ramp that burns off in a sixth of the sky's height shows its steps as
+  stripes at the count the whole sky wants.
+- **The crossings between stops are dithered, not ruled.** A handful of flat bands across a whole sky is Mach
+  banding. An ordered 4×4 threshold matrix indexed in *art pixels* carries each crossing, and the dither cell
+  being one art pixel is precisely what makes the sky read at the resolution the sea's chop is already drawn at.
+- **No circles.** `rl.DrawCircleV` is a polygon fan with a smooth edge — the one shape in the sky that snapping
+  its arguments cannot fix. `backdrop_disc` fills it row by row on the lattice instead.
+- **The lattice is coarse enough to change how a mark has to be *made*, not just where it lands.** Marks that
+  read as broken when they were scattered at sub-pixel heights close up into a solid bar once each is a cell
+  wide and starts on a cell boundary — which is what happened to the foam along the waterline the first time it
+  was snapped. On the lattice, "broken" has to be built in: walk the cells and leave some unlit, rather than
+  scatter and trust the gaps.
+
+**Verify under magnification, never at 1:1.** A dither cell is 4px; a shot judged by eye cannot tell an
+on-lattice sea from an off-lattice one. Crop the region, scale it `NEAREST`, and count distinct colours down a
+column — the `run-game` skill's pixel-scan, with the crop added.
+
+**The ship herself is not on this lattice.** She is lit 3D geometry drawn at full resolution, and the rule
+governs the world she floats in, not her. Whether the two should agree is a separate question and a separate
+decision.
+
 ## Type
 
 **Pixel Operator**, Creative Commons Zero (CC0) 1.0 — public domain.
