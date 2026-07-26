@@ -98,7 +98,7 @@ which is warmer, which is scarce) are not up for renegotiation.
 | Sky | `#5A93D2` | 90, 147, 210 |
 | Horizon haze | `#8FBCE8` | 143, 188, 232 |
 | Cloud | `#EEF1F8` | 238, 241, 248 |
-| Cloud shadow | `#B7BCE0` | 183, 188, 224 |
+| Cloud shadow | `#92B7E0` | 146, 183, 224 |
 
 **Warm neutral — land and parchment** (all *desaturated* warm; see [the saturation rule](#the-saturation-rule))
 
@@ -151,6 +151,42 @@ Two rules fall out of the roster:
   named colour has a replacement above. The stock palette is the single largest programmer-art signal in the
   current build.
 - **Text colour is hierarchy.** Rank by colour first, size second — there are only two type sizes (below).
+
+### Never mix a warm into a cool to get a neutral
+
+**`colour_mix` between opposite hues passes through grey. If a tone needs to be softer, take the alpha down
+or the value down — do not walk it across the wheel.**
+
+This is the roster's one booby trap, and it has now produced three separate bugs from three different
+call sites, every one of them written as "warm it up a bit" or "haze it back a bit":
+
+- The horizon glare was `mix(horizon haze, parchment, 0.5)` — blue into yellow, meant to read as tropical
+  heat. It measured **6% saturation**: a neutral grey band straight across the middle of the frame, and the
+  largest flat area on the screen.
+- The submerged hull was lerped from lit copper toward the sea's turquoise. Every strake at mid-depth landed
+  near the midpoint of that line and came out the same dead sage.
+- The island strand was `mix(sand, glare, 0.5)`, to set the beach back into the distance. Same two hues, same
+  grey.
+
+The mix is not wrong because the ratio is wrong; it is wrong because the *path* runs through the middle of
+the wheel. Halfway between two opposite hues is neutral by construction, and no ratio avoids it — moving the
+ratio only moves where the grey lands.
+
+What to reach for instead:
+
+- **Softer, more distant, hazier → `rl.Fade`.** Let what is already behind it do the mixing optically. The
+  tone keeps its own hue all the way down. This is the right answer for atmospheric perspective.
+- **Darker or lighter → `colour_shade`.** It scales the channels and cannot cross the axis.
+- **A genuine hue shift → go the short way round.** Mix from a neighbour rather than from the opposite: the
+  glare warms a *cool* (`mix(shallow, parchment, 0.24)`), so it travels a quarter-turn instead of a half and
+  keeps 41% saturation.
+- **Light passing through something → absorb and scatter, not lerp.** Attenuate each channel by its own
+  coefficient and add the medium's own lit colour back on top. Absorption only takes a channel down and
+  scatter only puts a saturated tone in, so neither step can land on neutral. `hull_water` is the worked
+  example.
+
+**Scan it before you believe it.** All three of these looked plausible in source and read as "a bit flat" on
+screen. What identified them was a saturation scan; nothing in the code says "grey".
 
 ### The amber rule
 

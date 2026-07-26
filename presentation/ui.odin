@@ -50,7 +50,7 @@ COLOUR_SKY_HIGH :: rl.Color{63, 121, 192, 255}
 COLOUR_SKY :: rl.Color{90, 147, 210, 255}
 COLOUR_HAZE :: rl.Color{143, 188, 232, 255} // the band of sky just above the horizon
 COLOUR_CLOUD :: rl.Color{238, 241, 248, 255}
-COLOUR_CLOUD_SHADOW :: rl.Color{183, 188, 224, 255}
+COLOUR_CLOUD_SHADOW :: rl.Color{146, 183, 224, 255} // a cumulus base is lit by the sky, so it is blue
 
 COLOUR_PARCHMENT :: rl.Color{235, 217, 166, 255} // the ground for text: panels and cards
 COLOUR_SAND :: rl.Color{210, 169, 104, 255} // panel shade, dividers, gilding

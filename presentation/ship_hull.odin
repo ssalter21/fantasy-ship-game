@@ -31,26 +31,27 @@ HULL_SKIN :: f32(0.055)
 // the compartments stand clear of the cut rather than sitting behind it.
 HULL_CUT_Y :: cutaway.GALLEON_HOLD_FLOOR_Y - 0.07
 
-// How far a submerged surface is pulled toward the water's own colour, at the waterline and a
-// fathom down. The tropics are the whole reason: the sea here is clear enough to see the copper
-// through, and a bottom that cools off with depth is what settles the ship *into* the water
-// instead of leaving her standing on a blue rectangle.
+// What a fathom of water does to the light coming back off her bottom. Two separate effects,
+// and keeping them separate is the whole point.
 //
-// The pair is the point. One factor against one bright sea tone — which is what the first pass
-// used — makes her bottom *paler* the deeper it goes, and a pale sage wedge over bright turquoise
-// reads as a ghost stuck to the front of the water rather than as copper sunk into it. Depth has
-// to take colour *away*, not add it.
-HULL_TINT_SURFACE :: f32(0.20)
-HULL_TINT_KEEL :: f32(0.68)
+// Absorption: how much of each channel the water eats on the way. Red goes first — that is why
+// a reef reads green in a fathom and blue in ten — green goes slowly, blue barely goes at all.
+// Scatter: the water's own lit colour, added back on top, because a fathom of sunlit sea is
+// itself glowing and some of that glow is between her and the eye.
+//
+// Neither one is a lerp, and that is deliberate. Fading the hull *toward* the sea walks a
+// straight line from copper to turquoise, and those two sit on opposite sides of the colour
+// wheel — so the line passes through neutral, and every strake at mid-depth came out the same
+// dead sage. Absorbing and scattering can't do that: absorption only ever takes a channel down,
+// scatter only ever puts a saturated tone in, and the path between them stays in colour.
+HULL_ABSORB_R :: f32(0.86)
+HULL_ABSORB_G :: f32(0.26)
+HULL_ABSORB_B :: f32(0.0)
+HULL_SCATTER :: f32(0.5)
 
 // HULL_TINT_SPAN is the depth at which the keel-end values are reached — about a fathom, which
 // is as far down as any of her gets.
 HULL_TINT_SPAN :: f32(0.95)
-
-// HULL_DEPTH_SHADE is how much light is lost over that fathom. Deliberately small: the *hue*
-// carries the depth, and a value drop big enough to carry it on its own is precisely the dark
-// olive wedge the guide warns of — a hole in her side rather than a bottom under water.
-HULL_DEPTH_SHADE :: f32(0.16)
 
 // hull_surface is one point on her outer skin: the frame at length x, at section height t — 0
 // at the keel, 1 at the rail — on the given side, +1 starboard and -1 port.
@@ -119,16 +120,28 @@ hull_water :: proc(lit: rl.Color, y: f32) -> rl.Color {
 	}
 	depth := min(-y / HULL_TINT_SPAN, 1)
 
-	// What is between her and the eye changes with depth, so what she is washed *toward* has to
-	// change with it too: near the surface that is the bright near-surface turquoise, a fathom
-	// down it is the sea's own deep, which is cooler and darker both. Washing toward the deep is
-	// also what keeps her bottom distinct from the water around it — the bright tone the first
-	// pass used is the tone of the sea she is floating in, so the harder it washed the more of
-	// her it erased.
+	// Both effects run on depth *squared*, not on depth. Water this clear does almost nothing
+	// over the first hand's breadth, and a linear ramp spends its whole middle in the crossover
+	// where her warm and the sea's cool cancel. Squaring holds her copper — barely cooled, still
+	// plainly her — down to half a fathom, then turns her over quickly, so the neutral crossing
+	// is a band a few strakes deep instead of most of her bottom.
+	t := depth * depth
+
+	// What is between her and the eye changes with depth, so what scatters back changes too: near
+	// the surface it is the bright near-surface turquoise, a fathom down the sea's own deep.
 	surface := colour_mix(COLOUR_SEA_BRIGHT, COLOUR_SEA_SHALLOW, 0.5)
 	sea := colour_mix(surface, COLOUR_SEA_DEEP, depth)
-	washed := colour_mix(lit, sea, HULL_TINT_SURFACE + (HULL_TINT_KEEL - HULL_TINT_SURFACE) * depth)
-	return colour_shade(washed, 1 - HULL_DEPTH_SHADE * depth)
+
+	channel :: proc(lit, sea: u8, absorb, t: f32) -> u8 {
+		through := f32(lit) * (1 - absorb * t)
+		return u8(clamp(through + f32(sea) * HULL_SCATTER * t, 0, 255))
+	}
+	return rl.Color {
+		channel(lit.r, sea.r, HULL_ABSORB_R, t),
+		channel(lit.g, sea.g, HULL_ABSORB_G, t),
+		channel(lit.b, sea.b, HULL_ABSORB_B, t),
+		lit.a,
+	}
 }
 
 // hull_timber is a strake's wood at height y: oak topsides in alternating courses, and the
