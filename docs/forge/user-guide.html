@@ -1,0 +1,1346 @@
+<title>The Forge — User Guide</title>
+
+<style>
+  /* ------------------------------------------------------------------
+     Tokens.
+
+     The palette is forge/style.odin's, verbatim, because the guide and the
+     tool are the same piece of work. Colour is semantic only there and it is
+     semantic only here: pass, fault, warn, derived, and one accent.
+
+     The light theme keeps every hue's identity and moves only lightness,
+     so a green stripe means the same thing on paper as on the tool's ground.
+     ------------------------------------------------------------------ */
+  :root {
+    --ground:      #14161A;
+    --panel:       #1B1E24;
+    --panel-alt:   #22262D;
+    --line:        #2E333B;
+    --text:        #C9D1D9;
+    --dim:         #8A939E;
+    --derived:     #6E7681;
+    --accent:      #4C9AFF;
+    --pass:        #3FB950;
+    --fault:       #F85149;
+    --warn:        #D29922;
+
+    --accent-wash: rgba(76, 154, 255, 0.10);
+    --pass-wash:   rgba(63, 185, 80, 0.09);
+    --fault-wash:  rgba(248, 81, 73, 0.09);
+    --warn-wash:   rgba(210, 153, 34, 0.09);
+    --shadow:      0 1px 0 rgba(0,0,0,0.4);
+
+    /* The tool loads its faces from the system rather than embedding them
+       (style.odin: the Forge never leaves this repo). The guide follows the
+       same rule and names the same candidates, in the same order. */
+    --prose: "Segoe UI", Calibri, Tahoma, Arial, system-ui, sans-serif;
+    --mono:  Consolas, "Lucida Console", "Courier New", ui-monospace, monospace;
+
+    --measure: 70ch;
+    --rail: 258px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --ground:      #F1F3F7;
+      --panel:       #FFFFFF;
+      --panel-alt:   #E8ECF2;
+      --line:        #D4DAE3;
+      --text:        #191C22;
+      --dim:         #58616D;
+      --derived:     #79818D;
+      --accent:      #1F6FEB;
+      --pass:        #197F35;
+      --fault:       #C6252F;
+      --warn:        #855100;
+
+      --accent-wash: rgba(31, 111, 235, 0.08);
+      --pass-wash:   rgba(25, 127, 53, 0.09);
+      --fault-wash:  rgba(198, 37, 47, 0.07);
+      --warn-wash:   rgba(133, 81, 0, 0.09);
+      --shadow:      0 1px 2px rgba(20, 22, 26, 0.07);
+    }
+  }
+
+  /* The viewer's own toggle stamps data-theme on the root and must win over
+     the media query in both directions, so both are restated here. */
+  :root[data-theme="dark"] {
+    --ground: #14161A; --panel: #1B1E24; --panel-alt: #22262D; --line: #2E333B;
+    --text: #C9D1D9; --dim: #8A939E; --derived: #6E7681;
+    --accent: #4C9AFF; --pass: #3FB950; --fault: #F85149; --warn: #D29922;
+    --accent-wash: rgba(76,154,255,0.10); --pass-wash: rgba(63,185,80,0.09);
+    --fault-wash: rgba(248,81,73,0.09); --warn-wash: rgba(210,153,34,0.09);
+    --shadow: 0 1px 0 rgba(0,0,0,0.4);
+  }
+  :root[data-theme="light"] {
+    --ground: #F1F3F7; --panel: #FFFFFF; --panel-alt: #E8ECF2; --line: #D4DAE3;
+    --text: #191C22; --dim: #58616D; --derived: #79818D;
+    --accent: #1F6FEB; --pass: #197F35; --fault: #C6252F; --warn: #855100;
+    --accent-wash: rgba(31,111,235,0.08); --pass-wash: rgba(25,127,53,0.09);
+    --fault-wash: rgba(198,37,47,0.07); --warn-wash: rgba(133,81,0,0.09);
+    --shadow: 0 1px 2px rgba(20,22,26,0.07);
+  }
+
+  /* ------------------------------------------------------------------ */
+
+  body {
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--prose);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell {
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 48px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 28px 120px;
+    align-items: start;
+  }
+
+  /* --- masthead ---------------------------------------------------- */
+
+  .masthead {
+    grid-column: 1 / -1;
+    padding: 64px 0 40px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 44px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 0 0 18px;
+  }
+  .masthead h1 {
+    font-size: clamp(2.6rem, 6vw, 4.1rem);
+    font-weight: 600;
+    letter-spacing: -0.028em;
+    line-height: 1.02;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .masthead h1 span { color: var(--accent); }
+  .standfirst {
+    font-size: 1.16rem;
+    line-height: 1.55;
+    color: var(--dim);
+    max-width: 62ch;
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  /* --- the window mock: the tool's chrome, in the tool's tokens ----- */
+
+  .chrome {
+    margin: 40px 0 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--ground);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    font-size: 12px;
+  }
+  .chrome-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 2px 10px 0;
+    background: var(--panel-alt);
+    border-bottom: 1px solid var(--line);
+  }
+  .chrome-tabs span {
+    padding: 7px 12px;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+  .chrome-tabs span.on {
+    background: var(--panel);
+    color: var(--text);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .chrome-body {
+    display: grid;
+    grid-template-columns: 34fr 5px 36fr 5px 30fr;
+    min-height: 168px;
+  }
+  .chrome-split { background: var(--line); }
+  .chrome-pane {
+    background: var(--panel);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+  .chrome-cap {
+    font-size: 11px;
+    color: var(--dim);
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 5px;
+    margin-bottom: 2px;
+  }
+  .chrome-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .chrome-row i {
+    width: 3px;
+    height: 12px;
+    flex: none;
+    border-radius: 1px;
+    background: var(--pass);
+  }
+  .chrome-row.bad i { background: var(--fault); }
+  .chrome-row.sel { background: var(--panel-alt); color: var(--text); margin: 0 -6px; padding: 0 6px; }
+  .chrome-row b { margin-left: auto; font-weight: 400; font-variant-numeric: tabular-nums; }
+  .chrome-status {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 6px 10px;
+    background: var(--panel-alt);
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .chrome-status .hint { color: var(--dim); }
+  .chrome-status .keys { font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chrome-note {
+    font-size: 12.5px;
+    color: var(--derived);
+    margin: 10px 0 0;
+    font-style: italic;
+  }
+
+  /* --- rail -------------------------------------------------------- */
+
+  .rail { position: sticky; top: 24px; }
+  @media (max-width: 900px) { .rail { position: static; } }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--derived);
+    margin: 0 0 12px;
+    font-weight: 400;
+  }
+  .rail nav { display: flex; flex-direction: column; gap: 1px; margin-bottom: 30px; }
+  .rail a {
+    color: var(--dim);
+    text-decoration: none;
+    font-size: 14px;
+    padding: 4px 0 4px 12px;
+    border-left: 2px solid var(--line);
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .rail a:hover, .rail a:focus-visible { color: var(--accent); border-left-color: var(--accent); }
+  .rail a.sub { padding-left: 26px; font-size: 13px; color: var(--derived); }
+
+  .keycard {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--panel);
+    padding: 14px 14px 4px;
+  }
+  .keycard h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--derived);
+    margin: 0 0 10px;
+    font-weight: 400;
+  }
+  .keycard dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; align-items: baseline; }
+  .keycard dt { margin: 0; }
+  .keycard dd { margin: 0; font-size: 12.5px; color: var(--dim); line-height: 1.35; }
+  .keycard p { font-size: 12px; color: var(--derived); line-height: 1.45; margin: 12px 0 10px; }
+
+  /* --- keys -------------------------------------------------------- */
+
+  kbd {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1;
+    padding: 3px 6px 4px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    background: var(--panel-alt);
+    color: var(--text);
+    white-space: nowrap;
+    display: inline-block;
+  }
+
+  /* --- main flow --------------------------------------------------- */
+
+  main { min-width: 0; }
+  section { margin-bottom: 68px; scroll-margin-top: 24px; }
+  section > * { max-width: var(--measure); }
+  section > .wide, section > .chrome, section > .grid, section > figure { max-width: none; }
+
+  h2.rule {
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    margin: 0 0 6px;
+    padding-top: 8px;
+    text-wrap: balance;
+  }
+  .deck {
+    color: var(--dim);
+    font-size: 1rem;
+    margin: 0 0 26px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+    max-width: var(--measure);
+    text-wrap: pretty;
+  }
+  h3 {
+    font-size: 1.09rem;
+    font-weight: 600;
+    letter-spacing: -0.008em;
+    margin: 34px 0 10px;
+  }
+  h4 {
+    font-size: 0.94rem;
+    font-weight: 600;
+    margin: 24px 0 8px;
+    color: var(--text);
+  }
+  p { margin: 0 0 14px; text-wrap: pretty; }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  strong { font-weight: 600; color: var(--text); }
+  em.term { font-style: normal; font-family: var(--mono); font-size: 0.9em; color: var(--text); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--panel-alt);
+    padding: 1.5px 5px;
+    border-radius: 3px;
+    color: var(--text);
+    word-break: break-word;
+  }
+
+  ul, ol { margin: 0 0 16px; padding-left: 22px; }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--derived); }
+
+  /* --- panels: the tool's panel(), as a block ----------------------- */
+
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--panel);
+    margin: 0 0 20px;
+    overflow: hidden;
+  }
+  .panel > header {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-alt);
+  }
+  .panel > .body { padding: 14px 16px; }
+  .panel > .body > :last-child { margin-bottom: 0; }
+
+  /* --- callouts: one severity stripe, exactly like a table row ------ */
+
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-wash);
+    padding: 12px 16px;
+    margin: 0 0 18px;
+    border-radius: 0 3px 3px 0;
+    font-size: 0.95rem;
+  }
+  .note > :last-child { margin-bottom: 0; }
+  .note.pass  { border-left-color: var(--pass);  background: var(--pass-wash); }
+  .note.warn  { border-left-color: var(--warn);  background: var(--warn-wash); }
+  .note.fault { border-left-color: var(--fault); background: var(--fault-wash); }
+  .note .lbl {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    color: var(--accent);
+  }
+  .note.pass .lbl  { color: var(--pass); }
+  .note.warn .lbl  { color: var(--warn); }
+  .note.fault .lbl { color: var(--fault); }
+
+  /* --- tables ------------------------------------------------------- */
+
+  .scroll { overflow-x: auto; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  thead th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--derived);
+    font-weight: 400;
+    padding: 10px 14px;
+    background: var(--panel-alt);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    line-height: 1.45;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr { background: var(--panel); }
+  td.k { font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  td.d { color: var(--dim); }
+  .stripe td:first-child { box-shadow: inset 3px 0 0 var(--fault); }
+  .stripe.ok td:first-child { box-shadow: inset 3px 0 0 var(--pass); }
+  .stripe.wn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+
+  /* --- code blocks -------------------------------------------------- */
+
+  pre {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.62;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 18px;
+    color: var(--text);
+    tab-size: 4;
+  }
+  pre .c { color: var(--derived); }
+  pre .w { color: var(--warn); }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  /* --- swatches ----------------------------------------------------- */
+
+  .swatches { display: grid; gap: 10px; margin: 0 0 20px; }
+  .sw {
+    display: grid;
+    grid-template-columns: 3px auto 1fr;
+    gap: 14px;
+    align-items: baseline;
+    padding: 9px 12px 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .sw i { display: block; height: 100%; min-height: 22px; border-radius: 1px; }
+  .sw b { font-weight: 600; font-size: 14px; }
+  .sw span { color: var(--dim); font-size: 14px; }
+
+  /* --- field grid --------------------------------------------------- */
+
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); margin: 0 0 20px; }
+  .grid .panel { margin: 0; }
+
+  /* --- step list: the surfaces are a sequence, the rest is not ------ */
+
+  ol.steps { list-style: none; padding: 0; counter-reset: s; }
+  ol.steps > li {
+    counter-increment: s;
+    position: relative;
+    padding-left: 40px;
+    margin-bottom: 16px;
+  }
+  ol.steps > li::before {
+    content: counter(s);
+    position: absolute;
+    left: 0;
+    top: 1px;
+    width: 25px;
+    height: 25px;
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    border: 1px solid var(--line);
+    border-radius: 50%;
+  }
+
+  footer {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    padding-top: 22px;
+    color: var(--derived);
+    font-size: 13px;
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; gap: 32px; }
+    .chrome-body { grid-template-columns: 1fr; }
+    .chrome-split { height: 1px; }
+  }
+</style>
+
+<div class="shell">
+
+  <div class="masthead">
+    <p class="eyebrow">fantasy-ship-game · cmd/forge · authoring tool</p>
+    <h1>The <span>Forge</span></h1>
+    <p class="standfirst">
+      The third executable. It reads the game's live content tables, checks every edit by
+      calling core's own arithmetic, and hands you back the Odin source line to paste.
+      It never writes to the repo, and nothing in it ships in the game.
+    </p>
+
+    <div class="chrome" role="img" aria-label="Mock of the Forge window: a tab bar with four surfaces, three resizable panes, and a status bar.">
+      <div class="chrome-tabs">
+        <span class="on">Item Workbench</span><span>Encounter Builder</span><span>Rosters</span><span>Ship &amp; Constants</span>
+      </div>
+      <div class="chrome-body">
+        <div class="chrome-pane">
+          <div class="chrome-cap">Roster (50 items)</div>
+          <div class="chrome-row"><i></i>Deck Cannon<b>1.20</b></div>
+          <div class="chrome-row sel"><i></i>Boarding Pikes<b>0.95</b></div>
+          <div class="chrome-row bad"><i></i>Carpenter's Mate<b>2.40</b></div>
+          <div class="chrome-row"><i></i>Spare Timbers<b>1.05</b></div>
+        </div>
+        <div class="chrome-split"></div>
+        <div class="chrome-pane">
+          <div class="chrome-cap">Item · Effects</div>
+          <div class="chrome-row">verb&nbsp;&nbsp;Phase_Contribution</div>
+          <div class="chrome-row">timing&nbsp;&nbsp;Every_N</div>
+          <div class="chrome-row">if&nbsp;&nbsp;Gate&nbsp;&nbsp;Lt</div>
+          <div class="chrome-row">&nbsp;&nbsp;then&nbsp;&nbsp;Const 4</div>
+        </div>
+        <div class="chrome-split"></div>
+        <div class="chrome-pane">
+          <div class="chrome-cap">Power budget</div>
+          <div class="chrome-row">grant<b>1.50</b></div>
+          <div class="chrome-row">weight allowance<b>-0.20</b></div>
+          <div class="chrome-row">band<b>1.04 .. 1.56</b></div>
+          <div class="chrome-row">cost<b>0.95</b></div>
+        </div>
+      </div>
+      <div class="chrome-status">
+        <span class="hint">up/down selects, home/end jumps; the colour is roster_check's verdict</span>
+        <span class="keys">Ctrl+C copy as Odin&nbsp;&nbsp; Ctrl+Z undo (3)&nbsp;&nbsp; Tab moves&nbsp;&nbsp; 60 fps</span>
+      </div>
+    </div>
+    <p class="chrome-note">The window, as it opens: four surfaces, three draggable panes, and a status bar that tells you what the focused control does.</p>
+  </div>
+
+  <aside class="rail">
+    <h2>Contents</h2>
+    <nav>
+      <a href="#start">Getting in</a>
+      <a href="#model">How editing works</a>
+      <a href="#keys">Driving it</a>
+      <a href="#colour">Reading colour</a>
+      <a href="#workbench">1 · Item Workbench</a>
+      <a href="#refusals" class="sub">Why an edit is refused</a>
+      <a href="#builder">2 · Encounter Builder</a>
+      <a href="#lint" class="sub">The lint findings</a>
+      <a href="#rosters">3 · Rosters</a>
+      <a href="#reference">4 · Ship &amp; Constants</a>
+      <a href="#emit">Getting the work out</a>
+      <a href="#recipes">Workflows</a>
+      <a href="#traps">Traps</a>
+    </nav>
+
+    <div class="keycard">
+      <h3>Always available</h3>
+      <dl>
+        <dt><kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>4</kbd></dt><dd>Switch surface</dd>
+        <dt><kbd>Tab</kbd></dt><dd>Next control</dd>
+        <dt><kbd>Shift</kbd>+<kbd>Tab</kbd></dt><dd>Previous control</dd>
+        <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd></dt><dd>Undo</dd>
+        <dt><kbd>Ctrl</kbd>+<kbd>Y</kbd></dt><dd>Redo</dd>
+        <dt><kbd>Ctrl</kbd>+<kbd>C</kbd></dt><dd>Copy this row as Odin</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Leave the field</dd>
+      </dl>
+      <p><kbd>Esc</kbd> does not quit — it hands the keystrokes back to the focus walk.</p>
+    </div>
+  </aside>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <section id="start">
+      <h2 class="rule">Getting in</h2>
+      <p class="deck">Four ways to start it, all the same build.</p>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>From</th><th>Do this</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Explorer</td><td>Double-click <code>scripts/forge.cmd</code>. It forwards to <code>run.cmd -Forge</code>, so the build command lives in one place.</td></tr>
+            <tr><td class="k">cmd.exe</td><td><code>scripts\run.cmd -Forge</code></td></tr>
+            <tr><td class="k">PowerShell</td><td><code>scripts/run.ps1 -Forge</code></td></tr>
+            <tr><td class="k">Anywhere</td><td><code>odin run cmd/forge</code> from the repo root</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The window opens at <strong>1760 × 1000</strong> and refuses to be squeezed below
+        <strong>1280 × 760</strong> — under that a pane stops being able to show its columns.
+        It is genuinely resizable; every pane lays itself out from the window's current size
+        rather than from a designed canvas.
+      </p>
+
+      <div class="note">
+        <span class="lbl">What it is not</span>
+        <p>
+          The Forge never writes to your source tree. It reads the live tables by calling their
+          own accessors at startup, and it hands work back as text on your clipboard. Closing the
+          window discards the session — there is no save file and no autosave.
+        </p>
+      </div>
+
+      <p>
+        It also never imports <code>presentation/</code>, which is a compile-time fact rather
+        than a convention: editor widgets cannot leak into a game screen, and none of this links
+        into the shipped exe. That is also why it looks nothing like the game — the Forge is
+        deliberately exempt from <code>docs/ui/style-guide.md</code>.
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="model">
+      <h2 class="rule">How editing works</h2>
+      <p class="deck">There are no apply buttons, no confirm dialogs, and no save. Understand this bit and the rest of the tool follows.</p>
+
+      <p>Each frame, in this order:</p>
+      <ol class="steps">
+        <li><strong>Restore</strong> — an undo or redo, if you pressed one, so stepping back is never itself recorded as an edit.</li>
+        <li><strong>Snapshot</strong> — the content as it stands, held for comparison.</li>
+        <li><strong>Draw</strong> — every control writes <em>straight into</em> the content it is showing. Type a digit and the budget panel beside it has already recomputed.</li>
+        <li><strong>Record</strong> — if anything moved, the new state is pushed onto a 64-deep undo ring of whole-content snapshots.</li>
+      </ol>
+
+      <p>
+        Every edit being reversible is what buys the absence of confirm dialogs. Nothing asks
+        "are you sure", because <kbd>Ctrl</kbd>+<kbd>Z</kbd> is always the answer.
+      </p>
+
+      <h3>Refusal, not rejection</h3>
+      <p>
+        Core's authoring helpers <code>assert</code> on the rules that make an item well-formed.
+        A tool that let you assemble an illegal effect and only found out on emit would crash on
+        your work — so the Forge asks the same questions <em>at the keystroke</em>, keeps the old
+        value when the answer is no, and writes the rule you broke to the status bar in red.
+      </p>
+      <p>
+        The check is always taken of the <strong>whole candidate tree</strong>, never of the node
+        you touched. An edit deep in a tree can make an ancestor illegal — swap a
+        <code>Const</code> for a <code>Captains_Order</code> reading and the <code>Mul</code> above
+        it becomes arithmetic over the captain's order, which is not allowed.
+      </p>
+      <p>
+        Committed trees are reassembled by calling core's own <code>expr_*</code> helpers, so an
+        ill-formed tree is <em>unrepresentable</em> rather than merely rejected.
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="keys">
+      <h2 class="rule">Driving it</h2>
+      <p class="deck">Mouse-only is treated as a failure state. Focus is a first-class thing here, not a raygui afterthought.</p>
+
+      <p>
+        <kbd>Tab</kbd> and <kbd>Shift</kbd>+<kbd>Tab</kbd> walk every control in draw order and
+        wrap around. The focused control is outlined in the accent colour and takes the arrow
+        keys, <kbd>Space</kbd> and <kbd>Enter</kbd> for itself. Clicking a control also gives it
+        focus. Switching surfaces puts focus back at the top of the form.
+      </p>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Control</th><th>Keys</th><th>Behaviour</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Combo box</td><td class="k">← →</td><td class="d">Cycles in place through the set, wrapping. Every closed enum in the tool is one of these — a dropdown's popup would cover something, and nothing here is allowed to disappear behind something else.</td></tr>
+            <tr><td class="k">Number field</td><td class="k">↑ ↓ · PgUp PgDn · Enter</td><td class="d">±1, ±10, and <kbd>Enter</kbd> to type into it. Always clamped to its own hard range on the way out.</td></tr>
+            <tr><td class="k">Checkbox</td><td class="k">Space</td><td class="d">Toggles.</td></tr>
+            <tr><td class="k">Button</td><td class="k">Enter</td><td class="d">Presses.</td></tr>
+            <tr><td class="k">Text field</td><td class="k">Enter</td><td class="d">Starts and stops taking text. <kbd>Tab</kbd> or <kbd>Esc</kbd> also stops.</td></tr>
+            <tr><td class="k">Roster table</td><td class="k">↑ ↓ · PgUp PgDn · Home End</td><td class="d">Moves the selection. The wheel scrolls the view <em>without</em> dragging the selection along, so you can look elsewhere in the roster while keeping your row.</td></tr>
+            <tr><td class="k">Tree view</td><td class="k">↑ ↓</td><td class="d">Selects a node. Every structural edit lands on the selected node.</td></tr>
+            <tr><td class="k">Pane divider</td><td class="k">drag</td><td class="d">Resizes. Each surface remembers its own split for the session, stored as a fraction so it survives a window resize.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The status bar</h3>
+      <p>
+        Bottom-left tells you what the focused control does. When an edit is refused it turns red
+        and names the rule; when you copy, it turns green and reports the byte count. Bottom-right
+        is a permanent reminder of the accelerators, with live undo and redo depths in brackets.
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="colour">
+      <h2 class="rule">Reading colour</h2>
+      <p class="deck">Colour is semantic only. There is no fifth meaning and no decorative use anywhere in the tool.</p>
+
+      <div class="swatches">
+        <div class="sw"><i style="background: var(--pass)"></i><b>Pass</b><span>Clean. <code>roster_check</code> or the lint found no fault.</span></div>
+        <div class="sw"><i style="background: var(--fault)"></i><b>Fault</b><span>A rule is broken and named. This is also the colour of a refusal on the status bar.</span></div>
+        <div class="sw"><i style="background: var(--warn)"></i><b>Warn</b><span>Legal, but wants your attention — a thin grant cell, a shop that can be bought out, a tree at the node bound.</span></div>
+        <div class="sw"><i style="background: var(--derived)"></i><b>Derived</b><span>Not yours to set. The value is computed, with the reason written beside it.</span></div>
+        <div class="sw"><i style="background: var(--accent)"></i><b>Accent</b><span>Focus, the selected tab, and the two peak readings the budget actually charges against.</span></div>
+      </div>
+
+      <div class="note">
+        <span class="lbl">Derived fields render, they don't disappear</span>
+        <p>
+          A field you cannot set still draws, greyed, with its reason next to it — because an
+          absent field says nothing, and one that silently ignores your input says something false.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="workbench">
+      <h2 class="rule">1 · Item Workbench</h2>
+      <p class="deck">The roster as a table, one item's whole authored field set beside it, and its power budget beside that — all three at once, because balancing is comparing an item against its neighbours and against its allowance at the same time.</p>
+
+      <h3>The roster pane</h3>
+      <p>
+        Type in the <strong>filter</strong> box to match names by case-insensitive substring —
+        "deck" finds "Deckhands", "Deck Cannon" and "Deck Pumps". Four facet combos narrow further by <em class="term">tier</em>,
+        <em class="term">slot size</em>, <em class="term">tag</em> and <em class="term">verb</em>;
+        each starts at <code>any</code>. <strong>Faults only</strong> reduces the list to rows
+        <code>roster_check</code> reports a fault for.
+      </p>
+      <p>
+        The sort combo offers roster, name, tier, size, weight, cost and fault order. <strong>Roster
+        order is the default and is not a preference</strong> — it is the order an Offer and a shop
+        index the table by, so it is the order you reason about seeds in. Every other key reorders
+        the view alone; the <code>#</code> column keeps showing the roster index throughout.
+      </p>
+
+      <div class="panel">
+        <header>Table columns</header>
+        <div class="body">
+          <div class="scroll" style="margin: 0; border: none;">
+            <table>
+              <tbody>
+                <tr><td class="k">#</td><td class="d">The roster index — what a seed draws by.</td></tr>
+                <tr><td class="k">item</td><td class="d">Name, then <code>tier/size</code>, then tag initials.</td></tr>
+                <tr><td class="k">wt</td><td class="d">Authored weight.</td></tr>
+                <tr><td class="k">fx</td><td class="d">Effect count.</td></tr>
+                <tr><td class="k">cost</td><td class="d">The budget cost, coloured by verdict. The stripe down the left of the row is the same verdict.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <p>
+        Under the table, <strong>items per grant cell</strong> counts the roster into the
+        size × tier cells the budget licenses it by. A cell holding fewer than three items turns
+        amber: it cannot vary what it deals, which is a thin shelf for an Offer or a shop to draw
+        from. That is a warning, not a fault.
+      </p>
+      <p>
+        <strong>+ append item</strong> adds a row at the end — a Splash-tier, Small,
+        <code>Artifact</code>-tagged "New Item" with one <code>Phase_Contribution</code> effect
+        paying 1. Appending is the only growth the roster admits; see
+        <a href="#traps">Traps</a> for why.
+      </p>
+
+      <h3>The item field set</h3>
+      <p>This pane is <strong>closed</strong>: it shows exactly what a <code>Fitting</code> authors and nothing else.</p>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Field</th><th>Range</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k">name</td><td class="d">up to 48 bytes</td><td class="d">Must not collide with another item <em>or a Trade axis</em> — a Trade is not a thing you install, so the two tables share one namespace. Empty is a fault.</td></tr>
+            <tr><td class="k">tier</td><td class="d">enum</td><td class="d">Weakest to strongest; also the shop price ladder.</td></tr>
+            <tr><td class="k">size</td><td class="d">enum</td><td class="d">The slot size this fits, exactly. Changing it re-clamps bulk to the new slot.</td></tr>
+            <tr><td class="k">weight</td><td class="d">band by size</td><td class="d">Earns allowance above the size default, spends it below. The band and default are printed beside the box.</td></tr>
+            <tr><td class="k">tags</td><td class="d">multi-select</td><td class="d">Family membership; multi-tag is allowed.</td></tr>
+            <tr><td class="k">bulk</td><td class="d">0 … contribution</td><td class="d">The volume the item's own machinery takes. At the maximum it carries nothing.</td></tr>
+            <tr><td class="k">requires exposed</td><td class="d">flag</td><td class="d">An item that must be seen to work refuses a concealed slot.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Below the rule, four <strong>derived</strong> read-outs: capacity
+        (<code>contribution − bulk</code>), speed cost (<code>weight/10</code>, subtracted from
+        effective Speed), shop cost (by tier, in cargo) and fitting weight. None are yours to set.
+      </p>
+
+      <h3>Effects</h3>
+      <p>
+        A fitting carries up to three. Tabs pick which one you are editing; <strong>add</strong>
+        appends a new <code>Phase_Contribution</code> paying 1, and <strong>remove</strong>
+        disappears at one effect, because an item with none fails the effect-count band.
+      </p>
+
+      <div class="grid">
+        <div class="panel">
+          <header>Authored</header>
+          <div class="body">
+            <p><strong>verb</strong> — what the resolved magnitude does, and so which consumer reads it.</p>
+            <p><strong>timing</strong> — when the effect resolves at all across a battle.</p>
+            <p><strong>synergy</strong> — an optional selector that scales the magnitude by the count of matching fittings. Pick an axis, then the criterion on it.</p>
+          </div>
+        </div>
+        <div class="panel">
+          <header>Derived</header>
+          <div class="body">
+            <p><strong>phase</strong> — read off the verb.</p>
+            <p><strong>site scale</strong> — 100 for everything you author; only a Fight site moves it.</p>
+            <p><strong>timing, when the verb is <code>Modify_Speed</code></strong> — locked to <code>Always</code>, with the reason attached.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <span class="lbl">A lock, not a bounce</span>
+        <p>
+          Choosing <code>Modify_Speed</code> <em>sets</em> the timing to <code>Always</code> rather
+          than refusing whatever the effect happened to be firing on. You get the verb you asked
+          for; the timing control then renders as locked.
+        </p>
+      </div>
+
+      <h4>Timing variants</h4>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Variant</th><th>Parameters</th><th>Default on first pick</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Always</td><td class="d">none</td><td class="d">—</td></tr>
+            <tr><td class="k">Once_Per_Battle</td><td class="d">none</td><td class="d">—</td></tr>
+            <tr><td class="k">Every_N</td><td class="d">every n rounds (≥ 1)</td><td class="n">n = 2</td></tr>
+            <tr><td class="k">Ramp</td><td class="d">per round, cap</td><td class="n">1, cap 3</td></tr>
+            <tr><td class="k">Charge</td><td class="d">cost, per round (both ≥ 1)</td><td class="n">3, 1</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Cycling past a variant does not wipe the one either side of it — each keeps whatever you
+        last set on it, so you can flick between <code>Ramp</code> and <code>Charge</code> to
+        compare without retyping.
+      </p>
+
+      <h3>The magnitude tree</h3>
+      <p>
+        The tree is drawn as its prefix walk, indented by structure, one editable row per node.
+        The left gutter names each node's <em>role in its parent</em> — a Gate reads
+        <code>if</code> / <code>vs</code> / <code>then</code> / <code>else</code>, a Sub reads
+        <code>from</code> / <code>less</code>, a Pct reads <code>value</code> / <code>percent</code>
+        — so four subtrees read as a condition and two branches rather than as four anonymous rows.
+      </p>
+      <p>
+        The <strong>kind</strong> combo on each row re-kinds that node, carrying across whichever
+        children the new arity still has room for and filling the rest with a zero constant. That
+        is what makes the kind control an edit rather than a reset. Each kind then shows only the
+        payload it reads: a literal value, a quantity, a selector plus its criterion plus a side,
+        or a comparison operator. A <code>Pct</code> node's divisor renders as a derived
+        <code>/100</code> — it is the language's only division and is pinned.
+      </p>
+
+      <p>
+        Above the tree, a live node count. The bound is <code>EXPR_MAX_NODES</code>, and because
+        every arity is even, the largest <em>well-formed</em> tree is one node below it. The
+        counter turns amber when you reach that edge.
+      </p>
+
+      <h4>Presets</h4>
+      <p>
+        Five composed shapes from <code>expr.odin</code> are offered as one-click subtrees. Pick
+        one, set its parameters, select the node you want to replace, and press
+        <strong>insert here</strong>.
+      </p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Preset</th><th>Takes</th></tr></thead>
+          <tbody>
+            <tr><td class="k">desperate: below N% hull</td><td class="d">threshold + magnitude</td></tr>
+            <tr><td class="k">warms up: from round N</td><td class="d">threshold + magnitude</td></tr>
+            <tr><td class="k">hidden: while concealed</td><td class="d">magnitude only</td></tr>
+            <tr><td class="k">chase: opponent faster</td><td class="d">magnitude only</td></tr>
+            <tr><td class="k">chase: opponent slower</td><td class="d">magnitude only</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        What a preset drops is ordinary nodes, still editable. It is a starting point, not a
+        closed set you must choose from — and a subtree that still matches a preset when you copy
+        emits as that preset's helper, so the roster keeps reading like the roster.
+      </p>
+
+      <h3>The power budget</h3>
+      <p>
+        Rendered as <strong>the equation, never as a verdict</strong>, because the formula has no
+        optional term: you rearrange it for the magnitude you may spend rather than guessing a
+        number and asking whether it passed. Every term prints with its source beside it and its
+        value right-aligned on the mono step, so the column reads as a sum.
+      </p>
+
+      <div class="panel">
+        <header>What the panel shows, top to bottom</header>
+        <div class="body">
+          <p><strong>Allowance</strong> — grant (from size base, size rank and tier), weight allowance (your weight against the size default), their sum, and the two-sided band around it.</p>
+          <p><strong>Cost</strong> — the capacity option, then one line per effect reading <code>peak × rate × factor</code>, then the total.</p>
+          <p><strong>Verdict</strong> — clean, or the fault plus <em>which stage of the check it stopped at</em>. The check short-circuits, so a structural fault hides a band fault and the panel says which one it is looking at.</p>
+          <p><strong>Solve for magnitude</strong> — the inverse. With size, tier, weight and effect shape pinned, it reads back the peak range that lands inside the band, and the tree peak that implies once synergy and any ramp cap are taken off.</p>
+          <p><strong>Pricing census</strong> — the counts every synergy selector is priced against, derived by walking the real ship template.</p>
+        </div>
+      </div>
+
+      <p>
+        Under each effect line the panel explains <em>why</em> it priced that way. For
+        <code>Repair</code> it says whether the effect earned the burst rate and how — by
+        frequency, or by a gate on one of the two quantities that can turn off again inside a
+        fight. For everything else it names the gate rules that actually fired, walking the path
+        the magnitude rides rather than reporting the first Gate it sees.
+      </p>
+
+      <div class="note fault">
+        <span class="lbl">The trap the panel shouts about</span>
+        <p>
+          A tree whose magnitude is a <em>quantity</em> read outside a gate's comparands peaks at
+          zero — so the budget has no bound to charge against, and prices at nothing an item that
+          pays out every round. The panel flags this in red. It is a finding about your tree, not
+          a refusal: the shape is legal, it is just free.
+        </p>
+      </div>
+
+      <h3>Three readings of the tree</h3>
+      <p>The same tree answers three different questions, and you need all three at once:</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Reading</th><th>Answers</th></tr></thead>
+          <tbody>
+            <tr><td class="k">expr_eval</td><td class="d">A real round, against the probe context below the panel — which you can poke.</td></tr>
+            <tr><td class="k">expr_showcase</td><td class="d">Every gate open, every count 1. This is the number the item card shows the player.</td></tr>
+            <tr class="stripe ok"><td class="k">expr_peak</td><td class="d">Every gate at its larger branch, every count at its peak. <strong>This is what the budget charges for.</strong></td></tr>
+            <tr class="stripe ok"><td class="k">effect peak</td><td class="d">That peak, ramped, site-scaled and multiplied by the synergy count.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The <strong>probe</strong> starts at a plausible mid-battle round rather than a context of
+        zeroes — half hull, starting speed on both sides, round 1, every own-census count at 1 —
+        because a context of zeroes answers every gate with "shut" and makes every item read as
+        doing nothing. Edit any quantity, and switch the census combo between Own and Opponent to
+        edit either side's counts.
+      </p>
+      <p class="chrome-note" style="font-style: normal; color: var(--dim);">
+        Encodings, printed under the probe: order is Hold 0, Press_Brace 1, Press_Fire 2, Commit 3;
+        visibility is Exposed 0, Concealed 1.
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="refusals">
+      <h2 class="rule">Why an edit is refused</h2>
+      <p class="deck">Seven rules. Each is an assert in core's authoring helpers, asked here at the keystroke instead. The status bar prints the rule, phrased so you know what to author instead.</p>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Fault</th><th>The rule, as the tool states it</th></tr></thead>
+          <tbody>
+            <tr class="stripe"><td class="k">Node_Bound_Overrun</td><td class="d">The tree is bounded at <code>EXPR_MAX_NODES</code>, and every arity is even, so one below that is the largest well-formed tree.</td></tr>
+            <tr class="stripe"><td class="k">Speed_Reads_Speed</td><td class="d">A <code>Modify_Speed</code> tree reads no speed: Speed is the layer it is an input to.</td></tr>
+            <tr class="stripe"><td class="k">Order_Is_Not_A_Scale</td><td class="d">The captain's order is an encoding: match the bare reading with <code>Eq</code> or <code>Ne</code>, and do no arithmetic over it.</td></tr>
+            <tr class="stripe"><td class="k">Speed_Carries_A_Timing</td><td class="d">A <code>Modify_Speed</code> effect is <code>Always</code>: its consumer is read off the battlefield, where no counter exists.</td></tr>
+            <tr class="stripe"><td class="k">Peak_Output_Over_Cap</td><td class="d">A gated effect's peak output is capped: a gate discounts the price without shrinking the number that lands.</td></tr>
+            <tr class="stripe"><td class="k">Cadence_Not_Positive</td><td class="d"><code>Timing_Every_N</code> wants a cadence of at least one round.</td></tr>
+            <tr class="stripe"><td class="k">Charge_Not_Positive</td><td class="d"><code>Timing_Charge</code> wants a positive cost and a positive gain.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="lbl">The subtle one</span>
+        <p>
+          <code>Order_Is_Not_A_Scale</code> also catches a reading buried inside a Gate's
+          <em>comparand</em> — <code>max(order, 2) == 2</code> is the same forbidden sentence
+          through the arithmetic door, and nesting a Gate inside a Gate's comparand is the one way
+          the tree editor can reach it. A comparand that reads the order must be the bare reading,
+          even under <code>Eq</code>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="builder">
+      <h2 class="rule">2 · Encounter Builder</h2>
+      <p class="deck">A recipe is a name plus an order over stage specs, and a stage spec is a kind plus an optional stock pool. That is the whole authoring alphabet, so the builder edits exactly that.</p>
+
+      <h3>The recipe list</h3>
+      <p>
+        Both authored pools show at once, headed <code>recipe_catalog</code> and
+        <code>port_bucket</code>, because which pool a recipe is written into is the one place
+        bucket membership is <em>authored</em> rather than derived — you have to be able to see
+        the split. Each row carries a live lint stripe and its shape in brackets.
+      </p>
+      <p>Two append buttons, one per pool. A new recipe starts with a single <code>Fight</code> stage.</p>
+
+      <h3>Editing a recipe</h3>
+      <p>Name it, choose its pool, then work the stage list. Two fields are derived and not yours:</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Derived</th><th>From</th></tr></thead>
+          <tbody>
+            <tr><td class="k">bucket</td><td class="d">The stage count: 1 → Coastal, 2 → Open Sea, more → Deep. The Port pool is bespoke-placed and exempt. <strong>A recipe cannot be filed in the wrong bucket, because it isn't filed.</strong></td></tr>
+            <tr><td class="k">reveals</td><td class="d">Whether the first stage reveals. An encounter reveals if and only if its first stage does.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Each stage row has its ordinal, a kind combo, a stock pool combo, and
+        <kbd>up</kbd> <kbd>dn</kbd> <kbd>x</kbd>. Choosing <code>Shop</code> supplies a default
+        pool; choosing anything else clears it — a pool is authored if and only if the primitive
+        is a Shop, and the bake asserts it both directions. <strong>+ stage</strong> appends a
+        <code>Reward</code>, up to the stage maximum.
+      </p>
+      <p>
+        Order is meaningful: costs are authored ahead of the boons they pay for. Reordering with
+        <kbd>up</kbd> and <kbd>dn</kbd> is a real authoring act, not a display preference.
+      </p>
+
+      <h3>Bake preview</h3>
+      <p>
+        Pick a <strong>zone</strong>, a <strong>depth</strong> and a <strong>seed</strong>, and the
+        builder runs the recipe through the real bake and renders what each stage actually
+        produced, slot by slot. This is where "is this encounter any good at this depth" gets
+        answered — re-roll the seed to see the spread rather than one sample.
+      </p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Stage</th><th>What the preview shows</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Fight</td><td class="d">The opponent's hull, effective speed and output scaling, then every installed fitting with its slot, visibility, fire contribution and cargo.</td></tr>
+            <tr><td class="k">Offer</td><td class="d">The tier band, then each option with its showcase magnitude.</td></tr>
+            <tr><td class="k">Trade</td><td class="d">The bargain as baked: gain <em>this</em> for <em>that</em>.</td></tr>
+            <tr><td class="k">Shop</td><td class="d">The card count split into shelf and reserve, then each card with its tier and cargo price.</td></tr>
+            <tr><td class="k">Reward</td><td class="d">The cargo it pays.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="lint">
+      <h2 class="rule">The lint findings</h2>
+      <p class="deck">The catalog's conventions are enforced by tests at <code>odin test</code>. They are checked here as you compose, so an anti-shape is a red line on the row you just wrote instead of a failing build twenty minutes later. One finding at a time, in the order the conventions are written.</p>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Finding</th><th>Reason</th></tr></thead>
+          <tbody>
+            <tr class="stripe"><td class="k">Unnamed</td><td class="d">A name is not decoration: a recipe's identity is its shape plus its name.</td></tr>
+            <tr class="stripe"><td class="k">Duplicate_Name</td><td class="d">Another recipe already carries this name.</td></tr>
+            <tr class="stripe"><td class="k">No_Stages</td><td class="d">A recipe must author at least one stage.</td></tr>
+            <tr class="stripe"><td class="k">Shop_Without_A_Pool</td><td class="d">A Shop spec names the hold it sells from; the bake asserts it.</td></tr>
+            <tr class="stripe"><td class="k">Pool_Without_A_Shop</td><td class="d">Only a Shop authors a stock pool: no other primitive has one to draw from.</td></tr>
+            <tr class="stripe"><td class="k">Cost_Behind_A_Boon</td><td class="d">A declinable cost behind a boon is a free escape from paying for it.</td></tr>
+            <tr class="stripe"><td class="k">Duplicate_Shape</td><td class="d">Another recipe authors the same stage kinds: nothing downstream can tell them apart.</td></tr>
+            <tr class="stripe"><td class="k">Catalog_Opens_On_A_Shop</td><td class="d">Only the Port bucket opens on a Shop — a merchant earns its Shop by putting a stage in front of it.</td></tr>
+            <tr class="stripe"><td class="k">One_Stage_Bucket_Full</td><td class="d">The 1-stage bucket is capped, permanently: a further entry could only duplicate a shape.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="lbl">Shape means the kind sequence, and nothing else</span>
+        <p>
+          A differing stock pool does <strong>not</strong> rescue a shape collision. A baked shop
+          stage carries its cards but not the pool that dealt them, so two recipes with the same
+          kinds are one indistinguishable encounter on the map, in a snapshot, and to the recipe
+          recovery that matches on kinds. That is stricter than authoring wants, and it is what
+          the catalog's own test enforces — so a recipe this lint calls clean passes the catalog's
+          tests unchanged.
+        </p>
+      </div>
+
+      <p>
+        Which stages count as costs: <code>Fight</code> and <code>Trade</code>, because they both
+        cost something <em>and</em> can be declined, so their halt is a free exit from everything
+        downstream. <code>Shop</code> is a boon despite spending cargo — it never halts.
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="rosters">
+      <h2 class="rule">3 · Rosters</h2>
+      <p class="deck">Hostile archetypes, trade axes and stock pools. The two main surfaces lean on all three, so balancing items and encounters without them is half a job.</p>
+
+      <h3>Archetypes</h3>
+      <p>
+        A hostile build is an <strong>ordered</strong> list of roster items, picked from combos
+        over the live roster — so a dangling item name is unauthorable; an archetype holds an
+        index, never a spelling. Order is authoring: placement is first-empty-fit into a template
+        whose slots are exposed-first within each size, so an item placed earlier lands on deck and
+        one placed later falls back to the concealed hold.
+      </p>
+      <p>
+        The right pane resolves that placement the way generation does and prints the resulting
+        hull, weight and speed — and then <strong>fights it</strong>, because the roster's
+        authoring rule has two walls and both are about how a fight with a starting player actually
+        goes. The build is fought against a starting ship at Coastal, both sides holding, so what
+        it measures is the damage the two loadouts produce rather than how escape was played.
+      </p>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Check</th><th>Fails when</th></tr></thead>
+          <tbody>
+            <tr class="stripe"><td class="k">rounds</td><td class="d">The fight resolves before the escape gate opens.</td></tr>
+            <tr class="stripe"><td class="k">floor</td><td class="d">A starting player cannot scratch the build — a fight with no risk.</td></tr>
+            <tr class="stripe"><td class="k">ceiling</td><td class="d">The build sinks a starting ship before Break Off comes off the bench.</td></tr>
+            <tr class="stripe"><td class="k">termination</td><td class="d">This build and a starting player cannot finish a fight at Coastal.</td></tr>
+            <tr class="stripe"><td class="k">placement</td><td class="d">The build asks for more slots of a size than the template has.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Trade axes</h3>
+      <p>
+        An axis carries no magnitudes — those are the site's swing — so it is authored purely as
+        "what for what". Below the fields, the swing each zone would apply, and four guardrails:
+      </p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Fault</th><th>Reason</th></tr></thead>
+          <tbody>
+            <tr class="stripe"><td class="k">Unnamed</td><td class="d">Presentation says which bargain this is from the name.</td></tr>
+            <tr class="stripe"><td class="k">Name_Collides</td><td class="d">That name is taken by a roster item — a Trade is not a thing you install.</td></tr>
+            <tr class="stripe"><td class="k">Hull_Is_Gain_Only</td><td class="d">Nothing else in the game heals, and a trade that damages you is a Fight without the fight.</td></tr>
+            <tr class="stripe"><td class="k">Same_Stat_Both_Sides</td><td class="d">Both sides name the same stat, so the trade nets to nothing.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Speed is absent from the stat list entirely: it is a derived read-out of weight, so it is not tradeable.</p>
+
+      <h3>Stock pools</h3>
+      <p>
+        The five holds. The set itself is closed — a pool reaches a node by being <em>named by a
+        recipe</em>, so adding one is a catalog edit as well as a table edit — and this tab edits
+        what each one is made of.
+      </p>
+      <div class="note">
+        <span class="lbl">Unfiltered ≠ every family</span>
+        <p>
+          The <strong>filtered</strong> checkbox is separate from the family set on purpose.
+          Unfiltered means <em>no filter</em>, so an unfiltered shop keeps stocking a sixth tag the
+          day one is authored. Ticking every box instead would silently freeze the pool at today's
+          tag list.
+        </p>
+      </div>
+      <p>
+        <strong>depth</strong> is how many cards deep the hold is. Two derived read-outs follow:
+        <strong>candidates</strong>, the roster items this pool may stock, and <strong>reserve</strong>,
+        the cards behind the shelf — the only thing standing between a shop and exhaustion. At or
+        below the shelf size the reserve reads as a shop that can be bought out in one visit, and if
+        candidates fall short of depth the panel warns that a shelf will come up short.
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="reference">
+      <h2 class="rule">4 · Ship &amp; Constants</h2>
+      <p class="deck">Read-only. Not the Forge's to edit, but on screen because everything else depends on them.</p>
+
+      <div class="grid">
+        <div class="panel">
+          <header>Ship template</header>
+          <div class="body"><p>Every slot with its size and base visibility, exposed-first within each size — which is what makes loadout order authoring. Then the pricing census derived from it.</p></div>
+        </div>
+        <div class="panel">
+          <header>Constants</header>
+          <div class="body"><p>Ship, budget and content constants as the game defines them: starting hull and speed, the budget's point, band and rates, the gate factors, the roster and encounter bounds.</p></div>
+        </div>
+        <div class="panel">
+          <header>Stakes by site</header>
+          <div class="body"><p>One row per zone and depth, one column per primitive's reading of it — opponent hull, power percent, offer quality, reward cargo, and the tier band. Then trade swing by zone.</p></div>
+        </div>
+      </div>
+
+      <div class="note warn">
+        <span class="lbl">The layout is a balance surface</span>
+        <p>
+          The pricing census is derived by walking the real ship template. Re-sizing a hold
+          re-prices every counting item in the roster — which is why the template sits here rather
+          than being left implicit.
+        </p>
+      </div>
+      <p><kbd>Ctrl</kbd>+<kbd>C</kbd> on this surface emits a comment saying so, rather than a table line.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="emit">
+      <h2 class="rule">Getting the work out</h2>
+      <p class="deck">There is no save. <kbd>Ctrl</kbd>+<kbd>C</kbd> copies the current row as the exact Odin line its table is written in, in the house style the tables already use — pasted rather than adapted.</p>
+
+      <p>
+        The emit is also <em>rendered</em>, in a panel at the bottom of the surface, so you read
+        the line before pasting rather than discovering it in your editor. Which row gets emitted
+        depends on the surface:
+      </p>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Surface</th><th>Emits</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Item Workbench</td><td class="d">One <code>roster_item(…)</code> line. Bulk is written only where it differs from the size's full contribution, and <code>requires_exposed</code> only when true — naming a default would say less than leaving it out.</td></tr>
+            <tr><td class="k">Encounter Builder</td><td class="d">Two things: the <code>@(rodata)</code> stage array, and the catalog or port-bucket entry that names it. Both, because a recipe authored without its backing array would be a slice of nothing.</td></tr>
+            <tr><td class="k">Rosters · Archetypes</td><td class="d">The item-name array plus the roster entry, in edit order.</td></tr>
+            <tr><td class="k">Rosters · Trade / Stock</td><td class="d">The single table row.</td></tr>
+            <tr><td class="k">Ship &amp; Constants</td><td class="d">A comment saying these are read-only.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Two warnings the emit carries</h3>
+      <p>An <strong>appended</strong> item emits with the count bump attached, because the count is what makes a miscount a compile error rather than silent:</p>
+<pre><code><span class="c">// append to ship_item_roster, and bump the count:</span>
+roster_item(.Splash, "Chain Shot Rack", .Small, 40, {.Artifact}, {…}),
+
+ITEM_ROSTER_SIZE :: 51</code></pre>
+
+      <p>An <strong>edited existing</strong> row emits with the cost of that edit stated:</p>
+<pre><code><span class="w">// WARNING: this replaces roster row 12, so every seed that draws it now deals a different item</span>
+roster_item(.Splash, "War Hound", .Small, 7, {.Beast}, {effect_phase_contribution(expr_below_hull_percent(50, 4))}),</code></pre>
+      <p>
+        Note the tree came back out as <code>expr_below_hull_percent(50, 4)</code> rather than as
+        the four-node Gate it expands to: a subtree that still matches a preset emits as that
+        preset's helper, which is what keeps the emitted roster reading like the roster it is
+        pasted into.
+      </p>
+
+      <div class="note">
+        <span class="lbl">The round trip</span>
+        <p>
+          The tests embed the real tables and assert that every line the Forge emits is
+          <em>already in the shipped table</em>, modulo formatting and the spelling order of a tag
+          set. Re-reading emitted source through core reassembles the same tree, and so reproduces
+          the verdict the tool showed you.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="recipes">
+      <h2 class="rule">Workflows</h2>
+      <p class="deck">Three things the tool is shaped around doing.</p>
+
+      <h3>Balance an item to its band</h3>
+      <ol class="steps">
+        <li>Select the row. The budget panel is already showing its equation.</li>
+        <li>Read <strong>solve for magnitude</strong>, not the cost. It tells you the peak range that lands inside the band with everything else pinned.</li>
+        <li>Set the tree's magnitude to something in that range. If the range is empty — high below low — the panel says so in red, and the fix is the weight, the size or the tier, not the tree.</li>
+        <li>Check the three readings agree with your intent: showcase is what the player is promised, peak is what you are charged for.</li>
+        <li><kbd>Ctrl</kbd>+<kbd>C</kbd>, paste, run the tests.</li>
+      </ol>
+
+      <h3>Add an encounter</h3>
+      <ol class="steps">
+        <li><strong>+ catalog recipe</strong> (or port). Name it — the lint faults an unnamed one immediately.</li>
+        <li>Build the stage list. Watch the lint pane: it is checking the same conventions the catalog's tests check.</li>
+        <li>Note the derived <strong>bucket</strong>. You do not choose it; the stage count does.</li>
+        <li>Bake it at the zone and depth it will actually appear in, then re-roll the seed several times to see the spread rather than one lucky sample.</li>
+        <li><kbd>Ctrl</kbd>+<kbd>C</kbd> — remember it emits <em>two</em> pieces, the array and the entry.</li>
+      </ol>
+
+      <h3>Add a hostile</h3>
+      <ol class="steps">
+        <li>Append an archetype and name it.</li>
+        <li>Add items from the roster combos. Order is placement: earlier lands on deck, later falls to the concealed hold.</li>
+        <li>Read the resolved placement, then both walls. All of it must be green — a build that cannot be scratched and a build that sinks you before you can run are both faults.</li>
+        <li>If placement fails outright, the build wants more slots of a size than the template has; drop or resize an item.</li>
+      </ol>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="traps">
+      <h2 class="rule">Traps</h2>
+      <p class="deck">Five things that will bite once each.</p>
+
+      <div class="note fault">
+        <span class="lbl">Editing an existing roster row re-deals every seed that draws it</span>
+        <p>
+          The Forge only ever appends, so no index moves — but a shop's shelf and an Offer's options
+          are drawn by <em>indexing</em> the roster. Change row 12 and every seed that dealt row 12
+          now deals something else. The item pane says so in amber the moment you diverge, and the
+          emit repeats it. Appending is safe; editing in place is a deliberate act.
+        </p>
+      </div>
+
+      <div class="note fault">
+        <span class="lbl">Closing the window is the only exit, and it discards everything</span>
+        <p>
+          There is no save file. Copy what you want before you close it. <kbd>Esc</kbd> deliberately
+          does <em>not</em> quit — it only leaves the field you are editing.
+        </p>
+      </div>
+
+      <div class="note warn">
+        <span class="lbl">Sorting the roster does not renumber it</span>
+        <p>
+          Every sort but the default reorders the view alone. The <code>#</code> column always shows
+          the roster index, which is what a seed draws by.
+        </p>
+      </div>
+
+      <div class="note warn">
+        <span class="lbl">A gate buried under arithmetic pays nothing</span>
+        <p>
+          The budget discounts a condition <em>in front of</em> the magnitude, not one that is part
+          of the tree's value. If your gate sits under a Mul, the panel says so plainly rather than
+          announcing a discount you are not getting.
+        </p>
+      </div>
+
+      <div class="note warn">
+        <span class="lbl">Opponent counts read zero outside a battle</span>
+        <p>
+          A <code>Count</code> node set to the Opponent side reads the scouting report, which cannot
+          see a concealed fitting — and outside a battle reads nothing at all. The tree editor says
+          so beside the control.
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <p>
+      The Forge · <code>cmd/forge</code> + <code>forge/</code> · fantasy-ship-game.
+      Palette and type follow <code>forge/style.odin</code>, which loads its faces from the system
+      rather than embedding them — so this page is set the way the tool is.
+    </p>
+  </footer>
+
+</div>
