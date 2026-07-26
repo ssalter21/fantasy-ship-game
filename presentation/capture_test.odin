@@ -38,15 +38,17 @@ capture_shot_groups_name_every_shot_once :: proc(t: ^testing.T) {
 }
 
 // A targeted shot has to land on the file a full --capture run would write, so the
-// group's start index must be its position in the flattened walk order.
+// group's start index must be its position in the flattened walk order, and the shot's
+// own number its position within that.
 @(test)
-capture_shot_group_for_numbers_groups_in_walk_order :: proc(t: ^testing.T) {
+capture_shot_group_for_numbers_shots_in_walk_order :: proc(t: ^testing.T) {
 	walked := 0
 	for group in capture_shot_groups {
 		for name, offset in group.names {
-			found, start, ok := capture_shot_group_for(name)
+			found, start, number, ok := capture_shot_group_for(name)
 			testing.expectf(t, ok, "%s should be findable by name", name)
 			testing.expectf(t, start == walked, "%s should start its group at %d", name, walked)
+			testing.expectf(t, number == walked + offset, "%s should carry number %d", name, walked + offset)
 			testing.expectf(
 				t,
 				len(found.names) == len(group.names) && found.names[offset] == name,
@@ -60,7 +62,7 @@ capture_shot_group_for_numbers_groups_in_walk_order :: proc(t: ^testing.T) {
 
 @(test)
 capture_shot_group_for_rejects_an_unknown_name :: proc(t: ^testing.T) {
-	_, _, ok := capture_shot_group_for("no-such-screen")
+	_, _, _, ok := capture_shot_group_for("no-such-screen")
 	testing.expect(t, !ok, "an unnamed screen should not resolve to a group")
 }
 
@@ -79,6 +81,10 @@ capture_shot_arg_reads_the_requested_name :: proc(t: ^testing.T) {
 	name, requested = capture_shot_arg({"--shot"})
 	testing.expect(t, requested, "a bare --shot is a shot request")
 	testing.expect(t, name == "", "a bare --shot names nothing")
+
+	name, requested = capture_shot_arg({"--shot", "--capture"})
+	testing.expect(t, requested, "--shot before another flag is still a request")
+	testing.expect(t, name == "", "a following flag is not this flag's name")
 
 	_, requested = capture_shot_arg({"--capture"})
 	testing.expect(t, !requested, "the scripted walk is not a shot request")

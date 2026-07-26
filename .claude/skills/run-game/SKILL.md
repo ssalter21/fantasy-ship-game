@@ -66,19 +66,22 @@ Under a second, one PNG, then the process exits. The shot lands in `docs/ui/shot
 filename a full run gives it (`04-build.png`), so a shot taken this way is interchangeable with one from the
 walk. `--shot` beats `--capture` when both are passed.
 
-An unknown name — or a bare `--shot` — prints the names that exist and exits 1 without opening a window:
+An unknown name — or a bare `--shot` — prints the names that exist and exits 1 without opening a window, so
+**ask for a wrong name to get the list** rather than hunting for it:
 
 ```
-capture: no shot named "buld". Shots: chart-table, home, home-chart-rising, home-chart, build, build-hover,
-build-shelf, build-placing, build-burning, build-burn-confirm, encounter-frame, encounter-playback, shop,
-shop-buying, fight, fight-exchange, fight-jettison. (The voyage screens are --capture only.)
+capture: no shot named "buld". Shots: chart-table, home, home-chart-rising, … (The voyage screens are
+--capture only.)
 ```
 
-Those seventeen are the **standalone** screens — the ones `capture_shot_groups` in `presentation/capture.odin`
-sets up without a voyage. The walk's own screens (`travel`, `options`, `trade`, `refit`, `battle`, `ended`)
-need the scripted session and are reachable only through the full run. Adding a screen to the standalone set
-means adding its name to that table; a test checks the names are unique and that each group starts at its
-walk-order number.
+Those are the **standalone** screens — the ones `capture_shot_groups` in `presentation/capture.odin` sets up
+without a voyage. The walk's own screens (`travel`, `options`, `trade`, `refit`, `battle`, `ended`) need the
+scripted session and are reachable only through the full run. Adding a screen to the standalone set means
+adding its name to that table; a test checks the names are unique and that each shot carries its walk-order
+number.
+
+A targeted run that writes nothing — a screen that bailed out, or a shot that couldn't be moved into
+`docs/ui/shots/` — says so and exits 1. It never reports a file that isn't there.
 
 ```bash
 odin run cmd/game -- --capture

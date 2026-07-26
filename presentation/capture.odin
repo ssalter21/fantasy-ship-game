@@ -28,14 +28,14 @@ CAPTURE_DIR :: "docs/ui/shots"
 // separate rawptrs, so capture's Input_Source and the game's Event_Sink can read
 // different structs without either knowing about the other.
 //
-// `only`, when set, is the one shot a targeted run asked for: its group still draws
-// every frame it composes, but capture_write keeps that one and drops the rest.
+// `wanted` is the one shot a targeted run asked for: its group still draws every frame
+// it composes, but capture_write keeps that one and drops the rest.
 @(private)
 Capture_State :: struct {
 	game:    Game_State,
 	shots:   int, // the number the next shot's file carries, dropped shots included
-	written: int,
-	only:    string,
+	written: int, // shots that reached CAPTURE_DIR, not shots attempted
+	wanted:  Maybe(string),
 }
 
 // A Capture_Shot_Group is one standalone screen setup and the shots it writes, named
@@ -64,17 +64,25 @@ capture_shot_groups := [?]Capture_Shot_Group {
 }
 
 // capture_shot_group_for finds the group that writes a named shot, with the number the
-// first of that group's shots carries.
+// first of that group's shots carries (where a targeted run starts counting) and the
+// number the named shot itself carries.
 @(private)
-capture_shot_group_for :: proc(name: string) -> (group: Capture_Shot_Group, start: int, ok: bool) {
+capture_shot_group_for :: proc(
+	name: string,
+) -> (
+	group: Capture_Shot_Group,
+	start: int,
+	number: int,
+	ok: bool,
+) {
 	walked := 0
 	for candidate in capture_shot_groups {
-		if slice.contains(candidate.names, name) {
-			return candidate, walked, true
+		if offset, found := slice.linear_search(candidate.names, name); found {
+			return candidate, walked, walked + offset, true
 		}
 		walked += len(candidate.names)
 	}
-	return {}, 0, false
+	return {}, 0, 0, false
 }
 
 // capture_open builds the window every capture entry shoots in. Paired with
@@ -105,9 +113,9 @@ capture_close :: proc() {
 // capture_shot_main renders one named screen, writes its PNG and returns — the targeted
 // counterpart to capture_main's walk, entered from main when --shot is passed. Only the
 // asked-for shot's group runs, so the cost is the window and one screen rather than a
-// voyage. Reports whether the name named a screen.
+// voyage. Reports whether the shot reached CAPTURE_DIR.
 capture_shot_main :: proc(name: string) -> bool {
-	group, start, found := capture_shot_group_for(name)
+	group, start, number, found := capture_shot_group_for(name)
 	if !found {
 		names: [dynamic]string
 		defer delete(names)
@@ -125,17 +133,18 @@ capture_shot_main :: proc(name: string) -> bool {
 	capture_open("Fantasy Ship Game (shot)")
 	defer capture_close()
 
-	state := Capture_State{shots = start, only = name}
+	state := Capture_State{shots = start, wanted = name}
 	group.shoot(&state)
 	if state.written == 0 {
-		// The group reached its own early return — a missing roster item, a berth its
-		// hover has nowhere to land — before composing this frame.
-		fmt.eprintfln("capture: %s never rendered; its screen bailed out before the shot", name)
+		// Either the group reached its own early return — a missing roster item, a berth
+		// its hover has nowhere to land — before composing this frame, or the shot was
+		// composed and could not be moved out of the working directory, which capture_write
+		// has already reported. Both are failures: nothing is in CAPTURE_DIR to look at.
+		fmt.eprintfln("capture: %s did not land in %s", name, CAPTURE_DIR)
 		return false
 	}
 
-	offset, _ := slice.linear_search(group.names, name)
-	fmt.printfln("capture: wrote %s/%02d-%s.png", CAPTURE_DIR, start + offset, name)
+	fmt.printfln("capture: wrote %s/%02d-%s.png", CAPTURE_DIR, number, name)
 	return true
 }
 
@@ -489,7 +498,7 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 	// A targeted run draws its group's other frames and drops them here rather than
 	// writing them. The number still advances, so the shot that is kept lands on the
 	// file the full walk would have given it.
-	if state.only != "" && state.only != label {
+	if wanted, targeted := state.wanted.?; targeted && wanted != label {
 		state.shots += 1
 		return
 	}
@@ -502,11 +511,19 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 	name := fmt.tprintf("%02d-%s.png", state.shots, label)
 	rl.TakeScreenshot(strings.clone_to_cstring(name, context.temp_allocator))
 
+	// A shot that cannot be moved is removed rather than left behind: the repo root is not
+	// a capture directory, `*.png` there is not gitignored, and a stranded shot is one
+	// `git add .` away from being committed. It is counted as unwritten either way, so a
+	// targeted run fails rather than reporting a file that is not there.
+	state.shots += 1
 	dest := fmt.tprintf("%s/%s", CAPTURE_DIR, name)
 	if err := os.rename(name, dest); err != nil {
 		fmt.eprintfln("capture: could not move %s into %s (%v)", name, CAPTURE_DIR, err)
+		if err := os.remove(name); err != nil {
+			fmt.eprintfln("capture: %s is stranded in the working directory (%v)", name, err)
+		}
+		return
 	}
-	state.shots += 1
 	state.written += 1
 }
 
@@ -580,7 +597,9 @@ capture_shot_arg :: proc(args: []string) -> (name: string, requested: bool) {
 			return arg[len(FLAG) + 1:], true
 		}
 		if arg == FLAG {
-			if i + 1 < len(args) {
+			// A following flag is the next request, not this one's name — `--shot --capture`
+			// names nothing rather than asking for a screen called "--capture".
+			if i + 1 < len(args) && !strings.has_prefix(args[i + 1], "--") {
 				return args[i + 1], true
 			}
 			return "", true

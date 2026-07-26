@@ -13,9 +13,9 @@ import presentation "../../presentation"
 // there is nothing here but the dispatch below, and everything it calls is tested
 // in-package in presentation.
 main :: proc() {
-	if name, shot := presentation.capture_shot_requested(); shot {
-		// A name that shoots nothing is a caller error, not a blank run: exit non-zero so
-		// a script asking for a screen that isn't there fails rather than reads a stale PNG.
+	if name, requested := presentation.capture_shot_requested(); requested {
+		// A shot that does not land is a failure, not a blank run: exit non-zero so a
+		// script asking for a screen fails rather than reads a stale PNG.
 		if !presentation.capture_shot_main(name) {
 			os.exit(1)
 		}
