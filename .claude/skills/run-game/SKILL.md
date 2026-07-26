@@ -126,6 +126,56 @@ for name, (x, y) in {'top-left': (2, 2), 'centre': (w//2, h//2), 'bottom-right':
 Any claim about a colour, a size or an alignment should come off a scan like this and be checked against the
 guide's stated value.
 
+## Zoom into a shot, and diff two of them
+
+`scripts/shot.py` sits between looking and scanning: detail the eye cannot resolve at 1:1, and a comparison
+against the *previous shot* rather than against your memory of it.
+
+```bash
+python scripts/shot.py zoom 00-chart-table top-left --factor 3
+python scripts/shot.py diff 04-build 05-build-hover
+```
+
+Both take a bare shot name (resolved against `docs/ui/shots/`, `.png` optional) or a path, and write under
+`docs/ui/shots/zoom/` and `docs/ui/shots/diff/` — gitignored and regenerable, like the shots themselves.
+
+**Park your "before" outside `docs/ui/shots/` first.** The capture recipe above deletes that whole directory,
+so the next capture destroys both the shot you meant to diff against *and* any zoom or diff you wrote from it.
+Copy the before-shot somewhere else, or send output there with `--out` (zoom) and `--out-dir` (diff):
+
+```bash
+cp docs/ui/shots/04-build.png /tmp/before.png     # survives the next capture
+python scripts/shot.py diff /tmp/before.png 04-build --out-dir /tmp/diff
+```
+
+**Zoom** crops a region and magnifies it by an integer factor (default 3), **nearest-neighbour**, so a pixel
+stays a hard-edged square and you are looking at the real pixels rather than at an interpolation of them.
+Cropping the ship screen's top-left quadrant at 3x is what exposed the sky/cloud resolution mismatch that is
+invisible at 1:1.
+
+Named regions mean you rarely need coordinates: `full`, `top`, `bottom`, `left`, `right`, the four quadrants
+(`top-left`, `top-right`, `bottom-left`, `bottom-right`), and `centre` (the middle half, spelled `center` too).
+They are fractions of the shot, so a name means the same thing at any resolution. `x,y,w,h` in pixels still
+works for a particular widget.
+
+**Diff** writes a side-by-side (before left, after right) *and* a mask: the after-shot dimmed to a grey ghost
+with every changed pixel in magenta, so you see *what* changed and *where in the frame* it sits at once. It
+prints the changed-pixel count and percentage, the bounding box of the change, and the **max channel delta** —
+read that last number before you believe a diff, because a max delta of 2 is noise, not a design change.
+
+**Diffing two identical shots says so and writes nothing.** That is the useful answer: an empty mask looks
+exactly like a mask you forgot to open.
+
+The two compose, and that is the main way to use them: diff to find *where* the change is, then zoom that
+region — the mask's printed bounding box is the region argument. That pairing is also the cheap one against the
+context budget below, since the printed numbers answer most iterations without opening an image at all.
+
+Sizes must match; a mismatch is reported with both dimensions rather than silently padded.
+
+**This is an instrument for 2D chrome.** Geometry bugs on the 3D ship screen are invisible rather than small,
+and magnifying a correctly-drawn but wrong-facing surface tells you nothing. The workbench's normal paint and
+wireframe views are what serve those (below).
+
 ## Context budget: look once, scout the rest
 
 This loop spends context faster than it produces code: a screen that lands in a ~750-line diff can burn a 250K+
