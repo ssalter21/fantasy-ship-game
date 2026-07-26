@@ -26,8 +26,19 @@ import rl "vendor:raylib"
 
 // The sun's place in frame: over her quarter, aft and high, which is the same quarter
 // SHIP_SUN lights her from. It is what backlights the canvas and lays the glitter down the water.
-SHIP_SUN_X :: f32(980)
-SHIP_SUN_Y :: f32(118)
+//
+// Well outboard, and that is the fix for the two brightest marks on the water landing on each
+// other. The glitter path runs from the sun straight down the frame toward the viewer — it has
+// nowhere else to go — and her wake fans aft from the stern across the same water, so with the
+// sun set just abaft her quarter the two stacked into one bright smear that read as neither.
+//
+// Moving the sun *forward* instead would separate them too, and is wrong: SHIP_SUN puts the
+// light aft for a reason, and the camera stands off her port bow. Bring the light round to the
+// bow and it falls on the faces the camera can already see, the castles lose the shadowed
+// forward faces that say which way the hull turns, and she flattens out. Outboard costs nothing
+// — the light is still abaft her beam, so every shaded face on the ship is unchanged.
+SHIP_SUN_X :: f32(1120)
+SHIP_SUN_Y :: f32(116)
 
 // sea_noise is the scatter every mark on the water is placed by: one number in 0..1 per (index,
 // salt). Broken water has to look unplanned, and stepping an index through a modulus — which is
@@ -199,8 +210,11 @@ draw_ship_sea :: proc(horizon_y: f32) {
 	// its weight, how dark it is — is taken off that one number, so the water gains scale as it
 	// approaches. This is the only perspective a sea seen from its own surface has: the swell
 	// crowds fine and tight at the horizon and comes on long and heavy at the viewer's feet.
-	for i in 0 ..< 230 {
-		f := math.pow(sea_noise(i, 1), 1.7)
+	// The exponent is what decides how hard the chop crowds toward the horizon, and 1.7 crowded
+	// it so hard that the nearest third of the water got almost no marks at all. The perspective
+	// wants crowding; it does not want the bottom of the frame empty.
+	for i in 0 ..< 300 {
+		f := math.pow(sea_noise(i, 1), 1.35)
 		y := horizon_y + SHELF + f * (depth - SHELF)
 		x := sea_noise(i, 2) * (WINDOW_WIDTH + 60) - 30
 		length := 7 + f * 52
@@ -214,13 +228,36 @@ draw_ship_sea :: proc(horizon_y: f32) {
 		}
 	}
 
+	// Near swells: the one thing that carries the bottom of the frame. More chop would not have
+	// done it — chop is a scatter of short marks, and a scatter of short marks on flat colour is
+	// still flat colour with speckle on it. A swell is a *long* mark with two sides: the back of
+	// it turned away from the eye and falling into the sea's own deep, and the lit crest under
+	// that. Two dozen of them give the near water form and something for the eye to travel
+	// along, which is what the guide means by never painting a flat wall of it edge to edge.
+	//
+	// They are drawn on the lattice like everything else in the backdrop, and only over the near
+	// two-thirds of the water — a swell this long up at the horizon would be a mile of sea in one
+	// mark, and reads as a ruled line across the frame.
+	for i in 0 ..< 40 {
+		f := 0.26 + sea_noise(i, 61) * 0.74
+		y := backdrop_floor(horizon_y + SHELF + f * (depth - SHELF))
+		x := backdrop_floor(sea_noise(i, 62) * (WINDOW_WIDTH + 200) - 100)
+		length := backdrop_ceil(90 + f * 220)
+		rise := backdrop_ceil(3 + f * 4)
+		backdrop_block({x, y - rise, length, rise}, rl.Fade(COLOUR_SEA_DEEP, 0.24 + f * 0.20))
+		backdrop_block({x, y, length, rise}, rl.Fade(COLOUR_SEA_SHALLOW, 0.32 + f * 0.34))
+	}
+
 	// The glitter path: the sun's own road down the water. It stays under the sun and widens as
 	// it comes on, every fleck thrown by the scatter so the road is broken light rather than a
 	// dotted line drawn from A to B.
+	// Narrower than it was, for the same reason the sun moved: a road 240 wide at the viewer's
+	// end covered a fifth of the frame, and a glitter path that wide is not a road, it is a
+	// wash. Kept tight, it reads as one bright thing with an obvious source.
 	for i in 0 ..< 200 {
 		f := math.pow(sea_noise(i, 11), 1.4)
 		y := horizon_y + 4 + f * (depth - 4)
-		spread := 30 + f * 240
+		spread := 20 + f * 130
 		x := SHIP_SUN_X + (sea_noise(i, 12) - 0.5) * spread
 		backdrop_block({x, y, 4 + f * 22, 1 + f * 2}, rl.Fade(COLOUR_FOAM, 0.46 - f * 0.2))
 	}
@@ -236,10 +273,14 @@ draw_ship_wake :: proc(view: cutaway.View, horizon_y: f32) {
 
 	// Astern: broken water fanning back from her quarter, thinning as it falls behind. Scattered
 	// rather than stepped, or it draws itself as a road running off to the horizon.
+	// The reach is short enough to end well before the sun's road begins. Two hundred pixels of
+	// broken water astern still reads as a wake; three hundred only got it far enough aft to
+	// collide with the glitter, and the pair of them together read as one smear rather than as
+	// a wake and a sun path.
 	for i in 0 ..< 120 {
 		f := sea_noise(i, 21)
 		spread := sea_noise(i, 22)
-		x := stern.x + f * 300
+		x := stern.x + f * 205
 		y := horizon_y + 1 + f * 40 * spread
 		backdrop_block({x, y, 30 - f * 20, 2 + f * 2}, rl.Fade(COLOUR_FOAM, (0.40 - f * 0.32) * (1 - spread * 0.5)))
 	}

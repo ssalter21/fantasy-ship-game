@@ -591,17 +591,35 @@ draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool
 	//
 	// Label muted, number primary. Almost everything a captain weighs on this screen is a number,
 	// so the number is what has to come off the bar first, and the guide ranks by colour.
+	// Each term gets exactly the width it needs, and the slack is shared out equally as the
+	// gutter between them. Cutting the bar into equal columns instead put every term at the left
+	// edge of a cell it filled about a third of, so each one was followed by a long ragged gap
+	// and the divider that should separate it from the next stood a hundred pixels clear of
+	// both. Measured columns give the row one rhythm, and each rule falls midway between the two
+	// terms it divides.
 	fields := ship_stat_fields(s = &state.player, weight = true)
 	INSET :: f32(14)
-	column := (panel.width - INSET * 2) / f32(max(len(fields), 1))
+	widths := make([]f32, len(fields), context.temp_allocator)
+	packed := f32(0)
 	for field, i in fields {
-		x := panel.x + INSET + f32(i) * column
+		widths[i] = rl.MeasureTextEx(ui_font_body, fmt.ctprintf("%s %s", field.label, field.value), UI_BODY_SIZE, 1).x
+		packed += widths[i]
+	}
+	gutter := (panel.width - INSET * 2 - packed) / f32(max(len(fields) - 1, 1))
+	x := panel.x + INSET
+	for field, i in fields {
 		if i > 0 {
-			rl.DrawRectangleRec({x - INSET / 2, panel.y + 8, 1, BUILD_LEDGER_H - 16}, COLOUR_CLIFF)
+			rl.DrawRectangleRec({x - gutter / 2, panel.y + 8, 1, BUILD_LEDGER_H - 16}, COLOUR_CLIFF)
 		}
-		label := fmt.ctprintf("%s", field.label)
 		gap := rl.MeasureTextEx(ui_font_body, fmt.ctprintf("%s ", field.label), UI_BODY_SIZE, 1).x
-		rl.DrawTextEx(ui_font_body, label, rl.Vector2{x, baseline}, UI_BODY_SIZE, 1, COLOUR_INK_MUTED)
+		rl.DrawTextEx(
+			ui_font_body,
+			fmt.ctprintf("%s", field.label),
+			rl.Vector2{x, baseline},
+			UI_BODY_SIZE,
+			1,
+			COLOUR_INK_MUTED,
+		)
 		rl.DrawTextEx(
 			ui_font_body,
 			fmt.ctprintf("%s", field.value),
@@ -610,6 +628,7 @@ draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool
 			1,
 			COLOUR_INK_PRIMARY,
 		)
+		x += widths[i] + gutter
 	}
 }
 
