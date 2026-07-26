@@ -56,39 +56,50 @@ the loop is a few seconds, and it's the difference between finding a break now a
 
 ## Capture: the screens, without playing the game
 
+**Shooting one screen is the loop you want.** Name it and nothing else runs:
+
+```bash
+odin run cmd/game -- --shot build          # or --shot=build
+```
+
+Under a second, one PNG, then the process exits. The shot lands in `docs/ui/shots/` at the same number and
+filename a full run gives it (`04-build.png`), so a shot taken this way is interchangeable with one from the
+walk. `--shot` beats `--capture` when both are passed.
+
+An unknown name — or a bare `--shot` — prints the names that exist and exits 1 without opening a window:
+
+```
+capture: no shot named "buld". Shots: chart-table, home, home-chart-rising, home-chart, build, build-hover,
+build-shelf, build-placing, build-burning, build-burn-confirm, encounter-frame, encounter-playback, shop,
+shop-buying, fight, fight-exchange, fight-jettison. (The voyage screens are --capture only.)
+```
+
+Those seventeen are the **standalone** screens — the ones `capture_shot_groups` in `presentation/capture.odin`
+sets up without a voyage. The walk's own screens (`travel`, `options`, `trade`, `refit`, `battle`, `ended`)
+need the scripted session and are reachable only through the full run. Adding a screen to the standalone set
+means adding its name to that table; a test checks the names are unique and that each group starts at its
+walk-order number.
+
 ```bash
 odin run cmd/game -- --capture
 ```
 
-Walks a scripted voyage and writes real PNGs to `docs/ui/shots/` (gitignored, regenerable). 43 shots, ~75s.
-It reuses `draw_scene` and the real `dispatch` untouched, so what the game draws is what gets shot — there is
-no second copy to drift.
+The whole gallery: walks a scripted voyage and writes 37 PNGs to `docs/ui/shots/` (gitignored, regenerable) in
+about 40s. It reuses `draw_scene` and the real `dispatch` untouched, so what the game draws is what gets shot —
+there is no second copy to drift. Reach for it when you want the gallery or a voyage screen; reach for `--shot`
+the other 90% of the time.
 
-**`00-chart-table.png` is written at frame 0, about 1 second in.** Everything after it is the voyage walk,
-paying ~75s for animations capture cannot photograph anyway. If the screen you're iterating on is the Chart
-Table, kill the run as soon as your shot exists — that turns a 75s loop into a ~2s one:
-
-```powershell
-Get-Process game -ErrorAction SilentlyContinue | Stop-Process -Force   # kill first — see below
-Remove-Item -Recurse -Force docs/ui/shots -ErrorAction SilentlyContinue
-Start-Process odin -ArgumentList 'run','cmd/game','--','--capture' -PassThru -WindowStyle Hidden | Out-Null
-while (-not (Test-Path 'docs/ui/shots/00-chart-table.png')) { Start-Sleep -Milliseconds 100 }
-Get-Process game -ErrorAction SilentlyContinue | Stop-Process -Force
-```
-
-**Kill any running capture before deleting the shots directory**, in that order. Delete it out from under a
-capture that is still walking and every subsequent `os.rename` fails, stranding raylib's screenshots in the
-repo root — where **`*.png` is not gitignored**, so a later `git add .` commits 35 battle screens. Authoring
-this skill did exactly that. If you find loose `NN-*.png` beside `game.exe`, that's what happened:
+**Never kill a capture mid-walk to get at one shot.** That was the old recipe and it is what `--shot` replaces:
+deleting the shots directory out from under a running walk makes every subsequent `os.rename` fail, stranding
+raylib's screenshots in the repo root — where **`*.png` is not gitignored**, so a later `git add .` commits 35
+battle screens. If you find loose `NN-*.png` beside `game.exe`, that's what happened:
 
 ```powershell
 Get-ChildItem -Filter '??-*.png' | Remove-Item        # repo root, not docs/ui/shots
 ```
 
-Use **PowerShell** for this, not the Bash tool: this repo's Git Bash has **no `pkill`**, and backgrounding the
-run with `&` there makes the Bash tool block until the full 75s walk finishes — you get neither the kill nor
-the time back. Expect one or two extra shots past the one you wanted; the walk keeps going until the kill
-lands.
+If you do run the full walk, use **PowerShell**, not the Bash tool: this repo's Git Bash has no `pkill`, and
+backgrounding with `&` there blocks the tool until the walk finishes.
 
 ## Look — and don't trust your eyes
 
@@ -119,9 +130,9 @@ session, and almost none of it reaches the diff. It goes to *process* — images
 source files full-read to find a seam. An implementation session's target is **150K**, and it's defended here,
 where the spending happens.
 
-- **Screenshots are the dominant sink** — heavy, uncompressible, and capture writes **43 of them per run**.
-  Read only the 1–3 shots you are actually iterating on, never the gallery. Kill capture the moment your target
-  shot exists (the `00-chart-table.png` wait above) so the other 40 are never written, let alone read.
+- **Screenshots are the dominant sink** — heavy, uncompressible, and a full walk writes **37 of them per run**.
+  Read only the 1–3 shots you are actually iterating on, never the gallery. `--shot <name>` writes exactly the
+  one you asked for, so the other 36 never exist to be read.
 - **Look once, scan thereafter.** The first look at a shot judges layout — that needs your eyes. Every check
   *after* that (a colour moved, an edge aligned, a value changed) comes off the PIL pixel-scan above, which is
   dozens of tokens against a whole image. Re-reading the same PNG each iteration is the single most expensive
@@ -236,10 +247,12 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
 - Capture draws every frame **twice** before shooting. `TakeScreenshot` reads back the framebuffer
   `EndDrawing` just presented, so a single draw screenshots the *previous* frame. Keep the double draw.
 - There is no `cmd/capture`: capture lives in the presentation package beside the private `draw_scene`,
-  `Game_State` and `dispatch` it photographs, and `cmd/game` enters it behind `--capture` (ADR-0003 argues
-  against linking the renderer into `cmd/headless`, not against this).
+  `Game_State` and `dispatch` it photographs, and `cmd/game` enters it behind `--capture` and `--shot`
+  (ADR-0003 argues against linking the renderer into `cmd/headless`, not against this).
 - The scripted walk declines everything and cannot target a *particular* screen — it reaches *a* screen of most
-  kinds, and never opens a Refit at all.
+  kinds, and never opens a Refit at all. `--shot` targets by name, but only among the standalone screens.
+- A targeted shot still draws its group's other frames (they share one setup) and simply doesn't write them.
+  The frame you asked for is composed and double-drawn exactly as the full walk composes it.
 
 ## Relation to /run and /verify
 

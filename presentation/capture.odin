@@ -27,24 +27,64 @@ CAPTURE_DIR :: "docs/ui/shots"
 // screens the game draws rather than a second, drifting copy: the two halves take
 // separate rawptrs, so capture's Input_Source and the game's Event_Sink can read
 // different structs without either knowing about the other.
+//
+// `only`, when set, is the one shot a targeted run asked for: its group still draws
+// every frame it composes, but capture_write keeps that one and drops the rest.
 @(private)
 Capture_State :: struct {
-	game:  Game_State,
-	shots: int,
+	game:    Game_State,
+	shots:   int, // the number the next shot's file carries, dropped shots included
+	written: int,
+	only:    string,
 }
 
-// capture_main is the scripted session, entered from main when --capture is passed.
-// It builds the same window and Sim the real game does; only the Input_Source
-// differs.
-capture_main :: proc() {
-	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game (capture)")
-	defer rl.CloseWindow()
-	rl.SetTargetFPS(60)
+// A Capture_Shot_Group is one standalone screen setup and the shots it writes, named
+// in the order it writes them. The names are what --shot asks for and what an unknown
+// name is reported against, and their position in this table is the number a shot's
+// file carries — so a shot shot on its own lands on the same file the full walk gives it.
+@(private)
+Capture_Shot_Group :: struct {
+	names: []string,
+	shoot: proc(state: ^Capture_State),
+}
 
+// The standalone screens, in walk order. Everything past them needs the scripted
+// voyage (capture_phase_slug names those), so they are reachable only through --capture.
+@(private)
+capture_shot_groups := [?]Capture_Shot_Group {
+	{names = {"chart-table"}, shoot = capture_shot_chart_table},
+	{names = {"home", "home-chart-rising", "home-chart"}, shoot = capture_shot_home},
+	{
+		names = {"build", "build-hover", "build-shelf", "build-placing", "build-burning", "build-burn-confirm"},
+		shoot = capture_shot_build_surface,
+	},
+	{names = {"encounter-frame", "encounter-playback"}, shoot = capture_shot_encounter_frame},
+	{names = {"shop", "shop-buying"}, shoot = capture_shot_offer_shop},
+	{names = {"fight", "fight-exchange", "fight-jettison"}, shoot = capture_shot_fight},
+}
+
+// capture_shot_group_for finds the group that writes a named shot, with the number the
+// first of that group's shots carries.
+@(private)
+capture_shot_group_for :: proc(name: string) -> (group: Capture_Shot_Group, start: int, ok: bool) {
+	walked := 0
+	for candidate in capture_shot_groups {
+		if slice.contains(candidate.names, name) {
+			return candidate, walked, true
+		}
+		walked += len(candidate.names)
+	}
+	return {}, 0, false
+}
+
+// capture_open builds the window every capture entry shoots in. Paired with
+// capture_close, which the caller defers — Odin scopes a defer to its own proc.
+@(private)
+capture_open :: proc(title: cstring) {
+	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, title)
+	rl.SetTargetFPS(60)
 	ui_fonts_load()
-	defer ui_fonts_unload()
 	art_load()
-	defer art_unload()
 
 	if !os.exists(CAPTURE_DIR) {
 		if err := os.make_directory(CAPTURE_DIR); err != nil {
@@ -53,18 +93,67 @@ capture_main :: proc() {
 			fmt.eprintfln("capture: could not create %s (%v)", CAPTURE_DIR, err)
 		}
 	}
+}
+
+@(private)
+capture_close :: proc() {
+	art_unload()
+	ui_fonts_unload()
+	rl.CloseWindow()
+}
+
+// capture_shot_main renders one named screen, writes its PNG and returns — the targeted
+// counterpart to capture_main's walk, entered from main when --shot is passed. Only the
+// asked-for shot's group runs, so the cost is the window and one screen rather than a
+// voyage. Reports whether the name named a screen.
+capture_shot_main :: proc(name: string) -> bool {
+	group, start, found := capture_shot_group_for(name)
+	if !found {
+		names: [dynamic]string
+		defer delete(names)
+		for candidate in capture_shot_groups {
+			append(&names, ..candidate.names)
+		}
+		fmt.eprintfln(
+			"capture: no shot named %q. Shots: %s. (The voyage screens are --capture only.)",
+			name,
+			strings.join(names[:], ", ", context.temp_allocator),
+		)
+		return false
+	}
+
+	capture_open("Fantasy Ship Game (shot)")
+	defer capture_close()
+
+	state := Capture_State{shots = start, only = name}
+	group.shoot(&state)
+	if state.written == 0 {
+		// The group reached its own early return — a missing roster item, a berth its
+		// hover has nowhere to land — before composing this frame.
+		fmt.eprintfln("capture: %s never rendered; its screen bailed out before the shot", name)
+		return false
+	}
+
+	offset, _ := slice.linear_search(group.names, name)
+	fmt.printfln("capture: wrote %s/%02d-%s.png", CAPTURE_DIR, start + offset, name)
+	return true
+}
+
+// capture_main is the scripted session, entered from main when --capture is passed.
+// It builds the same window and Sim the real game does; only the Input_Source
+// differs.
+capture_main :: proc() {
+	capture_open("Fantasy Ship Game (capture)")
+	defer capture_close()
 
 	state := Capture_State{}
 	defer delete(state.game.visited)
 	defer delete(state.game.positions)
 	defer delete(state.game.voyage_map.nodes)
 
-	capture_shot_chart_table(&state)
-	capture_shot_home(&state)
-	capture_shot_build_surface(&state)
-	capture_shot_encounter_frame(&state)
-	capture_shot_offer_shop(&state)
-	capture_shot_fight(&state)
+	for group in capture_shot_groups {
+		group.shoot(&state)
+	}
 
 	s := sim.sim_create(VOYAGE_SEED)
 	defer sim.sim_destroy(&s)
@@ -77,7 +166,7 @@ capture_main :: proc() {
 
 	sim.run_session(&s, input, sink)
 
-	fmt.printfln("capture: wrote %d shot(s) to %s", state.shots, CAPTURE_DIR)
+	fmt.printfln("capture: wrote %d shot(s) to %s", state.written, CAPTURE_DIR)
 }
 
 // capture_get_captain_choice is the capture Input_Source: draw the decision screen
@@ -397,6 +486,14 @@ capture_shot_fight :: proc(state: ^Capture_State) {
 // makes the read-back land on this frame regardless of which buffer is read.
 @(private)
 capture_write :: proc(state: ^Capture_State, label: string) {
+	// A targeted run draws its group's other frames and drops them here rather than
+	// writing them. The number still advances, so the shot that is kept lands on the
+	// file the full walk would have given it.
+	if state.only != "" && state.only != label {
+		state.shots += 1
+		return
+	}
+
 	// rl.TakeScreenshot runs the filename through GetFileName() and writes into the
 	// process's working directory, so a path prefix here is silently dropped — the shot
 	// always lands beside the exe's cwd. Each one is moved into CAPTURE_DIR immediately
@@ -410,6 +507,7 @@ capture_write :: proc(state: ^Capture_State, label: string) {
 		fmt.eprintfln("capture: could not move %s into %s (%v)", name, CAPTURE_DIR, err)
 	}
 	state.shots += 1
+	state.written += 1
 }
 
 // capture_draw_screen draws the frame a player would be looking at for this decision. The
@@ -464,4 +562,29 @@ capture_phase_slug :: proc(awaiting: sim.Phase) -> string {
 // capture_requested reports whether the process was started as a capture run.
 capture_requested :: proc() -> bool {
 	return slice.contains(os.args[1:], "--capture")
+}
+
+// capture_shot_requested reports the single screen the process was started to shoot.
+capture_shot_requested :: proc() -> (name: string, requested: bool) {
+	return capture_shot_arg(os.args[1:])
+}
+
+// capture_shot_arg reads `--shot <name>` (or `--shot=<name>`) out of a command line. A
+// bare --shot is a request naming nothing, which falls into the unknown-name report
+// listing what can be asked for.
+@(private)
+capture_shot_arg :: proc(args: []string) -> (name: string, requested: bool) {
+	FLAG :: "--shot"
+	for arg, i in args {
+		if strings.has_prefix(arg, FLAG + "=") {
+			return arg[len(FLAG) + 1:], true
+		}
+		if arg == FLAG {
+			if i + 1 < len(args) {
+				return args[i + 1], true
+			}
+			return "", true
+		}
+	}
+	return "", false
 }
