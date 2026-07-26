@@ -236,15 +236,18 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 	base := backdrop_floor(bow.x)
 	cells := int(backdrop_ceil(span) / BACKDROP_PIXEL)
 	for i in 0 ..< cells {
-		if sea_noise(i, 41) < 0.45 {
+		if sea_noise(i, 41) < 0.3 {
 			continue // the sea showing through: without these gaps the marks tile into the rule
 		}
 		f := f32(i) / f32(max(cells, 1))
 		h := (1 + math.floor(sea_noise(i, 42) * 3)) * BACKDROP_PIXEL
-		// Heaviest forward, where she is driving the water, thinning away aft.
+		// Heaviest forward, where she is driving the water, thinning away aft — but never down to
+		// nothing. Faded off aft the run of foam petered out halfway along her and the after half
+		// of her side met the sea on a ruled line again, which is the very thing this pass exists
+		// to break up.
 		backdrop_block(
 			{base + f32(i) * BACKDROP_PIXEL, horizon_y - h, BACKDROP_PIXEL, h},
-			rl.Fade(COLOUR_FOAM, (0.30 + sea_noise(i, 44) * 0.4) * (1 - f * 0.6)),
+			rl.Fade(COLOUR_FOAM, (0.44 + sea_noise(i, 44) * 0.44) * (1 - f * 0.34)),
 		)
 	}
 

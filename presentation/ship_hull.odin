@@ -31,14 +31,26 @@ HULL_SKIN :: f32(0.055)
 // the compartments stand clear of the cut rather than sitting behind it.
 HULL_CUT_Y :: cutaway.GALLEON_HOLD_FLOOR_Y - 0.07
 
-// HULL_DEPTH_TINT is how far a surface a fathom down is pulled toward the water's own colour.
-// The tropics are the whole reason: the sea here is clear enough to see the copper through, and
-// a bottom that greens off with depth is what settles the ship *into* the water instead of
-// leaving her standing on a blue rectangle.
-// Kept well under half. Her forefoot is the nearest part of the ship to a camera standing this
-// close off the bow, so her underwater body is a large piece of the frame — and washed hard it
-// stops being copper seen through water and becomes water with a ship-shaped hole in it.
-HULL_DEPTH_TINT :: f32(0.46)
+// How far a submerged surface is pulled toward the water's own colour, at the waterline and a
+// fathom down. The tropics are the whole reason: the sea here is clear enough to see the copper
+// through, and a bottom that cools off with depth is what settles the ship *into* the water
+// instead of leaving her standing on a blue rectangle.
+//
+// The pair is the point. One factor against one bright sea tone — which is what the first pass
+// used — makes her bottom *paler* the deeper it goes, and a pale sage wedge over bright turquoise
+// reads as a ghost stuck to the front of the water rather than as copper sunk into it. Depth has
+// to take colour *away*, not add it.
+HULL_TINT_SURFACE :: f32(0.20)
+HULL_TINT_KEEL :: f32(0.68)
+
+// HULL_TINT_SPAN is the depth at which the keel-end values are reached — about a fathom, which
+// is as far down as any of her gets.
+HULL_TINT_SPAN :: f32(0.95)
+
+// HULL_DEPTH_SHADE is how much light is lost over that fathom. Deliberately small: the *hue*
+// carries the depth, and a value drop big enough to carry it on its own is precisely the dark
+// olive wedge the guide warns of — a hole in her side rather than a bottom under water.
+HULL_DEPTH_SHADE :: f32(0.16)
 
 // hull_surface is one point on her outer skin: the frame at length x, at section height t — 0
 // at the keel, 1 at the rail — on the given side, +1 starboard and -1 port.
@@ -105,8 +117,18 @@ hull_water :: proc(lit: rl.Color, y: f32) -> rl.Color {
 	if y >= 0 {
 		return lit
 	}
-	sea := colour_mix(COLOUR_SEA_BRIGHT, COLOUR_SEA_SHALLOW, 0.5)
-	return colour_mix(lit, sea, (0.26 + 0.52 * min(-y / 0.95, 1)) * HULL_DEPTH_TINT)
+	depth := min(-y / HULL_TINT_SPAN, 1)
+
+	// What is between her and the eye changes with depth, so what she is washed *toward* has to
+	// change with it too: near the surface that is the bright near-surface turquoise, a fathom
+	// down it is the sea's own deep, which is cooler and darker both. Washing toward the deep is
+	// also what keeps her bottom distinct from the water around it — the bright tone the first
+	// pass used is the tone of the sea she is floating in, so the harder it washed the more of
+	// her it erased.
+	surface := colour_mix(COLOUR_SEA_BRIGHT, COLOUR_SEA_SHALLOW, 0.5)
+	sea := colour_mix(surface, COLOUR_SEA_DEEP, depth)
+	washed := colour_mix(lit, sea, HULL_TINT_SURFACE + (HULL_TINT_KEEL - HULL_TINT_SURFACE) * depth)
+	return colour_shade(washed, 1 - HULL_DEPTH_SHADE * depth)
 }
 
 // hull_timber is a strake's wood at height y: oak topsides in alternating courses, and the
