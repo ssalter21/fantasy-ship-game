@@ -49,6 +49,11 @@ HULL_ABSORB_G :: f32(0.26)
 HULL_ABSORB_B :: f32(0.0)
 HULL_SCATTER :: f32(0.5)
 
+// HULL_WET_STEP is how much of the full fathom's worth of water is applied the instant a strake
+// goes under. Small, but not zero: water has a surface, and a hull crossing it changes colour at
+// the crossing.
+HULL_WET_STEP :: f32(0.2)
+
 // HULL_TINT_SPAN is the depth at which the keel-end values are reached — about a fathom, which
 // is as far down as any of her gets.
 HULL_TINT_SPAN :: f32(0.95)
@@ -125,21 +130,33 @@ hull_water :: proc(lit: rl.Color, y: f32) -> rl.Color {
 	// where her warm and the sea's cool cancel. Squaring holds her copper — barely cooled, still
 	// plainly her — down to half a fathom, then turns her over quickly, so the neutral crossing
 	// is a band a few strakes deep instead of most of her bottom.
-	t := depth * depth
+	//
+	// The two curves are not the same, though, and that difference is what puts a waterline on
+	// the hull. Squared from zero, the first hand's breadth under the surface is tinted so little
+	// that her planking there is the same tan as her dry topsides: the eye finds no crossing at
+	// all, and the parts of her below it read as standing out of the water rather than in it.
+	//
+	// The obvious repair — start *both* curves off a step — puts the crossing back and makes it
+	// sage, because a step in absorption is a step toward the neutral crossing. So only the
+	// scatter steps. Absorption still begins at nothing, so her copper keeps its hue right up to
+	// the surface, and what changes at the crossing is that the water's own light starts landing
+	// on her: she brightens and cools without turning. That is what wet timber does.
+	absorbed := depth * depth
+	scattered := HULL_WET_STEP + (1 - HULL_WET_STEP) * depth * depth
 
 	// What is between her and the eye changes with depth, so what scatters back changes too: near
 	// the surface it is the bright near-surface turquoise, a fathom down the sea's own deep.
 	surface := colour_mix(COLOUR_SEA_BRIGHT, COLOUR_SEA_SHALLOW, 0.5)
 	sea := colour_mix(surface, COLOUR_SEA_DEEP, depth)
 
-	channel :: proc(lit, sea: u8, absorb, t: f32) -> u8 {
-		through := f32(lit) * (1 - absorb * t)
-		return u8(clamp(through + f32(sea) * HULL_SCATTER * t, 0, 255))
+	channel :: proc(lit, sea: u8, absorb, absorbed, scattered: f32) -> u8 {
+		through := f32(lit) * (1 - absorb * absorbed)
+		return u8(clamp(through + f32(sea) * HULL_SCATTER * scattered, 0, 255))
 	}
 	return rl.Color {
-		channel(lit.r, sea.r, HULL_ABSORB_R, t),
-		channel(lit.g, sea.g, HULL_ABSORB_G, t),
-		channel(lit.b, sea.b, HULL_ABSORB_B, t),
+		channel(lit.r, sea.r, HULL_ABSORB_R, absorbed, scattered),
+		channel(lit.g, sea.g, HULL_ABSORB_G, absorbed, scattered),
+		channel(lit.b, sea.b, HULL_ABSORB_B, absorbed, scattered),
 		lit.a,
 	}
 }
@@ -400,8 +417,15 @@ draw_hull_deck :: proc() {
 	for i in 0 ..< STEPS {
 		x0 := stern + f32(i) * step
 		x1 := x0 + step
-		w0 := cutaway.galleon_frame_half_beam(x0, deck) - 0.02
-		w1 := cutaway.galleon_frame_half_beam(x1, deck) - 0.02
+		// The deck runs *into* her planking, not up to it. Held 2cm short — which is what the
+		// inset here used to be — it left a slit down each side between the deck edge and the
+		// hull, and from a camera at deck height that slit is a thin bright line of sky running
+		// along the foot of both castles: the daylight showing through her walls. A deck lands on
+		// the shelf inside the frames and its edge is buried in the side, so the overlap is what
+		// the real join looks like as well as what closes the hole. The underside below was
+		// already drawn at full width, and that mismatch is what made the gap one-sided.
+		w0 := cutaway.galleon_frame_half_beam(x0, deck) + 0.03
+		w1 := cutaway.galleon_frame_half_beam(x1, deck) + 0.03
 
 		for p in 0 ..< PLANKS {
 			f0 := f32(p) / PLANKS * 2 - 1

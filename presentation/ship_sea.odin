@@ -105,8 +105,8 @@ draw_ship_sky :: proc(horizon_y: f32) {
 	draw_ship_cloud(118, horizon_y - 74, 0.42, 0.5)
 	draw_ship_cloud(1160, horizon_y - 88, 0.46, 0.5)
 
-	draw_ship_island(160, horizon_y, 168, 30)
-	draw_ship_island(1094, horizon_y, 124, 22)
+	draw_ship_island(150, horizon_y, 196, 46)
+	draw_ship_island(1102, horizon_y, 140, 34)
 }
 
 // draw_ship_cloud stacks a tropical cumulus: a shadowed base with two banks of sun on top of
@@ -123,69 +123,72 @@ draw_ship_cloud :: proc(cx, cy, scale, haze: f32) {
 	block(cx - 4 * scale, cy - 33 * scale, 40 * scale, 16 * scale, COLOUR_CLOUD, haze)
 }
 
-// draw_ship_island stands one island hull-down on the horizon: a headland in stepped blocks
-// with palms breaking its ridge, all of it pulled far back toward the sky's haze — an island a
-// dozen miles off keeps its shape and almost none of its colour.
+// draw_ship_island stands one island on the horizon. It is built as vegetation first and rock
+// second, which is what makes it an island rather than a headland with some trees on it.
+//
+// It used to be neither: a stepped lump of the recessive slate with three slate palms on top, at
+// 18% saturation, twice, at two sizes. The cause was upstream of the drawing — the palette held
+// no green at all, so there was nothing to paint foliage with and the island got built out of
+// the only distance tone there was. The guide has had a Foliage roster the whole time, headed
+// "this is where the old guide was most muted"; the code had simply never reached for it.
+//
+// Atmospheric perspective is carried by *alpha* over the lit sky rather than by mixing the
+// greens toward the haze — mixing a saturated green into a pale blue is the complementary trap
+// again, and it is exactly how the last version got to slate.
 draw_ship_island :: proc(cx, horizon_y, width, height: f32) {
-	// The rock is blue because distance makes it blue, but it was blue by way of the recessive
-	// slate, which put it at 18% saturation — grey lumps on a saturated sea. Air scatters *blue*
-	// over distance; it does not drain the colour out of what it covers. So the headland is the
-	// sea's own deep hauled up toward the haze: as far back, and in colour.
-	rock := colour_mix(COLOUR_SEA_DEEP, COLOUR_HAZE, 0.44)
-	// A shelf of shallow water standing off the beach, which is what a tropical island actually
-	// announces itself with from hull-down: the reef reads before the land does.
-	shelf := colour_mix(COLOUR_SEA_SHALLOW, SHIP_GLARE(), 0.4)
-	backdrop_block({cx - width / 2 - 14, horizon_y, width + 28, 4}, rl.Fade(shelf, 0.7))
+	CELL :: BACKDROP_PIXEL
+	seed := int(cx)
 
-	// Stepped in from the shoulders to the summit. The step count comes off the island's own
-	// width so the two on the horizon aren't one silhouette printed at two sizes — a wider
-	// headland gets more ridge, which is also what a nearer one would show.
-	steps := 3 + int(width / 70)
+	// The reef first: water shoaling over the shelf that rings her. From hull-down this is the
+	// part of an island that reads before the land does — a low green line standing on a ring of
+	// impossibly bright water is the whole picture of the tropics.
+	shoal := colour_mix(COLOUR_SEA_SHALLOW, SHIP_GLARE(), 0.35)
+	backdrop_block({cx - width * 0.68, horizon_y, width * 1.36, CELL}, rl.Fade(shoal, 0.45))
+	backdrop_block({cx - width * 0.56, horizon_y, width * 1.12, CELL}, rl.Fade(shoal, 0.8))
+
+	// The mass of the island, stepped in from the shoulders to the summit, in the roster's green
+	// with the sun on each crest. The step count and every shoulder's jog come off the island's
+	// own width and position, so the two on the horizon are not one silhouette printed twice.
+	steps := 3 + int(width / 60)
 	for k in 0 ..< steps {
 		f := f32(k) / f32(steps)
-		// Each shoulder pulled about by the scatter, seeded on where the island stands, so the
-		// ridge profile is this island's rather than the one every island gets.
-		jog := (sea_noise(k, int(cx)) - 0.5) * 0.22
-		w := width * (1 - f * 0.66) * (1 + jog)
-		h := height * (0.4 + f * 0.6)
-		backdrop_block({cx - w / 2 + f * width * 0.06, horizon_y - h, w, h}, rock)
+		jog := (sea_noise(k, seed) - 0.5) * 0.3
+		w := backdrop_ceil(width * (1 - f * 0.62) * (1 + jog))
+		h := backdrop_ceil(height * (0.34 + f * 0.66))
+		x := backdrop_floor(cx - w / 2 + f * width * 0.05)
+		backdrop_block({x, horizon_y - h, w, h}, rl.Fade(COLOUR_GREEN, 0.86))
+		// Sun along the top of each shoulder, and the deep shade under its lee. Two cells of each
+		// is all it takes to stop the mass reading as one flat green wall.
+		backdrop_block({x, horizon_y - h, w, 2 * CELL}, rl.Fade(COLOUR_GREEN_LIGHT, 0.9))
+		backdrop_block({x, horizon_y - h + 2 * CELL, w, CELL}, rl.Fade(COLOUR_GREEN_DEEP, 0.5))
 	}
 
-	// A strand of sand at the water's edge under the headland: one art pixel of warm, and it is
-	// what makes the island land rather than a blue lump standing in the sea. Taken toward
-	// parchment rather than toward the glare, because the glare is a cool now and washing the
-	// sand halfway into it put out the only warm on the horizon.
-	//
-	// It goes down *after* the headland. Drawn first — which is how it was — every rock block
-	// then covered it, because each one runs from its own summit all the way down to the
-	// waterline. What survived was the six pixels sticking out past the widest shoulder, on a
-	// beach the same colour as the rock above it, which is no beach at all.
-	//
-	// Narrower than the headland's widest shoulder and set back into the haze with alpha, not
-	// with a mix. Distance is the reason it has to be alpha: a beach this far off should be
-	// nearly colourless, but taking the sand *toward* the glare to get there runs warm into cool
-	// and lands on grey — the same trap the glare itself was in. Fading it lets the lit aqua
-	// behind do the hazing optically, and the sand keeps its hue the whole way down.
-	strand := colour_mix(COLOUR_SAND, COLOUR_PARCHMENT, 0.3)
-	backdrop_block({cx - width * 0.46, horizon_y - 2, width * 0.92, 2}, rl.Fade(strand, 0.66))
+	// The beach the green stops at, and with it the only warm on the horizon.
+	strand := colour_mix(COLOUR_SAND, COLOUR_PARCHMENT, 0.25)
+	backdrop_block({cx - width * 0.5, horizon_y - 2 * CELL, width, 2 * CELL}, rl.Fade(strand, 0.92))
 
-	// Palms breaking the ridge: a trunk under a crown broad enough to read as fronds at this
-	// distance rather than as a mast. The crown is one wide bar with a cell drooping off each
-	// tip, which is the whole silhouette a palm has at five art pixels wide — stack it narrower
-	// toward the top instead and it comes out a cross standing on the ridge.
-	// The crown is darker than the rock it stands on and holds more of the sea's deep — vegetation
-	// at this distance is the one part of an island that keeps any colour of its own.
-	CELL :: BACKDROP_PIXEL
-	crown := colour_mix(COLOUR_SEA_DEEP, COLOUR_HAZE, 0.2)
-	palms := 2 + int(width / 60)
+	// Palms breaking the skyline: a trunk under a crown broad enough to read as fronds at this
+	// distance rather than as a mast. The crown is one lit bar with a frond drooping off each tip
+	// — stack it narrower toward the top instead and it comes out a cross standing on the ridge.
+	// They stand on the ridge under them rather than at one height, so the row of them follows
+	// the island's own profile.
+	palms := 3 + int(width / 52)
 	for k in 0 ..< palms {
-		x := backdrop_floor(cx - width * 0.22 + f32(k) * width * 0.22)
-		lean := f32(k - 1) * CELL
-		crest := backdrop_floor(horizon_y - height) - 4 * CELL
-		backdrop_block({x, crest + CELL, CELL, 3 * CELL}, crown)
-		backdrop_block({x - 2 * CELL + lean, crest, 5 * CELL, CELL}, crown)
-		backdrop_block({x - 3 * CELL + lean, crest + CELL, CELL, CELL}, crown)
-		backdrop_block({x + 3 * CELL + lean, crest + CELL, CELL, CELL}, crown)
+		t := (f32(k) + 0.5) / f32(palms)
+		x := backdrop_floor(cx - width * 0.42 + t * width * 0.84)
+		ridge := height * (0.42 + 0.58 * (1 - min(abs(t - 0.55) * 1.9, 1)))
+		base := backdrop_floor(horizon_y - ridge)
+		trunk := backdrop_ceil(height * (0.3 + sea_noise(k, seed + 7) * 0.34))
+		crest := base - trunk
+		lean := f32(k % 3 - 1) * CELL
+		backdrop_block({x, crest, CELL, trunk}, rl.Fade(COLOUR_TRUNK, 0.85))
+		// The drooping tips sit under the *ends of the bar*, not outside them. Set a cell wide of
+		// it they read as two dark specks floating beside the tree rather than as fronds hanging
+		// off it.
+		backdrop_block({x - 3 * CELL + lean, crest, 7 * CELL, CELL}, COLOUR_GREEN_LIGHT)
+		backdrop_block({x - CELL + lean, crest - CELL, 3 * CELL, CELL}, COLOUR_GREEN_HIGHLIGHT)
+		backdrop_block({x - 3 * CELL + lean, crest + CELL, 2 * CELL, CELL}, COLOUR_GREEN_DEEP)
+		backdrop_block({x + 2 * CELL + lean, crest + CELL, 2 * CELL, CELL}, COLOUR_GREEN_DEEP)
 	}
 }
 
@@ -322,14 +325,18 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 			continue // the sea showing through: without these gaps the marks tile into the rule
 		}
 		f := f32(i) / f32(max(cells, 1))
-		h := (1 + math.floor(sea_noise(i, 42) * 3)) * BACKDROP_PIXEL
+		// One or two cells, never four. Standing up to sixteen pixels of hard white, the run
+		// stopped reading as water breaking at her side and became a dashed stripe painted along
+		// her wale — a line of particles laid across the ship rather than the sea meeting it.
+		// Foam hugs the line it belongs to.
+		h := (1 + math.floor(sea_noise(i, 42) * 2)) * BACKDROP_PIXEL
 		// Heaviest forward, where she is driving the water, thinning away aft — but never down to
 		// nothing. Faded off aft the run of foam petered out halfway along her and the after half
 		// of her side met the sea on a ruled line again, which is the very thing this pass exists
 		// to break up.
 		backdrop_block(
 			{base + f32(i) * BACKDROP_PIXEL, horizon_y - h, BACKDROP_PIXEL, h},
-			rl.Fade(COLOUR_FOAM, (0.44 + sea_noise(i, 44) * 0.44) * (1 - f * 0.34)),
+			rl.Fade(COLOUR_FOAM, (0.30 + sea_noise(i, 44) * 0.34) * (1 - f * 0.34)),
 		)
 	}
 

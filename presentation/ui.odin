@@ -58,6 +58,16 @@ COLOUR_CLIFF :: rl.Color{185, 138, 80, 255} // deeper sand; borders, and weather
 COLOUR_ROCK :: rl.Color{126, 92, 58, 255} // the darkest warm; hull planking
 COLOUR_TRUNK :: rl.Color{135, 95, 56, 255} // masts, yards, spars
 
+// Foliage, straight off the guide's own Foliage roster — four vivid greens it heads "this is
+// where the old guide was most muted", and which nothing in the code had ever drawn with. That
+// is why every island on the horizon was a blue lump with blue trees on it: there was no green
+// in the constants to paint one, so the islands were built out of the recessive slate instead.
+// island-tropical.jpg is the keystone reference and its greens are the loudest thing in it.
+COLOUR_GREEN_HIGHLIGHT :: rl.Color{155, 222, 87, 255} // sun straight onto the canopy
+COLOUR_GREEN_LIGHT :: rl.Color{87, 201, 77, 255} // lit foliage
+COLOUR_GREEN :: rl.Color{47, 162, 62, 255} // the mass of it
+COLOUR_GREEN_DEEP :: rl.Color{27, 106, 43, 255} // shade under the canopy
+
 COLOUR_CORAL :: rl.Color{225, 85, 43, 255} // scarce by law: danger and damage
 
 COLOUR_INK_PRIMARY :: rl.Color{18, 51, 63, 255} // titles and body on parchment; deep teal, not black
