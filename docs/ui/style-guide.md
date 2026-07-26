@@ -228,6 +228,66 @@ And one trap that a compass rose walks into: **`DrawTriangle` culls clockwise wi
 all.** A rose wound the wrong way renders its hub and none of its spokes — a silent, total no-op. Wind
 counter-clockwise.
 
+## The backdrop is drawn at one art resolution
+
+The world behind the chrome — sky, sun, cloud, island, sea — is **16-bit-era pixel art: hard edges, flat blocks
+of colour, no gradients, limited ramps per hue** (`docs/ui/references/README.md`, "Tonal register"). That is a
+claim about **resolution** before it is one about colour, and it only holds if every mark in the backdrop
+agrees on the same one. A smooth sky behind blocky clouds is two resolutions on one screen; the screen then
+reads as pixel art with a vector field behind it, however good either half is on its own.
+
+**One number fixes it: `BACKDROP_PIXEL` = 4 logical pixels to the art pixel** — a 311×175 art frame inside the
+1244×700 logical one. Both axes divide exactly, so the lattice reaches all four edges with no part-pixel hiding
+at two of them. `presentation/backdrop.odin` is the only place that implements the rule, so the decision is not
+re-taken at a call site.
+
+- **Nothing in the backdrop reaches the screen off the lattice.** Individual marks go through `backdrop_block`,
+  which floors near edges, ceils far ones, and never lets a mark shrink below one art pixel — a wave crest
+  rounded away to zero width is a hole in the water, not a finer detail. `backdrop_grade` and `backdrop_disc`
+  lay their own rows out in whole cells from lattice-aligned edges instead, so they are on it by construction.
+  Nothing else in the backdrop calls a raylib draw directly.
+- **A grade is a short ramp of flat stops, never an interpolation.** `rl.DrawRectangleGradientV` interpolates
+  per *screen* pixel — measured on a ship-screen shot, **49 distinct blues across 50 vertical samples of sky**.
+  `backdrop_grade` paints `steps + 1` colours instead: a full sky column on that same screen now holds **9**,
+  the 7 of its main ramp plus the glare's. Choose the count per grade rather than globally — a stop's visible
+  height is its grade's span divided by the count, so the same count over a short span puts the steps close
+  enough together to read as stripes.
+- **The crossings between stops are dithered, not ruled.** A handful of flat bands across a whole sky is Mach
+  banding. An ordered 4×4 threshold matrix indexed in *art pixels* carries each crossing, and the dither cell
+  being one art pixel is precisely what makes the sky read at the resolution the sea's chop is already drawn at.
+- **No circles.** `rl.DrawCircleV` is a polygon fan with a smooth edge — the one shape in the sky that snapping
+  its arguments cannot fix. `backdrop_disc` fills it row by row on the lattice instead.
+- **The lattice is coarse enough to change how a mark has to be *made*, not just where it lands.** A scatter of
+  marks that reads as broken at sub-pixel heights closes up into a solid bar once every mark is a cell wide and
+  starts on a cell boundary — the foam along the waterline is the worked example. On the lattice, "broken" has
+  to be built in: walk the cells and leave some unlit, rather than scatter and trust the gaps.
+
+**Verify under magnification, never at 1:1.** A dither cell is 4px; eyes cannot tell an on-lattice sea from an
+off-lattice one at 1:1, and two sessions have now read banding into a clean gradient elsewhere on this screen.
+Take a capture shot, then crop and scale `NEAREST` to see the cells, and count colours to settle the ramp:
+
+```bash
+python -c "
+from PIL import Image
+im = Image.open('docs/ui/shots/04-build.png').convert('RGB')
+im.crop((880,450,1120,560)).resize((960,440), Image.NEAREST).save('/tmp/zoom.png')   # then open it
+print(len({im.getpixel((30, y)) for y in range(0, 424)}), 'distinct colours down the sky')
+"
+```
+
+Both halves matter. The count settles the ramp; only the crop shows whether the marks are on the lattice, and
+neither judges whether the screen is any good — that is what looking is for.
+
+**The rule governs the logical frame, and the blit softens all of it equally.** Fullscreen scales 1244×700 to
+the monitor at a non-integer factor through a `BILINEAR` filter, so a presented art pixel is neither 4px nor
+hard-edged. That does not reopen the decision: the filter reaches the ship's own edges and the cloud's alike, so
+what it changes is the whole frame's softness, not the relationship between two halves of it. Measure the
+lattice in the logical frame, where it is exact.
+
+**The ship herself is not on this lattice.** She is lit 3D geometry drawn at full resolution, and the rule
+governs the world she floats in, not her. Whether the two should agree is a separate question and a separate
+decision.
+
 ## Type
 
 **Pixel Operator**, Creative Commons Zero (CC0) 1.0 — public domain.
