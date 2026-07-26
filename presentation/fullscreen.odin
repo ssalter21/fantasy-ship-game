@@ -9,6 +9,7 @@
 package presentation
 
 import rl "vendor:raylib"
+import rlgl "vendor:raylib/rlgl"
 
 fullscreen_target: rl.RenderTexture2D
 fullscreen_active: bool
@@ -70,6 +71,18 @@ frame_end :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 	src := rl.Rectangle{width = WINDOW_WIDTH, height = -WINDOW_HEIGHT} // render textures are y-flipped
+	// The blit takes the target's colour verbatim and throws its alpha away. It has to:
+	// raylib's default blend multiplies *alpha* by alpha as well as colour, so a render
+	// texture starting opaque loses alpha wherever anything translucent is drawn into it
+	// (a=0.85 over a=1 leaves 0.87, and it compounds). Composite that against the black
+	// letterbox and every soft mark on screen — the sun's haze, the glitter on the water,
+	// foam, highlight washes — comes back up to a fifth darker than it was drawn. The
+	// colour in the texture was always right; only the alpha it was carried in was wrong,
+	// so the fix is to stop asking about it. Windowed play never saw this (no texture),
+	// which is exactly why --capture cannot photograph the bug.
+	rlgl.SetBlendFactorsSeparate(rlgl.ONE, rlgl.ZERO, rlgl.ONE, rlgl.ZERO, rlgl.FUNC_ADD, rlgl.FUNC_ADD)
+	rl.BeginBlendMode(.CUSTOM_SEPARATE)
 	rl.DrawTexturePro(fullscreen_target.texture, src, dst, rl.Vector2{0, 0}, 0, rl.WHITE)
+	rl.EndBlendMode()
 	rl.EndDrawing()
 }

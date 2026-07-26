@@ -86,6 +86,54 @@ exposed_berths_become_the_weather_deck_structures :: proc(t: ^testing.T) {
 }
 
 @(test)
+the_shipped_view_is_the_shipped_eye :: proc(t: ^testing.T) {
+	// galleon_view_from exists so the hull workbench can fly the camera; the game's own framing
+	// must not become a thing a tool can move. These two are the same view, and that is what
+	// keeps the five tuned knobs the single account of how this screen is composed.
+	from_knobs := galleon_view_from(GALLEON_EYE, FRAME_W, FRAME_H)
+	testing.expect_value(t, galleon_view(FRAME_W, FRAME_H), from_knobs)
+}
+
+@(test)
+every_room_stands_inside_her_planking :: proc(t: ^testing.T) {
+	// A compartment that reaches wider than the frames around it stands *through* the hull, and
+	// what that draws is a hole in her side — which is exactly what a room sized to one width
+	// did at the bow and the quarter. Every station of every room is checked against the frame
+	// it stands in, at the floor, where those frames are tightest.
+	layout := test_layout()
+	rooms, n := galleon_rooms(layout[:])
+	for i in 0 ..< n {
+		room := rooms[i]
+		floor := room.centre.y - room.half.y
+		testing.expectf(t, room.half_aft > 0 && room.half_fore > 0, "room %d has both ends", i)
+		for k in 0 ..= 8 {
+			x := room.centre.x + (f32(k) / 8 * 2 - 1) * room.half.x
+			reach := abs(room.centre.z) + galleon_room_half_z(room, x)
+			testing.expectf(
+				t,
+				reach <= galleon_frame_half_beam(x, floor) + 0.001,
+				"room %d reaches %.3f at x=%.2f, where her frame carries %.3f",
+				i,
+				reach,
+				x,
+				galleon_frame_half_beam(x, floor),
+			)
+		}
+	}
+
+	// And her hold deck stays inside her bottom: a flat floor carried past the point where the
+	// rising floors meet it comes out through the planking under her bow.
+	for i in 0 ..< n {
+		if rooms[i].kind != .Hold {
+			continue
+		}
+		for x in ([2]f32{rooms[i].centre.x - rooms[i].half.x, rooms[i].centre.x + rooms[i].half.x}) {
+			testing.expectf(t, galleon_keel_y(x) < GALLEON_HOLD_FLOOR_Y, "the hold floor rides above the keel at x=%.2f", x)
+		}
+	}
+}
+
+@(test)
 pointing_into_a_room_picks_its_slot :: proc(t: ^testing.T) {
 	layout := test_layout()
 	view := galleon_view(FRAME_W, FRAME_H)
