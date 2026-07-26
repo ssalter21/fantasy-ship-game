@@ -207,16 +207,19 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 	stern := cutaway.galleon_project({cutaway.GALLEON_STERN_X - 0.1, 0, 0}, view)
 	span := max(stern.x - bow.x, 1)
 
-	// Laid in two passes: a continuous wash of foam standing against her planking, and a ragged
-	// upper edge broken by the scatter, so the waterline is a line the water made rather than
-	// one that was ruled.
-	rl.DrawRectangleRec({bow.x, horizon_y - 2, span, 4}, rl.Fade(COLOUR_FOAM, 0.26))
-	for i in 0 ..< 150 {
+	// Broken water only — no continuous bar. There was one, and it was the white line ruled from
+	// end to end of the ship: with the camera exactly at the waterline, world y=0 projects onto
+	// the horizon at every distance, so anything drawn along the waterline is *mathematically* a
+	// straight horizontal line. A bar there is a drawn rule, and no scatter laid on top of it
+	// breaks that up. The foam has to be made of marks and nothing else, each one its own height
+	// and its own weight, with sea showing between them.
+	for i in 0 ..< 190 {
 		f := sea_noise(i, 41)
 		x := bow.x + f * span
-		h := 2 + sea_noise(i, 42) * 5
+		h := 1 + sea_noise(i, 42) * 6
+		w := span / 90 * (0.6 + sea_noise(i, 43) * 1.8)
 		// Heaviest forward, where she is driving the water, thinning away aft.
-		rl.DrawRectangleRec({x, horizon_y - h * 0.7, span / 44, h}, rl.Fade(COLOUR_FOAM, 0.5 * (1 - f * 0.55)))
+		rl.DrawRectangleRec({x, horizon_y - h * 0.6, w, h}, rl.Fade(COLOUR_FOAM, (0.30 + sea_noise(i, 44) * 0.4) * (1 - f * 0.6)))
 	}
 
 	// Spray off the bow, thrown clear of her.

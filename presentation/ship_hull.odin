@@ -17,7 +17,10 @@ import rl "vendor:raylib"
 
 // The loft's resolution: strips down her length, bands up each frame. As coarse as it can be
 // and still read as a curve, because the art is blocky and faceted planking is wanted.
-HULL_STRIPS :: 34
+// Fine enough that the entry resolves as a curve. At the coarse setting the last strip carried
+// the whole of the fining-away, so her bow arrived at its point in one facet — a corner, which
+// is exactly what a bow must not have.
+HULL_STRIPS :: 48
 HULL_BANDS :: 10
 
 // HULL_SKIN is how thick her planking is — the timber the cut edge shows, and the offset
@@ -32,7 +35,10 @@ HULL_CUT_Y :: cutaway.GALLEON_HOLD_FLOOR_Y - 0.07
 // The tropics are the whole reason: the sea here is clear enough to see the copper through, and
 // a bottom that greens off with depth is what settles the ship *into* the water instead of
 // leaving her standing on a blue rectangle.
-HULL_DEPTH_TINT :: f32(0.74)
+// Kept well under half. Her forefoot is the nearest part of the ship to a camera standing this
+// close off the bow, so her underwater body is a large piece of the frame — and washed hard it
+// stops being copper seen through water and becomes water with a ship-shaped hole in it.
+HULL_DEPTH_TINT :: f32(0.46)
 
 // hull_surface is one point on her outer skin: the frame at length x, at section height t — 0
 // at the keel, 1 at the rail — on the given side, +1 starboard and -1 port.
@@ -69,9 +75,14 @@ hull_section_t :: proc(x, y: f32) -> f32 {
 // round rather than ending in a slice. Closing it only forward — which is all the first pass
 // did — left her whole after end an open shell with the transom standing behind it, and the
 // gaps between the two read exactly as the holes they were.
+// The window is opened over the compartments and nowhere else. Run on past them — which it was,
+// by a length and a half forward — it opens onto the bare inside of her bow planking: a lit,
+// empty, curving shell with no floor and no end, which is precisely the "front of the bottom
+// floor that doesn't read like a real space". There is nothing wrong with what was drawn there;
+// the mistake was cutting a window into a part of the ship that has nothing in it.
 hull_cut_t :: proc(x: f32) -> f32 {
-	stem := clamp((x - 3.05) / 0.62, 0, 1)
-	post := clamp((-2.9 - x) / 0.55, 0, 1)
+	stem := clamp((x - cutaway.GALLEON_HOLD_X1) / 0.75, 0, 1)
+	post := clamp((cutaway.GALLEON_HOLD_X0 - 0.1 - x) / 0.55, 0, 1)
 	closing := max(stem, post)
 	rail := cutaway.galleon_sheer_y(x)
 	return hull_section_t(x, HULL_CUT_Y + (rail - HULL_CUT_Y) * closing * closing)
@@ -146,6 +157,7 @@ draw_ship_hull :: proc() {
 
 	draw_hull_cap(stern, -1)
 	draw_hull_cap(bow, 1)
+	draw_hull_sole()
 	draw_hull_wales()
 	draw_hull_deck()
 	draw_hull_transom()
@@ -244,6 +256,50 @@ draw_hull_cap :: proc(x, facing: f32) {
 		// the ship at both of these, so a cap with only an outside is a hole seen from within.
 		in_ := rl.Vector3{facing * HULL_SKIN, 0, 0}
 		ship_quad_lit(p0 - in_, s0 - in_, s1 - in_, p1 - in_, hull_timber_inner(j), {-facing, 0, 0})
+	}
+}
+
+// draw_hull_sole lays the below-deck floor the compartments stand on, wall to wall, and closes
+// it at both ends with a peak bulkhead.
+//
+// The compartments each carried a floor of their own and nothing else did, so what the eye got
+// forward was a row of separate planes pinching away into the bow with no end to them and the
+// bare inside of the hull showing between — a space that stopped existing rather than one that
+// finished. A sole running the whole length under all of them, and a wall across each end of
+// it, is what makes the belly of her one room with compartments in it. The peaks are what the
+// forward one in particular was missing: something to be the front of.
+draw_hull_sole :: proc() {
+	floor := cutaway.GALLEON_HOLD_FLOOR_Y
+	x0 := cutaway.GALLEON_HOLD_X0
+	x1 := cutaway.GALLEON_HOLD_X1
+	STEPS :: 22
+	step := (x1 - x0) / STEPS
+	deal := colour_shade(COLOUR_CLIFF, 0.62)
+
+	for i in 0 ..< STEPS {
+		a := x0 + f32(i) * step
+		b := a + step
+		wa := cutaway.galleon_frame_half_beam(a, floor) - HULL_SKIN
+		wb := cutaway.galleon_frame_half_beam(b, floor) - HULL_SKIN
+		tone := colour_shade(deal, i % 2 == 0 ? 1.0 : 0.92)
+		ship_quad_lit({a, floor, -wa}, {b, floor, -wb}, {b, floor, wb}, {a, floor, wa}, tone, {0, 1, 0})
+	}
+
+	// The peaks: a bulkhead across each end of the sole, carried from the floor to the beams.
+	// Solid, unlike a compartment's forward wall — nothing is looked into through them, and they
+	// are the surface that says the hold ends here.
+	ceiling := cutaway.GALLEON_HOLD_CEIL_Y
+	for peak in ([2]f32{x0, x1}) {
+		w := cutaway.galleon_frame_half_beam(peak, floor) - HULL_SKIN
+		wt := cutaway.galleon_frame_half_beam(peak, ceiling) - HULL_SKIN
+		ship_quad_lit(
+			{peak, floor, -w},
+			{peak, floor, w},
+			{peak, ceiling, wt},
+			{peak, ceiling, -wt},
+			colour_shade(COLOUR_CLIFF, 0.80),
+			{peak == x0 ? -1 : 1, 0, 0},
+		)
 	}
 }
 
@@ -558,8 +614,10 @@ draw_hull_stem :: proc() {
 	rail := cutaway.galleon_sheer_y(x)
 	oak := colour_shade(COLOUR_ROCK, 0.86)
 
-	// The stempost, raked forward as it climbs.
-	ship_spar({x - 0.06, cutaway.galleon_keel_y(x) + 0.1, 0}, {x + 0.22, rail + 0.22, 0}, 0.085, 0.052, oak)
+	// The stempost, raked forward as it climbs. It starts at the waterline and no lower: her
+	// planking now closes to a true edge at the stem, so below the water the two sides *are* the
+	// cutwater, and a timber run down over them would only stand proud of the point they make.
+	ship_spar({x - 0.02, 0, 0}, {x + 0.22, rail + 0.22, 0}, 0.06, 0.045, oak)
 
 	// The beakhead: a short grated platform out over the water, kept low and narrow. The camera
 	// stands barely two lengths off the stem, so anything built out here is drawn enormous — the

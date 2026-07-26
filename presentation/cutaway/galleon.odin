@@ -141,13 +141,15 @@ galleon_length_fraction :: proc(x: f32) -> f32 {
 // forward, and comes aft to a broad transom — a plan, where a constant would be a plank.
 galleon_half_beam :: proc(x: f32) -> f32 {
 	f := galleon_length_fraction(x)
-	// Forward of two-thirds she fines away hard into the stem; aft of a third she is still
-	// filling out from the transom. The narrower of the two shapes her at any station.
+	// Forward of three-fifths she fines away into the stem; aft of a third she is still filling
+	// out from the transom. The narrower of the two shapes her at any station.
 	//
-	// The entry runs almost the whole way in, leaving a stem a hand's breadth across rather
-	// than the foot-wide slab an easier taper leaves. That slab was visible: a bow ending in a
-	// blunt little transom of its own, which no amount of stempost in front of it hid.
-	entry := 1 - 0.92 * math.pow(clamp((f - 0.66) / 0.34, 0, 1), 1.6)
+	// The entry closes to *nothing* at the stem, and it starts closing early and eases in rather
+	// than pinching at the last moment. Both matter. A taper that stops a hand's breadth short
+	// leaves a little transom on the front of the ship, and one that does all its work in the
+	// last fifth of her length arrives at that point as a corner: the bow has to be a curve the
+	// eye can follow the whole way in, or it does not read as a bow at all.
+	entry := 1 - math.pow(clamp((f - 0.60) / 0.40, 0, 1), 1.45)
 	run := 0.74 + 0.26 * math.pow(clamp(f / 0.30, 0, 1), 0.65)
 	return GALLEON_HALF_BEAM * min(entry, run)
 }
@@ -208,7 +210,7 @@ GALLEON_STRUCTURES :: [4]Room {
 	// own deck is buried and the two read as one lump with a step in it.
 	{centre = {-2.7, GALLEON_DECK_Y + 1.08, 0}, half = {0.64, 0.3, GALLEON_HALF_BEAM - 0.2}, kind = .Poop},
 	{centre = {0.45, GALLEON_DECK_Y + 0.4, 0}, half = {1.4, 0.4, GALLEON_HALF_BEAM - 0.06}, kind = .Waist},
-	{centre = {2.62, GALLEON_DECK_Y + 0.34, 0}, half = {0.78, 0.34, GALLEON_HALF_BEAM - 0.12}, kind = .Forecastle},
+	{centre = {2.45, GALLEON_DECK_Y + 0.34, 0}, half = {0.70, 0.34, GALLEON_HALF_BEAM - 0.12}, kind = .Forecastle},
 }
 
 // The below-deck floor's extent: it stops short of the stem and the transom, and is capped by
@@ -217,6 +219,13 @@ GALLEON_STRUCTURES :: [4]Room {
 // it opens onto nothing.
 GALLEON_HOLD_FLOOR_Y :: GALLEON_KEEL_Y + 0.28
 GALLEON_HOLD_CEIL_Y :: GALLEON_DECK_Y - 0.05
+
+// Where that floor begins and ends. Both stop well inside the point where her rising floors come
+// up to meet it — carried further the flat deck comes out through the bottom of the hull — and
+// the painter needs them too: the sole runs between them and a peak bulkhead closes each end, so
+// the below-deck space has ends of its own rather than fading away into the bow.
+GALLEON_HOLD_X0 :: GALLEON_STERN_X + 0.7
+GALLEON_HOLD_X1 :: GALLEON_BOW_X - 1.7
 
 // galleon_rooms places every slot into the hull: the concealed berths as compartments across
 // one below-deck floor laid stern → bow, the exposed berths as the weather-deck structures in
@@ -239,12 +248,8 @@ galleon_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [MAX_SLOTS]Room, n:
 	}
 
 	// One floor, cut into compartments whose length is each hold's share of the total weight.
-	// Both ends stop where her rising floors reach the hold deck: carried further forward the
-	// flat floor comes out through the bottom of the hull, which is what opened the gaps under
-	// her bow. GALLEON_HOLD_FLOOR_Y meets galleon_keel_y at x ≈ -3.26 and x ≈ 2.59; these sit
-	// inside that with a frame to spare.
-	floor_x0 := GALLEON_STERN_X + 0.7
-	floor_x1 := GALLEON_BOW_X - 1.35
+	floor_x0 := GALLEON_HOLD_X0
+	floor_x1 := GALLEON_HOLD_X1
 	total: f32 = 0
 	for k in 0 ..< n_below {
 		total += galleon_size_weight(layout[below[k]].slot.size)
