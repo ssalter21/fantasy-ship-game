@@ -51,10 +51,10 @@ SHIP_GLARE :: proc() -> rl.Color {
 	return colour_mix(COLOUR_HAZE, COLOUR_PARCHMENT, 0.5)
 }
 
-// How many flat stops each of the backdrop's grades is cut into. They are small on purpose —
-// "limited ramps per hue" is the register — and sized to their own span rather than shared: the
-// glare burns off in a sixth of the sky's height and would show its steps as stripes at the
-// sky's count.
+// How many flat stops each of the backdrop's grades is cut into. Small on purpose — "limited
+// ramps per hue" is the register — and counted per grade rather than shared, because a stop's
+// visible height is its grade's span divided by this: the same count over a short span puts the
+// steps close enough together to read as stripes.
 SHIP_SKY_STOPS :: 6
 SHIP_GLARE_STOPS :: 3
 SHIP_SEA_STOPS :: 4
@@ -62,11 +62,11 @@ SHIP_SEA_STOPS :: 4
 draw_ship_sky :: proc(horizon_y: f32) {
 	rl.ClearBackground(COLOUR_SKY_HIGH)
 
-	// Graded in two ramps rather than one, so the sky has somewhere to go: deep overhead,
-	// opening out through the middle, and burning off to the glare along the horizon.
+	// Graded in two ramps, so the sky has somewhere to go: deep overhead, opening out through the
+	// middle, and burning off to the glare along the horizon.
 	glare := backdrop_ceil(horizon_y * 0.16)
-	backdrop_grade(0, 0, WINDOW_WIDTH, horizon_y - glare, COLOUR_SKY_HIGH, COLOUR_HAZE, SHIP_SKY_STOPS)
-	backdrop_grade(0, horizon_y - glare, WINDOW_WIDTH, glare, COLOUR_HAZE, SHIP_GLARE(), SHIP_GLARE_STOPS)
+	backdrop_grade({0, 0, WINDOW_WIDTH, horizon_y - glare}, COLOUR_SKY_HIGH, COLOUR_HAZE, SHIP_SKY_STOPS)
+	backdrop_grade({0, horizon_y - glare, WINDOW_WIDTH, glare}, COLOUR_HAZE, SHIP_GLARE(), SHIP_GLARE_STOPS)
 
 	// The sun: a disc inside rings of haze, so it sits *in* the sky rather than on it. The haze
 	// is warm — it is what the sun is doing to the air around it, and a grey one made a hole.
@@ -122,18 +122,18 @@ draw_ship_island :: proc(cx, horizon_y, width, height: f32) {
 	}
 	// Palms breaking the ridge: a trunk under a crown broad enough to read as fronds at this
 	// distance rather than as a mast. The crown is one wide bar with a cell drooping off each
-	// tip, which is the whole silhouette a palm has at five art pixels wide. Stacking it
-	// narrower toward the top instead leaves a cross standing on the ridge.
-	P :: BACKDROP_PIXEL
+	// tip, which is the whole silhouette a palm has at five art pixels wide — stack it narrower
+	// toward the top instead and it comes out a cross standing on the ridge.
+	CELL :: BACKDROP_PIXEL
 	crown := colour_mix(COLOUR_BLUE_RECESSIVE, COLOUR_HAZE, 0.24)
 	for k in 0 ..< 3 {
-		x := backdrop_snap(cx - width * 0.22 + f32(k) * width * 0.22)
-		lean := f32(k - 1) * P
-		crest := backdrop_snap(horizon_y - height) - 4 * P
-		backdrop_block({x, crest + P, P, 3 * P}, crown)
-		backdrop_block({x - 2 * P + lean, crest, 5 * P, P}, crown)
-		backdrop_block({x - 3 * P + lean, crest + P, P, P}, crown)
-		backdrop_block({x + 3 * P + lean, crest + P, P, P}, crown)
+		x := backdrop_floor(cx - width * 0.22 + f32(k) * width * 0.22)
+		lean := f32(k - 1) * CELL
+		crest := backdrop_floor(horizon_y - height) - 4 * CELL
+		backdrop_block({x, crest + CELL, CELL, 3 * CELL}, crown)
+		backdrop_block({x - 2 * CELL + lean, crest, 5 * CELL, CELL}, crown)
+		backdrop_block({x - 3 * CELL + lean, crest + CELL, CELL, CELL}, crown)
+		backdrop_block({x + 3 * CELL + lean, crest + CELL, CELL, CELL}, crown)
 	}
 }
 
@@ -149,10 +149,10 @@ draw_ship_sea :: proc(horizon_y: f32) {
 	// blues is a temperate one, and no amount of light on the ship above it says otherwise.
 	SHELF :: f32(16)
 	near := colour_mix(COLOUR_SEA_BRIGHT, COLOUR_SEA_SHALLOW, 0.72)
-	middle := backdrop_snap(depth * 0.5)
+	middle := backdrop_floor(depth * 0.5)
 	backdrop_block({0, horizon_y, WINDOW_WIDTH, SHELF}, COLOUR_SEA_DEEP)
-	backdrop_grade(0, horizon_y + SHELF, WINDOW_WIDTH, middle - SHELF, COLOUR_SEA, COLOUR_SEA_BRIGHT, SHIP_SEA_STOPS)
-	backdrop_grade(0, horizon_y + middle, WINDOW_WIDTH, depth - middle, COLOUR_SEA_BRIGHT, near, SHIP_SEA_STOPS)
+	backdrop_grade({0, horizon_y + SHELF, WINDOW_WIDTH, middle - SHELF}, COLOUR_SEA, COLOUR_SEA_BRIGHT, SHIP_SEA_STOPS)
+	backdrop_grade({0, horizon_y + middle, WINDOW_WIDTH, depth - middle}, COLOUR_SEA_BRIGHT, near, SHIP_SEA_STOPS)
 
 	// The chop. `f` is how far down the frame a wave lies, and everything about it — its length,
 	// its weight, how dark it is — is taken off that one number, so the water gains scale as it
@@ -230,10 +230,10 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 	// on top of it breaks that up: the foam has to be made of marks and nothing else, each one its
 	// own height and its own weight, with sea showing between them.
 	//
-	// So it is walked one art pixel at a time along her side rather than scattered. A scatter is
-	// what closes back up into a bar here — on the lattice every mark is at least a cell wide and
-	// starts on a cell boundary, so overlapping marks stop reading as depth and start tiling.
-	base := backdrop_snap(bow.x)
+	// On the lattice that means walking her side a cell at a time and leaving cells unlit, rather
+	// than scattering marks and trusting the gaps: every mark here is at least a cell wide and
+	// starts on a cell boundary, so a scatter dense enough to read tiles into the bar instead.
+	base := backdrop_floor(bow.x)
 	cells := int(backdrop_ceil(span) / BACKDROP_PIXEL)
 	for i in 0 ..< cells {
 		if sea_noise(i, 41) < 0.45 {

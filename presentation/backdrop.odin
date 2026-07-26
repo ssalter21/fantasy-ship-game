@@ -26,10 +26,10 @@ BACKDROP_DITHER := [4][4]f32 {
 	{15, 7, 13, 5},
 }
 
-// backdrop_snap floors a logical coordinate onto the lattice; backdrop_ceil raises one onto it.
+// backdrop_floor and backdrop_ceil put a logical coordinate on the lattice, downward and upward.
 // A mark takes the first for its near edges and the second for its far ones, so snapping never
 // eats a mark that started smaller than an art pixel.
-backdrop_snap :: proc(v: f32) -> f32 {
+backdrop_floor :: proc(v: f32) -> f32 {
 	return math.floor(v / BACKDROP_PIXEL) * BACKDROP_PIXEL
 }
 
@@ -41,7 +41,7 @@ backdrop_ceil :: proc(v: f32) -> f32 {
 // one art pixel is the smallest thing the backdrop is allowed to say, and a wave crest that
 // rounds away to zero width is a hole in the water rather than a finer detail.
 backdrop_rect :: proc(rect: rl.Rectangle) -> rl.Rectangle {
-	x, y := backdrop_snap(rect.x), backdrop_snap(rect.y)
+	x, y := backdrop_floor(rect.x), backdrop_floor(rect.y)
 	return rl.Rectangle {
 		x = x,
 		y = y,
@@ -50,9 +50,13 @@ backdrop_rect :: proc(rect: rl.Rectangle) -> rl.Rectangle {
 	}
 }
 
-// backdrop_block is the only way a backdrop mark reaches the screen: a rectangle snapped to the
-// lattice first. Every cloud step, island block, wave, glitter fleck and scrap of foam goes
-// through it.
+// backdrop_block puts one mark on the screen, snapped to the lattice on the way. Every cloud
+// step, island block, wave, glitter fleck and scrap of foam goes through it.
+//
+// The grade and the disc below do not, and do not need to: both walk whole cells out from
+// lattice-aligned edges, so every rectangle they emit is on the lattice by construction rather
+// than by being corrected afterwards. Between the three of them, nothing in the backdrop reaches
+// the screen off the lattice — and nothing else in the backdrop calls raylib to draw directly.
 backdrop_block :: proc(rect: rl.Rectangle, colour: rl.Color) {
 	rl.DrawRectangleRec(backdrop_rect(rect), colour)
 }
@@ -69,9 +73,9 @@ backdrop_stop :: proc(from, to: rl.Color, i, steps: int) -> rl.Color {
 //
 // This stands in for rl.DrawRectangleGradientV, which interpolates per *screen* pixel and so
 // paints a smooth vector sky behind pixel-art clouds however carefully the clouds are placed.
-backdrop_grade :: proc(x, y, width, height: f32, from, to: rl.Color, steps: int) {
-	left, right := backdrop_snap(x), backdrop_ceil(x + width)
-	top, bottom := backdrop_snap(y), backdrop_ceil(y + height)
+backdrop_grade :: proc(area: rl.Rectangle, from, to: rl.Color, steps: int) {
+	left, right := backdrop_floor(area.x), backdrop_ceil(area.x + area.width)
+	top, bottom := backdrop_floor(area.y), backdrop_ceil(area.y + area.height)
 	span := max(bottom - top, BACKDROP_PIXEL)
 
 	row := 0
@@ -87,23 +91,22 @@ backdrop_grade :: proc(x, y, width, height: f32, from, to: rl.Color, steps: int)
 		// The crossing, laid in runs. The threshold pattern repeats every four art pixels, so
 		// neighbouring cells that both cross are drawn as one rectangle rather than as two that
 		// share an edge — on a full-frame sky that is the difference between thousands of draw
-		// calls and tens of thousands.
+		// calls and tens of thousands. The walk goes one cell past the right edge so the last run
+		// is closed by the same branch that closes every other one.
 		next := backdrop_stop(from, to, stop + 1, steps)
 		run := left
 		running := false
 		col := 0
-		for px := left; px < right; px += BACKDROP_PIXEL {
-			on := (BACKDROP_DITHER[row % 4][col % 4] + 0.5) / 16 < fraction
-			if on && !running {
+		for px := left; px <= right; px += BACKDROP_PIXEL {
+			on := px < right && (BACKDROP_DITHER[row % 4][col % 4] + 0.5) / 16 < fraction
+			switch {
+			case on && !running:
 				run, running = px, true
-			} else if !on && running {
+			case !on && running:
 				rl.DrawRectangleRec({run, py, px - run, BACKDROP_PIXEL}, next)
 				running = false
 			}
 			col += 1
-		}
-		if running {
-			rl.DrawRectangleRec({run, py, right - run, BACKDROP_PIXEL}, next)
 		}
 		row += 1
 	}
@@ -113,7 +116,7 @@ backdrop_grade :: proc(x, y, width, height: f32, from, to: rl.Color, steps: int)
 // where everything around it steps. rl.DrawCircleV draws a smooth-edged polygon fan, and it is
 // the one shape in the sky that cannot be put right by snapping its arguments.
 backdrop_disc :: proc(centre: rl.Vector2, radius: f32, colour: rl.Color) {
-	cx, cy := backdrop_snap(centre.x), backdrop_snap(centre.y)
+	cx, cy := backdrop_floor(centre.x), backdrop_floor(centre.y)
 	r := backdrop_ceil(radius)
 	for py := cy - r; py < cy + r; py += BACKDROP_PIXEL {
 		dy := py + BACKDROP_PIXEL * 0.5 - cy
