@@ -102,11 +102,14 @@ galleon_keel_y :: proc(x: f32) -> f32 {
 	return GALLEON_KEEL_Y + d * d * 1.7
 }
 
-// galleon_sheer_y is the hull's top — the deck edge — at length x: the weather deck with a
-// little sheer rising toward bow and stern.
+// galleon_sheer_y is the hull's top — the rail, capping the bulwark that stands round the
+// weather deck — at length x. It carries real sheer: highest at the bow and the stern, lowest
+// amidships, which is the line that reads as a ship from any distance. The deck itself is flat
+// at GALLEON_DECK_Y, so the gap between the two *is* the bulwark, deepest where the sheer runs
+// up at her ends.
 galleon_sheer_y :: proc(x: f32) -> f32 {
 	d := galleon_length_fraction(x) - 0.5
-	return GALLEON_DECK_Y + d * d * 0.55
+	return GALLEON_DECK_Y + 0.17 + d * d * 0.75
 }
 
 // galleon_length_fraction is x as 0 at the stern, 1 at the bow — the parameter both hull
@@ -114,6 +117,49 @@ galleon_sheer_y :: proc(x: f32) -> f32 {
 @(private)
 galleon_length_fraction :: proc(x: f32) -> f32 {
 	return clamp((x - GALLEON_STERN_X) / (GALLEON_BOW_X - GALLEON_STERN_X), 0, 1)
+}
+
+// galleon_half_beam is her waterline plan: how much of the full beam the hull carries at length
+// x. She holds her greatest beam over the middle of her length, fines away to a sharp stem
+// forward, and comes aft to a broad transom — a plan, where a constant would be a plank.
+galleon_half_beam :: proc(x: f32) -> f32 {
+	f := galleon_length_fraction(x)
+	// Forward of two-thirds she fines away hard into the stem; aft of a third she is still
+	// filling out from the transom. The narrower of the two shapes her at any station.
+	entry := 1 - 0.80 * math.pow(clamp((f - 0.66) / 0.34, 0, 1), 1.6)
+	run := 0.74 + 0.26 * math.pow(clamp(f / 0.30, 0, 1), 0.65)
+	return GALLEON_HALF_BEAM * min(entry, run)
+}
+
+// galleon_frame_half_beam is her section: how wide she is at height y on the frame at length x.
+// Narrow at the garboard beside the keel, widening through the turn of the bilge to her
+// greatest beam at the wale, and falling in again above it — the tumblehome a ship of the line
+// carries, which is what makes a hull read as a hull and not a bathtub.
+galleon_frame_half_beam :: proc(x, y: f32) -> f32 {
+	keel := galleon_keel_y(x)
+	sheer := galleon_sheer_y(x)
+	t := clamp((y - keel) / max(sheer - keel, 0.001), 0, 1)
+	rise := math.pow(clamp(t / GALLEON_WALE_T, 0, 1), 0.55)
+	tumble := clamp((t - GALLEON_WALE_T) / (1 - GALLEON_WALE_T), 0, 1)
+	return galleon_half_beam(x) * (0.10 + 0.90 * rise - 0.19 * tumble * tumble)
+}
+
+// GALLEON_WALE_T is where on a frame her greatest beam falls, as a fraction of keel-to-sheer:
+// at the wale, a little below the deck edge. Above it the topsides fall inboard.
+GALLEON_WALE_T :: f32(0.68)
+
+// galleon_room_half_beam is how far outboard a compartment may reach at length x with its floor
+// at y. A room is a box and the hull is a bowl, so a berth takes the beam her frames carry
+// across its own length, measured at its floor — the height where those frames are tightest.
+// The mean of its two ends rather than the tighter of them: a compartment fills the space it
+// stands in, and the last hand's breadth of a corner buried in the planking costs nothing,
+// where sizing every room to its narrow end would leave the ends of the ship visibly hollow.
+// This is what makes the cut openings step inboard toward the bow, following the hull the way
+// the cut in a real cutaway drawing does.
+galleon_room_half_beam :: proc(centre_x, half_x, floor_y: f32) -> f32 {
+	fore := galleon_frame_half_beam(centre_x + half_x, floor_y)
+	aft := galleon_frame_half_beam(centre_x - half_x, floor_y)
+	return (fore + aft) / 2 - 0.05
 }
 
 // galleon_size_weight is how much of the below-deck floor's length one hold claims, by slot
@@ -144,10 +190,10 @@ GALLEON_STRUCTURES :: [4]Room {
 }
 
 // The below-deck floor's extent: it stops short of the stem and the transom, and is capped by
-// the main deck above and floored a little clear of the keel.
-@(private)
+// the main deck above and floored a little clear of the keel. Exported because the painter cuts
+// the port planking to just under this floor — the cut has to be where the compartments are, or
+// it opens onto nothing.
 GALLEON_HOLD_FLOOR_Y :: GALLEON_KEEL_Y + 0.28
-@(private)
 GALLEON_HOLD_CEIL_Y :: GALLEON_DECK_Y - 0.05
 
 // galleon_rooms places every slot into the hull: the concealed berths as compartments across
@@ -191,6 +237,7 @@ galleon_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [MAX_SLOTS]Room, n:
 			},
 			kind   = .Hold,
 		}
+		galleon_fit_room_to_hull(&rooms[n])
 		n += 1
 		cursor += length
 	}
@@ -204,10 +251,21 @@ galleon_rooms :: proc(layout: []ship.Layout_Slot) -> (rooms: [MAX_SLOTS]Room, n:
 		room := structures[k]
 		room.slot = exposed[k]
 		rooms[n] = room
+		galleon_fit_room_to_hull(&rooms[n])
 		n += 1
 	}
 
 	return rooms, n
+}
+
+// galleon_fit_room_to_hull pulls a room's outboard reach in to the frames around it, and never
+// pushes it out: the placements above spell the widest a chamber would like to be, and the hull
+// says how much of that it can have where it stands. Doing it here, once, is what keeps the
+// painted room and the picked room inside the same planking.
+@(private)
+galleon_fit_room_to_hull :: proc(room: ^Room) {
+	fits := galleon_room_half_beam(room.centre.x, room.half.x, room.centre.y - room.half.y)
+	room.half.z = max(min(room.half.z, fits), 0.18)
 }
 
 // galleon_room_face is a room's open front face projected onto the frame — the four corners of

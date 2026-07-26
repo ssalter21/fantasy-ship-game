@@ -417,6 +417,27 @@ chose.
 - Text reaches drawing as `fmt.ctprintf` temp-allocator strings, freed by the per-frame
   `free_all(context.temp_allocator)`. Nothing here changes that.
 
+### In 3D, light the surface — never `DrawCube`
+
+raylib's immediate-mode 3D carries **no lights**. `rl.DrawCube` paints all six faces one flat colour, so a box
+drawn with it has no top, no shadowed side and no volume: it reads as a sticker, and a whole ship built from
+them reads as stacked cardboard. That was the ship screen's first pass.
+
+The fix is not a shader and not more outlines — it is **one flat shade per surface, off that surface's own
+normal**, which `presentation/ship_paint.odin` supplies as `ship_quad` / `ship_quad_lit` / `ship_box`:
+
+- **Every 3D surface goes through those, not through `DrawCube`.** A curve is then modelled by the light running
+  across it, which is what lets a lofted hull read as a hull without a single drawn line.
+- **Flat, not smooth.** One shade per facet. The art is blocky; a faceted hull keeps its strakes reading as
+  planking, where interpolated normals would airbrush them away.
+- **The palette does not change.** Every colour that reaches the screen is still a roster swatch — `colour_shade`
+  multiplies it, so a lit face and a shadowed one are the same swatch under different light rather than two
+  swatches kept in step by hand.
+- **Wind quads both ways.** raylib culls back faces into *nothing*, and a cutaway is looked into from angles that
+  see the inside of half of what is drawn. A wrongly-wound face is a silent hole, not a wrong colour.
+- **Cloth is not timber.** Canvas is one thickness with the sun behind it as often as in front, so it is lit off
+  `abs(dot)` and brighter for it (`ship_quad_cloth`). Sails shaded like planks come out grey and dead.
+
 ## What this guide does not cover
 
 - **A layout system.** Deliberately not designed. A centred button stack is a pure function of a few constants,
