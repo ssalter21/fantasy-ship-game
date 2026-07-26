@@ -104,14 +104,14 @@ Get-ChildItem -Filter '??-*.png' | Remove-Item        # repo root, not docs/ui/s
 If you do run the full walk, use **PowerShell**, not the Bash tool: this repo's Git Bash has no `pkill`, and
 backgrounding with `&` there blocks the tool until the walk finishes.
 
-## Look — and don't trust your eyes
+## Look every time — then check the numbers
 
 **Open the PNG with the Read tool.** A shot you didn't open is not feedback, and a blank frame is a failure to
 launch.
 
-Then, before you believe what you see: **scan the pixels**. Eyeballing a shot is not measuring one. Two
-sessions in a row have now read banding into the Chart Table's vignette that is not there — it is a clean
-gradient, corners exactly `#050B18`, centre `#081429`.
+Then, before you believe a *value* you think you see: **scan the pixels**. Eyeballing a shot is not measuring
+one. Two sessions in a row have now read banding into the Chart Table's vignette that is not there — it is a
+clean gradient, corners exactly `#050B18`, centre `#081429`.
 
 ```bash
 python -c "
@@ -126,6 +126,10 @@ for name, (x, y) in {'top-left': (2, 2), 'centre': (w//2, h//2), 'bottom-right':
 Any claim about a colour, a size or an alignment should come off a scan like this and be checked against the
 guide's stated value.
 
+**The scan settles a value; it cannot judge a screen.** Three pixels have nothing to say about whether the
+spacing reads, whether the eye lands where you meant it to, or whether the thing is simply ugly. That is what
+looking is for, and it is why a scan never stands in for one.
+
 ## Zoom into a shot, and diff two of them
 
 `scripts/shot.py` sits between looking and scanning: detail the eye cannot resolve at 1:1, and a comparison
@@ -139,8 +143,8 @@ python scripts/shot.py diff 04-build 05-build-hover
 Both take a bare shot name (resolved against `docs/ui/shots/`, `.png` optional) or a path, and write under
 `docs/ui/shots/zoom/` and `docs/ui/shots/diff/` — gitignored and regenerable, like the shots themselves.
 
-**Park your "before" outside `docs/ui/shots/` first.** The capture recipe above deletes that whole directory,
-so the next capture destroys both the shot you meant to diff against *and* any zoom or diff you wrote from it.
+**Park your "before" outside `docs/ui/shots/` first.** Shots are written under fixed filenames, so the next
+`--capture` — or the next `--shot` of the same screen — overwrites the very frame you meant to diff against.
 Copy the before-shot somewhere else, or send output there with `--out` (zoom) and `--out-dir` (diff):
 
 ```bash
@@ -167,8 +171,8 @@ read that last number before you believe a diff, because a max delta of 2 is noi
 exactly like a mask you forgot to open.
 
 The two compose, and that is the main way to use them: diff to find *where* the change is, then zoom that
-region — the mask's printed bounding box is the region argument. That pairing is also the cheap one against the
-context budget below, since the printed numbers answer most iterations without opening an image at all.
+region — the mask's printed bounding box is the region argument. The printed numbers tell you a change landed
+and how far it reached; they do not tell you the screen reads. They aim the look, they don't stand in for it.
 
 Sizes must match; a mismatch is reported with both dimensions rather than silently padded.
 
@@ -176,24 +180,32 @@ Sizes must match; a mismatch is reported with both dimensions rather than silent
 and magnifying a correctly-drawn but wrong-facing surface tells you nothing. The workbench's normal paint and
 wireframe views are what serve those (below).
 
-## Context budget: look once, scout the rest
+## Context budget: look every iteration, scout the source
 
 This loop spends context faster than it produces code: a screen that lands in a ~750-line diff can burn a 250K+
-session, and almost none of it reaches the diff. It goes to *process* — images that never leave the window, and
-source files full-read to find a seam. An implementation session's target is **150K**, and it's defended here,
-where the spending happens.
+session, and almost none of it reaches the diff. It goes to *process* — mostly source files full-read to find a
+seam. An implementation session's target is **150K**, and it's defended here, where the spending happens.
 
-- **Screenshots are the dominant sink** — heavy, uncompressible, and a full walk writes **37 of them per run**.
-  Read only the 1–3 shots you are actually iterating on, never the gallery. `--shot <name>` writes exactly the
-  one you asked for, so the other 36 never exist to be read.
-- **Look once, scan thereafter.** The first look at a shot judges layout — that needs your eyes. Every check
-  *after* that (a colour moved, an edge aligned, a value changed) comes off the PIL pixel-scan above, which is
-  dozens of tokens against a whole image. Re-reading the same PNG each iteration is the single most expensive
-  habit in this loop.
-- **Scout source, read only to edit.** To learn *what `build_card_dims` returns and where the seam sits*, a
-  `/scout` sub-agent reads the big render files (`view.odin`, `menu.odin`, `build_surface.odin` — hundreds of
-  lines each) and reports the digest back; the code informs your edit without settling permanently into the
-  window. Full-read a file only for the lines you are about to change.
+Measured on this repo, so no session has to re-derive it:
+
+- one 1244x700 capture shot — **~1,160 tokens**
+- `view.odin`, 1,136 lines — **~14,000 tokens**
+- `build_surface.odin`, 977 lines — **~12,000 tokens**
+
+A screenshot costs roughly **8% of one read of the file you are editing**. Looking is the cheap part of this
+loop; budget it like it is.
+
+- **Look at the screen every iteration.** Every time you change what is drawn, capture and open the shot. A
+  change you have not looked at is unverified — and no pixel probe will tell you the layout is now crowded, the
+  caret sits under the wrong row, or the whole screen reads flat. A session that economises on looking has
+  optimised away its only feedback signal.
+- **Scout source, full-read only to edit — this is the actual sink.** To learn *what `build_card_dims` returns
+  and where the seam sits*, send a sub-agent into the big render files (`view.odin` and `build_surface.odin`,
+  a thousand lines each) and keep the digest it reports back; the code informs your edit without settling
+  permanently into the window. Full-read a file only for the lines you are about to change. One avoided
+  full-read pays for a dozen looks.
+- **Read the shots you are iterating on, not the gallery.** A full walk writes **37 per run**; one to three of
+  them are yours. `--shot <name>` writes exactly the one you asked for, so the other 36 never exist to be read.
 - **Push noisy investigation into a sub-agent.** Tracing how the encounter frame, build surface and a retired
   loop fit together is fan-out reading — dispatch it and keep the findings, not the file dumps.
 - **Size the work to one screen, one seam.** A ticket scoped to a single screen opens few files and looks at

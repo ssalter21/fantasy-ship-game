@@ -75,7 +75,7 @@ asked for — not a placeholder or a failed frame.
 ## Conform it to the ramp
 
 Generated art lands *near* the palette, never *on* it, and "near" is what reads as a foreign asset. Snap it,
-then measure it — the same discipline run-game's style loop uses, don't trust your eyes:
+then measure it — the same discipline run-game's style loop uses: look, then settle the value with a scan:
 
 - **Quantize to the ramp.** Map every pixel to its nearest ramp stop / tone (the tables in the guide's
   *Palette* section). A short PIL pass does it; verify afterward by sampling corners and mass, exactly as
