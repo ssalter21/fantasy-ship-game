@@ -8,12 +8,15 @@ rem it works regardless of where it's launched from.
 rem
 rem   run.cmd            builds and launches cmd/game (the raylib UI)
 rem   run.cmd -Headless  builds and runs cmd/headless (no window)
+rem   run.cmd -Forge     builds and launches cmd/forge (the authoring tool)
 
 setlocal
 pushd "%~dp0.."
 
 if /I "%~1"=="-Headless" (
     odin run cmd/headless
+) else if /I "%~1"=="-Forge" (
+    odin run cmd/forge
 ) else (
     odin run cmd/game
 )

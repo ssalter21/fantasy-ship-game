@@ -11,12 +11,16 @@
     Unlike scripts/release.ps1 this is an unoptimized debug run with a console
     window -- it is for iterating locally, not for cutting a shippable build.
 
-    Pass -Headless to run cmd/headless (the no-rendering executable) instead.
-    Any extra arguments after -- are forwarded to the built program.
+    Pass -Headless to run cmd/headless (the no-rendering executable) instead,
+    or -Forge to run cmd/forge (the content authoring tool). Any extra arguments
+    after -- are forwarded to the built program.
 
 .PARAMETER Headless
     Run cmd/headless (scripted/seeded simulation, no window) instead of the UI
     game.
+
+.PARAMETER Forge
+    Run cmd/forge (the item and encounter authoring tool) instead of the game.
 
 .EXAMPLE
     scripts/run.ps1
@@ -25,10 +29,15 @@
 .EXAMPLE
     scripts/run.ps1 -Headless
     Builds and runs the headless simulation executable.
+
+.EXAMPLE
+    scripts/run.ps1 -Forge
+    Builds and launches the Forge, the content authoring tool.
 #>
 [CmdletBinding()]
 param(
     [switch]$Headless,
+    [switch]$Forge,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ProgramArgs
 )
@@ -41,7 +50,8 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $RepoRoot
 try {
-    $pkg = if ($Headless) { 'cmd/headless' } else { 'cmd/game' }
+    if ($Headless -and $Forge) { throw 'pass at most one of -Headless and -Forge' }
+    $pkg = if ($Headless) { 'cmd/headless' } elseif ($Forge) { 'cmd/forge' } else { 'cmd/game' }
 
     Write-Host "Running $pkg (odin run)"
     if ($ProgramArgs) {
