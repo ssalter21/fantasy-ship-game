@@ -86,6 +86,15 @@ exposed_berths_become_the_weather_deck_structures :: proc(t: ^testing.T) {
 }
 
 @(test)
+the_shipped_view_is_the_shipped_eye :: proc(t: ^testing.T) {
+	// galleon_view_from exists so the hull workbench can fly the camera; the game's own framing
+	// must not become a thing a tool can move. These two are the same view, and that is what
+	// keeps the five tuned knobs the single account of how this screen is composed.
+	from_knobs := galleon_view_from(GALLEON_EYE, FRAME_W, FRAME_H)
+	testing.expect_value(t, galleon_view(FRAME_W, FRAME_H), from_knobs)
+}
+
+@(test)
 every_room_stands_inside_her_planking :: proc(t: ^testing.T) {
 	// A compartment that reaches wider than the frames around it stands *through* the hull, and
 	// what that draws is a hole in her side — which is exactly what a room sized to one width

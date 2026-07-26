@@ -147,6 +147,37 @@ Capture is the fast path, not the whole picture. Three blind spots, all real:
   real window (below).
 - **Silent culling.** A wrongly-wound `rl.DrawTriangle` draws *nothing* rather than something wrong, so a
   resting shot looks fine and the bug ships. If a shape is missing, suspect winding before you suspect colour.
+- **Anything the fullscreen blit does.** The player session composes into a render texture and blits it;
+  `--capture` draws at logical size with no texture in the path. A whole class of bug lives only in the real
+  window — see the style guide's "A render texture loses alpha". Measure translucency there, never in a shot.
+
+## The hull workbench: stop iterating on the ship screen by text
+
+```bash
+odin run cmd/game -- --workbench
+```
+
+The ship screen has a fourth entry beside `--capture` and the session, and **use it before editing any number
+in `cutaway/galleon.odin`**. It draws the real `draw_ship_cutaway` into the real logical frame with a control
+panel over it:
+
+- **Every curve in the loft is a slider** — keel camber, sheer, the entry, the run, the wale, tumblehome. The
+  ship redraws under the mouse. `C` copies the tuned `GALLEON_LOFT` to the clipboard as Odin to paste back;
+  the tool never writes to the repo. `R` returns to the shipped hull and the shipped framing.
+- **`N` paints by normal** — +x red, +y green, +z blue, negatives dark. Turn this on *first* when a surface
+  looks merely dull. Every hard bug on this screen has been a face pointing the wrong way, and in normal paint
+  that looks like a slightly-off shade; here it is the wrong colour outright.
+- **`M` is wireframe** — the loft's resolution, degenerate quads, and daylight between two pieces that should
+  meet. (rlgl batches geometry, so wire mode needs `DrawRenderBatchActive` either side of it or it lands on
+  whatever was in flight. `draw_ship_cutaway` does that.)
+- **The camera flies** — yaw, distance, height, look and fov, plus the wheel to dolly. This is the one that
+  answers *is this thing actually solid*: orbit and a room standing through the planking is obvious.
+
+The shipped framing is not tunable and must not become so: `galleon_view` builds from the five constants and
+`galleon_view_from` exists only for this tool. A test asserts the two agree.
+
+Why it is not in the Forge: **the Forge never imports `presentation/`**, in writing, and everything that paints
+this hull lives there. Moving it needs the galleon's painter and the palette extracted into shared packages.
 
 ## Drive the real window when capture can't reach it
 

@@ -57,6 +57,14 @@ ship_facing :: proc(point: rl.Vector3, normal: rl.Vector3) -> rl.Vector3 {
 // strakes and the frames reading as planking rather than dissolving into an airbrush.
 ship_lit :: proc(base: rl.Color, normal: rl.Vector3) -> rl.Color {
 	n := rl.Vector3Normalize(normal)
+	// The workbench's normals view: +x red, +y green, +z blue, and the negative of each dark,
+	// so which way a surface faces is a colour rather than a shade (ship_debug.odin).
+	if ship_debug_normals {
+		axis :: proc(v: f32) -> u8 {
+			return u8(clamp(v > 0 ? 235 * v : 70 * -v, 0, 255))
+		}
+		return rl.Color{axis(n.x), axis(n.y), axis(n.z), 255}
+	}
 	sun := rl.Vector3Normalize(SHIP_SUN)
 	lambert := max(rl.Vector3DotProduct(n, sun), 0)
 	fill := SHIP_SKY_FILL * max(n.y, 0) + SHIP_SEA_FILL * max(-n.y, 0)

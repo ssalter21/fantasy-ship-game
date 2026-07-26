@@ -5,6 +5,7 @@ import "core:fmt"
 import cutaway "./cutaway"
 import ship "../core/ship"
 import rl "vendor:raylib"
+import rlgl "vendor:raylib/rlgl"
 
 // The ship screen's galleon: the player's own flagship drawn as a three-quarter cutaway with
 // her port side opened up, so every berth is a room you look into. The cutaway module places
@@ -33,6 +34,9 @@ Room_Highlight :: enum {
 // dims the rest, the same steer the flat cutaway gave (#302), now on the rooms themselves.
 draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector2) {
 	view := cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT)
+	if eye, flown := ship_debug_eye.?; flown {
+		view = cutaway.galleon_view_from(eye, WINDOW_WIDTH, WINDOW_HEIGHT)
+	}
 	horizon := cutaway.galleon_horizon_y(view)
 	draw_ship_sky(horizon)
 	draw_ship_sea(horizon)
@@ -49,12 +53,24 @@ draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector
 
 	ship_paint_view(view.camera)
 	rl.BeginMode3D(view.camera)
+	// The wireframe view is bracketed by explicit batch flushes. Wire mode is a GL polygon-mode
+	// switch, but rlgl queues geometry and only settles it when the batch fills or is drawn — so
+	// without the flushes the mode lands on whatever happened to be in flight and the ship comes
+	// out part solid, part mesh. Flush, switch, draw, flush, switch back.
+	if ship_debug_wires {
+		rlgl.DrawRenderBatchActive()
+		rlgl.EnableWireMode()
+	}
 	draw_ship_hull()
 	for i in 0 ..< n {
 		draw_ship_room(rooms[i], ship_room_timber(rooms[i].kind))
 	}
 	draw_ship_ornament(rooms, n)
 	draw_ship_rig()
+	if ship_debug_wires {
+		rlgl.DrawRenderBatchActive()
+		rlgl.DisableWireMode()
+	}
 	rl.EndMode3D()
 
 	// The foam standing up her planking goes on last, over the hull it is breaking against.

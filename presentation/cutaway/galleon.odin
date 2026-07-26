@@ -88,19 +88,41 @@ View :: struct {
 // galleon_view is the baked view over a frame of the given size, derived from the five tuning
 // knobs. The yaw swings the camera around the target toward the open (-z) side, so the bow
 // angles at the viewer.
+// Eye is the five camera knobs as a value. The game never builds one — galleon_view uses the
+// constants above and always will, because the framing is settled and the screen is composed
+// around it. It exists so the hull workbench can fly the camera off that framing to inspect
+// her, without the shipped view becoming something a tool can move.
+Eye :: struct {
+	yaw, dist, height, look, fov: f32,
+}
+
+GALLEON_EYE :: Eye {
+	yaw    = GALLEON_CAM_YAW,
+	dist   = GALLEON_CAM_DIST,
+	height = GALLEON_CAM_HEIGHT,
+	look   = GALLEON_CAM_LOOK,
+	fov    = GALLEON_CAM_FOV,
+}
+
 galleon_view :: proc(width, height: i32) -> View {
-	yaw := math.to_radians(GALLEON_CAM_YAW)
-	target := rl.Vector3{0.2, GALLEON_CAM_LOOK, 0}
+	return galleon_view_from(GALLEON_EYE, width, height)
+}
+
+// galleon_view_from is the view an arbitrary eye sees. The yaw swings the camera around the
+// target toward the open (-z) side, so the bow angles at the viewer.
+galleon_view_from :: proc(eye: Eye, width, height: i32) -> View {
+	yaw := math.to_radians(eye.yaw)
+	target := rl.Vector3{0.2, eye.look, 0}
 	return View {
 		camera = rl.Camera3D {
 			position = rl.Vector3 {
-				target.x + GALLEON_CAM_DIST * math.sin(yaw),
-				GALLEON_CAM_HEIGHT,
-				-GALLEON_CAM_DIST * math.cos(yaw),
+				target.x + eye.dist * math.sin(yaw),
+				eye.height,
+				-eye.dist * math.cos(yaw),
 			},
 			target = target,
 			up = rl.Vector3{0, 1, 0},
-			fovy = GALLEON_CAM_FOV,
+			fovy = eye.fov,
 			projection = .PERSPECTIVE,
 		},
 		width = width,
@@ -113,10 +135,62 @@ galleon_project :: proc(point: rl.Vector3, view: View) -> rl.Vector2 {
 	return rl.GetWorldToScreenEx(point, view.camera, view.width, view.height)
 }
 
+// Loft is every number that shapes her, as opposed to the five that size her. Her extent and
+// her deck height are fixed above — that is the ship's scale, and the camera is framed to it —
+// but the curves inside that box are all tuning, and tuning is what a number in source is worst
+// at. Held as a value rather than as constants so the hull workbench (game.exe --workbench) can
+// drag them and watch her change, then emit the result back as source. GALLEON_LOFT is the
+// shipped set, so the game draws exactly what it drew when these were constants.
+Loft :: struct {
+	// The keel: how deep the camber is, and where along her length its lowest point falls.
+	keel_camber: f32,
+	keel_low:    f32,
+	// The sheer: how far the rail stands above the deck amidships, and how hard it sweeps up
+	// toward her ends.
+	sheer_rise:   f32,
+	sheer_camber: f32,
+	// The plan. The entry begins fining at entry_start of her length and closes to nothing at
+	// the stem, along a curve of entry_power. Aft she is filling out from the transom, which
+	// carries run_fill of her beam and reaches full within run_span.
+	entry_start: f32,
+	entry_power: f32,
+	run_fill:    f32,
+	run_span:    f32,
+	run_power:   f32,
+	// The section: where her greatest beam falls on a frame, how much beam she still carries
+	// down at the garboard beside the keel, how the turn of the bilge rises to the wale, and how
+	// far the topsides fall back in above it.
+	wale_t:     f32,
+	garboard:   f32,
+	rise_power: f32,
+	tumblehome: f32,
+}
+
+GALLEON_LOFT :: Loft {
+	keel_camber  = 1.7,
+	keel_low     = 0.44,
+	sheer_rise   = 0.17,
+	sheer_camber = 0.75,
+	entry_start  = 0.60,
+	entry_power  = 1.45,
+	run_fill     = 0.74,
+	run_span     = 0.30,
+	run_power    = 0.65,
+	wale_t       = 0.68,
+	garboard     = 0.10,
+	rise_power   = 0.55,
+	tumblehome   = 0.19,
+}
+
+// galleon_loft is the loft in force. One package-level value rather than a parameter threaded
+// through thirty call sites: the hull is a property of the ship, every proc here describes the
+// same one, and the workbench is the only thing that ever writes it.
+galleon_loft := GALLEON_LOFT
+
 // galleon_keel_y is the hull's bottom at length x: deepest amidships, rising toward both ends.
 galleon_keel_y :: proc(x: f32) -> f32 {
-	d := galleon_length_fraction(x) - 0.44
-	return GALLEON_KEEL_Y + d * d * 1.7
+	d := galleon_length_fraction(x) - galleon_loft.keel_low
+	return GALLEON_KEEL_Y + d * d * galleon_loft.keel_camber
 }
 
 // galleon_sheer_y is the hull's top — the rail, capping the bulwark that stands round the
@@ -126,7 +200,7 @@ galleon_keel_y :: proc(x: f32) -> f32 {
 // up at her ends.
 galleon_sheer_y :: proc(x: f32) -> f32 {
 	d := galleon_length_fraction(x) - 0.5
-	return GALLEON_DECK_Y + 0.17 + d * d * 0.75
+	return GALLEON_DECK_Y + galleon_loft.sheer_rise + d * d * galleon_loft.sheer_camber
 }
 
 // galleon_length_fraction is x as 0 at the stern, 1 at the bow — the parameter both hull
@@ -149,8 +223,9 @@ galleon_half_beam :: proc(x: f32) -> f32 {
 	// leaves a little transom on the front of the ship, and one that does all its work in the
 	// last fifth of her length arrives at that point as a corner: the bow has to be a curve the
 	// eye can follow the whole way in, or it does not read as a bow at all.
-	entry := 1 - math.pow(clamp((f - 0.60) / 0.40, 0, 1), 1.45)
-	run := 0.74 + 0.26 * math.pow(clamp(f / 0.30, 0, 1), 0.65)
+	l := galleon_loft
+	entry := 1 - math.pow(clamp((f - l.entry_start) / max(1 - l.entry_start, 0.001), 0, 1), l.entry_power)
+	run := l.run_fill + (1 - l.run_fill) * math.pow(clamp(f / max(l.run_span, 0.001), 0, 1), l.run_power)
 	return GALLEON_HALF_BEAM * min(entry, run)
 }
 
@@ -159,17 +234,14 @@ galleon_half_beam :: proc(x: f32) -> f32 {
 // greatest beam at the wale, and falling in again above it — the tumblehome a ship of the line
 // carries, which is what makes a hull read as a hull and not a bathtub.
 galleon_frame_half_beam :: proc(x, y: f32) -> f32 {
+	l := galleon_loft
 	keel := galleon_keel_y(x)
 	sheer := galleon_sheer_y(x)
 	t := clamp((y - keel) / max(sheer - keel, 0.001), 0, 1)
-	rise := math.pow(clamp(t / GALLEON_WALE_T, 0, 1), 0.55)
-	tumble := clamp((t - GALLEON_WALE_T) / (1 - GALLEON_WALE_T), 0, 1)
-	return galleon_half_beam(x) * (0.10 + 0.90 * rise - 0.19 * tumble * tumble)
+	rise := math.pow(clamp(t / max(l.wale_t, 0.001), 0, 1), l.rise_power)
+	tumble := clamp((t - l.wale_t) / max(1 - l.wale_t, 0.001), 0, 1)
+	return galleon_half_beam(x) * (l.garboard + (1 - l.garboard) * rise - l.tumblehome * tumble * tumble)
 }
-
-// GALLEON_WALE_T is where on a frame her greatest beam falls, as a fraction of keel-to-sheer:
-// at the wale, a little below the deck edge. Above it the topsides fall inboard.
-GALLEON_WALE_T :: f32(0.68)
 
 // GALLEON_ROOM_INSET is how far inside her frames a compartment stands: the thickness of the
 // planking it is cut into, plus enough clearance that a corner never shows through it.
