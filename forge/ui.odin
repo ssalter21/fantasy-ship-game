@@ -193,14 +193,14 @@ ui_tag_set :: proc(u: ^Ui, bounds: rl.Rectangle, tags: ^bit_set[ship.Tag], hint:
 	for tag in ship.Tag {
 		held := tag in tags^
 		label := fmt.tprintf("%v", tag)
-		if ui_check(u, {x, bounds.y + 2, 12, 12}, label, &held, hint) {
+		if ui_check(u, {x, bounds.y + FORGE_CHECK_DY, FORGE_CHECK, FORGE_CHECK}, label, &held, hint) {
 			if held {
 				tags^ += {tag}
 			} else {
 				tags^ -= {tag}
 			}
 		}
-		x += 20 + text_width(label)
+		x += FORGE_CHECK + 2 * FORGE_GAP + text_width(label)
 	}
 }
 
@@ -214,17 +214,21 @@ Reorder :: enum {
 	Remove,
 }
 
-REORDER_WIDTH :: 74
+// REORDER_BUTTON is one of the three square buttons a reorder control is made of, and
+// REORDER_WIDTH is what the caller has to leave clear for all three.
+REORDER_BUTTON :: 32
+REORDER_WIDTH :: 3 * REORDER_BUTTON + 2 * FORGE_GAP
 
 ui_reorder :: proc(u: ^Ui, bounds: rl.Rectangle, index: int, count: int, up_hint: string, down_hint: string) -> Reorder {
 	action := Reorder.None
-	if index > 0 && ui_button(u, {bounds.x, bounds.y, 22, bounds.height}, "up", up_hint) {
+	step := f32(REORDER_BUTTON + FORGE_GAP)
+	if index > 0 && ui_button(u, {bounds.x, bounds.y, REORDER_BUTTON, bounds.height}, "up", up_hint) {
 		action = .Up
 	}
-	if index < count - 1 && ui_button(u, {bounds.x + 26, bounds.y, 22, bounds.height}, "dn", down_hint) {
+	if index < count - 1 && ui_button(u, {bounds.x + step, bounds.y, REORDER_BUTTON, bounds.height}, "dn", down_hint) {
 		action = .Down
 	}
-	if ui_button(u, {bounds.x + 52, bounds.y, 22, bounds.height}, "x", "remove this row") {
+	if ui_button(u, {bounds.x + 2 * step, bounds.y, REORDER_BUTTON, bounds.height}, "x", "remove this row") {
 		action = .Remove
 	}
 	return action
@@ -268,13 +272,23 @@ ui_button :: proc(u: ^Ui, bounds: rl.Rectangle, text: string, hint := "") -> boo
 // ui_derived draws a field that is **not the author's to set**, with the reason attached.
 // A derived or rule-locked field renders rather than disappearing: an absent field says
 // nothing, and one that silently ignores input says something false.
-ui_derived :: proc(bounds: rl.Rectangle, value: string, reason: string) {
+//
+// `right` is the x the reason may not pass — the edge of whatever the field sits in. A
+// reason is prose of no fixed length, so it is cut there rather than allowed to run on:
+// past that edge is the next pane's ground, and the pane drawn later wins it.
+ui_derived :: proc(bounds: rl.Rectangle, value: string, reason: string, right: f32) {
 	rl.DrawRectangleRec(bounds, color_of(FORGE_PANEL))
 	rl.DrawRectangleLinesEx(bounds, 1, color_of(FORGE_LINE))
-	draw_text(value, bounds.x + 4, bounds.y + 5, color_of(FORGE_DERIVED))
-	if len(reason) > 0 {
-		draw_text(reason, bounds.x + bounds.width + FORGE_GAP, bounds.y + 5, color_of(FORGE_DERIVED))
-	}
+	draw_text(value, bounds.x + FORGE_GAP, bounds.y + FORGE_TEXT_DY, color_of(FORGE_DERIVED))
+	reason_x := bounds.x + bounds.width + FORGE_GAP
+	draw_text_clipped(reason, reason_x, bounds.y + FORGE_TEXT_DY, right - reason_x, color_of(FORGE_DERIVED))
+}
+
+// form_derived is the common case: a form row whose field is derived rather than authored.
+// It reads the right edge off the form, so no call site has to work out how much room its
+// reason has.
+form_derived :: proc(f: ^Form, label: string, width: f32, value: string, reason: string) {
+	ui_derived(form_field(f, label, width), value, reason, f.bounds.x + f.bounds.width)
 }
 
 // Form is the layout cursor a pane's fields are laid out on: one column of label/field
@@ -289,7 +303,7 @@ form_begin :: proc(bounds: rl.Rectangle) -> Form {
 }
 
 form_row :: proc(f: ^Form) -> rl.Rectangle {
-	r := rl.Rectangle{f.bounds.x, f.y, f.bounds.width, FORGE_ROW - 2}
+	r := rl.Rectangle{f.bounds.x, f.y, f.bounds.width, FORGE_FIELD_H}
 	f.y += FORGE_ROW
 	return r
 }
@@ -297,7 +311,7 @@ form_row :: proc(f: ^Form) -> rl.Rectangle {
 // form_field draws a row's caption and hands back the rectangle its control occupies.
 form_field :: proc(f: ^Form, label: string, width: f32 = 0) -> rl.Rectangle {
 	row := form_row(f)
-	draw_text(label, row.x, row.y + 5, color_of(FORGE_TEXT_DIM))
+	draw_text(label, row.x, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
 	field := rl.Rectangle{row.x + FORGE_LABEL_W, row.y, row.width - FORGE_LABEL_W, row.height}
 	if width > 0 {
 		field.width = width
@@ -315,7 +329,18 @@ form_line :: proc(f: ^Form, label: string) {
 // form_note writes one line of prose at the cursor — a reason, a finding, a warning.
 form_note :: proc(f: ^Form, text: string, color: u32) {
 	row := form_row(f)
-	draw_text_clipped(text, row.x, row.y + 5, row.width, color_of(color))
+	draw_text_clipped(text, row.x, row.y + FORGE_TEXT_DY, row.width, color_of(color))
+}
+
+// form_note_mono writes one line of a **column-formatted** read-out: a resolved placement, a
+// bake's slot list, the ship template. Those lines hold their columns apart with padded
+// spaces (`%-10s`), which only lines up in a face where a space is exactly a glyph wide — so
+// they are drawn on the mono step rather than in the prose face, and cut to the cells that
+// fit rather than run past the pane.
+form_note_mono :: proc(f: ^Form, text: string, color: u32) {
+	row := form_row(f)
+	fits := max(int(row.width / mono_advance), 0)
+	draw_mono(text[:min(len(text), fits)], row.x, row.y + FORGE_TEXT_DY, color_of(color))
 }
 
 // form_remaining is what is left of the pane below the cursor, for the one control per

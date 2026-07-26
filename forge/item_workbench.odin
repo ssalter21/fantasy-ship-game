@@ -46,8 +46,11 @@ workbench_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 	item_pane(f, detail)
 	effect_pane(f, effects)
 
-	budget, rest := forge_rows(cols[2], 0.52)
-	readings, emit := forge_rows_bottom(rest, 88)
+	// The split is what each panel's content actually needs at the tool's row pitch: the
+	// budget is the tallest of the three, the emit takes its header plus the lines an item's
+	// source runs to, and the readings panel takes the rest.
+	budget, rest := forge_rows(cols[2], 0.51)
+	readings, emit := forge_rows_bottom(rest, FORGE_ROW + 2 * FORGE_PAD + 3 * (FORGE_TEXT_SIZE + 4))
 	budget_pane(f, budget)
 	readings_pane(f, readings)
 	emit_pane(f, emit, workbench_emit(f))
@@ -98,10 +101,11 @@ roster_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	form := form_begin(inner)
 
 	filter_row := form_row(&form)
-	draw_text("filter", filter_row.x, filter_row.y + 5, color_of(FORGE_TEXT_DIM))
+	draw_text("filter", filter_row.x, filter_row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
+	filter_x := text_width("filter") + 2 * FORGE_GAP
 	ui_name(
 		&f.ui,
-		{filter_row.x + 40, filter_row.y, filter_row.width - 40, filter_row.height},
+		{filter_row.x + filter_x, filter_row.y, filter_row.width - filter_x, filter_row.height},
 		&f.workbench.filter,
 		"type to filter the roster by name",
 	)
@@ -118,16 +122,18 @@ roster_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	ui_enum(&f.ui, {facets.x + 3 * (width + FORGE_GAP), facets.y, width, facets.height}, verb_options, &f.workbench.verb, verb_count, "filter by verb")
 
 	fault_row := form_row(&form)
-	ui_check(&f.ui, {fault_row.x, fault_row.y, 14, 14}, "faults only", &f.workbench.faults_only, "show only items roster_check reports a fault for")
+	ui_check(&f.ui, {fault_row.x, fault_row.y + FORGE_CHECK_DY, FORGE_CHECK, FORGE_CHECK}, "faults only", &f.workbench.faults_only, "show only items roster_check reports a fault for")
+	sort_x := FORGE_CHECK + 2 * FORGE_GAP + text_width("faults only") + FORGE_PAD
+	append_w := text_width("+ append item") + 4 * FORGE_PAD
 	ui_enum(
 		&f.ui,
-		{fault_row.x + 96, fault_row.y, 132, fault_row.height},
+		{fault_row.x + sort_x, fault_row.y, fault_row.width - sort_x - append_w - FORGE_GAP, fault_row.height},
 		"sort: roster;sort: name;sort: tier;sort: size;sort: weight;sort: cost;sort: fault",
 		&f.workbench.sort,
 		len(Roster_Sort),
 		"sorts the view only; the # column stays the roster index, which is what a seed draws by",
 	)
-	if ui_button(&f.ui, {fault_row.x + fault_row.width - 96, fault_row.y, 96, fault_row.height}, "+ append item", "append a new item at the end of the roster") {
+	if ui_button(&f.ui, {fault_row.x + fault_row.width - append_w, fault_row.y, append_w, fault_row.height}, "+ append item", "append a new item at the end of the roster") {
 		if index, ok := content_append_item(&f.content); ok {
 			f.workbench.selected = index
 		}
@@ -292,13 +298,22 @@ roster_table :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	}
 	f.workbench.scroll = clamp(f.workbench.scroll, 0, max(filtered.count - visible, 0))
 
+	// The three numeric columns are placed in mono cells rather than in pixels, so they stay
+	// wide enough for their widest value whatever face the mono step was measured off.
 	right := bounds.x + bounds.width
+	index_x := bounds.x + FORGE_GAP
+	name_x := index_x + 3 * mono_advance
+	cost_right := right - FORGE_GAP
+	fx_right := cost_right - 8 * mono_advance
+	wt_right := fx_right - 3 * mono_advance
+	name_w := wt_right - 4 * mono_advance - name_x
+
 	header := bounds.y
-	draw_text("#", bounds.x + 2, header, color_of(FORGE_TEXT_DIM))
-	draw_text("item", bounds.x + 26, header, color_of(FORGE_TEXT_DIM))
-	draw_mono_right("wt", right - 96, header, color_of(FORGE_TEXT_DIM))
-	draw_mono_right("fx", right - 66, header, color_of(FORGE_TEXT_DIM))
-	draw_mono_right("cost", right - 8, header, color_of(FORGE_TEXT_DIM))
+	draw_text("#", bounds.x + FORGE_GAP / 2, header, color_of(FORGE_TEXT_DIM))
+	draw_text("item", name_x, header, color_of(FORGE_TEXT_DIM))
+	draw_mono_right("wt", wt_right, header, color_of(FORGE_TEXT_DIM))
+	draw_mono_right("fx", fx_right, header, color_of(FORGE_TEXT_DIM))
+	draw_mono_right("cost", cost_right, header, color_of(FORGE_TEXT_DIM))
 	rl.DrawLineV({bounds.x, header + FORGE_ROW - 4}, {right, header + FORGE_ROW - 4}, color_of(FORGE_LINE))
 
 	for row in f.workbench.scroll ..< min(f.workbench.scroll + visible, filtered.count) {
@@ -316,16 +331,17 @@ roster_table :: proc(f: ^Forge, bounds: rl.Rectangle) {
 		}
 
 		rl.DrawRectangleRec({bounds.x, y, 3, FORGE_ROW - 6}, color_of(verdict_color(verdict)))
-		draw_mono(fmt.tprintf("%2d", index), bounds.x + 6, y, color_of(FORGE_TEXT_DIM))
-		draw_text(
+		draw_mono(fmt.tprintf("%2d", index), index_x, y, color_of(FORGE_TEXT_DIM))
+		draw_text_clipped(
 			fmt.tprintf("%s  %v/%v  %s", name_text(draft.name), draft.item.tier, draft.item.fitting.size, tags_text(draft.item.fitting.tags)),
-			bounds.x + 26,
+			name_x,
 			y,
+			name_w,
 			color_of(index == f.workbench.selected ? FORGE_TEXT : FORGE_TEXT_DIM),
 		)
-		draw_mono_right(fmt.tprintf("%d", draft.item.fitting.weight), right - 96, y, color_of(FORGE_TEXT_DIM))
-		draw_mono_right(fmt.tprintf("%d", draft.item.fitting.effect_count), right - 66, y, color_of(FORGE_TEXT_DIM))
-		draw_mono_right(points_text(verdict.cost), right - 8, y, color_of(verdict_color(verdict)))
+		draw_mono_right(fmt.tprintf("%d", draft.item.fitting.weight), wt_right, y, color_of(FORGE_TEXT_DIM))
+		draw_mono_right(fmt.tprintf("%d", draft.item.fitting.effect_count), fx_right, y, color_of(FORGE_TEXT_DIM))
+		draw_mono_right(points_text(verdict.cost), cost_right, y, color_of(verdict_color(verdict)))
 	}
 }
 
@@ -351,23 +367,26 @@ roster_summary :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	}
 
 	rl.DrawLineV({bounds.x, bounds.y}, {bounds.x + bounds.width, bounds.y}, color_of(FORGE_LINE))
-	draw_text("items per grant cell", bounds.x, bounds.y + 4, color_of(FORGE_TEXT_DIM))
-	column := bounds.x + 90
-	for tier in ship.Tier {
-		draw_mono_right(fmt.tprintf("%v", tier), column + 56, bounds.y + 4, color_of(FORGE_TEXT_DIM))
-		column += 62
+	draw_text("items per grant cell", bounds.x, bounds.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
+
+	// The caption takes a row of its own and the tier headings sit over their counts on the
+	// same mono step, so the grid reads as one table rather than as a caption a column has
+	// been pushed out of the way of.
+	cell := 8 * mono_advance
+	first := bounds.x + text_width("Medium") + FORGE_PAD + cell
+	head_y := bounds.y + FORGE_ROW + FORGE_TEXT_DY
+	for tier, column in ship.Tier {
+		draw_mono_right(fmt.tprintf("%v", tier), first + f32(column) * cell, head_y, color_of(FORGE_TEXT_DIM))
 	}
 	for size, row in ship.Slot_Size {
-		y := bounds.y + f32(row + 1) * FORGE_ROW - 2
+		y := bounds.y + f32(row + 2) * FORGE_ROW + FORGE_TEXT_DY
 		draw_text(fmt.tprintf("%v", size), bounds.x, y, color_of(FORGE_TEXT_DIM))
-		column = bounds.x + 90
-		for tier in ship.Tier {
+		for tier, column in ship.Tier {
 			count := cells[size][tier]
 			// A cell with fewer than three entries cannot vary what it deals; that is a
 			// thin shelf, not a fault, so it warns rather than faults.
 			color := count < 3 ? FORGE_WARN : FORGE_TEXT
-			draw_mono_right(fmt.tprintf("%d", count), column + 56, y, color_of(color))
-			column += 62
+			draw_mono_right(fmt.tprintf("%d", count), first + f32(column) * cell, y, color_of(color))
 		}
 	}
 }
@@ -407,36 +426,42 @@ item_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	}
 
 	weight_low, weight_high := ship.budget_weight_band(fitting.size)
-	weight_field := form_field(&form, "weight", 72)
+	weight_field := form_field(&form, "weight", FORGE_VALUE_W)
 	ui_value(&f.ui, weight_field, &fitting.weight, weight_low, weight_high, "weight earns allowance above the size default and spends it below")
 	draw_text(
 		fmt.tprintf("band %d to %d, default %d", weight_low, weight_high, ship.WEIGHT_DEFAULT[fitting.size]),
 		weight_field.x + weight_field.width + FORGE_GAP,
-		weight_field.y + 5,
+		weight_field.y + FORGE_TEXT_DY,
 		color_of(FORGE_TEXT_DIM),
 	)
 
 	ui_tag_set(&f.ui, form_field(&form, "tags"), &fitting.tags, "a fitting's family membership; multi-tag is allowed")
 
 	contribution := ship.ship_cargo_slot_contribution(fitting.size)
-	bulk_field := form_field(&form, "bulk", 72)
+	bulk_field := form_field(&form, "bulk", FORGE_VALUE_W)
 	ui_value(&f.ui, bulk_field, &fitting.bulk, 0, contribution, "the volume the item's own machinery takes; capacity is the leftover")
 	draw_text(
 		fmt.tprintf("0 to %d - %d carries nothing", contribution, contribution),
 		bulk_field.x + bulk_field.width + FORGE_GAP,
-		bulk_field.y + 5,
+		bulk_field.y + FORGE_TEXT_DY,
 		color_of(FORGE_TEXT_DIM),
 	)
 
 	exposed_row := form_field(&form, "requires exposed")
-	ui_check(&f.ui, {exposed_row.x, exposed_row.y + 2, 12, 12}, "may only install in an exposed slot", &fitting.requires_exposed, "an item that must be seen to work refuses a concealed slot")
+	ui_check(
+		&f.ui,
+		{exposed_row.x, exposed_row.y + FORGE_CHECK_DY, FORGE_CHECK, FORGE_CHECK},
+		"may only install in an exposed slot",
+		&fitting.requires_exposed,
+		"an item that must be seen to work refuses a concealed slot",
+	)
 
 	form_line(&form, "derived")
 	capacity := ship.ship_fitting_capacity(fitting^)
-	ui_derived(form_field(&form, "capacity", 72), fmt.tprintf("%d", capacity), "contribution - bulk")
-	ui_derived(form_field(&form, "speed cost", 72), fmt.tprintf("%d", -(fitting.weight / 10)), "weight/10, subtracted from effective Speed")
-	ui_derived(form_field(&form, "shop cost", 72), fmt.tprintf("%d", ship.ship_item_cost(draft.item.tier)), "ITEM_COST by tier, in cargo")
-	ui_derived(form_field(&form, "fitting weight", 72), fmt.tprintf("%d", ship.ship_fitting_weight(fitting^)), "authored mass plus cargo stowed; cargo_held is not authored")
+	form_derived(&form, "capacity", FORGE_VALUE_W, fmt.tprintf("%d", capacity), "contribution - bulk")
+	form_derived(&form, "speed cost", FORGE_VALUE_W, fmt.tprintf("%d", -(fitting.weight / 10)), "weight/10, subtracted from effective Speed")
+	form_derived(&form, "shop cost", FORGE_VALUE_W, fmt.tprintf("%d", ship.ship_item_cost(draft.item.tier)), "ITEM_COST by tier, in cargo")
+	form_derived(&form, "fitting weight", FORGE_VALUE_W, fmt.tprintf("%d", ship.ship_fitting_weight(fitting^)), "authored mass plus cargo stowed; cargo_held is not authored")
 }
 
 // emit_pane renders the source the surface would copy. Showing it rather than only
@@ -465,7 +490,7 @@ wrap_text :: proc(text: string, x: f32, y: ^f32, width: f32, bottom: f32) {
 			return
 		}
 		draw_mono(text[start:min(start + per_line, len(text))], x, y^, color_of(FORGE_TEXT))
-		y^ += FORGE_TEXT_SIZE + 2
+		y^ += FORGE_TEXT_SIZE + 4
 	}
 }
 

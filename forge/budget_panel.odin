@@ -122,12 +122,18 @@ budget_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 @(private = "file")
 equation_row :: proc(form: ^Form, label: string, value: string, source: string, color: u32) {
 	row := form_row(form)
-	draw_text(label, row.x, row.y + 5, color_of(color))
-	draw_mono_right(value, row.x + row.width, row.y + 5, color_of(color))
-	// The source sits between the label and the number, and is cut rather than allowed to
-	// run under the number it is explaining.
-	source_x := row.x + 108
-	draw_text_clipped(source, source_x, row.y + 5, row.x + row.width - source_x - f32(len(value)) * mono_advance - 8, color_of(FORGE_TEXT_DIM))
+	draw_text(label, row.x, row.y + FORGE_TEXT_DY, color_of(color))
+	draw_mono_right(value, row.x + row.width, row.y + FORGE_TEXT_DY, color_of(color))
+	// The source sits between the label and the number, in the same column a form's fields
+	// start in, and is cut rather than allowed to run under the number it is explaining.
+	source_x := row.x + FORGE_LABEL_W
+	draw_text_clipped(
+		source,
+		source_x,
+		row.y + FORGE_TEXT_DY,
+		row.x + row.width - source_x - f32(len(value)) * mono_advance - FORGE_PAD,
+		color_of(FORGE_TEXT_DIM),
+	)
 }
 
 // effect_burst_reason says whether repair earned the burst rate and **why** — by
@@ -298,22 +304,23 @@ ceil_div :: proc(numerator: int, denominator: int) -> int {
 // walking the real ship template, which makes **the layout a balance surface**: re-sizing
 // a hold re-prices every counting item in the roster.
 @(private = "file")
+// The five tags take a line of their own; the three sizes and the two visibilities are
+// short enough to share the next one, which is a row this panel would rather spend on the
+// equation above it.
 peak_vector :: proc(form: ^Form, peaks: ship.Count_Table) {
 	tags := ""
 	for tag in ship.Tag {
 		tags = fmt.tprintf("%s%v %d  ", tags, tag, peaks.tag[tag])
 	}
-	sizes := ""
+	rest := ""
 	for size in ship.Slot_Size {
-		sizes = fmt.tprintf("%s%v %d  ", sizes, size, peaks.size[size])
+		rest = fmt.tprintf("%s%v %d  ", rest, size, peaks.size[size])
 	}
-	visibility := ""
 	for seen in ship.Visibility {
-		visibility = fmt.tprintf("%s%v %d  ", visibility, seen, peaks.visibility[seen])
+		rest = fmt.tprintf("%s%v %d  ", rest, seen, peaks.visibility[seen])
 	}
 	form_note(form, tags, FORGE_TEXT_DIM)
-	form_note(form, sizes, FORGE_TEXT_DIM)
-	form_note(form, visibility, FORGE_TEXT_DIM)
+	form_note(form, rest, FORGE_TEXT_DIM)
 }
 
 // Probe is the context the Compared reading is poked with: one scalar per Quantity and a
@@ -393,25 +400,37 @@ readings_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	)
 
 	form_line(&form, "probe")
-	// Two to a row: the probe is eight scalars and a census, and a pane that spent a row on
-	// each would push the census off the bottom of the panel.
+	// PROBE_COLUMNS to a row: the probe is eight scalars and a census, and a pane that spent
+	// a row on each would push the census off the bottom of the panel. Two is as many as the
+	// column fits without abbreviating a quantity's name, and a probe whose fields cannot be
+	// told apart is worth less than the row it saves. The value box hangs off the right of
+	// its column and the name is clipped to whatever is left.
+	PROBE_COLUMNS :: 2
 	row: rl.Rectangle
+	box := f32(FORGE_VALUE_W - 2 * FORGE_PAD)
 	for quantity, index in ship.Quantity {
-		if index % 2 == 0 {
+		if index % PROBE_COLUMNS == 0 {
 			row = form_row(&form)
 		}
-		half := row.width / 2
-		x := row.x + f32(index % 2) * half
-		draw_text_clipped(fmt.tprintf("%v", quantity), x, row.y + 5, half - 60, color_of(FORGE_TEXT_DIM))
+		column := row.width / PROBE_COLUMNS
+		x := row.x + f32(index % PROBE_COLUMNS) * column
+		draw_text_clipped(fmt.tprintf("%v", quantity), x, row.y + FORGE_TEXT_DY, column - box - 2 * FORGE_GAP, color_of(FORGE_TEXT_DIM))
 		value := f.workbench.probe.quantities[quantity]
-		if ui_value(&f.ui, {x + half - 56, row.y, 48, row.height}, &value, -999, 999, "a scalar the Compared reading resolves against") {
+		if ui_value(&f.ui, {x + column - box - FORGE_GAP, row.y, box, row.height}, &value, -999, 999, "a scalar the Compared reading resolves against") {
 			f.workbench.probe.quantities[quantity] = value
 		}
 	}
 	form_note(&form, "order: Hold 0, Press_Brace 1, Press_Fire 2, Commit 3   visibility: Exposed 0, Concealed 1", FORGE_TEXT_DIM)
 
 	side_row := form_row(&form)
-	ui_enum(&f.ui, {side_row.x, side_row.y, 150, side_row.height}, "census: Own;census: Opponent", &f.workbench.probe.side, 2, "Own is this ship; Opponent is the scouting report, which sees no concealed fitting")
+	ui_enum(
+		&f.ui,
+		{side_row.x, side_row.y, FORGE_ENUM_W + FORGE_PAD * 4, side_row.height},
+		"census: Own;census: Opponent",
+		&f.workbench.probe.side,
+		2,
+		"Own is this ship; Opponent is the scouting report, which sees no concealed fitting",
+	)
 	census := f.workbench.probe.side == 0 ? &f.workbench.probe.own : &f.workbench.probe.opponent
 	census_grid(f, &form, census)
 }
@@ -420,25 +439,31 @@ readings_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 // selector axes, laid out as a grid because that is what a census is.
 @(private = "file")
 census_grid :: proc(f: ^Forge, form: ^Form, census: ^ship.Count_Table) {
+	// One cell per criterion: a two-letter abbreviation and the count beside it. The three
+	// axes share the cell, so the counts stack into columns down the grid.
+	label_w := text_width("Wm") + FORGE_GAP
+	box := f32(FORGE_VALUE_W / 2)
+	step := label_w + box + FORGE_PAD
+
 	row := form_row(form)
 	x := row.x
 	for tag in ship.Tag {
-		draw_text(fmt.tprintf("%v", tag)[:2], x, row.y + 5, color_of(FORGE_TEXT_DIM))
-		ui_value(&f.ui, {x + 20, row.y, 34, row.height}, &census.tag[tag], 0, 99, "how many fittings carry this tag")
-		x += 60
+		draw_text(fmt.tprintf("%v", tag)[:2], x, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
+		ui_value(&f.ui, {x + label_w, row.y, box, row.height}, &census.tag[tag], 0, 99, "how many fittings carry this tag")
+		x += step
 	}
+	// The three sizes and the two visibilities share the second row: five cells, the same as
+	// the tag row above, and a row this panel would rather spend on the readings.
 	row = form_row(form)
 	x = row.x
 	for size in ship.Slot_Size {
-		draw_text(fmt.tprintf("%v", size)[:2], x, row.y + 5, color_of(FORGE_TEXT_DIM))
-		ui_value(&f.ui, {x + 20, row.y, 34, row.height}, &census.size[size], 0, 99, "how many fittings are of this slot size")
-		x += 60
+		draw_text(fmt.tprintf("%v", size)[:2], x, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
+		ui_value(&f.ui, {x + label_w, row.y, box, row.height}, &census.size[size], 0, 99, "how many fittings are of this slot size")
+		x += step
 	}
-	row = form_row(form)
-	x = row.x
 	for seen in ship.Visibility {
-		draw_text(fmt.tprintf("%v", seen)[:2], x, row.y + 5, color_of(FORGE_TEXT_DIM))
-		ui_value(&f.ui, {x + 20, row.y, 34, row.height}, &census.visibility[seen], 0, 99, "how many fittings sit in a slot of this visibility")
-		x += 60
+		draw_text(fmt.tprintf("%v", seen)[:2], x, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
+		ui_value(&f.ui, {x + label_w, row.y, box, row.height}, &census.visibility[seen], 0, 99, "how many fittings sit in a slot of this visibility")
+		x += step
 	}
 }

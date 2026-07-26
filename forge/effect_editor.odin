@@ -29,6 +29,22 @@ NODE_CHILD_ROLE := [ship.Node_Kind][ship.EXPR_MAX_ARITY]string {
 	.Gate     = {"if", "vs", "then", "else"},
 }
 
+// TREE_ROLE_W is the gutter down the left of the tree that a node's role in its parent is
+// written into, right-aligned against the node it belongs to; TREE_INDENT is the step each
+// level of depth is offset by. The gutter is a fixed column rather than borrowed from the
+// indent, because the shallowest rows have the least indent to borrow and the longest role
+// words ("percent", "value") are theirs.
+TREE_ROLE_W :: 72
+TREE_INDENT :: 18
+
+// The node row's own columns: the kind combo, the payload only that kind reads, and the
+// Count node's third control. A tree row is the narrowest thing in the tool, so these are
+// held a little under the form-wide widths and named here rather than repeated per case.
+NODE_KIND_W :: 116
+NODE_PAYLOAD_W :: 132
+NODE_SIDE_W :: 120
+NODE_VALUE_W :: 76
+
 // effect_pane is one effect's whole vocabulary: verb, timing, synergy, and the tree.
 effect_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	fitting := &workbench_item(f).item.fitting
@@ -38,7 +54,7 @@ effect_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	form := form_begin(inner)
 
 	tabs := form_row(&form)
-	width := f32(58)
+	width := text_width("effect 1") + 2 * FORGE_PAD
 	for i in 0 ..< fitting.effect_count {
 		tab := rl.Rectangle{tabs.x + f32(i) * (width + FORGE_GAP), tabs.y, width, tabs.height}
 		if ui_button(&f.ui, tab, fmt.tprintf("effect %d", i + 1), "select which of the fitting's effects to edit") {
@@ -50,14 +66,15 @@ effect_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 		}
 	}
 	buttons := tabs.x + 3 * (width + FORGE_GAP)
+	add_w := text_width("add") + 3 * FORGE_PAD
 	if fitting.effect_count < ship.FITTING_MAX_EFFECTS &&
-	   ui_button(&f.ui, {buttons, tabs.y, 40, tabs.height}, "add", "a fitting carries at most FITTING_MAX_EFFECTS effects") {
+	   ui_button(&f.ui, {buttons, tabs.y, add_w, tabs.height}, "add", "a fitting carries at most FITTING_MAX_EFFECTS effects") {
 		fitting.effects[fitting.effect_count] = ship.effect_phase_contribution(ship.expr_const(1))
 		fitting.effect_count += 1
 		f.workbench.effect = fitting.effect_count - 1
 	}
 	if fitting.effect_count > 1 &&
-	   ui_button(&f.ui, {buttons + 44, tabs.y, 52, tabs.height}, "remove", "an item with no effects fails at Effect_Count_Off_Band") {
+	   ui_button(&f.ui, {buttons + add_w + FORGE_GAP, tabs.y, text_width("remove") + 3 * FORGE_PAD, tabs.height}, "remove", "an item with no effects fails at Effect_Count_Off_Band") {
 		for i in f.workbench.effect ..< fitting.effect_count - 1 {
 			fitting.effects[i] = fitting.effects[i + 1]
 		}
@@ -93,16 +110,12 @@ effect_fields :: proc(f: ^Forge, form: ^Form, effect: ^ship.Effect) {
 	}
 
 	phase, feeds := effect.phase.?
-	ui_derived(
-		form_field(form, "phase", 96),
-		feeds ? fmt.tprintf("%v", phase) : "none",
-		"derived from the verb (ship_verb_phase)",
-	)
+	form_derived(form, "phase", FORGE_ENUM_W, feeds ? fmt.tprintf("%v", phase) : "none", "derived from the verb (ship_verb_phase)")
 
 	timing_locked := effect.verb == .Modify_Speed
-	timing_field := form_field(form, "timing", 116)
+	timing_field := form_field(form, "timing", FORGE_ENUM_W)
 	if timing_locked {
-		ui_derived(timing_field, "Always", "locked: a Modify_Speed effect may not carry a timing")
+		ui_derived(timing_field, "Always", "locked: a Modify_Speed effect may not carry a timing", form.bounds.x + form.bounds.width)
 	} else {
 		timing_options, timing_count := timing_option_list()
 		timing := timing_index(effect.timing)
@@ -114,7 +127,7 @@ effect_fields :: proc(f: ^Forge, form: ^Form, effect: ^ship.Effect) {
 		timing_parameters(f, form, effect)
 	}
 
-	axis_field := form_field(form, "synergy", 116)
+	axis_field := form_field(form, "synergy", FORGE_ENUM_W)
 	axis := synergy_axis(effect.synergy)
 	if ui_enum(&f.ui, axis_field, "none;Tag;Slot_Size;Visibility", &axis, 4, "scales the resolved magnitude by the count of matching fittings") {
 		candidate := effect^
@@ -122,7 +135,7 @@ effect_fields :: proc(f: ^Forge, form: ^Form, effect: ^ship.Effect) {
 		effect_try(f, effect, candidate)
 	}
 	if selector, is_synergy := effect.synergy.?; is_synergy {
-		value_field := rl.Rectangle{axis_field.x + axis_field.width + FORGE_GAP, axis_field.y, 116, axis_field.height}
+		value_field := rl.Rectangle{axis_field.x + axis_field.width + FORGE_GAP, axis_field.y, FORGE_ENUM_W, axis_field.height}
 		options, count := selector_value_options(axis - 1)
 		value := selector_value(selector)
 		if ui_enum(&f.ui, value_field, options, &value, count, "the criterion on the selector's one axis") {
@@ -132,11 +145,7 @@ effect_fields :: proc(f: ^Forge, form: ^Form, effect: ^ship.Effect) {
 		}
 	}
 
-	ui_derived(
-		form_field(form, "site scale", 96),
-		fmt.tprintf("%d", effect.site_scale),
-		"EFFECT_SITE_SCALE_AUTHORED; only a Fight site moves it",
-	)
+	form_derived(form, "site scale", FORGE_ENUM_W, fmt.tprintf("%d", effect.site_scale), "EFFECT_SITE_SCALE_AUTHORED; only a Fight site moves it")
 }
 
 // timing_parameters draws the settings the chosen timing carries, and nothing for the two
@@ -148,15 +157,15 @@ timing_parameters :: proc(f: ^Forge, form: ^Form, effect: ^ship.Effect) {
 	case ship.Timing_Always, ship.Timing_Once_Per_Battle:
 	case ship.Timing_Every_N:
 		n := t.n
-		if ui_value(&f.ui, form_field(form, "  every n rounds", 72), &n, 1, 99, "fires on every nth round and nothing between") {
+		if ui_value(&f.ui, form_field(form, "  every n rounds", FORGE_VALUE_W), &n, 1, 99, "fires on every nth round and nothing between") {
 			candidate := effect^
 			candidate.timing = ship.Timing_Every_N{n = n}
 			effect_try(f, effect, candidate)
 		}
 	case ship.Timing_Ramp:
 		per_round, cap_value := t.per_round, t.cap
-		changed := ui_value(&f.ui, form_field(form, "  per round", 72), &per_round, 0, 99, "added for each round past the first")
-		changed ||= ui_value(&f.ui, form_field(form, "  cap", 72), &cap_value, 0, 99, "the most a ramp may add in total; the budget charges for it")
+		changed := ui_value(&f.ui, form_field(form, "  per round", FORGE_VALUE_W), &per_round, 0, 99, "added for each round past the first")
+		changed ||= ui_value(&f.ui, form_field(form, "  cap", FORGE_VALUE_W), &cap_value, 0, 99, "the most a ramp may add in total; the budget charges for it")
 		if changed {
 			candidate := effect^
 			candidate.timing = ship.Timing_Ramp{per_round = per_round, cap = cap_value}
@@ -164,8 +173,8 @@ timing_parameters :: proc(f: ^Forge, form: ^Form, effect: ^ship.Effect) {
 		}
 	case ship.Timing_Charge:
 		cost, per_round := t.cost, t.per_round
-		changed := ui_value(&f.ui, form_field(form, "  cost", 72), &cost, 1, 99, "the charge a firing spends")
-		changed ||= ui_value(&f.ui, form_field(form, "  per round", 72), &per_round, 1, 99, "the charge banked each round")
+		changed := ui_value(&f.ui, form_field(form, "  cost", FORGE_VALUE_W), &cost, 1, 99, "the charge a firing spends")
+		changed ||= ui_value(&f.ui, form_field(form, "  per round", FORGE_VALUE_W), &per_round, 1, 99, "the charge banked each round")
 		if changed {
 			candidate := effect^
 			candidate.timing = ship.Timing_Charge{cost = cost, per_round = per_round}
@@ -181,18 +190,19 @@ timing_parameters :: proc(f: ^Forge, form: ^Form, effect: ^ship.Effect) {
 preset_row :: proc(f: ^Forge, form: ^Form, effect: ^ship.Effect) {
 	row := form_row(form)
 	options, count := enum_options(Preset)
-	ui_enum(&f.ui, {row.x, row.y, 150, row.height}, options, &f.workbench.preset, count, "a composed shape to drop at the selected node")
+	ui_enum(&f.ui, {row.x, row.y, FORGE_ENUM_W + 4 * FORGE_PAD, row.height}, options, &f.workbench.preset, count, "a composed shape to drop at the selected node")
 
 	preset := Preset(f.workbench.preset)
-	x := row.x + 154
+	box := f32(FORGE_VALUE_W - 2 * FORGE_PAD)
+	x := row.x + FORGE_ENUM_W + 4 * FORGE_PAD + FORGE_GAP
 	if preset_takes_threshold(preset) {
-		ui_value(&f.ui, {x, row.y, 48, row.height}, &f.workbench.threshold, 0, 100, "the preset's threshold: a hull percent, or a round number")
-		x += 52
+		ui_value(&f.ui, {x, row.y, box, row.height}, &f.workbench.threshold, 0, 100, "the preset's threshold: a hull percent, or a round number")
+		x += box + FORGE_GAP
 	}
-	ui_value(&f.ui, {x, row.y, 48, row.height}, &f.workbench.magnitude, -99, 99, "the magnitude the preset pays out when its condition holds")
-	x += 52
+	ui_value(&f.ui, {x, row.y, box, row.height}, &f.workbench.magnitude, -99, 99, "the magnitude the preset pays out when its condition holds")
+	x += box + FORGE_GAP
 
-	if ui_button(&f.ui, {x, row.y, 96, row.height}, "insert here", "replaces the selected node's subtree with the preset") {
+	if ui_button(&f.ui, {x, row.y, text_width("insert here") + 3 * FORGE_PAD, row.height}, "insert here", "replaces the selected node's subtree with the preset") {
 		sub := preset_expr(preset, f.workbench.threshold, f.workbench.magnitude)
 		if candidate, ok := expr_graft(effect.magnitude, f.workbench.node, sub); ok {
 			effect_try_tree(f, effect, candidate)
@@ -230,7 +240,7 @@ tree_view :: proc(f: ^Forge, bounds: rl.Rectangle, effect: ^ship.Effect) {
 
 	rows := min(e.count, int(region.height / FORGE_ROW))
 	for index in 0 ..< rows {
-		row := rl.Rectangle{region.x, region.y + f32(index) * FORGE_ROW, region.width, FORGE_ROW - 2}
+		row := rl.Rectangle{region.x, region.y + f32(index) * FORGE_ROW, region.width, FORGE_FIELD_H}
 		if index == f.workbench.node {
 			rl.DrawRectangleRec(row, color_of(FORGE_PANEL_ALT))
 		}
@@ -238,11 +248,11 @@ tree_view :: proc(f: ^Forge, bounds: rl.Rectangle, effect: ^ship.Effect) {
 			f.workbench.node = index
 		}
 
-		indent := f32(depths[index]) * 12
+		node_x := row.x + TREE_ROLE_W + f32(depths[index]) * TREE_INDENT
 		if len(roles[index]) > 0 {
-			draw_text(roles[index], row.x + indent - 34, row.y + 5, color_of(FORGE_TEXT_DIM))
+			draw_text(roles[index], node_x - text_width(roles[index]) - FORGE_GAP, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
 		}
-		tree_node_row(f, {row.x + indent, row.y, row.width - indent, row.height}, effect, index)
+		tree_node_row(f, {node_x, row.y, row.x + row.width - node_x, row.height}, effect, index)
 	}
 }
 
@@ -253,7 +263,7 @@ tree_node_row :: proc(f: ^Forge, bounds: rl.Rectangle, effect: ^ship.Effect, ind
 
 	kind_options, kind_count := enum_options(ship.Node_Kind)
 	kind := int(node.kind)
-	kind_field := rl.Rectangle{bounds.x, bounds.y, 84, bounds.height}
+	kind_field := rl.Rectangle{bounds.x, bounds.y, NODE_KIND_W, bounds.height}
 	if ui_enum(&f.ui, kind_field, kind_options, &kind, kind_count, "the node's operation; arity is fixed per kind") {
 		if candidate, ok := expr_with_kind(effect.magnitude, index, ship.Node_Kind(kind)); ok {
 			effect_try_tree(f, effect, candidate)
@@ -262,11 +272,11 @@ tree_node_row :: proc(f: ^Forge, bounds: rl.Rectangle, effect: ^ship.Effect, ind
 		}
 	}
 
-	payload := rl.Rectangle{bounds.x + 88, bounds.y, 108, bounds.height}
+	payload := rl.Rectangle{bounds.x + NODE_KIND_W + FORGE_GAP, bounds.y, NODE_PAYLOAD_W, bounds.height}
 	switch node.kind {
 	case .Const:
 		value := int(node.value)
-		if ui_value(&f.ui, {payload.x, payload.y, 64, payload.height}, &value, -999, 999, "a literal magnitude, denominated in Hull") {
+		if ui_value(&f.ui, {payload.x, payload.y, NODE_VALUE_W, payload.height}, &value, -999, 999, "a literal magnitude, denominated in Hull") {
 			tree_node_edit(f, effect, index, proc(n: ^ship.Node, v: int) {n.value = i32(v)}, value)
 		}
 	case .Quantity:
@@ -280,13 +290,13 @@ tree_node_row :: proc(f: ^Forge, bounds: rl.Rectangle, effect: ^ship.Effect, ind
 		if ui_enum(&f.ui, payload, "Tag;Slot_Size;Visibility", &axis, 3, "a selector names one axis; there is no Phase axis and no empty-slot axis") {
 			tree_node_edit(f, effect, index, proc(n: ^ship.Node, v: int) {n.selector = selector_of(v, 0)}, axis)
 		}
-		value_field := rl.Rectangle{payload.x + 112, payload.y, 108, payload.height}
+		value_field := rl.Rectangle{payload.x + NODE_PAYLOAD_W + FORGE_GAP, payload.y, NODE_PAYLOAD_W, payload.height}
 		options, count := selector_value_options(axis)
 		value := selector_value(node.selector)
 		if ui_enum(&f.ui, value_field, options, &value, count, "the criterion on that axis") {
 			tree_node_edit(f, effect, index, proc(n: ^ship.Node, v: int) {n.selector = selector_of(selector_axis(n.selector), v)}, value)
 		}
-		side_field := rl.Rectangle{value_field.x + 112, value_field.y, 96, value_field.height}
+		side_field := rl.Rectangle{value_field.x + NODE_PAYLOAD_W + FORGE_GAP, value_field.y, NODE_SIDE_W, value_field.height}
 		side_options, side_count := enum_options(ship.Count_Side)
 		side := int(node.side)
 		if ui_enum(&f.ui, side_field, side_options, &side, side_count, "Own is this ship's census; Opponent is the scouting report, which cannot see a concealed fitting") {
@@ -296,27 +306,32 @@ tree_node_row :: proc(f: ^Forge, bounds: rl.Rectangle, effect: ^ship.Effect, ind
 			draw_text(
 				"outside a battle every opponent count reads 0",
 				side_field.x + side_field.width + FORGE_GAP,
-				side_field.y + 5,
+				side_field.y + FORGE_TEXT_DY,
 				color_of(FORGE_TEXT_DIM),
 			)
 		}
 	case .Gate:
 		options, count := enum_options(ship.Compare_Op)
 		compare := int(node.compare)
-		if ui_enum(&f.ui, {payload.x, payload.y, 64, payload.height}, options, &compare, count, "comparisons appear nowhere but a Gate; the language has no boolean value") {
+		if ui_enum(&f.ui, {payload.x, payload.y, NODE_VALUE_W, payload.height}, options, &compare, count, "comparisons appear nowhere but a Gate; the language has no boolean value") {
 			tree_node_edit(f, effect, index, proc(n: ^ship.Node, v: int) {n.compare = ship.Compare_Op(v)}, compare)
 		}
 		if ship.expr_reads_quantity(effect.magnitude, .Captains_Order) {
 			draw_text(
 				"the captain's order is matched with Eq or Ne only: Hold 0, Press_Brace 1, Press_Fire 2, Commit 3",
-				payload.x + 72,
-				payload.y + 5,
+				payload.x + NODE_VALUE_W + FORGE_GAP,
+				payload.y + FORGE_TEXT_DY,
 				color_of(FORGE_TEXT_DIM),
 			)
 		}
 	case .Add, .Sub, .Mul, .Min, .Max, .Pct:
 		if node.kind == .Pct {
-			ui_derived({payload.x, payload.y, 40, payload.height}, "/100", "the divisor is pinned to the literal 100 - the language's only division")
+			ui_derived(
+				{payload.x, payload.y, NODE_VALUE_W / 2, payload.height},
+				"/100",
+				"the divisor is pinned to the literal 100 - the language's only division",
+				bounds.x + bounds.width,
+			)
 		}
 	}
 }

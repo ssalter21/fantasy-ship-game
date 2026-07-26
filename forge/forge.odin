@@ -17,10 +17,14 @@ import "core:strings"
 import ship "../core/ship"
 import rl "vendor:raylib"
 
-FORGE_WINDOW_W :: 1440
-FORGE_WINDOW_H :: 860
-FORGE_MIN_W :: 1024
-FORGE_MIN_H :: 640
+// The window a three-pane surface needs at the tool's type size. It is sized to open whole
+// on a 1080p display rather than to a designed canvas — every pane lays itself out from the
+// window's current size, so these are only where it starts and how small it may be squeezed
+// before a pane stops being able to show its columns.
+FORGE_WINDOW_W :: 1760
+FORGE_WINDOW_H :: 1000
+FORGE_MIN_W :: 1280
+FORGE_MIN_H :: 760
 
 // Screen is which surface the tool is showing. The two the tool exists for come first;
 // the other content rosters and the read-only ship template follow, because balancing
@@ -43,6 +47,18 @@ SCREEN_LABEL := [Screen]string {
 // SPLITTER_W is the grab width of a pane divider. Panes are resizable and remember their
 // split per screen, so an author who widens the budget panel finds it wide next time.
 SPLITTER_W :: 5
+
+// Where each surface's dividers start, as fractions of the window. They differ because the
+// surfaces do: the Encounter Builder's bake preview is a wide fixed-column table of a
+// hostile's whole loadout, and it earns that width from a recipe list that is only names and
+// shapes. An author who drags a divider overrides this for the session.
+@(rodata)
+SCREEN_SPLIT := [Screen][2]f32 {
+	.Item_Workbench     = {0.34, 0.70},
+	.Encounter_Builder  = {0.28, 0.60},
+	.Rosters            = {0.34, 0.70},
+	.Ship_And_Constants = {0.34, 0.70},
+}
 
 // Forge is the whole session: the content under edit, its history, where focus is, and
 // each surface's own view state. One heap-allocated value with no interior pointers but
@@ -72,6 +88,10 @@ run :: proc() {
 	rl.SetTargetFPS(60)
 	// Escape leaves the field being edited; it is not a way out of the application.
 	rl.SetExitKey(.KEY_NULL)
+	// The faces are atlases on the GPU, so they load after the window and unload before it;
+	// style_init measures the mono step off one of them and so has to follow both.
+	font_load()
+	defer font_unload()
 	style_init()
 
 	f := new(Forge)
@@ -90,9 +110,7 @@ run :: proc() {
 forge_init :: proc(f: ^Forge) {
 	content_load(&f.content)
 	undo_reset(&f.undo, f.content)
-	for screen in Screen {
-		f.split[screen] = {0.34, 0.70}
-	}
+	f.split = SCREEN_SPLIT
 	f.workbench = workbench_init()
 	f.builder = builder_init()
 }
@@ -172,7 +190,7 @@ forge_header :: proc(f: ^Forge) {
 		if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(rl.GetMousePosition(), tab) {
 			f.screen = screen
 		}
-		draw_text(label, tab.x + FORGE_PAD, tab.y + 7, color_of(selected ? FORGE_TEXT : FORGE_TEXT_DIM))
+		draw_text(label, tab.x + FORGE_PAD, tab.y + (tab.height - FORGE_TEXT_SIZE) / 2, color_of(selected ? FORGE_TEXT : FORGE_TEXT_DIM))
 		x += w + FORGE_GAP
 	}
 
@@ -205,7 +223,8 @@ forge_status :: proc(f: ^Forge) {
 	if f.copied > 0 {
 		message, color = fmt.tprintf("copied %d bytes of Odin to the clipboard", f.copied), FORGE_PASS
 	}
-	draw_text(message, FORGE_PAD, bar.y + 6, color_of(color))
+	text_y := bar.y + (FORGE_STATUS - FORGE_TEXT_SIZE) / 2
+	draw_text(message, FORGE_PAD, text_y, color_of(color))
 
 	right := fmt.tprintf(
 		"Ctrl+C copy as Odin   Ctrl+Z undo (%d)   Ctrl+Y redo (%d)   Tab moves   %d fps",
@@ -213,7 +232,7 @@ forge_status :: proc(f: ^Forge) {
 		f.undo.len - f.undo.pos - 1,
 		rl.GetFPS(),
 	)
-	draw_text(right, bar.width - text_width(right) - FORGE_PAD, bar.y + 6, color_of(FORGE_TEXT_DIM))
+	draw_text(right, bar.width - text_width(right) - FORGE_PAD, text_y, color_of(FORGE_TEXT_DIM))
 }
 
 // forge_history_keys answers Ctrl+Z / Ctrl+Y. Undo is what makes every edit in the tool

@@ -16,6 +16,10 @@ Roster_Tab :: enum {
 	Stock_Pools,
 }
 
+// FILTER_LABEL_W is the room the "filtered" checkbox and its caption take, before the tag
+// set that only appears once it is ticked.
+FILTER_LABEL_W :: 110
+
 Roster_View :: struct {
 	tab:       Roster_Tab,
 	archetype: int,
@@ -29,7 +33,7 @@ rosters_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 	for tab in Roster_Tab {
 		label := fmt.tprintf("%v", tab)
 		width := text_width(label) + 2 * FORGE_PAD
-		if ui_button(&f.ui, {x, tabs.y + 1, width, FORGE_ROW - 2}, label, "the content rosters the two surfaces lean on") {
+		if ui_button(&f.ui, {x, tabs.y + 1, width, FORGE_FIELD_H}, label, "the content rosters the two surfaces lean on") {
 			f.rosters.tab = tab
 		}
 		if tab == f.rosters.tab {
@@ -92,8 +96,8 @@ archetypes_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 			f.rosters.archetype = i
 		}
 		draft := f.content.archetypes[i]
-		draw_text(name_text(draft.name), row.x + 4, row.y + 4, color_of(i == f.rosters.archetype ? FORGE_TEXT : FORGE_TEXT_DIM))
-		draw_mono_right(fmt.tprintf("%d items", draft.count), row.x + row.width - 4, row.y + 4, color_of(FORGE_TEXT_DIM))
+		draw_text(name_text(draft.name), row.x + FORGE_GAP, row.y + FORGE_TEXT_DY, color_of(i == f.rosters.archetype ? FORGE_TEXT : FORGE_TEXT_DIM))
+		draw_mono_right(fmt.tprintf("%d items", draft.count), row.x + row.width - FORGE_GAP, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
 	}
 
 	if f.content.archetype_count == 0 {
@@ -173,7 +177,7 @@ placement_pane :: proc(f: ^Forge, bounds: rl.Rectangle, draft: Archetype_Draft) 
 		if !installed {
 			continue
 		}
-		form_note(
+		form_note_mono(
 			&form,
 			fmt.tprintf("%-10s %-10v %s", layout_slot.slot.name, layout_slot.slot.base_visibility, fitting.name),
 			layout_slot.slot.base_visibility == .Exposed ? FORGE_TEXT : FORGE_TEXT_DIM,
@@ -278,8 +282,8 @@ trades_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 		rl.DrawRectangleRec({row.x, row.y + 2, 3, row.height - 4}, color_of(fault == .None ? FORGE_PASS : FORGE_FAULT))
 		draw_text(
 			fmt.tprintf("%s - gain %v for %v", name_text(draft.name), draft.gain, draft.cost),
-			row.x + 8,
-			row.y + 4,
+			row.x + FORGE_PAD,
+			row.y + FORGE_TEXT_DY,
 			color_of(i == f.rosters.trade ? FORGE_TEXT : FORGE_TEXT_DIM),
 		)
 	}
@@ -295,17 +299,17 @@ trades_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 
 	stat_options, stat_count := enum_options(voyage.Trade_Stat)
 	gain := int(draft.gain)
-	if ui_enum(&f.ui, form_field(&form, "gain", 120), stat_options, &gain, stat_count, "the stat this bargain pays out") {
+	if ui_enum(&f.ui, form_field(&form, "gain", FORGE_ENUM_W), stat_options, &gain, stat_count, "the stat this bargain pays out") {
 		draft.gain = voyage.Trade_Stat(gain)
 	}
 	cost := int(draft.cost)
-	if ui_enum(&f.ui, form_field(&form, "cost", 120), stat_options, &cost, stat_count, "the stat it takes; Hull may never sit here") {
+	if ui_enum(&f.ui, form_field(&form, "cost", FORGE_ENUM_W), stat_options, &cost, stat_count, "the stat it takes; Hull may never sit here") {
 		draft.cost = voyage.Trade_Stat(cost)
 	}
 
 	form_line(&form, "swing by zone (voyage_trade_swing)")
 	for zone in voyage.Zone {
-		form_note(
+		form_note_mono(
 			&form,
 			fmt.tprintf(
 				"%-10v gain %d %v for %d %v",
@@ -379,8 +383,8 @@ stocks_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 			f.rosters.stock = int(pool)
 		}
 		draft := f.content.stocks[pool]
-		draw_text(name_text(draft.name), row.x + 4, row.y + 4, color_of(int(pool) == f.rosters.stock ? FORGE_TEXT : FORGE_TEXT_DIM))
-		draw_mono_right(fmt.tprintf("depth %d", draft.depth), row.x + row.width - 4, row.y + 4, color_of(FORGE_TEXT_DIM))
+		draw_text(name_text(draft.name), row.x + FORGE_GAP, row.y + FORGE_TEXT_DY, color_of(int(pool) == f.rosters.stock ? FORGE_TEXT : FORGE_TEXT_DIM))
+		draw_mono_right(fmt.tprintf("depth %d", draft.depth), row.x + row.width - FORGE_GAP, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
 	}
 
 	pool := voyage.Stock_Pool(clamp(f.rosters.stock, 0, len(voyage.Stock_Pool) - 1))
@@ -391,24 +395,26 @@ stocks_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 	ui_name(&f.ui, form_field(&form, "name"), &draft.name, "what this business is called")
 
 	filter_row := form_field(&form, "families")
-	ui_check(&f.ui, {filter_row.x, filter_row.y + 2, 12, 12}, "filtered", &draft.filtered, "unfiltered means no filter, not every family: an unfiltered shop keeps stocking a sixth Tag the day one is authored")
+	ui_check(&f.ui, {filter_row.x, filter_row.y + FORGE_CHECK_DY, FORGE_CHECK, FORGE_CHECK}, "filtered", &draft.filtered, "unfiltered means no filter, not every family: an unfiltered shop keeps stocking a sixth Tag the day one is authored")
 	if draft.filtered {
 		ui_tag_set(
 			&f.ui,
-			{filter_row.x + 90, filter_row.y, filter_row.width - 90, filter_row.height},
+			{filter_row.x + FILTER_LABEL_W, filter_row.y, filter_row.width - FILTER_LABEL_W, filter_row.height},
 			&draft.families,
 			"an item carrying any of the pool's families is stocked",
 		)
 	}
 
-	ui_value(&f.ui, form_field(&form, "depth", 72), &draft.depth, 0, voyage.SHOP_STOCK_MAX, "how many cards deep the hold is; SHOP_STOCK_MAX caps it")
+	ui_value(&f.ui, form_field(&form, "depth", FORGE_VALUE_W), &draft.depth, 0, voyage.SHOP_STOCK_MAX, "how many cards deep the hold is; SHOP_STOCK_MAX caps it")
 
 	form_line(&form, "derived")
 	_, candidates := voyage.voyage_stock_candidates(content_stock(draft^))
-	ui_derived(form_field(&form, "candidates", 72), fmt.tprintf("%d", candidates), "roster items this pool may stock")
+	form_derived(&form, "candidates", FORGE_VALUE_W, fmt.tprintf("%d", candidates), "roster items this pool may stock")
 	reserve := draft.depth - voyage.SHOP_SHELF_SIZE
-	ui_derived(
-		form_field(&form, "reserve", 72),
+	form_derived(
+		&form,
+		"reserve",
+		FORGE_VALUE_W,
 		fmt.tprintf("%d", reserve),
 		reserve <= 0 ? "at or below the shelf: this shop can be bought out in one visit" : "cards behind the shelf, which is the only thing standing between a shop and exhaustion",
 	)

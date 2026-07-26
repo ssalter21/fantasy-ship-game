@@ -32,6 +32,21 @@ builder_init :: proc() -> Builder {
 	return Builder{zone = .Open_Sea, depth = 1}
 }
 
+// The recipe list's two columns, and the stage row's three. A stage row is a fixed sequence
+// — its ordinal, what kind it is, which hold it sells from, and the reorder controls — so
+// the columns are named once here rather than counted out at each call site.
+RECIPE_NAME_W :: 180
+STAGE_NUMBER_W :: 20
+STAGE_KIND_W :: 124
+STAGE_STOCK_W :: 150
+
+// stage_stock_x is where the stock column starts, which both the authored control and the
+// "no pool" read-out that stands in for it have to agree on.
+@(private = "file")
+stage_stock_x :: proc(row: rl.Rectangle) -> f32 {
+	return row.x + STAGE_NUMBER_W + STAGE_KIND_W + FORGE_GAP
+}
+
 builder_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 	cols := forge_columns(f, area, 3)
 	recipe_list(f, cols[0])
@@ -67,12 +82,13 @@ recipe_list :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	form := form_begin(inner)
 
 	buttons := form_row(&form)
-	if ui_button(&f.ui, {buttons.x, buttons.y, 120, buttons.height}, "+ catalog recipe", "the zones deal from the catalog, filtered into buckets by stage count") {
+	catalog_w := text_width("+ catalog recipe") + 3 * FORGE_PAD
+	if ui_button(&f.ui, {buttons.x, buttons.y, catalog_w, buttons.height}, "+ catalog recipe", "the zones deal from the catalog, filtered into buckets by stage count") {
 		if index, ok := content_append_recipe(&f.content, .Catalog); ok {
 			f.builder.selected = index
 		}
 	}
-	if ui_button(&f.ui, {buttons.x + 124, buttons.y, 96, buttons.height}, "+ port recipe", "the Port bucket is bespoke-placed and exempt from the stage-count mapping") {
+	if ui_button(&f.ui, {buttons.x + catalog_w + FORGE_GAP, buttons.y, text_width("+ port recipe") + 3 * FORGE_PAD, buttons.height}, "+ port recipe", "the Port bucket is bespoke-placed and exempt from the stage-count mapping") {
 		if index, ok := content_append_recipe(&f.content, .Port); ok {
 			f.builder.selected = index
 		}
@@ -99,12 +115,12 @@ recipe_list :: proc(f: ^Forge, bounds: rl.Rectangle) {
 			draw_text(
 				pool == .Port ? "port_bucket" : "recipe_catalog",
 				table.x,
-				y + 4,
+				y + FORGE_TEXT_DY,
 				color_of(FORGE_TEXT_DIM),
 			)
 			y += FORGE_ROW
 		}
-		row := rl.Rectangle{table.x, y, table.width, FORGE_ROW - 2}
+		row := rl.Rectangle{table.x, y, table.width, FORGE_FIELD_H}
 		if y > table.y + table.height - FORGE_ROW {
 			break
 		}
@@ -116,8 +132,8 @@ recipe_list :: proc(f: ^Forge, bounds: rl.Rectangle) {
 		}
 		finding := recipe_lint(f.content, i)
 		rl.DrawRectangleRec({row.x, row.y + 2, 3, row.height - 4}, color_of(finding == .None ? FORGE_PASS : FORGE_FAULT))
-		draw_text(name_text(draft.name), row.x + 8, row.y + 4, color_of(i == f.builder.selected ? FORGE_TEXT : FORGE_TEXT_DIM))
-		draw_text(shape_text(draft), row.x + 130, row.y + 4, color_of(FORGE_TEXT_DIM))
+		draw_text_clipped(name_text(draft.name), row.x + FORGE_PAD, row.y + FORGE_TEXT_DY, RECIPE_NAME_W - FORGE_PAD, color_of(i == f.builder.selected ? FORGE_TEXT : FORGE_TEXT_DIM))
+		draw_text_clipped(shape_text(draft), row.x + RECIPE_NAME_W, row.y + FORGE_TEXT_DY, row.width - RECIPE_NAME_W, color_of(FORGE_TEXT_DIM))
 		y += FORGE_ROW
 	}
 }
@@ -136,16 +152,20 @@ recipe_editor :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	ui_name(&f.ui, form_field(&form, "name"), &draft.name, "a recipe's identity is its shape plus its name")
 	pool := int(draft.pool)
 	pool_options, pool_count := enum_options(Recipe_Pool)
-	if ui_enum(&f.ui, form_field(&form, "pool", 120), pool_options, &pool, pool_count, "the catalog is filtered into buckets by stage count; the Port bucket is placed bespoke") {
+	if ui_enum(&f.ui, form_field(&form, "pool", FORGE_ENUM_W), pool_options, &pool, pool_count, "the catalog is filtered into buckets by stage count; the Port bucket is placed bespoke") {
 		draft.pool = Recipe_Pool(pool)
 	}
-	ui_derived(
-		form_field(&form, "bucket", 120),
+	form_derived(
+		&form,
+		"bucket",
+		FORGE_ENUM_W,
 		draft.pool == .Port ? "Port" : fmt.tprintf("%v", bucket_of(draft.count)),
 		draft.pool == .Port ? "bespoke-placed, exempt from the stage-count mapping" : "derived from the stage count; there is no bucket field",
 	)
-	ui_derived(
-		form_field(&form, "reveals", 120),
+	form_derived(
+		&form,
+		"reveals",
+		FORGE_ENUM_W,
 		draft.count > 0 && voyage.voyage_stage_kind_reveals(draft.stages[0].kind) ? "yes" : "no",
 		"an encounter reveals iff its first stage reveals",
 	)
@@ -157,11 +177,11 @@ recipe_editor :: proc(f: ^Forge, bounds: rl.Rectangle) {
 		if i == f.builder.stage {
 			rl.DrawRectangleRec({row.x - 2, row.y - 1, row.width + 4, row.height + 2}, color_of(FORGE_PANEL_ALT))
 		}
-		draw_mono(fmt.tprintf("%d", i + 1), row.x, row.y + 5, color_of(FORGE_TEXT_DIM))
+		draw_mono(fmt.tprintf("%d", i + 1), row.x, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
 
 		kind_options, kind_count := enum_options(voyage.Stage_Kind)
 		kind := int(draft.stages[i].kind)
-		if ui_enum(&f.ui, {row.x + 14, row.y, 92, row.height}, kind_options, &kind, kind_count, "the closed primitive alphabet; a sixth value is an ADR-sized decision") {
+		if ui_enum(&f.ui, {row.x + STAGE_NUMBER_W, row.y, STAGE_KIND_W, row.height}, kind_options, &kind, kind_count, "the closed primitive alphabet; a sixth value is an ADR-sized decision") {
 			draft.stages[i].kind = voyage.Stage_Kind(kind)
 			// A pool is authored iff the primitive is a Shop, asserted both directions in
 			// voyage_bake_stage — so a kind change clears or supplies it here.
@@ -172,16 +192,18 @@ recipe_editor :: proc(f: ^Forge, bounds: rl.Rectangle) {
 		if pool_value, is_shop := draft.stages[i].stock.?; is_shop {
 			stock_options, stock_count := enum_options(voyage.Stock_Pool)
 			stock := int(pool_value)
-			if ui_enum(&f.ui, {row.x + 110, row.y, 116, row.height}, stock_options, &stock, stock_count, "which hold this shop sells from") {
+			if ui_enum(&f.ui, {stage_stock_x(row), row.y, STAGE_STOCK_W, row.height}, stock_options, &stock, stock_count, "which hold this shop sells from") {
 				draft.stages[i].stock = voyage.Stock_Pool(stock)
 			}
 		} else {
-			ui_derived({row.x + 110, row.y, 116, row.height}, "no pool", "only a Shop draws from a named hold")
+			// No reason beside the box: this is a table row, and the reorder controls own the
+			// space a reason would run into. The rule is on the hint and in the lint panel.
+			ui_derived({stage_stock_x(row), row.y, STAGE_STOCK_W, row.height}, "no pool", "", row.x + row.width)
 		}
 
 		switch ui_reorder(
 			&f.ui,
-			{row.x + 232, row.y, REORDER_WIDTH, row.height},
+			{stage_stock_x(row) + STAGE_STOCK_W + FORGE_GAP, row.y, REORDER_WIDTH, row.height},
 			i,
 			draft.count,
 			"reorder: costs are authored ahead of the boons they pay for",
@@ -204,7 +226,7 @@ recipe_editor :: proc(f: ^Forge, bounds: rl.Rectangle) {
 
 	if draft.count < voyage.ENCOUNTER_MAX_STAGES {
 		row := form_row(&form)
-		if ui_button(&f.ui, {row.x + 14, row.y, 92, row.height}, "+ stage", "an encounter holds at most ENCOUNTER_MAX_STAGES stages") {
+		if ui_button(&f.ui, {row.x + STAGE_NUMBER_W, row.y, STAGE_KIND_W, row.height}, "+ stage", "an encounter holds at most ENCOUNTER_MAX_STAGES stages") {
 			draft.stages[draft.count] = voyage.Stage_Spec{kind = .Reward}
 			draft.count += 1
 		}
@@ -396,16 +418,25 @@ bake_pane :: proc(f: ^Forge, bounds: rl.Rectangle) {
 	}
 	draft := builder_recipe(f)
 
+	// One row: where the bake is taken, and the seed it is taken with. Each caption is
+	// measured rather than allotted, so the row packs to whatever the face makes it.
 	site_row := form_row(&form)
 	zone_options, zone_count := enum_options(voyage.Zone)
 	zone := int(f.builder.zone)
-	if ui_enum(&f.ui, {site_row.x, site_row.y, 96, site_row.height}, zone_options, &zone, zone_count, "which stakes band the node sits in") {
+	x := site_row.x
+	if ui_enum(&f.ui, {x, site_row.y, FORGE_ENUM_W, site_row.height}, zone_options, &zone, zone_count, "which stakes band the node sits in") {
 		f.builder.zone = voyage.Zone(zone)
 	}
-	draw_text("depth", site_row.x + 102, site_row.y + 5, color_of(FORGE_TEXT_DIM))
-	ui_value(&f.ui, {site_row.x + 140, site_row.y, 44, site_row.height}, &f.builder.depth, 0, voyage.DEPTH_STEPS, "normalized depth-within-zone")
-	draw_text("seed", site_row.x + 192, site_row.y + 5, color_of(FORGE_TEXT_DIM))
-	ui_value(&f.ui, {site_row.x + 226, site_row.y, 60, site_row.height}, &f.builder.seed, 0, 9999, "re-roll to see the spread the site produces")
+	x += FORGE_ENUM_W + FORGE_PAD
+
+	draw_text("depth", x, site_row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
+	x += text_width("depth") + FORGE_GAP
+	ui_value(&f.ui, {x, site_row.y, FORGE_VALUE_W - 2 * FORGE_PAD, site_row.height}, &f.builder.depth, 0, voyage.DEPTH_STEPS, "normalized depth-within-zone")
+	x += FORGE_VALUE_W - 2 * FORGE_PAD + FORGE_PAD
+
+	draw_text("seed", x, site_row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
+	x += text_width("seed") + FORGE_GAP
+	ui_value(&f.ui, {x, site_row.y, FORGE_VALUE_W, site_row.height}, &f.builder.seed, 0, 9999, "re-roll to see the spread the site produces")
 
 	site := voyage.Scaling_Site{zone = f.builder.zone, depth = f.builder.depth}
 	if draft.count == 0 {
@@ -443,7 +474,7 @@ bake_stage :: proc(form: ^Form, stage: voyage.Stage, site: voyage.Scaling_Site) 
 			if !installed {
 				continue
 			}
-			form_note(
+			form_note_mono(
 				form,
 				fmt.tprintf(
 					"  %-10s %-20s %v  fire %d  cargo %d",
@@ -474,7 +505,7 @@ bake_stage :: proc(form: ^Form, stage: voyage.Stage, site: voyage.Scaling_Site) 
 			FORGE_TEXT,
 		)
 		for i in 0 ..< baked.count {
-			form_note(
+			form_note_mono(
 				form,
 				fmt.tprintf(
 					"  %s %s (%v, %d cargo)",

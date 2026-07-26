@@ -10,6 +10,23 @@ import rl "vendor:raylib"
 // edit, but they belong on screen: the layout drives ship_count_peaks, so it is what every
 // synergy in the roster is priced against, and the stakes ladder is what every bake reads.
 
+// The stakes table's geometry: a label column, then one mono column per primitive's reading
+// of a site. stakes_column answers where column `index` ends, so the headings and the
+// numbers under them are placed by the same rule and the tier band that follows the last of
+// them starts where it actually left off.
+STAKES_LABEL_W :: 100
+STAKES_COLUMN_W :: 7
+
+@(private = "file")
+stakes_column :: proc(x: f32, index: int) -> f32 {
+	return x + STAKES_LABEL_W + f32(index + 1) * STAKES_COLUMN_W * mono_advance
+}
+
+// The trade swing table's own two columns; a swing is written as "<stat> <amount>", so its
+// column is wider than the stakes table's bare numbers.
+SWING_LABEL_W :: 100
+SWING_COLUMN_W :: 125
+
 reference_draw :: proc(f: ^Forge, area: rl.Rectangle) {
 	cols := forge_columns(f, area, 3)
 	template_pane(cols[0])
@@ -24,7 +41,7 @@ template_pane :: proc(bounds: rl.Rectangle) {
 
 	layout := ship.ship_template_layout()
 	for layout_slot, index in layout {
-		form_note(
+		form_note_mono(
 			&form,
 			fmt.tprintf("%d  %-12s %-7v %v", index, layout_slot.slot.name, layout_slot.slot.size, layout_slot.slot.base_visibility),
 			layout_slot.slot.base_visibility == .Exposed ? FORGE_TEXT : FORGE_TEXT_DIM,
@@ -93,16 +110,16 @@ stakes_pane :: proc(bounds: rl.Rectangle) {
 	form := form_begin(inner)
 
 	header := form_row(&form)
-	draw_text("site", header.x, header.y + 5, color_of(FORGE_TEXT_DIM))
+	draw_text("site", header.x, header.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
 	for label, index in ([]string{"hull", "power%", "offer", "reward"}) {
-		draw_mono_right(label, header.x + 130 + f32(index) * 58, header.y + 5, color_of(FORGE_TEXT_DIM))
+		draw_mono_right(label, stakes_column(header.x, index), header.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
 	}
 
 	for zone in voyage.Zone {
 		for depth in 0 ..= voyage.DEPTH_STEPS {
 			site := voyage.Scaling_Site{zone = zone, depth = depth}
 			row := form_row(&form)
-			draw_text(fmt.tprintf("%v %d", zone, depth), row.x, row.y + 5, color_of(FORGE_TEXT))
+			draw_text(fmt.tprintf("%v %d", zone, depth), row.x, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT))
 			values := [4]int {
 				voyage.voyage_fight_opponent_hull(site),
 				voyage.voyage_fight_opponent_power(site),
@@ -110,22 +127,23 @@ stakes_pane :: proc(bounds: rl.Rectangle) {
 				voyage.voyage_reward_cargo(site),
 			}
 			for value, index in values {
-				draw_mono_right(fmt.tprintf("%d", value), row.x + 130 + f32(index) * 58, row.y + 5, color_of(FORGE_TEXT_DIM))
+				draw_mono_right(fmt.tprintf("%d", value), stakes_column(row.x, index), row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
 			}
 			band := voyage.voyage_offer_tier_band(site)
-			draw_text_clipped(tier_band_text(band), row.x + 372, row.y + 5, row.width - 372, color_of(FORGE_TEXT_DIM))
+			band_x := stakes_column(row.x, 3) + FORGE_PAD
+			draw_text_clipped(tier_band_text(band), band_x, row.y + FORGE_TEXT_DY, row.x + row.width - band_x, color_of(FORGE_TEXT_DIM))
 		}
 	}
 
 	form_line(&form, "trade swing by zone")
 	for zone in voyage.Zone {
 		row := form_row(&form)
-		draw_text(fmt.tprintf("%v", zone), row.x, row.y + 5, color_of(FORGE_TEXT))
+		draw_text(fmt.tprintf("%v", zone), row.x, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT))
 		for stat, index in voyage.Trade_Stat {
 			draw_mono_right(
 				fmt.tprintf("%v %d", stat, voyage.voyage_trade_swing(zone, stat)),
-				row.x + 160 + f32(index) * 90,
-				row.y + 5,
+				row.x + SWING_LABEL_W + f32(index + 1) * SWING_COLUMN_W,
+				row.y + FORGE_TEXT_DY,
 				color_of(FORGE_TEXT_DIM),
 			)
 		}
@@ -154,6 +172,6 @@ tier_band_text :: proc(band: bit_set[ship.Tier]) -> string {
 @(private = "file")
 reference_row :: proc(form: ^Form, label: string, value: int) {
 	row := form_row(form)
-	draw_text(label, row.x, row.y + 5, color_of(FORGE_TEXT_DIM))
-	draw_mono_right(fmt.tprintf("%d", value), row.x + row.width, row.y + 5, color_of(FORGE_TEXT))
+	draw_text(label, row.x, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT_DIM))
+	draw_mono_right(fmt.tprintf("%d", value), row.x + row.width, row.y + FORGE_TEXT_DY, color_of(FORGE_TEXT))
 }
