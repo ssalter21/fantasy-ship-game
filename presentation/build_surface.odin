@@ -985,27 +985,12 @@ draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Con
 draw_home_chart_tab :: proc(raise: f32, mouse: rl.Vector2) {
 	rect := home_chart_tab_rect()
 	hovered := rl.CheckCollisionPointRec(mouse, rect)
+	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, hovered ? 1.0 : 0.88))
+	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
 
 	// Past the midpoint the tab reads "Lower" and its caret points down; at rest raise is 0 or 1,
 	// so this tracks chart_target, and mid-flip it turns over as the chart crosses halfway.
 	chart_raised := raise >= 0.5
-
-	// The amber goes on the screen's default action, and which control that *is* turns over with
-	// the chart. Down, the tab is the whole way off this screen — she is at anchor and raising the
-	// chart is the one thing to do — so it wears the amber and Home stops being the only built
-	// screen with none. Raised, the chart's own current node is the default action and the tab
-	// falls back to an ordinary control, or the frame would carry two ambers and neither would
-	// mean anything (the amber rule: one per screen).
-	ink := chart_raised ? COLOUR_INK_PRIMARY : COLOUR_INK
-	if chart_raised {
-		rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, hovered ? 1.0 : 0.88))
-		rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
-	} else {
-		// Amber is assigned, not tracked, so hover may not brighten it into a second signal. It
-		// lifts the ground the tab sits on instead — the scrim, exactly as the guide has it.
-		rl.DrawRectangleRec(rect, COLOUR_AMBER)
-		rl.DrawRectangleLinesEx(rect, 2, rl.Fade(COLOUR_INK, hovered ? 1.0 : 0.55))
-	}
 
 	label := chart_raised ? fmt.ctprint("Lower") : fmt.ctprint("Chart")
 	lsize := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1)
@@ -1019,14 +1004,14 @@ draw_home_chart_tab :: proc(raise: f32, mouse: rl.Vector2) {
 			rl.Vector2{caret_cx - 7, cy - 4},
 			rl.Vector2{caret_cx, cy + 6},
 			rl.Vector2{caret_cx + 7, cy - 4},
-			ink,
+			COLOUR_INK_PRIMARY,
 		)
 	} else {
 		rl.DrawTriangle(
 			rl.Vector2{caret_cx - 7, cy + 4},
 			rl.Vector2{caret_cx + 7, cy + 4},
 			rl.Vector2{caret_cx, cy - 6},
-			ink,
+			COLOUR_INK_PRIMARY,
 		)
 	}
 	rl.DrawTextEx(
@@ -1035,6 +1020,6 @@ draw_home_chart_tab :: proc(raise: f32, mouse: rl.Vector2) {
 		rl.Vector2{group_x + CARET + GAP, rect.y + (rect.height - UI_BODY_SIZE) / 2},
 		UI_BODY_SIZE,
 		1,
-		ink,
+		COLOUR_INK_PRIMARY,
 	)
 }

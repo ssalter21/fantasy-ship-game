@@ -42,9 +42,10 @@ below so the guide stands on its own without them.
   fixed **hierarchy and proportion** only; being a *navy* mock, it never set colour. Its stack, its centred
   title, and its caret-and-scrim hover are taken forward; its proportions are measured out under
   [Proportions](#proportions) below, so the guide no longer needs the image itself.
-- **`style/ship-night.jpg` and `style/ship-battle.jpg` are accent witnesses only.** They show a warm point
-  punching against a cold field — the amber relationship — and nothing else. They are night scenes; do not read
-  a ground colour out of them.
+- **`style/ship-night.jpg` and `style/ship-battle.jpg` are retired.** They witnessed one thing — a small warm
+  point punching against a large cold field — and that relationship was the amber accent, which this guide no
+  longer carries. They are night scenes on a navy ground the palette has moved off; do not read colour of any
+  kind out of them.
 - **`style/colour-palette.webp` stays demoted.** A dusk mountain valley, not a sea. Do not derive palette from
   it.
 
@@ -123,9 +124,7 @@ which is warmer, which is scarce) are not up for renegotiation.
 
 | Role | Hex | RGB | Notes |
 | --- | --- | --- | --- |
-| **Amber — action** | `#FFB020` | 255, 176, 32 | **Reserved.** The one thing you can act on. See [the amber rule](#the-amber-rule). |
-| **Ink on amber** | `#40260A` | 64, 38, 10 | The only text colour that goes on amber. |
-| **Coral-red — reserved** | `#E1552B` | 225, 85, 43 | Held back: the chart's X-mark now, danger/damage later. Scarce by law. |
+| **Coral-red — reserved** | `#E1552B` | 225, 85, 43 | Held back: the chart's X-mark now, danger/damage later. Scarce by law. See [the saturation rule](#the-saturation-rule). |
 
 **Text tones** (hierarchy is carried by colour — see [Hierarchy](#hierarchy))
 
@@ -138,12 +137,13 @@ which is warmer, which is scarce) are not up for renegotiation.
 
 ### The saturation rule
 
-**Neutral warm is desaturated. Saturated warm is amber, and amber alone.**
+**Neutral warm is desaturated. The only *saturated* warm on the roster is coral-red, and it is reserved.**
 
-This is the rule that lets the world be sandy without stealing the button. Parchment, sand, cliff, and rock are
-all *low-saturation* warm; amber `#FFB020` is *high-saturation* warm. The eye separates them by saturation, so a
-whole parchment panel can sit under a single amber control and the amber still reads as "act here." A second
-saturated warm anywhere on screen breaks the rule — that is what coral-red's reservation protects.
+This is the rule that lets the world be sandy without any of that sand reading as a signal. Parchment, sand,
+cliff, rock, and trunk are all *low-saturation* warm; coral-red `#E1552B` is *high-saturation* warm. The eye
+separates them by saturation, so a whole parchment panel can carry a single coral mark and the mark still
+reads as the one loud thing on it. A second saturated warm anywhere on screen breaks the rule — that is what
+coral-red's reservation protects, and it is why the guide will not spend a saturated warm on ordinary chrome.
 
 Two rules fall out of the roster:
 
@@ -188,31 +188,41 @@ What to reach for instead:
 **Scan it before you believe it.** All three of these looked plausible in source and read as "a bit flat" on
 screen. What identified them was a saturation scan; nothing in the code says "grey".
 
-### The amber rule
+### Controls do not have a signal colour
 
-`#FFB020` means **"this is the thing you can act on right now."** Nothing else may use it.
+**No colour on the roster means "act here."** Every interactive control is drawn the same way: outlined in
+`#1786BC` (or steel, on a dark ground) with a matching label over a translucent ground. A screen's default
+action is distinguished by **where it sits and what it says**, not by a fill.
 
-It only works because it is scarce. In `style/ship-night.jpg` — the image that drives it — the warm points
-occupy a tiny fraction of a large cold field, and that ratio *is* the effect. An amber that appears three times
-on a screen means nothing. One amber per screen is the target; two is a smell; three is a bug.
+This retires the amber accent the earlier draft of this guide reserved for the actionable control. That accent
+was inherited from the navy direction, and it was witnessed by two night scenes (`ship-night`, `ship-battle`)
+whose whole point was a small warm point against a large cold field. The palette moved to a bright, saturated,
+warm-and-cool daylight ground, and on that ground the warm point stopped being scarce and stopped being loud —
+a saturated warm control sitting on parchment reads as more parchment. **Do not reintroduce it**, and do not
+substitute another roster tone in its place: coral-red is reserved for danger and the chart's X, and spending
+any other colour on "the default action" would just re-run the same argument in a new hue.
 
-Concretely: the actionable control is amber-filled with `#40260A` ink. Everything else interactive is
-outlined in `#1786BC` (or steel, on a dark ground) with a matching label over a translucent ground.
+If a screen genuinely needs to single one control out, that is a layout and wording problem first. Raise it
+before reaching for a colour.
 
-**Amber marks the default action, not the pointer.** This game is mouse-driven, so *any* control can be hovered
-— and amber-on-hover would put two ambers on screen the moment you hover a non-default control. The resolution
-(found building the Chart Table, [#281](https://github.com/ssalter21/fantasy-ship-game/issues/281)):
+### Hover is carried by the caret and the scrim
 
-- **Amber is assigned, not tracked.** The screen's default action is amber-filled and stays amber whatever the
-  mouse does. A screen with no default action has no amber.
-- **Hover is carried by the caret and the scrim** — the `▶` moves to the hovered control, and its translucent
-  ground lifts. Both read clearly and neither spends amber.
+This game is mouse-driven, so *any* control can be hovered, and hover must never be confused with state that
+was assigned to the control before the mouse arrived. The resolution (found building the Chart Table,
+[#281](https://github.com/ssalter21/fantasy-ship-game/issues/281)) is that hover is carried by two things and
+nothing else:
+
+- The `▶` caret **moves to the hovered control**.
+- The hovered control's **translucent ground lifts** — same tone, higher alpha.
+
+Both read clearly, both are reversible the instant the mouse leaves, and neither changes a control's colour.
 
 ### Coral-red is reserved
 
 `#E1552B` is held back on purpose. Today it is **the chart's X-mark** — the one warm point on the map. Later it
-is **danger and damage**. It is never the "go" colour (that is amber's job, and red-as-go would fight the Fight
-stage), and it never appears twice on a screen. Its scarcity is its meaning, exactly like amber's.
+is **danger and damage**. It is never the "go" colour — red-as-go would fight the Fight stage — and it never
+appears twice on a screen. Its scarcity is its meaning; it is the roster's only saturated warm, and spending it
+anywhere else spends the whole signal.
 
 ### The map is parchment
 
@@ -226,10 +236,10 @@ forward.
 Until the rebuild, keep the map's colours light:
 
 - **Encounter category (`stage_tint`) — principle only.** The mechanism survives any palette and is worth not
-  re-litigating: **category is hue, state is brightness, and only the *current* node/chip goes amber.** That is
-  what keeps "amber means act" alive on a busy map. The five category hues themselves are *not* pinned here —
-  they get re-derived against the parchment ground in the map rebuild. Do not spend effort tuning them against
-  the current navy field.
+  re-litigating: **category is hue, state is brightness.** The current node is not a third colour — it is
+  marked by the ship sprite resting on it, which is what keeps a busy map from having to spend an accent on
+  "you are here." The five category hues themselves are *not* pinned here — they get re-derived against the
+  parchment ground in the map rebuild. Do not spend effort tuning them against the current navy field.
 
 ### `zone_tint` — the three sea stops
 
@@ -452,11 +462,10 @@ Words live on parchment, so the primary hierarchy is **dark ink on a warm ground
 
 1. **Title / heading** — `#12333F` ink at 32px on parchment (or `#F3E6C4` cream if placed over the sea).
    Biggest thing on screen.
-2. **The action** — amber `#FFB020` fill with `#40260A` ink. The only saturated warm mass.
-3. **Other controls** — `#1786BC` border and label over a translucent ground. Present, clearly clickable,
-   visibly not the default.
-4. **Body and hints** — muted ink `#4C7385`, 16px.
-5. **The version stamp** — faded ink `#9C8A63`. Findable, never read first.
+2. **Controls** — `#1786BC` border and label over a translucent ground. Present, clearly clickable. All of
+   them look alike: [no colour marks the default action](#controls-do-not-have-a-signal-colour).
+3. **Body and hints** — muted ink `#4C7385`, 16px.
+4. **The version stamp** — faded ink `#9C8A63`. Findable, never read first.
 
 There is no bold, no second font, and only two sizes. **Colour carries the hierarchy.** If a screen needs a new
 level, reach for a tone from the roster, not a new size.
