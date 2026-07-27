@@ -33,12 +33,13 @@ import rl "vendor:raylib"
 // answers what the screen looks like, not whether it works.
 
 @(private)
-SHOP_PROTO_VARIANTS :: 4
+SHOP_PROTO_VARIANTS :: 5
 
 // shop_proto_variant is which variant the interactive run is showing. Prototype-global on
-// purpose: the switcher writes it, the draw reads it, and nothing else exists.
+// purpose: the switcher writes it, the draw reads it, and nothing else exists. It opens on
+// E, the variant the brief converged on; A to D are still one arrow key away.
 @(private)
-shop_proto_variant := 0
+shop_proto_variant := 4
 
 // shop_proto_selected is variant C's subject — the one item the detail card is about.
 // Pinned to 1 ("Chain & Bar Shot") so the long effect string is the one under test.
@@ -81,6 +82,13 @@ shop_proto_framings := [SHOP_PROTO_VARIANTS]Shop_Proto_Framing {
 	// costs the sails, which go edge-on and collapse to slivers. The three-quarter view's
 	// 55.75 is doing real work, and no small swing off the beam approximates it.
 	{eye = {yaw = 32, dist = 8.6, height = 0.15, look = 1.05, fov = 55.24}, pan = 3.30},
+	// E — the one the brief converged on: A's framing (whole ship, easy, well left, sea
+	// under her and sky over her) turned back to the ship screen's own heading, and B's
+	// paper for the stock with the stagger taken out. Yaw is GALLEON_CAM_YAW exactly, so
+	// she sits at the angle the Build surface shows her at and nothing has to be learned
+	// twice. At that yaw her length foreshortens to ~56% of true, which is what buys the
+	// column its room at a distance not much greater than the shipped screen's 6.92.
+	{eye = {yaw = cutaway.GALLEON_CAM_YAW, dist = 9.2, height = 0.10, look = 1.14, fov = 55.24}, pan = 2.00},
 }
 
 @(private)
@@ -89,6 +97,7 @@ shop_proto_names := [SHOP_PROTO_VARIANTS]string {
 	"B — Dockside crates",
 	"C — The counter",
 	"D — Manifest, 32 deg off the beam",
+	"E — Ship screen's heading, aligned column",
 }
 
 // shop_proto_view builds the variant's camera. It starts from the shipped galleon view so
@@ -169,6 +178,8 @@ draw_shop_prototype :: proc(state: ^Game_State, variant: int, bar: bool) {
 		// D reuses A's board on purpose: the only thing that differs is the yaw, so the pair
 		// is a controlled test of the camera and not a fourth layout to like or dislike.
 		draw_shop_proto_manifest(state, options[:], n)
+	case 4:
+		draw_shop_proto_column(state, options[:], n)
 	}
 
 	if bar {
@@ -409,6 +420,86 @@ draw_shop_proto_counter :: proc(state: ^Game_State, options: []sim.Stage_Option,
 }
 
 // ---------------------------------------------------------------------------
+// E — Ship screen's heading, aligned column
+//
+// B's paper with the stagger taken out. The stagger was there to make the cards read as
+// loose objects rather than as a rendered list; aligning them gives that up deliberately
+// and buys back a single hard left edge, one column width, and one rhythm — which is what
+// makes four prices scannable down a straight line instead of a zigzag. Every edge in the
+// column lines up: card left, card right, the heading above them and the control below.
+//
+// No panel behind them still: the sea runs between the cards, so the screen is the ship
+// screen with paper on it rather than the ship screen with a wall on it.
+// ---------------------------------------------------------------------------
+
+@(private)
+SHOP_PROTO_E_X :: f32(820)
+@(private)
+SHOP_PROTO_E_W :: f32(392)
+@(private)
+SHOP_PROTO_E_CARD_H :: f32(108)
+@(private)
+SHOP_PROTO_E_PITCH :: f32(120)
+@(private)
+SHOP_PROTO_E_Y0 :: f32(104)
+
+@(private)
+draw_shop_proto_column :: proc(state: ^Game_State, options: []sim.Stage_Option, n: int) {
+	rl.DrawTextEx(
+		ui_font_body,
+		fmt.ctprintf("%s", ship_stat_line(&state.player)),
+		{40, 28},
+		UI_BODY_SIZE,
+		1,
+		COLOUR_CREAM_BRIGHT,
+	)
+	// The heading starts on the column's own left edge rather than being centred over it:
+	// a centred title above a left-aligned stack has nothing for the eye to run down.
+	rl.DrawTextEx(ui_font_title, "Market", {SHOP_PROTO_E_X, 44}, UI_TITLE_SIZE, 2, COLOUR_CREAM_BRIGHT)
+
+	for i in 0 ..< n {
+		option := options[i]
+		card := rl.Rectangle {
+			SHOP_PROTO_E_X,
+			SHOP_PROTO_E_Y0 + f32(i) * SHOP_PROTO_E_PITCH,
+			SHOP_PROTO_E_W,
+			SHOP_PROTO_E_CARD_H,
+		}
+		afford := voyage.voyage_option_can_afford(&state.player, option)
+
+		rl.DrawRectangleRec({card.x + 5, card.y + 6, card.width, card.height}, rl.Fade(COLOUR_SEA_DEEP, 0.45))
+		rl.DrawRectangleRec(card, afford ? COLOUR_PARCHMENT : colour_shade(COLOUR_PARCHMENT, 0.90))
+		rl.DrawRectangleLinesEx(card, 2, afford ? COLOUR_SEA_DEEP : COLOUR_CLIFF)
+
+		name_tone := afford ? COLOUR_INK_PRIMARY : COLOUR_INK_MUTED
+		spec, intent := fitting_summary_lines(option.fitting)
+		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", option.fitting.name), {card.x + 14, card.y + 12}, UI_BODY_SIZE, 1, name_tone)
+		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), {card.x + 14, card.y + 40}, UI_BODY_SIZE, 1, COLOUR_INK_MUTED)
+		rl.DrawTextEx(
+			ui_font_body,
+			fmt.ctprintf("%s", spec),
+			{card.x + 14, card.y + 70},
+			UI_BODY_SIZE,
+			1,
+			rl.Fade(COLOUR_INK_MUTED, 0.7),
+		)
+
+		if cost, priced := option.cost.?; priced {
+			shop_proto_price_right(card.x + card.width - 14, card.y + 12, cost, name_tone)
+		}
+	}
+
+	// The control takes the column's full width so the block closes on the same two edges
+	// it opened on. No shadow — it is not another piece of stock.
+	shop_proto_control(
+		{SHOP_PROTO_E_X, SHOP_PROTO_E_Y0 + f32(n) * SHOP_PROTO_E_PITCH + 16, SHOP_PROTO_E_W, 40},
+		"Leave",
+		COLOUR_SEA_DEEP,
+		COLOUR_PARCHMENT,
+	)
+}
+
+// ---------------------------------------------------------------------------
 // Shared marks
 // ---------------------------------------------------------------------------
 
@@ -523,16 +614,31 @@ capture_frame_shop_proto_d :: proc(scene: ^Capture_Scene) -> bool {
 	return true
 }
 
+@(private)
+capture_frame_shop_proto_e :: proc(scene: ^Capture_Scene) -> bool {
+	draw_shop_prototype(&scene.game, 4, false)
+	return true
+}
+
 // shop_proto_requested reports whether the process was started as a prototype run.
 shop_proto_requested :: proc() -> bool {
 	return slice.contains(os.args[1:], "--shop-proto")
 }
 
-// shop_proto_main is the interactive run: one window, the three variants under the arrow
-// keys, and up/down moving variant C's subject. No Sim — nothing here needs one.
+// shop_proto_main is the interactive run: one window, the variants under the arrow keys,
+// and up/down moving variant C's subject. No Sim — nothing here needs one.
+//
+// It boots borderless fullscreen the same way `run` does, because a variant judged in a
+// 1244x700 window is not the variant the player sees: the session composes into a render
+// texture and blits it, and that path is the only place translucency reads true (the
+// style guide's "a render texture loses alpha"). Every card shadow, faded rule and dimmed
+// ink on these screens is translucent, so this is the run that tells the truth about them
+// — and the one `--shot` structurally cannot photograph.
 shop_proto_main :: proc() {
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game — shop prototype")
 	defer rl.CloseWindow()
+	fullscreen_init()
+	defer fullscreen_shutdown()
 	rl.SetTargetFPS(60)
 	rl.SetExitKey(.KEY_NULL)
 
@@ -558,9 +664,15 @@ shop_proto_main :: proc() {
 		if rl.IsKeyPressed(.UP) {
 			shop_proto_selected = (shop_proto_selected + sim.STAGE_OPTION_MAX - 1) % sim.STAGE_OPTION_MAX
 		}
+		// F11 drops back to a window and returns. fullscreen_active stays true either way:
+		// frame_end letterboxes against whatever GetScreenWidth reports, so the texture path
+		// — and with it the honest alpha — is in play at both sizes.
+		if rl.IsKeyPressed(.F11) {
+			rl.ToggleBorderlessWindowed()
+		}
 		draw_shop_prototype(&state, shop_proto_variant, true)
 	}
 
-	shop_proto_variant = 0
+	shop_proto_variant = 4
 	shop_proto_selected = 1
 }

@@ -130,6 +130,7 @@ capture_shots := [?]Capture_Shot {
 	{name = "shop-proto-b", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_b},
 	{name = "shop-proto-c", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_c},
 	{name = "shop-proto-d", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_d},
+	{name = "shop-proto-e", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_e},
 }
 
 // capture_shot_for finds a standalone shot by name, with the number its file carries.
