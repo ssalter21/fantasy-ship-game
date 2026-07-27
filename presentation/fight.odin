@@ -296,7 +296,7 @@ draw_fight_scene :: proc(state: ^Game_State, mouse: rl.Vector2) {
 		draw_fight_statblock(&opponent, FIGHT_OPP_X, "Opponent", true)
 	}
 
-	draw_encounter_header(.Fight)
+	draw_encounter_header(.Fight, false)
 	draw_fight_readouts(state)
 	draw_fight_action_row(state, mouse)
 	draw_encounter_chart_tab()

@@ -79,21 +79,3 @@ scale_shrinks_the_whole_size_language_uniformly :: proc(t: ^testing.T) {
 	}
 }
 
-@(test)
-slot_at_answers_from_the_same_laid_out_slots :: proc(t: ^testing.T) {
-	layout := test_layout()
-	rects, n := cutaway_slot_rects(layout[:], TEST_REGION)
-
-	// The centre of every drawn card hit-tests back to that card's slot — the one-answer
-	// property the module exists for.
-	for i in 0 ..< n {
-		centre := rl.Vector2{rects[i].x + rects[i].width / 2, rects[i].y + rects[i].height / 2}
-		hit, over := cutaway_slot_at(layout[:], TEST_REGION, centre).?
-		testing.expect(t, over, "the centre of a laid-out card is over its slot")
-		testing.expect_value(t, hit, ship.Slot_Index(i))
-	}
-
-	// Open water — left of the region — is over nothing.
-	_, over := cutaway_slot_at(layout[:], TEST_REGION, rl.Vector2{0, TEST_REGION.deck_y}).?
-	testing.expect(t, !over, "a point outside every card hit-tests to nil")
-}

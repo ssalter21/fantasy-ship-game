@@ -29,31 +29,57 @@ Room_Highlight :: enum {
 }
 
 // Ship_Framing is the whole of how the galleon is presented this frame: the camera and
-// projection she is drawn through, and where the sea's edge falls under it. **The caller
-// picks it and hands the same one to the draw and to the berth hit-test**, which is what
-// stops the two disagreeing about where a berth is on screen — they each built their own
-// before there was more than one framing to build (#476).
+// projection she is drawn through, where the sea's edge falls under it, and how far her canvas
+// is handed. **The caller picks it and hands the same one to the draw and to the berth
+// hit-test**, which is what stops the two disagreeing about where a berth is on screen — they
+// each built their own before there was more than one framing to build (#476).
 //
 // The horizon is carried rather than re-derived because a framing part-way through a move
 // between two projections has no exact one: the camera the eye is looking through is a blend,
-// and the sea's edge under it is blended too (offer_shop_framing). Every other framing simply
-// asks the cutaway module for it.
+// and the sea's edge under it has to be blended too (ship_framing_travelling). Every other
+// framing simply asks the cutaway module.
 Ship_Framing :: struct {
 	view:    cutaway.View,
 	horizon: f32,
+	furl:    f32,
 }
 
 // ship_framing_moored is the shipped ship screen's own framing — the three-quarter cutaway off
-// her port bow. It is what Home and the Build surface are always looking at, and the moored end
-// of the travel an Offer or Shop leaves from.
+// her port bow, under full sail. It is what Home and the Build surface are always looking at,
+// and the moored end of the travel an Offer or Shop leaves from.
 ship_framing_moored :: proc() -> Ship_Framing {
 	return ship_framing_from(cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))
 }
 
-// ship_framing_from is a framing over an arbitrary view, with the sea's edge derived from it.
-// The horizon goes onto the art lattice here: the sky's last row, the sea's first and the foam
-// standing up her planking all key off this one number, and a backdrop snapped around an
-// unsnapped horizon leaves a part-pixel seam along the join.
+// ship_framing_travelling is the framing `k` of the way from moored to alongside: the camera
+// swinging to her beam and its projection straightening out from perspective toward
+// orthographic, her canvas being handed as she comes in, and the sea's edge going with them.
+// k = 0 is exactly the ship screen and k = 1 exactly the stage, so a stage that enters at 0 and
+// settles at 1 pops at neither end.
+//
+// The horizon is the one thing blended in *screen* space rather than derived. A nearly
+// orthographic projection still has a vanishing point, but it rockets off frame as k approaches
+// 1 where the true answer is most of the way down it — see galleon_horizon_y. Blending the two
+// ends is an approximation, but a monotone one that is exact at both, which is the whole of what
+// a horizon has to be for the 0.9 seconds a camera is moving.
+ship_framing_travelling :: proc(k: f32) -> Ship_Framing {
+	moored := cutaway.GALLEON_EYE
+	alongside := cutaway.GALLEON_ALONGSIDE_EYE
+	view := cutaway.galleon_view_between(moored, alongside, k, WINDOW_WIDTH, WINDOW_HEIGHT)
+
+	from := cutaway.galleon_horizon_y(cutaway.galleon_view_from(moored, WINDOW_WIDTH, WINDOW_HEIGHT))
+	to := cutaway.galleon_horizon_y(cutaway.galleon_view_from(alongside, WINDOW_WIDTH, WINDOW_HEIGHT))
+	return Ship_Framing {
+		view = view,
+		horizon = backdrop_floor(from + (to - from) * clamp(k, 0, 1)),
+		furl = clamp(k, 0, 1),
+	}
+}
+
+// ship_framing_from is a framing over an arbitrary view, with the sea's edge derived from it and
+// full sail set. The horizon goes onto the art lattice here: the sky's last row, the sea's first
+// and the foam standing up her planking all key off this one number, and a backdrop snapped
+// around an unsnapped horizon leaves a part-pixel seam along the join.
 ship_framing_from :: proc(view: cutaway.View) -> Ship_Framing {
 	return Ship_Framing{view = view, horizon = backdrop_floor(cutaway.galleon_horizon_y(view))}
 }
@@ -111,7 +137,7 @@ draw_ship_cutaway :: proc(
 		draw_ship_room(rooms[i], ship_room_timber(rooms[i].kind))
 	}
 	draw_ship_ornament(rooms, n)
-	draw_ship_rig()
+	draw_ship_rig(framing.furl)
 	if ship_debug_wires {
 		rlgl.DrawRenderBatchActive()
 		rlgl.DisableWireMode()

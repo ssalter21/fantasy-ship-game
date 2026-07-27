@@ -24,29 +24,35 @@ ENCOUNTER_STAT_MARGIN :: 24
 // draw_encounter_header names the current stage top-left in its category colour — the same
 // stage_tint the node and chip carry — one word, no strip and no preview. A label, not a
 // control, so it takes no control tone.
-draw_encounter_header :: proc(kind: voyage.Stage_Kind) {
+//
+// `over_water` swaps that tint for cream, which is the guide's own answer for a heading placed
+// over the sea rather than on a dark ground: every stage_tint is a muted hue picked to sit on
+// COLOUR_DEEP, and the Shop's muted sky over an actual sky is a word you cannot read. The
+// category read is not lost with it — the header still says the word, and the map marker the
+// captain sailed in on still carries the hue.
+draw_encounter_header :: proc(kind: voyage.Stage_Kind, over_water: bool) {
 	rl.DrawTextEx(
 		ui_font_body,
 		fmt.ctprintf("%s", stage_kind_label(kind)),
 		ENCOUNTER_HEADING,
 		UI_BODY_SIZE,
 		1,
-		stage_tint(kind),
+		over_water ? COLOUR_CREAM_BRIGHT : stage_tint(kind),
 	)
 }
 
 // draw_encounter_stat_line draws the compact top-right readout — the shared ship_stat_line
 // (#428) — steel and right-aligned, so the top-right corner is identical on all five stages
 // (#304). A readout, not a control.
-draw_encounter_stat_line :: proc(s: ^ship.Ship) {
-	draw_encounter_stat_line_text(ship_stat_line(s))
+draw_encounter_stat_line :: proc(s: ^ship.Ship, over_water: bool) {
+	draw_encounter_stat_line_text(ship_stat_line(s), over_water)
 }
 
 // draw_encounter_stat_line_text right-aligns an already-composed stat string into the
 // top-right corner. Split from draw_encounter_stat_line so a stage that wants to overwrite
 // one field — the Shop's live cargo projection on pickup (#312), `Cargo 6/8 → 2/8` — draws
 // its own line in the same place and tone rather than duplicating the alignment.
-draw_encounter_stat_line_text :: proc(text: string) {
+draw_encounter_stat_line_text :: proc(text: string, over_water: bool) {
 	ctext := fmt.ctprintf("%s", text)
 	size := rl.MeasureTextEx(ui_font_body, ctext, UI_BODY_SIZE, 1)
 	rl.DrawTextEx(
@@ -55,7 +61,7 @@ draw_encounter_stat_line_text :: proc(text: string) {
 		rl.Vector2{WINDOW_WIDTH - size.x - ENCOUNTER_STAT_MARGIN, ENCOUNTER_HEADING.y},
 		UI_BODY_SIZE,
 		1,
-		COLOUR_STEEL,
+		over_water ? COLOUR_CREAM_BRIGHT : COLOUR_STEEL,
 	)
 }
 
@@ -172,13 +178,30 @@ draw_playback_overlay :: proc(headline: string) {
 // `stat_override`, when non-empty, replaces the computed stat line — the seam the Shop uses
 // to ghost a post-buy cargo figure while a priced card is in hand (#312), leaving the rest
 // of the furniture untouched.
-draw_encounter_chrome :: proc(state: ^Game_State, kind: voyage.Stage_Kind, stat_override: string = "") {
-	draw_vignette()
-	draw_encounter_header(kind)
+//
+// `over_water` is the one thing a stage may say about its own body, and one stage says it. Every
+// tone here — the vignette, the tinted header, the steel stat line — was picked for a body drawn
+// on COLOUR_DEEP. An Offer or Shop's body is now the ship screen's own sky and sea (#476), the
+// brightest surface in the game, and on that ground the vignette reads as looking at her through
+// glass while both text marks read as very little at all. The guide already answers both: the
+// framing signal is the torn parchment edge and *not* a dark vignette, and a heading placed over
+// the sea takes cream. Home and the Build surface draw the same water and have never carried a
+// vignette either. Every piece of furniture is still drawn, in the same place; it is the tones
+// that follow the ground under them.
+draw_encounter_chrome :: proc(
+	state: ^Game_State,
+	kind: voyage.Stage_Kind,
+	stat_override: string = "",
+	over_water := false,
+) {
+	if !over_water {
+		draw_vignette()
+	}
+	draw_encounter_header(kind, over_water)
 	if len(stat_override) > 0 {
-		draw_encounter_stat_line_text(stat_override)
+		draw_encounter_stat_line_text(stat_override, over_water)
 	} else {
-		draw_encounter_stat_line(&state.player)
+		draw_encounter_stat_line(&state.player, over_water)
 	}
 	draw_encounter_chart_tab()
 	draw_chart_table_version_stamp()

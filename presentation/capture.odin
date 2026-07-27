@@ -120,7 +120,9 @@ capture_shots := [?]Capture_Shot {
 	{name = "encounter-frame", stage = capture_stage_refit, frame = capture_frame_encounter_frame},
 	{name = "encounter-playback", stage = capture_stage_refit, frame = capture_frame_encounter_playback},
 	{name = "shop", stage = capture_stage_shop, frame = capture_frame_shop},
+	{name = "shop-travelling", stage = capture_stage_shop, frame = capture_frame_shop_travelling},
 	{name = "shop-buying", stage = capture_stage_shop, frame = capture_frame_shop_buying},
+	{name = "offer", stage = capture_stage_offer, frame = capture_frame_offer},
 	{name = "fight", stage = capture_stage_fight, frame = capture_frame_fight},
 	{name = "fight-exchange", stage = capture_stage_fight, frame = capture_frame_fight_exchange},
 	{name = "fight-jettison", stage = capture_stage_fight, frame = capture_frame_fight_jettison},
@@ -636,8 +638,9 @@ capture_laden_slot :: proc(layout: []ship.Layout_Slot) -> Maybe(ship.Slot_Index)
 	return nil
 }
 
-// capture_room_centre is where a cursor has to be to point into a berth: the middle of that
-// slot's projected opening. NO_MOUSE (over nothing) when the slot placed no room.
+// capture_room_centre is where a cursor has to be to point into a berth on the moored ship
+// screen: the middle of that slot's projected opening. NO_MOUSE (over nothing) when the slot
+// placed no room.
 @(private)
 capture_room_centre :: proc(
 	rooms: [cutaway.MAX_SLOTS]cutaway.Room,
@@ -647,12 +650,27 @@ capture_room_centre :: proc(
 	rl.Vector2,
 	bool,
 ) {
+	return capture_room_centre_in(rooms, n, slot, cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))
+}
+
+// capture_room_centre_in is the same aim through a named framing — the seam a stage that
+// presents her under a different camera needs, since the opening it has to point at is not
+// where the moored view puts it (#476).
+@(private)
+capture_room_centre_in :: proc(
+	rooms: [cutaway.MAX_SLOTS]cutaway.Room,
+	n: int,
+	slot: ship.Slot_Index,
+	view: cutaway.View,
+) -> (
+	rl.Vector2,
+	bool,
+) {
 	room, placed := cutaway.galleon_room_for_slot(rooms, n, slot)
 	if !placed {
 		return NO_MOUSE, false
 	}
-	return cutaway.galleon_face_centre(cutaway.galleon_room_face(room, cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))),
-		true
+	return cutaway.galleon_face_centre(cutaway.galleon_room_face(room, view)), true
 }
 
 // The shared encounter frame (#304) — the constant furniture the per-stage builds fill in:
@@ -693,7 +711,17 @@ capture_stage_shop :: proc(scene: ^Capture_Scene) {
 // undraggable read shows.
 @(private)
 capture_frame_shop :: proc(scene: ^Capture_Scene) -> bool {
-	draw_offer_shop(&scene.game, Shelf_Drag{}, NO_MOUSE)
+	draw_offer_shop(&scene.game, offer_shop_alongside(), Shelf_Drag{}, NO_MOUSE)
+	return true
+}
+
+// Part-way through the travel (#476): the camera swinging to her beam, her hull straightening
+// as the projection blends out of perspective, her canvas being handed, and the column still
+// off to the right. A move is the one thing a still cannot judge — but stills along it are what
+// say whether the blend is monotone and whether anything tears half-way.
+@(private)
+capture_frame_shop_travelling :: proc(scene: ^Capture_Scene) -> bool {
+	draw_offer_shop(&scene.game, offer_shop_travel(0.5), Shelf_Drag{}, NO_MOUSE)
 	return true
 }
 
@@ -706,14 +734,37 @@ capture_frame_shop_buying :: proc(scene: ^Capture_Scene) -> bool {
 		return false
 	}
 
-	rects, n := cutaway.cutaway_slot_rects(scene.game.player.layout, offer_shop_ship_region())
-	if n <= 3 {
+	stage := offer_shop_alongside()
+	rooms, n := cutaway.galleon_rooms(scene.game.player.layout)
+	over, aimed := capture_room_centre_in(rooms, n, 3, stage.framing.view)
+	if !aimed {
 		return false
 	}
-	over := rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}
 
 	drag := Shelf_Drag{active = true, option_index = sim.Option_Index(0), fitting = item.fitting, cost = 18}
-	draw_offer_shop(&scene.game, drag, over)
+	draw_offer_shop(&scene.game, stage, drag, over)
+	return true
+}
+
+// capture_stage_offer stages the Offer stage (#312): the same screen with the one thing that
+// differs between the two — its stock is free, so no card carries a price and the control reads
+// Skip rather than Leave. The scripted walk's first option screen is a Shop, so without this
+// entry the unpriced column goes unphotographed.
+@(private)
+capture_stage_offer :: proc(scene: ^Capture_Scene) {
+	capture_stage_refit(scene)
+	scene.game.stage_progress = sim.Event_Stage_Entered{kind = .Offer, index = 0, count = 1}
+	names := [?]string{"Deck Pumps", "Bilge Rats", "Carpenter's Mate"}
+	for name, i in names {
+		if item, ok := ship.ship_item_by_name(name); ok {
+			scene.game.stage_options[i] = sim.Stage_Option{fitting = item.fitting}
+		}
+	}
+}
+
+@(private)
+capture_frame_offer :: proc(scene: ^Capture_Scene) -> bool {
+	draw_offer_shop(&scene.game, offer_shop_alongside(), Shelf_Drag{}, NO_MOUSE)
 	return true
 }
 
@@ -811,7 +862,7 @@ capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: s
 		map_width_set(&state.game, MAP_HOME_W)
 		draw_home(&state.game, ship_framing_moored(), Build_Drag{}, nil, NO_MOUSE, 0)
 	case .Awaiting_Option_Choice:
-		draw_offer_shop(&state.game, Shelf_Drag{}, NO_MOUSE)
+		draw_offer_shop(&state.game, offer_shop_alongside(), Shelf_Drag{}, NO_MOUSE)
 	case .Awaiting_Trade_Choice:
 		draw_trade(&state.game, NO_MOUSE)
 	case .Awaiting_Battle_Command:
