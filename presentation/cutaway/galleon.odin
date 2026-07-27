@@ -3,6 +3,7 @@ package cutaway
 import "core:math"
 import ship "../../core/ship"
 import rl "vendor:raylib"
+import rlgl "vendor:raylib/rlgl"
 
 // The galleon is the ship screen's three-quarter cutaway: the same "where does this slot
 // sit" answer cutaway_slot_rects gives the encounter stages, in three dimensions. World
@@ -84,25 +85,47 @@ galleon_room_half_z :: proc(room: Room, x: f32) -> f32 {
 	return room.half_aft + (room.half_fore - room.half_aft) * f
 }
 
-// View is everything needed to put a point in hull space onto the screen: the camera, and the
-// size of the frame it is projected into. The frame size is carried rather than read from the
-// window on purpose — the game composes at a fixed logical size into a render texture and
-// blits that to a larger borderless-fullscreen surface, so a projection that asked the window
-// would land in a different coordinate system from the (logical-space) mouse.
+// View is everything needed to put a point in hull space onto the screen: the camera, the
+// matrix it projects through, and the size of the frame that lands in. The frame size is
+// carried rather than read from the window on purpose — the game composes at a fixed logical
+// size into a render texture and blits that to a larger borderless-fullscreen surface, so a
+// projection that asked the window would land in a different coordinate system from the
+// (logical-space) mouse.
+//
+// The **projection is carried as a matrix** rather than left implicit in the camera, and that
+// is what lets a view sit between two projections (galleon_view_between). Everything that puts
+// a world point on this screen — the room openings, the picking, the wake, the foam standing up
+// her planking — goes through galleon_project, so all of it stays registered to the planking
+// however far the projection has been blended. A view whose points were projected by the camera
+// while the hull was drawn through a blended matrix sits detached from her by tens of pixels
+// mid-move, which is exactly the bug this field exists to make impossible.
 View :: struct {
 	camera:        rl.Camera3D,
+	projection:    rl.Matrix,
 	width, height: i32,
 }
 
-// galleon_view is the baked view over a frame of the given size, derived from the five tuning
-// knobs. The yaw swings the camera around the target toward the open (-z) side, so the bow
-// angles at the viewer.
-// Eye is the five camera knobs as a value. The game never builds one — galleon_view uses the
-// constants above and always will, because the framing is settled and the screen is composed
-// around it. It exists so the hull workbench can fly the camera off that framing to inspect
-// her, without the shipped view becoming something a tool can move.
+// Eye is a whole framing of this ship as a value: the five knobs above, plus the two a framing
+// off her three-quarter bow never needed.
+//
+// The game builds two — the moored eye the ship screen is composed around, and the alongside
+// eye an Offer or Shop presents her under (#476) — and the hull workbench builds a third to fly
+// round her with. Both shipped ones are settled and tuned by eye; neither is a thing a tool may
+// move.
+//
+// `pan` slides the eye **and its target together** along the camera's right axis, in world
+// units. Moving both is what makes it a pan rather than a turn: the view direction is left
+// untouched, so a broadside stays a broadside however far she slides out of frame centre.
+//
+// `ortho` is 0 for an ordinary perspective camera, and otherwise the **vertical extent of the
+// view volume in world units** — the same number raylib reads Camera3D.fovy as under an
+// orthographic projection. Orthographic is not a detail of the alongside framing, it is the
+// point of it: it is the only projection with no convergence anywhere, so every bulkhead is a
+// true rectangle however far off-axis she sits.
 Eye :: struct {
 	yaw, dist, height, look, fov: f32,
+	pan:                          f32,
+	ortho:                        f32,
 }
 
 GALLEON_EYE :: Eye {
@@ -113,6 +136,33 @@ GALLEON_EYE :: Eye {
 	fov    = GALLEON_CAM_FOV,
 }
 
+// GALLEON_ALONGSIDE_EYE is the stage framing: dead broadside on the negative-z beam — the side
+// her cutaway is opened on — orthographic, and panned to starboard so she drifts to port of
+// frame centre and leaves the other half of it clear. Tuned by eye against the rendered ship
+// (#475), like the moored knobs above.
+//
+// Under an orthographic projection `dist` no longer sets her size — `ortho` does — and only has
+// to keep her in front of the near plane. `height` must equal `look`; galleon_view_from asserts
+// it and says why.
+GALLEON_ALONGSIDE_EYE :: Eye {
+	yaw    = 0,
+	dist   = 9.0,
+	height = 1.05,
+	look   = 1.05,
+	fov    = GALLEON_CAM_FOV,
+	pan    = 3.00,
+	ortho  = 8.5,
+}
+
+// The view volume's cull distances. rlgl's own defaults, spelled here because a projection
+// matrix built as a *value* has to name them, and rlgl only carries them once a window is
+// open — these views are built in unit tests with no window at all.
+@(private)
+GALLEON_NEAR :: f32(rlgl.CULL_DISTANCE_NEAR)
+@(private)
+GALLEON_FAR :: f32(rlgl.CULL_DISTANCE_FAR)
+
+// galleon_view is the baked view over a frame of the given size, derived from the tuning knobs.
 galleon_view :: proc(width, height: i32) -> View {
 	return galleon_view_from(GALLEON_EYE, width, height)
 }
@@ -122,26 +172,113 @@ galleon_view :: proc(width, height: i32) -> View {
 galleon_view_from :: proc(eye: Eye, width, height: i32) -> View {
 	yaw := math.to_radians(eye.yaw)
 	target := rl.Vector3{0.2, eye.look, 0}
+	position := rl.Vector3{target.x + eye.dist * math.sin(yaw), eye.height, -eye.dist * math.cos(yaw)}
+	up := rl.Vector3{0, 1, 0}
+
+	// The pan, along the camera's own right axis. With `up` vertical that axis is horizontal, so
+	// panning never changes either height and the invariant below survives any amount of it.
+	if eye.pan != 0 {
+		right := rl.Vector3Normalize(rl.Vector3CrossProduct(target - position, up)) * eye.pan
+		position += right
+		target += right
+	}
+
+	camera := rl.Camera3D {
+		position   = position,
+		target     = target,
+		up         = up,
+		fovy       = eye.fov,
+		projection = .PERSPECTIVE,
+	}
+	if eye.ortho > 0 {
+		// Under an orthographic projection a water plane oblique to the view axis has no horizon
+		// at all: parallel rays each meet the plane exactly once, so a plane even slightly off
+		// edge-on projects over the *entire* frame and asking where its edge falls is a question
+		// with no answer. The first pass of this framing came back a flat blue screen with no sea
+		// in it. A horizontal view axis is the case that does have an answer — the plane is
+		// exactly edge-on, world y maps linearly to screen y, and the sea's edge is wherever
+		// y = 0 lands (galleon_horizon_y).
+		assert(eye.height == eye.look, "an orthographic framing needs a horizontal view axis")
+		camera.projection = .ORTHOGRAPHIC
+		camera.fovy = eye.ortho
+	}
+
 	return View {
-		camera = rl.Camera3D {
-			position = rl.Vector3 {
-				target.x + eye.dist * math.sin(yaw),
-				eye.height,
-				-eye.dist * math.cos(yaw),
-			},
-			target = target,
-			up = rl.Vector3{0, 1, 0},
-			fovy = eye.fov,
-			projection = .PERSPECTIVE,
-		},
+		camera = camera,
+		projection = galleon_projection(eye, width, height),
 		width = width,
 		height = height,
 	}
 }
 
-// galleon_project puts one point in hull space onto the view's frame.
+// galleon_projection is the matrix an eye projects through, as a value. raylib builds the same
+// one inside BeginMode3D and again inside GetWorldToScreenEx and hands back neither, which is
+// no use to a framing that has to blend two of them.
+@(private)
+galleon_projection :: proc(eye: Eye, width, height: i32) -> rl.Matrix {
+	aspect := f32(width) / f32(height)
+	if eye.ortho > 0 {
+		top := eye.ortho / 2
+		return rl.MatrixOrtho(-top * aspect, top * aspect, -top, top, GALLEON_NEAR, GALLEON_FAR)
+	}
+	return rl.MatrixPerspective(math.to_radians(eye.fov), aspect, GALLEON_NEAR, GALLEON_FAR)
+}
+
+// galleon_view_between is the view part-way from one framing to another, and the reason the
+// travel to a stage reads as one continuous move rather than a pan followed by a snap (#476).
+//
+// The camera's own knobs simply interpolate. **The projection cannot**: the two ends do not
+// share one, and lerping the eye and then switching projection at the last frame pops — her
+// square sails snap from visible to gone and every bulkhead straightens in a single frame. So
+// the projection *matrix* is blended instead. A perspective matrix divides by -z and an
+// orthographic one does not; blending the two component-wise gives a valid projective transform
+// whose convergence falls off smoothly with `k`, so her hull straightens and her canvas
+// foreshortens away continuously. Both ends stay exact.
+galleon_view_between :: proc(a, b: Eye, k: f32, width, height: i32) -> View {
+	if k <= 0 {
+		return galleon_view_from(a, width, height)
+	}
+	if k >= 1 {
+		return galleon_view_from(b, width, height)
+	}
+
+	// Mid-move the camera stays a perspective one — `ortho` left at 0 — because the matrix below
+	// is what actually draws, and a camera claiming to be orthographic without the horizontal
+	// axis that makes one meaningful would trip galleon_view_from's assert on every frame of a
+	// move whose whole job is to arrive at that axis.
+	mix :: proc(from, to, k: f32) -> f32 {return from + (to - from) * k}
+	between := Eye {
+		yaw    = mix(a.yaw, b.yaw, k),
+		dist   = mix(a.dist, b.dist, k),
+		height = mix(a.height, b.height, k),
+		look   = mix(a.look, b.look, k),
+		fov    = a.fov,
+		pan    = mix(a.pan, b.pan, k),
+	}
+
+	view := galleon_view_from(between, width, height)
+	from := galleon_projection(a, width, height)
+	to := galleon_projection(b, width, height)
+	for r in 0 ..< 4 {
+		for c in 0 ..< 4 {
+			view.projection[r, c] = mix(from[r, c], to[r, c], k)
+		}
+	}
+	return view
+}
+
+// galleon_project puts one point in hull space onto the view's frame, through the matrix the
+// view carries. This is raylib's own GetWorldToScreenEx arithmetic with the projection taken
+// from the view rather than rebuilt from the camera — which is the whole difference, since a
+// blended projection is not a thing a camera can describe.
 galleon_project :: proc(point: rl.Vector3, view: View) -> rl.Vector2 {
-	return rl.GetWorldToScreenEx(point, view.camera, view.width, view.height)
+	eye_space := rl.GetCameraMatrix(view.camera) * [4]f32{point.x, point.y, point.z, 1}
+	clip := view.projection * eye_space
+	// Normalized device coordinates, y inverted: screen y runs down where clip y runs up.
+	return rl.Vector2 {
+		(clip.x / clip.w + 1) / 2 * f32(view.width),
+		(-clip.y / clip.w + 1) / 2 * f32(view.height),
+	}
 }
 
 // Loft is every number that shapes her, as opposed to the five that size her. Her extent and
@@ -424,8 +561,16 @@ galleon_room_for_slot :: proc(rooms: [MAX_SLOTS]Room, n: int, slot: ship.Slot_In
 // the face rather than a bounding box, so pointing *into* a room is what selects that berth.
 // Where two openings overlap on screen the nearer opening wins — measured to the face, not the
 // room's centre, since it is the face the cursor is on.
+//
+// "Nearer" is depth **along the view axis**, not distance from the eye. The two agree closely
+// for a camera pointed at the middle of the ship and disagree under an orthographic one, where
+// the eye is a direction rather than a place: a panned orthographic camera is metres to one side
+// of everything it draws, so ranking by distance from it would put the rooms nearest the pan in
+// front of the rooms actually closest to the plane of the screen. Depth along the axis is what a
+// depth buffer measures, and it is right under both projections.
 galleon_room_at :: proc(layout: []ship.Layout_Slot, point: rl.Vector2, view: View) -> Maybe(ship.Slot_Index) {
 	rooms, n := galleon_rooms(layout)
+	axis := rl.Vector3Normalize(view.camera.target - view.camera.position)
 	hit: Maybe(ship.Slot_Index)
 	nearest := max(f32)
 	for i in 0 ..< n {
@@ -434,8 +579,9 @@ galleon_room_at :: proc(layout: []ship.Layout_Slot, point: rl.Vector2, view: Vie
 			continue
 		}
 		face_centre := rl.Vector3{room.centre.x, room.centre.y, room.centre.z - room.half.z}
-		if distance := rl.Vector3Distance(view.camera.position, face_centre); distance < nearest {
-			nearest = distance
+		depth := rl.Vector3DotProduct(face_centre - view.camera.position, axis)
+		if depth < nearest {
+			nearest = depth
 			hit = room.slot
 		}
 	}
@@ -461,11 +607,28 @@ point_in_quad :: proc(point: rl.Vector2, quad: [4]rl.Vector2) -> bool {
 	return inside
 }
 
-// galleon_horizon_y is where the sea's horizon crosses the screen for this camera: the
-// vanishing point of the water plane, found by projecting a point at eye height far down the
-// view. The backdrop's horizon is drawn there rather than at a guessed height, which is what
-// puts the waterline across the lower hull instead of through the deck.
+// galleon_horizon_y is where the sea's edge crosses the screen for this view. The backdrop's
+// horizon is drawn there rather than at a guessed height, which is what puts the waterline
+// across the lower hull instead of through the deck.
+//
+// The two projections answer differently, and it is not a special case bolted on — it is what
+// removing the perspective divide *means*. Under perspective the edge is the water plane's
+// vanishing point, found by projecting a point at eye height far down the view. Under an
+// orthographic projection there is no vanishing point at all: parallel rays each meet the plane
+// exactly once, so a far point is no more informative than a near one. What an edge-on plane
+// has instead is one screen row — world y maps linearly to screen y, and every point at y = 0
+// lands on it. That is the row, and galleon_view_from's assert is what guarantees the plane is
+// edge-on enough for it to exist.
+//
+// A view part-way through galleon_view_between has **no exact answer**, and this does not
+// pretend otherwise: the vanishing point of a nearly-orthographic blend is real but rockets off
+// as k approaches 1, where the true answer is 86 pixels down the frame. A caller travelling
+// between two framings blends the two ends' answers in screen space — monotone, and exact at
+// both ends, which is all a horizon has to be for the 0.9s a camera is moving.
 galleon_horizon_y :: proc(view: View) -> f32 {
+	if view.camera.projection == .ORTHOGRAPHIC {
+		return galleon_project({0, 0, 0}, view).y
+	}
 	FAR :: f32(10000)
 	forward := view.camera.target - view.camera.position
 	forward.y = 0 // level with the eye: the water plane's vanishing direction

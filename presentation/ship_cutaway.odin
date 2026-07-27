@@ -90,6 +90,14 @@ draw_ship_cutaway :: proc(
 
 	ship_paint_view(view.camera)
 	rl.BeginMode3D(view.camera)
+	// The projection the *view* carries, replacing the one BeginMode3D just derived from the
+	// camera. Overriding after BeginMode3D is deliberate: BeginMode3D pushes the projection stack
+	// and loads a matrix, and this replaces the one rlgl will actually settle the queued batch
+	// with. EndMode3D pops the stack, so nothing leaks past this block. It is what lets a framing
+	// mid-way between two projections draw at all — and it is also what makes the hull and
+	// galleon_project agree exactly, where before one asked BeginMode3D and the other asked
+	// GetWorldToScreenEx and the two built the same matrix twice.
+	rlgl.SetMatrixProjection(view.projection)
 	// The wireframe view is bracketed by explicit batch flushes. Wire mode is a GL polygon-mode
 	// switch, but rlgl queues geometry and only settles it when the batch fills or is drawn — so
 	// without the flushes the mode lands on whatever happened to be in flight and the ship comes
