@@ -90,6 +90,15 @@ A targeted run that writes nothing — a screen that bailed out, or a shot that 
 `docs/ui/shots/` — says so and exits 1. It never reports a file that isn't there.
 
 ```bash
+odin run cmd/game -- --shots
+```
+
+Every `capture_shots` entry and nothing else — the whole standalone set in one window, about two
+seconds, no voyage. One shot per entry or none: a run that couldn't arrange a state exits 1 rather
+than leaving a short set to be read as a complete one. This is what the manifest check regenerates
+(below); reach for it when you want the set rather than one screen or the whole gallery.
+
+```bash
 odin run cmd/game -- --capture
 ```
 
@@ -182,6 +191,52 @@ region — the mask's printed bounding box is the region argument. The printed n
 and how far it reached; they do not tell you the screen reads. They aim the look, they don't stand in for it.
 
 Sizes must match; a mismatch is reported with both dimensions rather than silently padded.
+
+## Which screens did this change move?
+
+A change to shared chrome alters every screen that draws it, and the source diff doesn't say which.
+`docs/ui/shot-manifest.txt` is a committed hash per named shot, and the check names the screens that
+moved:
+
+```bash
+python scripts/shot.py check      # re-render the named shots, report what moved, exit 1 if any did
+python scripts/shot.py accept     # record the current shots as intended
+```
+
+`check` rebuilds `game.exe`, renders the whole registry with `--shots` and compares. The report is
+screen names, never file numbers:
+
+```
+9 of 18 shots moved:
+  chart-table
+  chart-table-hover
+  encounter-frame
+  ...
+```
+
+That is a real run: `VIGNETTE_DEPTH` deepened by 20px moved nine screens, and left the nine Build and
+Home shots — which don't draw the vignette — alone. Naming the blast radius is the whole point; a
+change you expected to touch one screen and that names nine is the finding.
+
+**`accept` is the deliberate step**, and the only one. `check` exits 1 until you run it, and the
+manifest diff it produces is then the list of screens the change was allowed to move — reviewable in
+the PR beside the code that moved them.
+
+**Look before you accept.** The check says *which* screens moved, not whether they moved for the
+better, and it holds hashes rather than images so it cannot show you the change. Park the before-shot
+and `diff` it (above), then accept. The check aims the look; it does not stand in for it.
+
+Two limits worth knowing before you trust a result:
+
+- **The named shots only.** The voyage screens are reached by walking and numbered by position — the
+  churn the manifest exists to avoid — so `trade`, `refit` and `ended` sit outside it until they
+  become registry entries.
+- **One machine.** The hashes are the pixels one GPU and driver produced. A wholesale mismatch after
+  switching machines is not a design change; re-`accept` there.
+
+The hash is over **decoded RGB pixels**, not the PNG, so it moves when the screen does and not when
+the encoder or the file's timestamp does. It is keyed by name and sorted by name, so adding a shot
+adds one line rather than renumbering the file.
 
 **This is an instrument for 2D chrome.** Geometry bugs on the 3D ship screen are invisible rather than small,
 and magnifying a correctly-drawn but wrong-facing surface tells you nothing. The workbench's normal paint and
@@ -321,6 +376,11 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
   prefix is silently dropped. `capture_write` moves each shot into `docs/ui/shots/` afterwards.
 - Capture draws every frame **twice** before shooting. `TakeScreenshot` reads back the framebuffer
   `EndDrawing` just presented, so a single draw screenshots the *previous* frame. Keep the double draw.
+- **Capture pins the chart's idle clock** (`juice_clock_pin`, at `CAPTURE_CLOCK`), so the moored
+  ship's rock photographs the same frame every run instead of wherever the wall clock had got to. A
+  session never pins it — the motion is what the clock is for. If you add juice that rides
+  `rl.GetTime()`, read it through `juice_now()` or the shot of it differs from itself run to run and
+  the manifest check reports a screen that nothing changed.
 - There is no `cmd/capture`: capture lives in the presentation package beside the private `draw_scene`,
   `Game_State` and `dispatch` it photographs, and `cmd/game` enters it behind `--capture` and `--shot`
   (ADR-0003 argues against linking the renderer into `cmd/headless`, not against this).

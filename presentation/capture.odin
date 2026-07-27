@@ -22,6 +22,13 @@ import rl "vendor:raylib"
 @(private)
 CAPTURE_DIR :: "docs/ui/shots"
 
+// The instant every shot's chart is frozen at (juice_clock_pin). Chosen off zero, where the
+// moored ship's bob sits at a zero crossing and its heel at a peak: a shot should catch the hull
+// mid-rock, the way a player sees it, rather than at the one instant of the cycle that flatters
+// it into stillness.
+@(private)
+CAPTURE_CLOCK :: 0.3
+
 // Capture_State drives the scripted walk and numbers the shots it takes. The Game_State
 // it wraps is handed to the *real* dispatch untouched, so capture sees exactly the screens
 // the game draws rather than a second, drifting copy: the two halves take separate
@@ -128,6 +135,10 @@ capture_open :: proc(title: cstring) {
 	ui_fonts_load()
 	art_load()
 
+	// Every capture mode wants a repeatable frame, and only capture does: a session left on the
+	// live clock is what the idle motion exists for.
+	juice_clock_pin(CAPTURE_CLOCK)
+
 	if !os.exists(CAPTURE_DIR) {
 		if err := os.make_directory(CAPTURE_DIR); err != nil {
 			// Not fatal: raylib reports its own failure per shot, and a capture run that
@@ -188,6 +199,40 @@ capture_scene_destroy :: proc(scene: ^Capture_Scene) {
 	}
 }
 
+// capture_take_all shoots every registry entry, each numbered by its place in the table.
+// Both the whole-set entry and the scripted walk go through here, so the set they render
+// is one loop over one registry rather than two lists to drift.
+@(private)
+capture_take_all :: proc(state: ^Capture_State) {
+	for shot, number in capture_shots {
+		capture_take(state, shot, number)
+	}
+}
+
+// capture_shots_main renders the whole standalone set and returns, without the voyage
+// walk --capture follows it with. One window serves every shot, so the set costs about
+// what a handful of targeted runs would. Reports whether every entry landed — a partial
+// set is a failure, since a caller comparing the shots against a manifest would otherwise
+// read a stale PNG as an unchanged screen.
+capture_shots_main :: proc() -> bool {
+	capture_open("Fantasy Ship Game (shots)")
+	defer capture_close()
+
+	state := Capture_State{}
+	capture_take_all(&state)
+
+	if state.written != len(capture_shots) {
+		fmt.eprintfln(
+			"capture: %d of %d shot(s) landed in %s",
+			state.written,
+			len(capture_shots),
+			CAPTURE_DIR,
+		)
+		return false
+	}
+	return true
+}
+
 // capture_shot_main renders one named screen, writes its PNG and returns — the targeted
 // counterpart to capture_main's walk, entered from main when --shot is passed. Only the
 // asked-for entry runs, so the cost is the window and one screen rather than a voyage.
@@ -219,8 +264,6 @@ capture_shot_main :: proc(name: string) -> bool {
 		fmt.eprintfln("capture: %s did not land in %s", name, CAPTURE_DIR)
 		return false
 	}
-
-	fmt.printfln("capture: wrote %s/%02d-%s.png", CAPTURE_DIR, number, name)
 	return true
 }
 
@@ -237,9 +280,7 @@ capture_main :: proc() {
 	defer delete(state.game.positions)
 	defer delete(state.game.voyage_map.nodes)
 
-	for shot, number in capture_shots {
-		capture_take(&state, shot, number)
-	}
+	capture_take_all(&state)
 
 	s := sim.sim_create(VOYAGE_SEED)
 	defer sim.sim_destroy(&s)
@@ -596,7 +637,8 @@ capture_frame_fight_jettison :: proc(scene: ^Capture_Scene) -> bool {
 
 // capture_write writes the presented frame to CAPTURE_DIR under `number`, so the shots
 // carry the walk order a session reading them back follows. Reports whether the file
-// landed there.
+// landed there, and names it on stdout — one `capture: wrote <path>` line per shot, so a
+// run says which files it produced rather than only how many.
 //
 // Callers draw their frame twice before calling: rl.TakeScreenshot reads back the
 // framebuffer that EndDrawing just presented, so a single draw would screenshot
@@ -625,6 +667,7 @@ capture_write :: proc(state: ^Capture_State, number: int, label: string) -> bool
 		return false
 	}
 	state.written += 1
+	fmt.printfln("capture: wrote %s", dest)
 	return true
 }
 
@@ -685,6 +728,19 @@ capture_requested :: proc() -> bool {
 // capture_shot_requested reports the single screen the process was started to shoot.
 capture_shot_requested :: proc() -> (name: string, requested: bool) {
 	return capture_shot_arg(os.args[1:])
+}
+
+// capture_shots_requested reports whether the process was started to render the whole
+// standalone set.
+capture_shots_requested :: proc() -> bool {
+	return capture_shots_arg(os.args[1:])
+}
+
+// capture_shots_arg reads `--shots` out of a command line. It takes no name, so it is a
+// whole-word match: `--shot build` is one screen and must not read as the set.
+@(private)
+capture_shots_arg :: proc(args: []string) -> bool {
+	return slice.contains(args, "--shots")
 }
 
 // capture_shot_arg reads `--shot <name>` (or `--shot=<name>`) out of a command line. A

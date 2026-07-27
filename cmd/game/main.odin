@@ -21,6 +21,14 @@ main :: proc() {
 		}
 		return
 	}
+	if presentation.capture_shots_requested() {
+		// Same reason, over the whole set: the manifest check reads these back, and a
+		// missing shot must fail the run rather than leave a stale PNG to be compared.
+		if !presentation.capture_shots_main() {
+			os.exit(1)
+		}
+		return
+	}
 	if presentation.capture_requested() {
 		presentation.capture_main()
 		return
