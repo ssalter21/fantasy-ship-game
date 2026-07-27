@@ -47,7 +47,14 @@ HULL_CUT_Y :: cutaway.GALLEON_HOLD_FLOOR_Y - 0.07
 HULL_ABSORB_R :: f32(0.86)
 HULL_ABSORB_G :: f32(0.26)
 HULL_ABSORB_B :: f32(0.0)
-HULL_SCATTER :: f32(0.5)
+
+// How much of the water's own light is between her and the eye at a full fathom. Raised, because
+// at half this she was legible right down to the keel — every strake as crisp at the bottom of
+// her as at the waterline, which is what water would do if it were glass. A hull that never
+// veils reads as sitting on the sea rather than in it, whatever the foam at her side is doing.
+// Measured against the sea drawn beside her: her keel end was 53% value against the water's 85%,
+// and it now closes most of that gap without letting go of her outline.
+HULL_SCATTER :: f32(0.62)
 
 // HULL_WET_STEP is how much of the full fathom's worth of water is applied the instant a strake
 // goes under. Small, but not zero: water has a surface, and a hull crossing it changes colour at
@@ -280,7 +287,21 @@ draw_hull_cut_edge :: proc(x0, x1: f32, edge: proc(x: f32) -> f32, facing: f32) 
 	b := hull_surface(x1, t1, -1)
 	n0 := hull_normal(x0, t0, -1) * HULL_SKIN
 	n1 := hull_normal(x1, t1, -1) * HULL_SKIN
-	ship_quad_lit(a - n0, b - n1, b, a, colour_shade(COLOUR_CLIFF, 1.05), {0, facing, 0})
+	// The edge takes the water like every other outboard surface. It was the one that didn't, and
+	// because the window is cut to a hand's breadth under the hold floor, most of its run is
+	// below the waterline — so her bilge was traced underwater in bright untinted cream, the
+	// brightest thing on that half of the screen. That gold outline round her belly is what made
+	// the opened hold read as standing out of the sea rather than sunk in it; the interior behind
+	// it was never the problem. Where the cut does rise above the water, at the bow and the
+	// quarter, it comes up bright again and draws her sheer.
+	ship_quad_lit(
+		a - n0,
+		b - n1,
+		b,
+		a,
+		hull_water(colour_shade(COLOUR_CLIFF, 1.05), (a.y + b.y) / 2),
+		{0, facing, 0},
+	)
 }
 
 // draw_hull_keel lays the keel timber under her bottom, standing proud of the planking the way
@@ -343,7 +364,13 @@ draw_hull_sole :: proc() {
 	x1 := cutaway.GALLEON_HOLD_X1
 	STEPS :: 22
 	step := (x1 - x0) / STEPS
-	deal := colour_shade(COLOUR_CLIFF, 0.62)
+	// Dark deal, and darker than the light on it would suggest. The sole faces straight up, so the
+	// painter gives it almost the full value of a sun that is 0.8 up — and it came out the best-lit
+	// surface on the ship while being the floor of a covered hold, twice the value of the bulkheads
+	// standing on it. With the cut edge no longer outlining her bilge in gold, that pale floor was
+	// the next thing to read as timber lying on top of the water. Nothing down there sees the sky;
+	// what light reaches it comes sideways through the window, and this is that much light.
+	deal := colour_shade(COLOUR_CLIFF, 0.38)
 
 	for i in 0 ..< STEPS {
 		a := x0 + f32(i) * step
