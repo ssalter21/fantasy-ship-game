@@ -287,22 +287,43 @@ draw_ship_wake :: proc(view: cutaway.View, horizon_y: f32) {
 	// broken water astern still reads as a wake; three hundred only got it far enough aft to
 	// collide with the glitter, and the pair of them together read as one smear rather than as
 	// a wake and a sun path.
+	// Shortened and taken off the white to match the stem. The wave ahead of her is gone, and a
+	// two-hundred-pixel road of near-solid foam left behind a quiet bow does not read as half a
+	// wake — it reads as a ship making sternway. What both ends are now drawing is one thing: the
+	// stream she is lying to, turning at the stem and running out astern as a slick.
 	for i in 0 ..< 120 {
 		f := sea_noise(i, 21)
 		spread := sea_noise(i, 22)
-		x := stern.x + f * 205
-		y := horizon_y + 1 + f * 40 * spread
-		backdrop_block({x, y, 30 - f * 20, 2 + f * 2}, rl.Fade(COLOUR_FOAM, (0.40 - f * 0.32) * (1 - spread * 0.5)))
+		x := stern.x + f * 138
+		y := horizon_y + 1 + f * 34 * spread
+		backdrop_block(
+			{x, y, 26 - f * 17, 2 + f * 2},
+			rl.Fade(
+				colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.62),
+				(0.34 - f * 0.27) * (1 - spread * 0.5),
+			),
+		)
 	}
 
-	// At the bow: the wave she is pushing, heaped where the stem takes the water and falling
-	// away either side of her.
-	for i in 0 ..< 60 {
+	// At the bow: the water working round her stem. Not a bow wave — this screen only ever shows
+	// her stopped, headed "At Anchor" on the home ground and "Refit" while she is worked on, and a
+	// wave heaped ahead of the stem says she is driving through the sea at both. It reached a
+	// hundred pixels out in front of her in near-solid white, which is the single loudest thing
+	// forward of the ship and the first thing the eye lands on.
+	//
+	// What an anchored ship actually makes is this: she lies to the tide, the stream runs past her,
+	// and it turns at the stem in a short broken ring — close in, low, and more sea than foam. The
+	// slick astern is the other half of the same current, so the two still agree about which way
+	// the water is going.
+	for i in 0 ..< 34 {
 		f := math.pow(sea_noise(i, 31), 1.3)
 		side := sea_noise(i, 32)
 		backdrop_block(
-			{bow.x - 16 - f * 84, horizon_y - 3 + f * 40 * side, 34 - f * 18, 3 + f * 2},
-			rl.Fade(COLOUR_FOAM, (0.40 - f * 0.3) * (1 - side * 0.45)),
+			{bow.x - 12 - f * 34, horizon_y - 2 + f * 26 * side, 22 - f * 12, 2 + f * 2},
+			rl.Fade(
+				colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.5),
+				(0.34 - f * 0.24) * (1 - side * 0.45),
+			),
 		)
 	}
 }
@@ -377,14 +398,20 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 	// Spray is scarce on purpose. Two dozen heavy marks inside a short throw pile into one solid
 	// white mass at her stem — a snowbank sitting on the water, which is the same failure as the
 	// climb wearing different clothes. Broken water has to have sea showing through it.
-	SPRAY_REACH :: f32(56)
-	SPRAY_PEAK :: f32(11)
-	for i in 0 ..< 14 {
+	//
+	// Scarcer still now, and lower. Spray is what a stem throws when it is driven into the sea, and
+	// this ship is never driven anywhere on this screen — she is at anchor or under refit. What is
+	// left is the lap: the stream turning at her cutwater and lifting a little, which peaks at a few
+	// pixels rather than at eleven. The arc is kept because it is what puts both ends of the throw
+	// back in the water, and that reasoning does not change with the size of it.
+	SPRAY_REACH :: f32(24)
+	SPRAY_PEAK :: f32(4)
+	for i in 0 ..< 9 {
 		f := sea_noise(i, 51)
 		arc := math.sin(f * math.PI)
 		backdrop_block(
-			{bow.x - 10 - f * SPRAY_REACH, horizon_y - arc * SPRAY_PEAK, 7 - f * 3, 2},
-			rl.Fade(COLOUR_FOAM, 0.2 + arc * 0.3),
+			{bow.x - 8 - f * SPRAY_REACH, horizon_y - arc * SPRAY_PEAK, 6 - f * 3, 2},
+			rl.Fade(colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.6), 0.18 + arc * 0.22),
 		)
 	}
 }

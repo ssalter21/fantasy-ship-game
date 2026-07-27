@@ -20,9 +20,18 @@ import rl "vendor:raylib"
 
 // The hull's frame: her extent along each axis, and the height of the weather deck. The rooms
 // are placed against these, and the painter hangs its planking, rig and ornament off them.
+// How high she floats. The waterline is world y=0 and cannot move — the camera sits on it and
+// the sea plane is edge-on from there, so every point at y=0 lands on one screen row and the sea
+// is drawn along it. Her draught is therefore the keel's depth, and it was 1.15 against a hull
+// only 1.33 deep from keel to weather deck: she swam with 86% of herself under, which is a wreck
+// settling rather than a ship at anchor. A laden galleon draws a little under half her depth.
+//
+// Both constants are lifted by the same 0.32 so the lift is rigid. Everything else on this ship —
+// the hold floor, the rooms, the sheer, the masts, the bowsprit — is spelled relative to one of
+// these two, so nothing else needs touching and nothing shifts inside her.
 GALLEON_HALF_BEAM :: f32(1.05)
-GALLEON_KEEL_Y :: f32(-1.15) // deepest point of the hull, amidships
-GALLEON_DECK_Y :: f32(0.18) // main (weather) deck: ceiling of the holds, floor of the waist
+GALLEON_KEEL_Y :: f32(-0.83) // deepest point of the hull, amidships — and her draught
+GALLEON_DECK_Y :: f32(0.50) // main (weather) deck: ceiling of the holds, floor of the waist
 GALLEON_STERN_X :: f32(-3.5)
 GALLEON_BOW_X :: f32(3.7)
 
@@ -34,7 +43,7 @@ GALLEON_BOW_X :: f32(3.7)
 GALLEON_CAM_YAW :: f32(55.75) // bow-toward-viewer swing, degrees
 GALLEON_CAM_DIST :: f32(6.92) // horizontal distance from the target
 GALLEON_CAM_HEIGHT :: f32(0.0) // camera height — level with the waterline
-GALLEON_CAM_LOOK :: f32(0.92) // target height, which tilts the view up
+GALLEON_CAM_LOOK :: f32(1.14) // target height, which tilts the view up
 GALLEON_CAM_FOV :: f32(55.24) // field of view, degrees
 
 // Room_Kind is what a berth became when it was mapped onto the hull. The painter reads it to

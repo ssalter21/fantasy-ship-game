@@ -353,14 +353,16 @@ draw_hull_cut_edge :: proc(x0, x1: f32, edge: proc(x: f32) -> f32, facing: f32) 
 	// the opened hold read as standing out of the sea rather than sunk in it; the interior behind
 	// it was never the problem. Where the cut does rise above the water, at the bow and the
 	// quarter, it comes up bright again and draws her sheer.
-	ship_quad_lit(
-		a - n0,
-		b - n1,
-		b,
-		a,
-		hull_water(colour_shade(COLOUR_CLIFF, 1.05), (a.y + b.y) / 2),
-		{0, facing, 0},
-	)
+	// Bright in the air and bright under the water, but not the same colour in both — and that
+	// second half was missed when the tint was first put on this edge. A raw cream given a cool
+	// sea to pass through goes the one way a warm colour can: it measured #698C74, 25% saturation,
+	// running the whole length of her bilge, which is the line the eye follows from stem to post.
+	// Under water the edge is the sawn face of sheathed planking, so it is the same copper gone
+	// green as the strakes it caps — lifted, because a fresh cut is brighter than the weathered
+	// face beside it.
+	mid := (a.y + b.y) / 2
+	raw := mid < 0 ? colour_shade(HULL_VERDIGRIS, 1.3) : colour_shade(COLOUR_CLIFF, 1.05)
+	ship_quad_lit(a - n0, b - n1, b, a, hull_water(raw, mid), {0, facing, 0})
 }
 
 // draw_hull_keel lays the keel timber under her bottom, standing proud of the planking the way
@@ -374,7 +376,13 @@ draw_hull_keel :: proc(x0, x1: f32) {
 	fullness := cutaway.galleon_half_beam((x0 + x1) / 2) / cutaway.GALLEON_HALF_BEAM
 	KEEL := 0.075 * (0.40 + 0.60 * fullness)
 	DROP :: f32(0.09)
-	oak := colour_shade(COLOUR_ROCK, 1.05)
+	// The keel is sheathed like the rest of the bottom, and it has to be for the same reason the
+	// bottom is: it never comes out of the water anywhere along her length, and a warm brown that
+	// never comes out of the water is walked straight through neutral by the tint. Painted in oak
+	// it measured a flat sage the whole length of her — the dullest band on the screen, laid along
+	// the one line the eye follows from stem to post. Darker than the planking so the spine still
+	// stands away from what it carries.
+	oak := colour_shade(HULL_VERDIGRIS, 0.74)
 	deep := (y0 + y1) / 2 - DROP / 2
 
 	side := hull_water(ship_lit(oak, {0, 0, -1}), deep)
