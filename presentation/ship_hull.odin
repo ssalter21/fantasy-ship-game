@@ -20,8 +20,12 @@ import rl "vendor:raylib"
 // Fine enough that the entry resolves as a curve. At the coarse setting the last strip carried
 // the whole of the fining-away, so her bow arrived at its point in one facet — a corner, which
 // is exactly what a bow must not have.
+// One band is one strake. It used to be neither — ten bands carried fifteen courses of planking
+// between them, so which course a band came out in was a rounding, and the light and dark ran
+// 0,0,1,0,0,1,1,0,1,1 up her side instead of alternating. Matching the two means a strake is a
+// quad, top to bottom, and the planking reads as planking.
 HULL_STRIPS :: 48
-HULL_BANDS :: 10
+HULL_BANDS :: 14
 
 // HULL_SKIN is how thick her planking is — the timber the cut edge shows, and the offset
 // between the outer skin and the inner face of the same strake.
@@ -264,13 +268,28 @@ draw_hull_side :: proc(x0, x1, side, lo0, lo1, hi0, hi1: f32) {
 	w0 := hull_section_t(x0, 0)
 	w1 := hull_section_t(x1, 0)
 	for j in 0 ..< HULL_BANDS {
-		f0 := f32(j) / HULL_BANDS
-		f1 := f32(j + 1) / HULL_BANDS
-		t0 := lo0 + (hi0 - lo0) * f0 // at x0, bottom of the band
-		u0 := lo1 + (hi1 - lo1) * f0 // at x1, bottom
-		t1 := lo0 + (hi0 - lo0) * f1 // at x0, top
-		u1 := lo1 + (hi1 - lo1) * f1 // at x1, top
-		strake := int((t0 + t1) * 7)
+		// The band grid is the *section's*, not the run's, and this is the fix for the wedges that
+		// fanned out of her forward quarter. Dividing the run into equal fractions puts a band's
+		// boundaries at lo + (hi-lo)*j/n — which moves whenever the run moves. Forward of the hold
+		// the cut sweeps from a hand under the sole all the way up to the rail in three strips, so
+		// every one of those boundaries swept up with it, and each band came out a long skewed quad
+		// crossing four courses of planking with a single flat colour averaged over the lot. Drawn
+		// beside its neighbours that reads as three bright triangular slivers standing in her bow.
+		//
+		// Held to the section instead, a band is the same strake at both ends of every strip, and
+		// the shear is confined to the one band the run's edge actually crosses. Clipping is what
+		// makes it exact: a band the cut passes through keeps the cut as its top edge, a band above
+		// the cut collapses to nothing at that end, and the two ends still tile the run with no gap.
+		g0 := f32(j) / HULL_BANDS
+		g1 := f32(j + 1) / HULL_BANDS
+		t0 := clamp(g0, lo0, hi0) // at x0, bottom of the band
+		u0 := clamp(g0, lo1, hi1) // at x1, bottom
+		t1 := clamp(g1, lo0, hi0) // at x0, top
+		u1 := clamp(g1, lo1, hi1) // at x1, top
+		if t1 - t0 < 0.0001 && u1 - u0 < 0.0001 {
+			continue // wholly outside the run at both ends
+		}
+		strake := j
 
 		if (t0 < w0 && t1 > w0) || (u0 < w1 && u1 > w1) {
 			// The seam runs from the waterline at one end of the strip to the waterline at the

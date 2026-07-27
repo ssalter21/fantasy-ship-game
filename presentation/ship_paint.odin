@@ -82,15 +82,41 @@ ship_quad :: proc(a, b, c, d: rl.Vector3, base: rl.Color) {
 // of a curved skin, where the true surface normal is known from the loft and the little quad
 // standing in for it is too nearly degenerate to hand back a usable one.
 ship_quad_lit :: proc(a, b, c, d: rl.Vector3, base: rl.Color, normal: rl.Vector3) {
-	colour := ship_inboard_dusk(ship_lit(base, ship_facing((a + c) / 2, normal)), (a.y + b.y + c.y + d.y) / 4)
+	lit := ship_lit(base, ship_facing((a + c) / 2, normal))
+	lo := min(a.y, b.y, c.y, d.y)
+	hi := max(a.y, b.y, c.y, d.y)
+
+	// A quad is one flat colour, so a surface that stands a fathom tall takes the dusk of its own
+	// midpoint and nothing else — and her whole opened waist is exactly that: bulkheads running
+	// sole to deck, each a single quad. Measured off the shot, every pixel from y=450 to y=510
+	// came back #523D23, the same brown at the bilge as at the deck head, over the largest area
+	// of the ship. Beside a bow carrying fourteen courses of planking and a gradient down to the
+	// keel, a slab that flat reads as a hole cut in card rather than as the inside of a hull.
+	//
+	// So a tall surface is sliced and each slice takes its own depth. The seam a→d is the way up
+	// on every quad this file draws — the hull bands, the box faces, the bulkheads — so slicing
+	// along it needs no knowledge of what is being drawn. Slices scale with height and stop at
+	// eight, which keeps the strakes (a band is well under the threshold) on the single-quad path
+	// they were always on.
+	if lo < 0 && hi - lo > HULL_TINT_SPAN / 4 {
+		slices := clamp(int((hi - lo) / (HULL_TINT_SPAN / 8)), 2, 8)
+		for i in 0 ..< slices {
+			f0 := f32(i) / f32(slices)
+			f1 := f32(i + 1) / f32(slices)
+			a0 := a + (d - a) * f0
+			b0 := b + (c - b) * f0
+			b1 := b + (c - b) * f1
+			a1 := a + (d - a) * f1
+			ship_quad_flat(a0, b0, b1, a1, ship_inboard_dusk(lit, (a0.y + b0.y + b1.y + a1.y) / 4))
+		}
+		return
+	}
+
 	// Wound both ways. raylib culls back faces into nothing, and a cutaway is looked into from
 	// an angle that sees the inside of half of what is drawn — a face culled away would be a
 	// silent hole, the failure mode the run-game skill warns about. Both windings carry the same
 	// shade, so the surface is lit by the normal above whichever side of it the camera is on.
-	rl.DrawTriangle3D(a, b, c, colour)
-	rl.DrawTriangle3D(a, c, d, colour)
-	rl.DrawTriangle3D(c, b, a, colour)
-	rl.DrawTriangle3D(d, c, a, colour)
+	ship_quad_flat(a, b, c, d, ship_inboard_dusk(lit, (a.y + b.y + c.y + d.y) / 4))
 }
 
 // SHIP_INBOARD_DUSK is how much of the light is gone off an inboard surface at a full fathom
