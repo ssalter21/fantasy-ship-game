@@ -64,19 +64,10 @@ RIG_BRACE_MAX :: f32(40)
 // standing rigging, the bowsprit, and a pennant at every truck.
 //
 // `handed` is how far she has been worked in to a berth: 0 is at sea under full sail with her
-// yards square, 1 is alongside with the canvas gathered on braced-round yards. It exists because
-// of what a square rig *is* seen from dead abeam (#476) — a yard spans athwartships and a sail
-// bellies fore-and-aft, so with the view axis on her beam **the yard points straight at the eye**
-// and both project to a spot beside the mast. That is correct geometry, and it is also why an
-// orthographic sheer draught of a square-rigger shows bare masts: there is nothing else in the
-// rig that a true side elevation can see.
-//
-// Furling alone does not fix that — a handed sail on a square yard is a bundle seen end-on, a
-// knob. Bracing is what turns the yard and its bundle broadside-on to the eye, and the two go
-// together because they are the same act: a ship comes alongside by handing her canvas and
-// bracing her yards round to clear what she is coming in beside. ADR-0020 already makes her mast
-// configuration a cosmetic read-out rather than an input, so there is nothing here for a
-// depiction to contradict.
+// yards square, 1 is alongside with the canvas gathered on braced-round yards. Both halves move
+// together because they are one act — canvas handed and yards braced to clear what she is coming
+// in beside — and because from dead abeam a square yard points straight at the eye, so bracing is
+// the only thing that gives the rig anything to show. Handed canvas on a square yard: ADR-0032.
 draw_ship_rig :: proc(handed: f32) {
 	for mast in rig_masts() {
 		draw_rig_mast(mast)
@@ -197,9 +188,9 @@ draw_rig_sail :: proc(head, foot: rl.Vector3, width: f32, axis: rl.Vector3, hand
 		}
 	}
 
-	// The bundle: the handed canvas, gathered and lashed along the yard it hangs from. Two
-	// lengths tapering out to the arms rather than one bar, because a furled course is fattest
-	// where the most cloth is gathered — at the slings, amidships.
+	// The bundle: the handed canvas, gathered and lashed along the yard it hangs from. Two lengths
+	// tapering out to the arms rather than one bar, because a furled course is fattest where the
+	// most cloth is gathered — at the slings, amidships.
 	if handed > 0.01 {
 		bulk := RIG_FURLED_BULK * clamp(handed, 0, 1)
 		cloth := colour_shade(COLOUR_PARCHMENT, 0.94)

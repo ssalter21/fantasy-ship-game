@@ -304,7 +304,7 @@ draw_build_surface_body :: proc(
 	// The ship herself, and everything that reads off her rooms: the hover highlight and its
 	// description card, and — while a drag is up — the berths the fitting in hand may land in
 	// lit and the rest dimmed (#302).
-	draw_ship_cutaway(state, framing, drag, mouse, true)
+	draw_ship_cutaway(state, framing, drag, mouse, describe = true)
 
 	incoming, has_incoming := state.refit_incoming.?
 	dragging := drag.active

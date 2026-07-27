@@ -135,12 +135,12 @@ the_travel_starts_at_the_ship_screen_and_settles_alongside :: proc(t: ^testing.T
 	// misses either end is a pop at that end.
 	start := offer_shop_travel(0)
 	testing.expect_value(t, start.framing.view, ship_framing_moored().view)
-	testing.expect_value(t, start.framing.furl, 0)
+	testing.expect_value(t, start.framing.handed, 0)
 	testing.expect_value(t, start.arrival, 0)
 
 	rest := offer_shop_alongside()
 	testing.expect_value(t, rest.framing.view, cutaway.galleon_view_from(cutaway.GALLEON_ALONGSIDE_EYE, WINDOW_WIDTH, WINDOW_HEIGHT))
-	testing.expect_value(t, rest.framing.furl, 1)
+	testing.expect_value(t, rest.framing.handed, 1)
 	testing.expect_value(t, rest.arrival, 1)
 
 	// The column is held back to the last stretch: paper travelling while the ship is still
@@ -152,7 +152,7 @@ the_travel_starts_at_the_ship_screen_and_settles_alongside :: proc(t: ^testing.T
 	previous := start
 	for step in 1 ..= 20 {
 		now := offer_shop_travel(f32(step) / 20)
-		testing.expect(t, now.framing.furl >= previous.framing.furl, "the canvas is only ever handed further")
+		testing.expect(t, now.framing.handed >= previous.framing.handed, "the canvas is only ever handed further")
 		testing.expect(t, now.arrival >= previous.arrival, "the column only ever comes further in")
 		testing.expect(t, now.framing.view.camera.position.y >= previous.framing.view.camera.position.y, "the eye only rises")
 		previous = now

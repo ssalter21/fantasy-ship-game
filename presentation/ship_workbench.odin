@@ -108,7 +108,7 @@ workbench_main :: proc() {
 		// The tool's own eye, handed in as an ordinary framing: the shipped view is not something
 		// this can move, it simply asks for a different one (#476).
 		flown := ship_framing_from(cutaway.galleon_view_from(w.eye, WINDOW_WIDTH, WINDOW_HEIGHT))
-		draw_ship_cutaway(&w.game, flown, Build_Drag{}, rl.GetMousePosition(), true)
+		draw_ship_cutaway(&w.game, flown, Build_Drag{}, rl.GetMousePosition(), describe = true)
 		workbench_panel(&w)
 		rl.EndDrawing()
 		free_all(context.temp_allocator)

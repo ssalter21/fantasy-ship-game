@@ -29,19 +29,22 @@ Room_Highlight :: enum {
 }
 
 // Ship_Framing is the whole of how the galleon is presented this frame: the camera and
-// projection she is drawn through, where the sea's edge falls under it, and how far her canvas
-// is handed. **The caller picks it and hands the same one to the draw and to the berth
-// hit-test**, which is what stops the two disagreeing about where a berth is on screen — they
-// each built their own before there was more than one framing to build (#476).
+// projection she is drawn through, where the backdrop's sky meets its sea under it, and how far
+// her canvas is handed. **The caller picks it and hands the same one to the draw and to the
+// berth hit-test**, which is what stops the two disagreeing about where a berth is on screen
+// (ADR-0032).
 //
-// The horizon is carried rather than re-derived because a framing part-way through a move
-// between two projections has no exact one: the camera the eye is looking through is a blend,
-// and the sea's edge under it has to be blended too (ship_framing_travelling). Every other
-// framing simply asks the cutaway module.
+// `horizon` is the backdrop's join and nothing else. Water that belongs to the *hull* — the foam
+// up her planking, the stream turning at her stem — is projected off her own waterline instead
+// (galleon_waterline_y), because from an eye off the water plane the two are different lines.
+//
+// `handed` is how far she has been worked in to a berth: 0 at sea under full sail, 1 alongside
+// with her canvas gathered on braced-round yards. See draw_ship_rig for why the stage framing
+// needs it.
 Ship_Framing :: struct {
 	view:    cutaway.View,
 	horizon: f32,
-	furl:    f32,
+	handed:  f32,
 }
 
 // ship_framing_moored is the shipped ship screen's own framing — the three-quarter cutaway off
@@ -53,33 +56,31 @@ ship_framing_moored :: proc() -> Ship_Framing {
 
 // ship_framing_travelling is the framing `k` of the way from moored to alongside: the camera
 // swinging to her beam and its projection straightening out from perspective toward
-// orthographic, her canvas being handed as she comes in, and the sea's edge going with them.
-// k = 0 is exactly the ship screen and k = 1 exactly the stage, so a stage that enters at 0 and
-// settles at 1 pops at neither end.
+// orthographic, and her canvas handed as she comes in. k = 0 is exactly the ship screen and
+// k = 1 exactly the stage, so a stage that enters at 0 and settles at 1 pops at neither end.
 //
-// The horizon is the one thing blended in *screen* space rather than derived. A nearly
-// orthographic projection still has a vanishing point, but it rockets off frame as k approaches
-// 1 where the true answer is most of the way down it — see galleon_horizon_y. Blending the two
-// ends is an approximation, but a monotone one that is exact at both, which is the whole of what
-// a horizon has to be for the 0.9 seconds a camera is moving.
+// Mid-move the eye is off the water plane, where the sea has no single edge to find — so the
+// backdrop's join follows *her waterline* rather than a vanishing point that would run off frame
+// as k approaches 1. The two are the same line at both ends.
 ship_framing_travelling :: proc(k: f32) -> Ship_Framing {
-	moored := cutaway.GALLEON_EYE
-	alongside := cutaway.GALLEON_ALONGSIDE_EYE
-	view := cutaway.galleon_view_between(moored, alongside, k, WINDOW_WIDTH, WINDOW_HEIGHT)
-
-	from := cutaway.galleon_horizon_y(cutaway.galleon_view_from(moored, WINDOW_WIDTH, WINDOW_HEIGHT))
-	to := cutaway.galleon_horizon_y(cutaway.galleon_view_from(alongside, WINDOW_WIDTH, WINDOW_HEIGHT))
+	view := cutaway.galleon_view_between(
+		cutaway.GALLEON_EYE,
+		cutaway.GALLEON_ALONGSIDE_EYE,
+		k,
+		WINDOW_WIDTH,
+		WINDOW_HEIGHT,
+	)
 	return Ship_Framing {
 		view = view,
-		horizon = backdrop_floor(from + (to - from) * clamp(k, 0, 1)),
-		furl = clamp(k, 0, 1),
+		horizon = backdrop_floor(cutaway.galleon_waterline_y(view)),
+		handed = clamp(k, 0, 1),
 	}
 }
 
 // ship_framing_from is a framing over an arbitrary view, with the sea's edge derived from it and
-// full sail set. The horizon goes onto the art lattice here: the sky's last row, the sea's first
-// and the foam standing up her planking all key off this one number, and a backdrop snapped
-// around an unsnapped horizon leaves a part-pixel seam along the join.
+// full sail set. The horizon goes onto the art lattice here: the sky's last row and the sea's
+// first both key off this one number, and a backdrop snapped around an unsnapped horizon leaves
+// a part-pixel seam along the join.
 ship_framing_from :: proc(view: cutaway.View) -> Ship_Framing {
 	return Ship_Framing{view = view, horizon = backdrop_floor(cutaway.galleon_horizon_y(view))}
 }
@@ -91,7 +92,7 @@ ship_framing_from :: proc(view: cutaway.View) -> Ship_Framing {
 //
 // `describe` is whether a hovered berth pops that card at all: the Build surface has open water
 // bottom-right to throw one into, where an Offer or Shop has a column of parchment standing in
-// exactly that corner (#476).
+// exactly that corner (ADR-0032).
 draw_ship_cutaway :: proc(
 	state: ^Game_State,
 	framing: Ship_Framing,
@@ -103,7 +104,7 @@ draw_ship_cutaway :: proc(
 	horizon := framing.horizon
 	draw_ship_sky(horizon)
 	draw_ship_sea(horizon)
-	draw_ship_wake(view, horizon)
+	draw_ship_wake(view)
 
 	rooms, n := cutaway.galleon_rooms(state.player.layout)
 
@@ -116,13 +117,12 @@ draw_ship_cutaway :: proc(
 
 	ship_paint_view(view.camera)
 	rl.BeginMode3D(view.camera)
-	// The projection the *view* carries, replacing the one BeginMode3D just derived from the
-	// camera. Overriding after BeginMode3D is deliberate: BeginMode3D pushes the projection stack
-	// and loads a matrix, and this replaces the one rlgl will actually settle the queued batch
-	// with. EndMode3D pops the stack, so nothing leaks past this block. It is what lets a framing
-	// mid-way between two projections draw at all — and it is also what makes the hull and
-	// galleon_project agree exactly, where before one asked BeginMode3D and the other asked
-	// GetWorldToScreenEx and the two built the same matrix twice.
+	// The projection the *view* carries, over the one BeginMode3D derives from the camera.
+	// Overriding after BeginMode3D is deliberate: BeginMode3D pushes the projection stack and
+	// loads a matrix, and this replaces the one rlgl will settle the queued batch with. EndMode3D
+	// pops the stack, so nothing leaks past this block. It is what lets a framing mid-way between
+	// two projections draw at all, and it is the same matrix galleon_project uses, so the hull and
+	// everything registered to it cannot disagree.
 	rlgl.SetMatrixProjection(view.projection)
 	// The wireframe view is bracketed by explicit batch flushes. Wire mode is a GL polygon-mode
 	// switch, but rlgl queues geometry and only settles it when the batch fills or is drawn — so
@@ -137,7 +137,7 @@ draw_ship_cutaway :: proc(
 		draw_ship_room(rooms[i], ship_room_timber(rooms[i].kind))
 	}
 	draw_ship_ornament(rooms, n)
-	draw_ship_rig(framing.furl)
+	draw_ship_rig(framing.handed)
 	if ship_debug_wires {
 		rlgl.DrawRenderBatchActive()
 		rlgl.DisableWireMode()
@@ -145,7 +145,7 @@ draw_ship_cutaway :: proc(
 	rl.EndMode3D()
 
 	// The foam standing up her planking goes on last, over the hull it is breaking against.
-	draw_ship_waterline(view, horizon)
+	draw_ship_waterline(view)
 
 	// Highlights wash over the openings rather than tinting the timber: a room's inside is
 	// mostly shadow and a colour mixed into the wood barely reads, where a wash across the

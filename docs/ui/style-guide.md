@@ -485,6 +485,21 @@ For panels, framing is a **2px border in the tone that states the panel's role**
 panels; that translucency is what makes chrome sit *on* a world rather than cover it. Starting alpha for a
 scrim: `rl.Fade(ground, 0.55)`, tuned by eye.
 
+**Over the sea, paper is opaque and casts a shadow.** The rule above assumes a dark ground: a translucent
+panel over `COLOUR_DEEP` still reads as a panel, because there is nothing behind it with any structure. Over
+the ship screen's own water there is — sun glitter, chop, a hull-down island — and a translucent card lets
+that read straight *through* the paper as a stain, which costs the panel its own ground. So a card laid over
+the sea takes solid `#EBD9A6` parchment and a cast shadow (`rl.Fade(COLOUR_SEA_DEEP, 0.45)`, offset a few
+pixels down and right). The shadow, not a glow: the water is bright, so the only way paper sits above it is by
+darkening what is under the paper.
+
+The same reversal governs **dimming**: state that a card is unavailable with a `colour_shade`d sheet and
+duller ink, never with alpha. Alpha over a dark ground dims; alpha over a bright one just lets the world in.
+
+And a screen whose body **is** the world — the ship screen and the stages that reframe it (ADR-0032) — draws
+**no vignette at all**, per the rule above. Its headings take cream over the sea rather than a tint or a steel
+picked for `COLOUR_DEEP`.
+
 ### Proportions
 
 These proportions were **measured from the now-removed `menu-ui-mock.png`** (recorded in the references README)

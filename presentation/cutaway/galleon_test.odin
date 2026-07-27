@@ -96,11 +96,10 @@ the_shipped_view_is_the_shipped_eye :: proc(t: ^testing.T) {
 
 @(test)
 projecting_through_the_carried_matrix_is_raylibs_own_answer :: proc(t: ^testing.T) {
-	// galleon_project stopped asking rl.GetWorldToScreenEx when the View started carrying its
-	// projection (#476) — a blended projection is not a thing a camera can describe, so the
-	// matrix had to come out of the camera and into the view. The arithmetic is otherwise
-	// raylib's, and this is what says so: for an ordinary perspective view the two agree, so
-	// nothing on the shipped ship screen moved by a pixel when the seam opened.
+	// galleon_project is raylib's own GetWorldToScreenEx arithmetic with the projection taken from
+	// the view rather than rebuilt from the camera — a blended projection being something no
+	// camera can describe (ADR-0032). This holds the two to the same answer for an ordinary
+	// perspective view, so the shipped ship screen cannot drift by a pixel from raylib's.
 	view := galleon_view(FRAME_W, FRAME_H)
 	probes := [?]rl.Vector3 {
 		{GALLEON_BOW_X, 0, 0},
@@ -128,7 +127,9 @@ the_alongside_framing_is_orthographic_and_level :: proc(t: ^testing.T) {
 	// an orthographic camera whose axis is not horizontal has a water plane with no edge at all,
 	// so the eye that presents her broadside must look dead level.
 	testing.expect_value(t, GALLEON_ALONGSIDE_EYE.height, GALLEON_ALONGSIDE_EYE.look)
-	testing.expect(t, GALLEON_ALONGSIDE_EYE.ortho > 0, "the alongside framing is orthographic")
+	alongside := GALLEON_ALONGSIDE_EYE
+	_, flat := alongside.ortho.?
+	testing.expect(t, flat, "the alongside framing is orthographic")
 
 	view := galleon_view_from(GALLEON_ALONGSIDE_EYE, FRAME_W, FRAME_H)
 	testing.expect_value(t, view.camera.projection, rl.CameraProjection.ORTHOGRAPHIC)
@@ -200,6 +201,47 @@ pointing_into_a_room_picks_its_slot_alongside_too :: proc(t: ^testing.T) {
 		if over {
 			testing.expect_value(t, hit, rooms[i].slot)
 		}
+	}
+}
+
+@(test)
+her_waterline_stays_a_straight_line_through_the_travel :: proc(t: ^testing.T) {
+	// The foam standing up her planking walks her length and takes its row by interpolating stem
+	// to stern. That is only exact if her waterline projects to a straight line, and it does at
+	// every k because a projective transform takes straight lines to straight lines — but only
+	// because the *whole* pipeline is one matrix now, so this is the property that says so.
+	//
+	// It is not a horizontal line, and that is the point. From an eye on the water plane every
+	// point at y = 0 lands on one row; part-way through the travel the eye is off the plane and
+	// her waterline spreads over a band, which is what foam pinned to a single painted row falls
+	// off by a dozen pixels.
+	for step in 0 ..= 10 {
+		k := f32(step) / 10
+		view := galleon_view_between(GALLEON_EYE, GALLEON_ALONGSIDE_EYE, k, FRAME_W, FRAME_H)
+		bow := galleon_project({GALLEON_BOW_X, 0, 0}, view)
+		stern := galleon_project({GALLEON_STERN_X, 0, 0}, view)
+		for n in 1 ..< 8 {
+			f := f32(n) / 8
+			x := GALLEON_BOW_X + (GALLEON_STERN_X - GALLEON_BOW_X) * f
+			along := galleon_project(rl.Vector3{x, 0, 0}, view)
+			lerped := bow + (stern - bow) * ((along.x - bow.x) / (stern.x - bow.x))
+			testing.expectf(
+				t,
+				abs(along.y - lerped.y) < 0.05,
+				"k=%.1f: her waterline at x=%.2f lands at %.2f, off the stem-to-stern line by %.2f",
+				k,
+				x,
+				along.y,
+				along.y - lerped.y,
+			)
+		}
+	}
+
+	// And the backdrop's sea edge is her waterline at both ends of the travel, so the join and the
+	// hull agree exactly where the move starts and stops.
+	for eye in ([2]Eye{GALLEON_EYE, GALLEON_ALONGSIDE_EYE}) {
+		view := galleon_view_from(eye, FRAME_W, FRAME_H)
+		testing.expect_value(t, galleon_horizon_y(view), galleon_waterline_y(view))
 	}
 }
 

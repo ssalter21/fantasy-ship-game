@@ -17,13 +17,11 @@ import rl "vendor:raylib"
 // finishes on its own (build_surface_loop's shelf-drag bridge). So the Sim keeps its
 // choose-then-refit path unchanged — the spine only collapses it in presentation.
 //
-// **The stage is the ship screen under a different camera** (#476). It was a flat 2D hull sketch
-// with a vertical shelf of steel cards, in a visual language that shared nothing with the screen
-// the player had just come from; it is now the real galleon, same sky, sea, hull, rooms,
-// ornament, rig and waterline, drawn dead broadside under an *orthographic* projection and
-// panned to port, with the stock beside her as one aligned column of parchment. And entering the
-// stage does not cut to that framing — it **travels** there from the framing the player is
-// already looking at (offer_shop_travel).
+// **The stage is the ship screen under a different camera** (ADR-0032): the real galleon, same
+// sky, sea, hull, rooms, ornament, rig and waterline, drawn dead broadside under an orthographic
+// projection and panned to port, with the stock beside her as one aligned column of parchment.
+// Entering the stage does not cut to that framing — it **travels** there from the framing the
+// player is already looking at (offer_shop_travel).
 //
 // The column is the same for both stages, because the only thing that differs between an Offer
 // and a Shop is whether an option carries a price. A Shop reads its cost three ways: the price
@@ -58,7 +56,7 @@ offer_shop_ease :: proc(t: f32) -> f32 {
 // Offer_Shop_Travel is where the move has got to, as everything one frame is composed against:
 // the framing to draw and hit-test the ship through, and how far in the column has come. Built
 // once a frame and handed to the draw *and* to the berth hit-test, so the two cannot disagree
-// about where a berth is (#476).
+// about where a berth is (ADR-0032).
 Offer_Shop_Travel :: struct {
 	framing: Ship_Framing,
 	arrival: f32,
@@ -273,10 +271,7 @@ offer_shop_loop :: proc(state: ^Game_State) -> sim.Command {
 	// within one refit, but clear it here too so nothing stale survives into this stop.
 	state.pending_shelf_install = nil
 
-	// The travel in, once per *stop* rather than once per loop call: a Shop re-enters this loop
-	// after every buy with a refilled shelf, and swinging the camera round again each time would
-	// make a second purchase cost 0.9 seconds of scenery. Event_Stage_Entered is what clears the
-	// flag, so the next stage travels afresh.
+	// Once per stop, not once per call — see Game_State.stage_alongside.
 	if !state.stage_alongside {
 		offer_shop_come_alongside(state)
 		state.stage_alongside = true
@@ -347,7 +342,7 @@ draw_offer_shop :: proc(state: ^Game_State, stage: Offer_Shop_Travel, drag: Shel
 	// waterline — and, while a card is in hand, every berth answering whether it will take it.
 	// No hovered-berth description card: the Build surface has open water bottom-right to throw
 	// one into, where this screen has the column standing in exactly that corner.
-	draw_ship_cutaway(state, stage.framing, offer_shop_in_hand(drag), mouse, false)
+	draw_ship_cutaway(state, stage.framing, offer_shop_in_hand(drag), mouse, describe = false)
 
 	if stage.arrival > 0 {
 		draw_offer_shop_column(state, kind, drag, mouse, (1 - stage.arrival) * OFFER_SHOP_COLUMN_THROW)
@@ -411,10 +406,8 @@ draw_offer_shop_column :: proc(state: ^Game_State, kind: voyage.Stage_Kind, drag
 // draw_offer_shop_card renders one option on opaque parchment: its name, what it is for, its
 // spec, and — a Shop card — its price scanning down the same right-hand line as every other.
 //
-// Unaffordable dims **by tone, never by alpha**. Translucency costs a panel its own ground: an
-// alpha-dimmed card let a hull-down island read straight through it as a stain, which is the
-// price of putting paper over a bright sea rather than over a dark panel. A shaded-down sheet
-// and duller ink say the same thing and stay paper.
+// Unaffordable dims **by tone, never by alpha**: over a bright sea, translucency costs a panel
+// its own ground and the hull-down islands read through the card as stains (ADR-0032).
 draw_offer_shop_card :: proc(rect: rl.Rectangle, option: sim.Stage_Option, affordable: bool) {
 	// A cast shadow, not a glow: the sea is bright, so the only way paper sits above it is to
 	// darken what is under the paper.

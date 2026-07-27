@@ -25,11 +25,10 @@ ENCOUNTER_STAT_MARGIN :: 24
 // stage_tint the node and chip carry — one word, no strip and no preview. A label, not a
 // control, so it takes no control tone.
 //
-// `over_water` swaps that tint for cream, which is the guide's own answer for a heading placed
-// over the sea rather than on a dark ground: every stage_tint is a muted hue picked to sit on
-// COLOUR_DEEP, and the Shop's muted sky over an actual sky is a word you cannot read. The
-// category read is not lost with it — the header still says the word, and the map marker the
-// captain sailed in on still carries the hue.
+// `over_water` swaps that tint for cream, the guide's own answer for a heading placed over the
+// sea: every stage_tint is a muted hue picked to sit on COLOUR_DEEP, and the Shop's muted sky
+// over an actual sky is a word you cannot read. The category read survives in the word and on the
+// map marker the captain sailed in on.
 draw_encounter_header :: proc(kind: voyage.Stage_Kind, over_water: bool) {
 	rl.DrawTextEx(
 		ui_font_body,
@@ -180,14 +179,9 @@ draw_playback_overlay :: proc(headline: string) {
 // of the furniture untouched.
 //
 // `over_water` is the one thing a stage may say about its own body, and one stage says it. Every
-// tone here — the vignette, the tinted header, the steel stat line — was picked for a body drawn
-// on COLOUR_DEEP. An Offer or Shop's body is now the ship screen's own sky and sea (#476), the
-// brightest surface in the game, and on that ground the vignette reads as looking at her through
-// glass while both text marks read as very little at all. The guide already answers both: the
-// framing signal is the torn parchment edge and *not* a dark vignette, and a heading placed over
-// the sea takes cream. Home and the Build surface draw the same water and have never carried a
-// vignette either. Every piece of furniture is still drawn, in the same place; it is the tones
-// that follow the ground under them.
+// tone here was picked for a body drawn on COLOUR_DEEP; an Offer or Shop's body is the ship
+// screen's own sky and sea, the brightest surface in the game. Every piece of furniture is still
+// drawn, in the same place — it is the tones that follow the ground under them. ADR-0032.
 draw_encounter_chrome :: proc(
 	state: ^Game_State,
 	kind: voyage.Stage_Kind,

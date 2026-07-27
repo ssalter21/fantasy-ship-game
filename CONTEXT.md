@@ -96,6 +96,10 @@ The in-voyage UI is **two top-level modes** — Home and Encounter — and nothi
   _Avoid_: arrow keys or a screen-switch — the flick lays a second live surface over the first.
 - **The shelf** — the temporary source container an Offer or Shop stage adds beside the ship's slots: the items on offer / the stock. Taking one is an ordinary refit move; only a Shop's shelf→ship transfer costs cargo. Stage-scoped.
   _Avoid_: an inventory — not a store carried between nodes.
+- **Framing** — one whole choice of how the ship is presented on a screen: the camera, the projection it draws through, where the sea's edge falls under it, and how far her canvas is handed. **Chosen by the caller and handed to the draw and the berth hit-test alike**, so the painted berth and the picked berth cannot disagree. Two are shipped — **moored** (the three-quarter cutaway off her port bow, the ship screen's own) and **alongside** (dead broadside, orthographic, panned to port, her canvas handed on braced-round yards: what an Offer or Shop presents her under) — and the hull workbench flies a third. ADR-0032.
+  _Avoid_: camera or view for the whole of it — the camera is one field of a framing; "the view" is the camera plus its projection matrix and frame size.
+- **The travel** — the ~0.9s move from one framing to another that entering an Offer or Shop plays instead of cutting: the camera swings to her beam while the projection matrices blend, so her hull straightens and her canvas foreshortens away continuously. Plays once per **stop**, not once per screen entry — a Shop re-presents its shelf after every buy. ADR-0032.
+  _Avoid_: a transition or a cut; "the flick", which is the chart's gesture.
 - **Playback layer** — the single shared, blocking beat overlay any stage invokes on top of itself; every `Event_Sink` beat renders through it. A shared surface, not a change to the blocking contract (ADR-0002, ADR-0022).
   _Avoid_: each stage drawing its own beats.
 
