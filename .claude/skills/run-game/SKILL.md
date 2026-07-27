@@ -226,6 +226,10 @@ the PR beside the code that moved them.
 better, and it holds hashes rather than images so it cannot show you the change. Park the before-shot
 and `diff` it (above), then accept. The check aims the look; it does not stand in for it.
 
+**`check` re-renders, so it overwrites `docs/ui/shots/`** — like any capture, and including the very
+frame you meant to diff against. Park the before-shot outside that directory *first*; the check names
+the screens that moved but cannot show you a frame it has already replaced.
+
 Two limits worth knowing before you trust a result:
 
 - **The named shots only.** The voyage screens are reached by walking and numbered by position — the
@@ -378,9 +382,10 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
   `EndDrawing` just presented, so a single draw screenshots the *previous* frame. Keep the double draw.
 - **Capture pins the chart's idle clock** (`juice_clock_pin`, at `CAPTURE_CLOCK`), so the moored
   ship's rock photographs the same frame every run instead of wherever the wall clock had got to. A
-  session never pins it — the motion is what the clock is for. If you add juice that rides
-  `rl.GetTime()`, read it through `juice_now()` or the shot of it differs from itself run to run and
-  the manifest check reports a screen that nothing changed.
+  session never pins it — the motion is what the clock is for. The rule is about **draw-time** reads:
+  a `draw_` proc that reads `rl.GetTime()` directly photographs differently every run, so read it
+  through `juice_now()`. A loop-side advance (`chart_settle`, `sail_advance`) may read
+  `rl.GetFrameTime()` freely — capture never enters those loops, so its shots don't see them.
 - There is no `cmd/capture`: capture lives in the presentation package beside the private `draw_scene`,
   `Game_State` and `dispatch` it photographs, and `cmd/game` enters it behind `--capture` and `--shot`
   (ADR-0003 argues against linking the renderer into `cmd/headless`, not against this).

@@ -200,8 +200,7 @@ capture_scene_destroy :: proc(scene: ^Capture_Scene) {
 }
 
 // capture_take_all shoots every registry entry, each numbered by its place in the table.
-// Both the whole-set entry and the scripted walk go through here, so the set they render
-// is one loop over one registry rather than two lists to drift.
+// Both the whole-set entry and the scripted walk render their standalone shots through here.
 @(private)
 capture_take_all :: proc(state: ^Capture_State) {
 	for shot, number in capture_shots {
@@ -209,11 +208,10 @@ capture_take_all :: proc(state: ^Capture_State) {
 	}
 }
 
-// capture_shots_main renders the whole standalone set and returns, without the voyage
-// walk --capture follows it with. One window serves every shot, so the set costs about
-// what a handful of targeted runs would. Reports whether every entry landed — a partial
-// set is a failure, since a caller comparing the shots against a manifest would otherwise
-// read a stale PNG as an unchanged screen.
+// capture_shots_main renders the whole standalone set in one window and returns, without the
+// voyage walk --capture follows it with. Reports whether every entry landed: a partial set is a
+// failure, since a caller comparing the shots against a manifest would read the stale PNG left
+// in place of a missing one as an unchanged screen.
 capture_shots_main :: proc() -> bool {
 	capture_open("Fantasy Ship Game (shots)")
 	defer capture_close()
@@ -637,8 +635,8 @@ capture_frame_fight_jettison :: proc(scene: ^Capture_Scene) -> bool {
 
 // capture_write writes the presented frame to CAPTURE_DIR under `number`, so the shots
 // carry the walk order a session reading them back follows. Reports whether the file
-// landed there, and names it on stdout — one `capture: wrote <path>` line per shot, so a
-// run says which files it produced rather than only how many.
+// landed there, and names it on stdout — one `capture: wrote <path>` line per shot, which is
+// how a caller learns the set a run produced.
 //
 // Callers draw their frame twice before calling: rl.TakeScreenshot reads back the
 // framebuffer that EndDrawing just presented, so a single draw would screenshot
