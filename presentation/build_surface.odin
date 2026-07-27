@@ -18,8 +18,8 @@ import rlgl "vendor:raylib/rlgl"
 // tracks its slot size so size reads without a number. Refit is drag-first:
 // press-drag-release installs / moves / swaps, the exact-size fit rule left to the Sim (an
 // illegal drop returns Event_Refit_Rejected and snaps back). Nothing on the surface is singled
-// out by colour: the granted item on the shelf, the card in hand and the Done tag are all
-// ordinary controls, and only the two destructive drops reach for the reserved coral.
+// out by colour: the shelf item, the card in hand and the Done tag are all ordinary controls,
+// and only the destructive drops reach for the reserved coral (BUILD_DANGER).
 //
 // Split composition (draw_build_surface) from polling (build_surface_loop) like the Chart
 // Table, so --capture photographs it (#277, style guide).
@@ -32,17 +32,16 @@ BUILD_LEDGER_H :: 34
 BUILD_HEADING_Y :: 28
 BUILD_SHELF_Y :: 470
 
-// BUILD_DANGER is the tone of the surface's destructive acts — the roster's reserved coral. It
-// reaches three places: the discard bin, an armed hold ledger, and the confirm gate's yes. With
-// amber retired it is the only colour with a job on this screen, which makes keeping it scarce
-// the whole discipline rather than one of two.
+// BUILD_DANGER is the tone of the surface's destructive acts — the roster's reserved coral, and
+// the only colour with a job on this screen. It reaches three places: the discard bin, an armed
+// hold ledger, and the confirm gate's yes.
 //
-// The guide holds coral to one appearance per screen, and the bin and an armed ledger are both
-// up during a laden drag. That is deliberate here: the two are one signal, "a drop here destroys
+// The guide holds coral to one appearance per screen, and the bin and an armed ledger are both up
+// during a laden drag. That is deliberate: the two are one signal, "a drop here destroys
 // something", on the only two places it is true, and neither is on screen unless a fitting is
 // already in hand. The rule guards against diluting a scarce colour across unrelated meanings,
-// which is not what this is. The gate is the same signal a third time and never concurrent with
-// either — it only opens once the drag has ended and both drop targets are gone.
+// which is not what this is. The gate carries the same signal and cannot coincide with either —
+// it only opens once the drag has ended and both drop targets are gone.
 BUILD_DANGER :: COLOUR_CORAL
 
 // Build_Drag is a press-drag-release in progress: the drag primitive #302 builds here for refit.
@@ -57,9 +56,8 @@ Build_Drag :: struct {
 	fitting:   ship.Fitting,
 }
 
-// build_shelf_rect is where a granted item rests, centred below the holds. Centred and under
-// the ship is what makes it the thing to act on — it is in the way of everything else, which
-// is the placement doing the work a fill used to (#302).
+// build_shelf_rect is where a granted item rests, centred below the holds. That placement is
+// what marks it as the thing to act on: it sits in the way of everything else on the surface.
 build_shelf_rect :: proc(incoming: ship.Fitting) -> rl.Rectangle {
 	w, h := cutaway.cutaway_card_dims(incoming.size)
 	return rl.Rectangle{x = (WINDOW_WIDTH - w) / 2, y = BUILD_SHELF_Y, width = w, height = h}
@@ -526,20 +524,22 @@ draw_build_dashed_rect :: proc(rect: rl.Rectangle, colour: rl.Color) {
 	}
 }
 
-// draw_build_shelf draws a granted item at rest: a parchment card with the sea-deep
-// interactive border, the same treatment draw_ship_slot_card gives a berth's card, because it
-// is the same kind of object — a fitting written up on paper — and that border is the roster's
-// one "you can operate this" mark (style guide, "Controls do not have a signal colour"). What
-// says it is the thing to act on is the line under it, not a fill — which is why that line is
-// now the card's own parchment and not the dim cyan it was. Dim cyan sits on the bright sea all
-// but invisibly, which cost nothing while amber was carrying the signal and costs the whole
-// signal now that the wording is carrying it. Parchment rather than COLOUR_CREAM: this surface
-// is painted from the guide's bright roster, and cream is the superseded navy block's tone (the
-// two are within a few points of each other anyway).
+// draw_fitting_card lays down the paper a fitting is written up on: parchment under the
+// sea-deep border that marks anything on this surface you can operate. `alpha` fades the
+// ground for a card in flight. The berth cards (draw_ship_slot_card) are the same object drawn
+// the same way; keep the three in step.
+draw_fitting_card :: proc(rect: rl.Rectangle, alpha: f32 = 1) {
+	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, alpha))
+	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
+}
+
+// draw_build_shelf draws a granted item at rest. Nothing about the card singles it out — no
+// colour on the roster means "act here" (style guide, "Controls do not have a signal colour")
+// — so the caption under it is what says to drag it, and the caption is therefore load-bearing
+// rather than decorative. It sits over open water, which is what cream is for on the roster.
 draw_build_shelf :: proc(incoming: ship.Fitting) {
 	rect := build_shelf_rect(incoming)
-	rl.DrawRectangleRec(rect, COLOUR_PARCHMENT)
-	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
+	draw_fitting_card(rect)
 	x := rect.x + 12
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", incoming.name), rl.Vector2{x, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
 	spec, intent := fitting_summary_lines(incoming)
@@ -551,23 +551,18 @@ draw_build_shelf :: proc(incoming: ship.Fitting) {
 		rl.Vector2{rect.x, rect.y + rect.height + 6},
 		UI_BODY_SIZE,
 		1,
-		COLOUR_PARCHMENT,
+		COLOUR_CREAM_BRIGHT,
 	)
 }
 
-// draw_build_ghost draws the fitting under the cursor while it is dragged — the resting card
-// again, translucent and centred on the mouse.
-//
-// It carries no colour of its own, and did not need one: "this is the thing in your hand" is
-// said by the card having left its place and following the cursor, which is a claim about
-// motion, not rank. The card it lifted out of has vanished for as long as the drag lasts
-// (draw_build_surface_body skips the shelf while dragging), so the two are never both up and
-// the eye has one card to follow.
+// draw_build_ghost draws the fitting under the cursor while it is dragged: the resting card,
+// translucent and centred on the mouse. What says "this is in your hand" is that it follows the
+// cursor, so it needs no tone of its own. draw_build_surface_body hides the shelf for the
+// duration of the drag, so there is only ever one of these cards on screen.
 draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
 	w, h := cutaway.cutaway_card_dims(fitting.size)
 	rect := rl.Rectangle{x = mouse.x - w / 2, y = mouse.y - h / 2, width = w, height = h}
-	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, 0.85))
-	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
+	draw_fitting_card(rect, 0.85)
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", fitting.name), rl.Vector2{rect.x + 12, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
 	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%v", fitting.size), rl.Vector2{rect.x + 12, rect.y + 38}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
 }
@@ -688,12 +683,9 @@ draw_build_discard_zone :: proc(hovered: bool) {
 // cargo (#302, #401). The wording is the whole difference between the two: a discard loses the
 // fitting, a burn loses the cargo and keeps the fitting.
 //
-// The gate's yes takes the danger tone, not the ordinary control's. Drawing it like every other
-// control would be the wrong reading of "no colour means act here": the guide retires a colour
-// for *the default action*, and this is not one — it is the roster's reserved coral doing the
-// job it is reserved for, on the one control on the surface that destroys something. It matches
-// the discard bin's treatment because it is the bin's second half. Coral appears once: the gate
-// is only up after the drag has ended, so neither the bin nor an armed ledger is on screen.
+// The yes takes the danger tone, in the discard bin's treatment, because it is the bin's second
+// half — the guide's "no colour means act here" governs the *default action*, and a destructive
+// confirmation is not one. See BUILD_DANGER for why coral reaching here stays scarce.
 draw_build_confirm :: proc(state: ^Game_State, confirm: Build_Confirm, mouse: rl.Vector2) {
 	rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, rl.Fade(COLOUR_VIGNETTE, 0.7))
 	name := "this fitting"
@@ -735,7 +727,7 @@ draw_build_confirm :: proc(state: ^Game_State, confirm: Build_Confirm, mouse: rl
 
 // Home is the Build surface made the persistent between-encounters screen (#317, ADR-0024):
 // the same Cutaway as a granted Refit, but the player's own resting ground rather than a modal
-// the Sim hands them. There is no granted item, so no amber and no shelf — drags do free
+// the Sim hands them. There is no granted item, so no shelf — drags do free
 // reallocation (a slot Move, or a drag-off-to-Jettison Remove), each a Command_Refit the Sim
 // applies in place and stays at anchor (sim_process_anchor_refit). In place of the Refit's Done,
 // the **chart** flips up over the surface on a click of the bottom-centre tab; a click on a

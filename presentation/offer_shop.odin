@@ -18,10 +18,10 @@ import rl "vendor:raylib"
 // choose-then-refit path unchanged — the spine only collapses it in presentation.
 //
 // The shelf cards are steel draggable options, all drawn alike: an Offer's items are free, a
-// Shop's are priced, and neither is "the one thing to act on" — which is also what the style
-// guide now says of every control ("Controls do not have a signal colour"). The card in hand
-// is the same card following the cursor, one at a time (draw_build_ghost, shared with the
-// Build surface). A Shop reads its cost three ways: a price on each card, an
+// Shop's are priced, and neither is "the one thing to act on" — which is what the style guide
+// says of every control ("Controls do not have a signal colour"). The card in hand is the same
+// card following the cursor, one at a time (draw_build_ghost, shared with the Build surface).
+// A Shop reads its cost three ways: a price on each card, an
 // unaffordable card dimmed and undraggable, and a live cargo projection in the stat line the
 // moment a priced card is picked up.
 //

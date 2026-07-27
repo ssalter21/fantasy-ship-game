@@ -159,14 +159,13 @@ draw_menu_title_scrim :: proc() {
 	rl.DrawRectangleGradientV(0, CHART_TABLE_TITLE_CENTRE_Y, WINDOW_WIDTH, MENU_TITLE_SCRIM_HALF, dark, clear)
 }
 
-// draw_chart_table_button renders one row of the stack. Both rows are drawn the same way,
-// because no colour on the roster means "act here" (style guide, "Controls do not have a
-// signal colour"): a steel border and label over a scrim. Begin reads as the one to press
-// by standing at the head of the stack and by what it says — "Begin a voyage" against
-// "Quit" — which is the placement-and-wording the guide asks for in place of a fill.
+// draw_chart_table_button renders one row of the stack: a steel border and label over a scrim,
+// the same for every row, because no colour on the roster means "act here" (style guide,
+// "Controls do not have a signal colour"). Begin reads as the one to press by standing at the
+// head of the stack and by what it says.
 //
-// Hover is carried by the caret and a lift in the scrim, and now that no row is claimed in
-// advance, either row can take them.
+// Hover is carried by the caret and a lift in the scrim, and no row is claimed in advance, so
+// either can take them.
 draw_chart_table_button :: proc(button: Chart_Table_Button, hovered: bool) {
 	label := fmt.ctprint(button.label)
 	text_pos := rl.Vector2 {

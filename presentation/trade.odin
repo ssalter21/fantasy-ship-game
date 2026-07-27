@@ -21,10 +21,10 @@ import rl "vendor:raylib"
 //
 // The two answers are the same steel control — no colour marks the default action (style guide,
 // "Controls do not have a signal colour") — so Accept is the one to press because it sits left
-// and says Accept. What separates them is affordability, not rank: an unaffordable bargain draws
-// Accept inert recessive-blue, refuses it the hover lift, and won't click; the give card's after
-// sits below its floor, and a dim-cyan shortfall hint names the stat that falls short. No warm
-// warning colour: the screen says "you can't" by going quiet, not by turning red.
+// and says Accept. What the drawing does separate is affordability, not rank: an unaffordable
+// bargain draws Accept inert recessive-blue, refuses it the hover lift, and won't click; the
+// give card's after sits below its floor, and a dim-cyan shortfall hint names the stat that
+// falls short. No warm warning colour.
 //
 // Split composition (draw_trade) from polling (trade_menu_loop) like every other stage, so
 // --capture photographs it at rest (#277).
@@ -65,8 +65,8 @@ trade_get_card_rect :: proc() -> rl.Rectangle {
 }
 
 // trade_accept_rect / trade_decline_rect are the two answers, centred as a pair below the cards.
-// Accept sits left and Decline right, and that order is the whole of what says which one the
-// screen expects: the two are drawn identically, so position carries the rank.
+// The two are drawn identically, so this order is what says which one the screen expects:
+// Accept left, Decline right.
 trade_accept_rect :: proc() -> rl.Rectangle {
 	total := f32(TRADE_BUTTON_W * 2 + TRADE_BUTTON_GAP)
 	return rl.Rectangle {
@@ -233,17 +233,14 @@ draw_trade_arrow :: proc(mid: rl.Vector2, length: f32, colour: rl.Color) {
 	)
 }
 
-// draw_trade_accept draws the left answer. Payable, it is an ordinary live answer — the same
-// steel control Decline is, because no colour on the roster means "act here" (style guide,
-// "Controls do not have a signal colour"); Accept reads as the one to press by sitting left
-// and by what it says.
+// draw_trade_accept draws the left answer. Payable, it is the same steel control Decline is —
+// no colour on the roster means "act here" (style guide, "Controls do not have a signal
+// colour").
 //
-// Unaffordable, it stays inert recessive-blue with a dimmed label and does not answer the
-// mouse: no caret, no lift, the scrim held low. That is now the whole affordability signal
-// on the screen — the guide's own hover mechanism withheld, so a control that cannot be
-// clicked visibly does not respond to being pointed at — and the shortfall line below names
-// the stat that falls short (#310). Still no warm warning: the screen says "you can't" by
-// going quiet, not by turning red.
+// Unaffordable, it drops to recessive-blue and is left out of draw_trade_answer, so it never
+// takes the hover lift either. Those two together carry the whole affordability signal: a
+// control that cannot be clicked reads dim *and* does not answer the mouse. The shortfall line
+// below names the stat that falls short (#310); there is no warm warning colour.
 draw_trade_accept :: proc(can_accept: bool, mouse: rl.Vector2) {
 	rect := trade_accept_rect()
 	if !can_accept {

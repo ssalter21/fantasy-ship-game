@@ -434,9 +434,9 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	// The ship is the one raster on the inked page (spec §5) and the current-node marker: moored
 	// at its default heading on the node it stands on, or out on the leg it is sailing, facing the
 	// curve's tangent. Either way it rocks in the water (spec §6) — bob and heel over the baked
-	// frame, the heading snap untouched. No drawn ring+dot marker, no procedural glyph. A landed sail
-	// still holding while its ink sets rocks at its moored amplitude, not its working one: the
-	// ship has arrived, and only the Sim hasn't heard yet.
+	// frame, the heading snap untouched. No drawn ring+dot marker, no procedural glyph. A landed
+	// sail still holding while its ink sets rocks at its moored amplitude, not its working one:
+	// the ship has arrived, and only the Sim hasn't heard yet.
 	under_way := sailing && state.sail_progress < 1
 	bob, heel := ship_rock(now, under_way)
 	if sailing {

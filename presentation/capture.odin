@@ -465,9 +465,8 @@ capture_frame_chart_table :: proc(scene: ^Capture_Scene) -> bool {
 	return true
 }
 
-// Begin under the cursor. Both rows are drawn identically, so this shot's whole difference
-// from the resting one is what hover actually draws: the caret in the label's margin and the
-// lift in that row's scrim.
+// Begin under the cursor. Every row is drawn identically, so this shot's whole difference from
+// the resting one is what hover draws: the caret in the label's margin, and the scrim's lift.
 @(private)
 capture_frame_chart_table_hover :: proc(scene: ^Capture_Scene) -> bool {
 	draw_chart_table(0)

@@ -226,8 +226,8 @@ workbench_panel :: proc(w: ^Workbench) {
 
 		// A knob standing away from its shipped value is worth saying, so a session that has
 		// wandered is visible without comparing thirteen numbers by eye. The mark is brightness,
-		// not hue: a moved label keeps the panel's full foam and an untouched one recedes, which
-		// is the roster's own way of ranking state and spends no second tone on it.
+		// not hue — a moved label at full foam, an untouched one faded — which ranks state the
+		// way the roster does and spends no second tone on it.
 		moved := index < 5 ? false : abs(knob.value^ - workbench_shipped(w, index)) > 0.0005
 		workbench_text(knob.label, panel.x + 10, y + 2, moved ? COLOUR_FOAM : rl.Fade(COLOUR_FOAM, 0.55))
 		workbench_text(fmt.tprintf("%.3f", knob.value^), panel.x + panel.width - 54, y + 2, COLOUR_SEA_SHALLOW)
