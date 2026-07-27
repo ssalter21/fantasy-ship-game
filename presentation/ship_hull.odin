@@ -20,8 +20,12 @@ import rl "vendor:raylib"
 // Fine enough that the entry resolves as a curve. At the coarse setting the last strip carried
 // the whole of the fining-away, so her bow arrived at its point in one facet — a corner, which
 // is exactly what a bow must not have.
+// One band is one strake. It used to be neither — ten bands carried fifteen courses of planking
+// between them, so which course a band came out in was a rounding, and the light and dark ran
+// 0,0,1,0,0,1,1,0,1,1 up her side instead of alternating. Matching the two means a strake is a
+// quad, top to bottom, and the planking reads as planking.
 HULL_STRIPS :: 48
-HULL_BANDS :: 10
+HULL_BANDS :: 14
 
 // HULL_SKIN is how thick her planking is — the timber the cut edge shows, and the offset
 // between the outer skin and the inner face of the same strake.
@@ -31,14 +35,56 @@ HULL_SKIN :: f32(0.055)
 // the compartments stand clear of the cut rather than sitting behind it.
 HULL_CUT_Y :: cutaway.GALLEON_HOLD_FLOOR_Y - 0.07
 
-// HULL_DEPTH_TINT is how far a surface a fathom down is pulled toward the water's own colour.
-// The tropics are the whole reason: the sea here is clear enough to see the copper through, and
-// a bottom that greens off with depth is what settles the ship *into* the water instead of
-// leaving her standing on a blue rectangle.
-// Kept well under half. Her forefoot is the nearest part of the ship to a camera standing this
-// close off the bow, so her underwater body is a large piece of the frame — and washed hard it
-// stops being copper seen through water and becomes water with a ship-shaped hole in it.
-HULL_DEPTH_TINT :: f32(0.46)
+// What a fathom of water does to the light coming back off her bottom. Two separate effects,
+// and keeping them separate is the whole point.
+//
+// Absorption: how much of each channel the water eats on the way. Red goes first — that is why
+// a reef reads green in a fathom and blue in ten — green goes slowly, blue barely goes at all.
+// Scatter: the water's own lit colour, added back on top, because a fathom of sunlit sea is
+// itself glowing and some of that glow is between her and the eye.
+//
+// Neither one is a lerp, and that is deliberate. Fading the hull *toward* the sea walks a
+// straight line from copper to turquoise, and those two sit on opposite sides of the colour
+// wheel — so the line passes through neutral, and every strake at mid-depth came out the same
+// dead sage. Absorbing and scattering can't do that: absorption only ever takes a channel down,
+// scatter only ever puts a saturated tone in, and the path between them stays in colour.
+HULL_ABSORB_R :: f32(0.86)
+HULL_ABSORB_G :: f32(0.26)
+HULL_ABSORB_B :: f32(0.0)
+
+// How much of the water's own light is between her and the eye at a full fathom. Raised, because
+// at half this she was legible right down to the keel — every strake as crisp at the bottom of
+// her as at the waterline, which is what water would do if it were glass. A hull that never
+// veils reads as sitting on the sea rather than in it, whatever the foam at her side is doing.
+// Measured against the sea drawn beside her: her keel end was 53% value against the water's 85%,
+// and it now closes most of that gap without letting go of her outline.
+HULL_SCATTER :: f32(0.62)
+
+// HULL_WET_STEP is how much of the full fathom's worth of water is applied the instant a strake
+// goes under. Small, but not zero: water has a surface, and a hull crossing it changes colour at
+// the crossing.
+HULL_WET_STEP :: f32(0.2)
+
+// HULL_TINT_SPAN is the depth at which the keel-end values are reached — about a fathom, which
+// is as far down as any of her gets.
+HULL_TINT_SPAN :: f32(0.95)
+
+// HULL_VERDIGRIS is her sheathing below the waterline. It is not a new swatch — it is the
+// guide's Green mixed into its Sea deep — and it replaces the sand the bottom used to be
+// painted in, for a reason the depth model above could never fix on its own.
+//
+// The absorb-and-scatter model keeps a colour *in* colour on its way down; it cannot rescue a
+// colour that was already halfway to neutral before the water touched it. Sand is bright in all
+// three channels, so absorption could only pull its red down toward its own green while scatter
+// pushed its green and blue up toward that same red, and the three met: measured in the real
+// window her mid-belly came out #728367, 21% saturation, a sage wedge on the port bow that was
+// the dullest thing left on the screen.
+//
+// Copper weathers green under salt water, so the fix is also the true one. Starting cool and
+// saturated, the same model runs the bottom from verdigris at the surface to a deep blue-green
+// at the keel — 78% saturation at mid-belly rather than 21% — and the boot-top now changes hue
+// at the waterline instead of dissolving through grey at mid-depth.
+HULL_VERDIGRIS :: rl.Color{37, 151, 112, 255}
 
 // hull_surface is one point on her outer skin: the frame at length x, at section height t — 0
 // at the keel, 1 at the rail — on the given side, +1 starboard and -1 port.
@@ -105,8 +151,42 @@ hull_water :: proc(lit: rl.Color, y: f32) -> rl.Color {
 	if y >= 0 {
 		return lit
 	}
-	sea := colour_mix(COLOUR_SEA_BRIGHT, COLOUR_SEA_SHALLOW, 0.5)
-	return colour_mix(lit, sea, (0.26 + 0.52 * min(-y / 0.95, 1)) * HULL_DEPTH_TINT)
+	depth := min(-y / HULL_TINT_SPAN, 1)
+
+	// Both effects run on depth *squared*, not on depth. Water this clear does almost nothing
+	// over the first hand's breadth, and a linear ramp spends its whole middle in the crossover
+	// where her warm and the sea's cool cancel. Squaring holds her copper — barely cooled, still
+	// plainly her — down to half a fathom, then turns her over quickly, so the neutral crossing
+	// is a band a few strakes deep instead of most of her bottom.
+	//
+	// The two curves are not the same, though, and that difference is what puts a waterline on
+	// the hull. Squared from zero, the first hand's breadth under the surface is tinted so little
+	// that her planking there is the same tan as her dry topsides: the eye finds no crossing at
+	// all, and the parts of her below it read as standing out of the water rather than in it.
+	//
+	// The obvious repair — start *both* curves off a step — puts the crossing back and makes it
+	// sage, because a step in absorption is a step toward the neutral crossing. So only the
+	// scatter steps. Absorption still begins at nothing, so her copper keeps its hue right up to
+	// the surface, and what changes at the crossing is that the water's own light starts landing
+	// on her: she brightens and cools without turning. That is what wet timber does.
+	absorbed := depth * depth
+	scattered := HULL_WET_STEP + (1 - HULL_WET_STEP) * depth * depth
+
+	// What is between her and the eye changes with depth, so what scatters back changes too: near
+	// the surface it is the bright near-surface turquoise, a fathom down the sea's own deep.
+	surface := colour_mix(COLOUR_SEA_BRIGHT, COLOUR_SEA_SHALLOW, 0.5)
+	sea := colour_mix(surface, COLOUR_SEA_DEEP, depth)
+
+	channel :: proc(lit, sea: u8, absorb, absorbed, scattered: f32) -> u8 {
+		through := f32(lit) * (1 - absorb * absorbed)
+		return u8(clamp(through + f32(sea) * HULL_SCATTER * scattered, 0, 255))
+	}
+	return rl.Color {
+		channel(lit.r, sea.r, HULL_ABSORB_R, absorbed, scattered),
+		channel(lit.g, sea.g, HULL_ABSORB_G, absorbed, scattered),
+		channel(lit.b, sea.b, HULL_ABSORB_B, absorbed, scattered),
+		lit.a,
+	}
 }
 
 // hull_timber is a strake's wood at height y: oak topsides in alternating courses, and the
@@ -114,7 +194,7 @@ hull_water :: proc(lit: rl.Color, y: f32) -> rl.Color {
 // without a single drawn line. What the water then does to it is hull_water's business.
 hull_timber :: proc(y: f32, band: int) -> rl.Color {
 	if y < 0 {
-		return colour_shade(COLOUR_SAND, band % 2 == 0 ? 1.0 : 0.9)
+		return colour_shade(HULL_VERDIGRIS, band % 2 == 0 ? 1.0 : 0.86)
 	}
 	// Her topsides are deliberately the darkest warm on the ship. Everything built on the deck —
 	// castles, rails, deck planking — is the lighter sand, so the hull reads as one mass under
@@ -175,26 +255,81 @@ draw_hull_side :: proc(x0, x1, side, lo0, lo1, hi0, hi1: f32) {
 	if hi0 - lo0 <= 0.002 && hi1 - lo1 <= 0.002 {
 		return
 	}
+	// Where the sea cuts this strip, as a section parameter at each end. Every band is split on it,
+	// so no quad is ever part in the water and part out — which is what put her boot-top on the
+	// loft's band grid instead of on the sea. A band is one flat colour; a band that crossed the
+	// waterline took the colour of whichever end was measured, so the painted line climbed and fell
+	// with the loft, a pixel a strip. Across her bow, where the loft climbs fastest, that came to
+	// sixteen pixels of slope against a sea that is dead level — and a hull whose green rides above
+	// the water forward and below it aft reads as one end being deeper in than the other.
+	//
+	// Split here, the seam between the two halves *is* y=0 at both ends of every strip, so the
+	// boot-top is exact by construction rather than approximately right at a fine enough grid.
+	w0 := hull_section_t(x0, 0)
+	w1 := hull_section_t(x1, 0)
 	for j in 0 ..< HULL_BANDS {
-		f0 := f32(j) / HULL_BANDS
-		f1 := f32(j + 1) / HULL_BANDS
-		t0 := lo0 + (hi0 - lo0) * f0 // at x0, bottom of the band
-		u0 := lo1 + (hi1 - lo1) * f0 // at x1, bottom
-		t1 := lo0 + (hi0 - lo0) * f1 // at x0, top
-		u1 := lo1 + (hi1 - lo1) * f1 // at x1, top
+		// The band grid is the *section's*, not the run's, and this is the fix for the wedges that
+		// fanned out of her forward quarter. Dividing the run into equal fractions puts a band's
+		// boundaries at lo + (hi-lo)*j/n — which moves whenever the run moves. Forward of the hold
+		// the cut sweeps from a hand under the sole all the way up to the rail in three strips, so
+		// every one of those boundaries swept up with it, and each band came out a long skewed quad
+		// crossing four courses of planking with a single flat colour averaged over the lot. Drawn
+		// beside its neighbours that reads as three bright triangular slivers standing in her bow.
+		//
+		// Held to the section instead, a band is the same strake at both ends of every strip, and
+		// the shear is confined to the one band the run's edge actually crosses. Clipping is what
+		// makes it exact: a band the cut passes through keeps the cut as its top edge, a band above
+		// the cut collapses to nothing at that end, and the two ends still tile the run with no gap.
+		g0 := f32(j) / HULL_BANDS
+		g1 := f32(j + 1) / HULL_BANDS
+		t0 := clamp(g0, lo0, hi0) // at x0, bottom of the band
+		u0 := clamp(g0, lo1, hi1) // at x1, bottom
+		t1 := clamp(g1, lo0, hi0) // at x0, top
+		u1 := clamp(g1, lo1, hi1) // at x1, top
+		if t1 - t0 < 0.0001 && u1 - u0 < 0.0001 {
+			continue // wholly outside the run at both ends
+		}
+		strake := j
 
-		a := hull_surface(x0, t0, side)
-		b := hull_surface(x1, u0, side)
-		c := hull_surface(x1, u1, side)
-		d := hull_surface(x0, t1, side)
-		normal := hull_normal((x0 + x1) / 2, (t0 + t1) / 2, side)
-		timber := hull_timber((a.y + d.y) / 2, int((t0 + t1) * 7))
-
-		ship_quad_flat(a, b, c, d, hull_water(ship_lit(timber, ship_facing((a + c) / 2, normal)), (a.y + d.y) / 2))
-
-		inner := normal * HULL_SKIN
-		ship_quad_lit(a - inner, b - inner, c - inner, d - inner, hull_timber_inner(int((t0 + t1) * 7)), -normal)
+		if (t0 < w0 && t1 > w0) || (u0 < w1 && u1 > w1) {
+			// The seam runs from the waterline at one end of the strip to the waterline at the
+			// other. The two ends sit at different section parameters — the loft is climbing —
+			// and that is fine: a quad's corners are independent, and both of these are y=0.
+			m0 := clamp(w0, t0, t1)
+			m1 := clamp(w1, u0, u1)
+			draw_hull_band(x0, x1, side, t0, u0, m0, m1, strake)
+			draw_hull_band(x0, x1, side, m0, m1, t1, u1, strake)
+			continue
+		}
+		draw_hull_band(x0, x1, side, t0, u0, t1, u1, strake)
 	}
+}
+
+// draw_hull_band plates one quad of the skin and the inner face behind it: bottom edge from
+// (x0, b0) to (x1, b1), top edge from (x0, t0) to (x1, t1). The four corners are given
+// independently because the waterline split needs a seam that is level in the *world* across a
+// strip whose loft is climbing, and that is not a seam at one section parameter.
+draw_hull_band :: proc(x0, x1, side, b0, b1, t0, t1: f32, strake: int) {
+	a := hull_surface(x0, b0, side)
+	b := hull_surface(x1, b1, side)
+	c := hull_surface(x1, t1, side)
+	d := hull_surface(x0, t0, side)
+	// A split that landed on a band boundary leaves a band with no height at all. Drawn, it is a
+	// degenerate quad that raylib will happily rasterize as a hairline.
+	if abs(d.y - a.y) < 0.0005 && abs(c.y - b.y) < 0.0005 {
+		return
+	}
+	normal := hull_normal((x0 + x1) / 2, (b0 + t0) / 2, side)
+
+	// The height that picks the timber and the depth tint is taken across all four corners. Down
+	// one edge — which is what it was — the whole band answered to the end of the strip that
+	// happened to be measured, and both the boot-top and the tint leaned upstream with the loft.
+	mid := (a.y + b.y + c.y + d.y) / 4
+	timber := hull_timber(mid, strake)
+	ship_quad_flat(a, b, c, d, hull_water(ship_lit(timber, ship_facing((a + c) / 2, normal)), mid))
+
+	inner := normal * HULL_SKIN
+	ship_quad_lit(a - inner, b - inner, c - inner, d - inner, hull_timber_inner(strake), -normal)
 }
 
 // draw_hull_cut_edge caps an opened edge of the port planking with the thickness of the plank
@@ -211,7 +346,23 @@ draw_hull_cut_edge :: proc(x0, x1: f32, edge: proc(x: f32) -> f32, facing: f32) 
 	b := hull_surface(x1, t1, -1)
 	n0 := hull_normal(x0, t0, -1) * HULL_SKIN
 	n1 := hull_normal(x1, t1, -1) * HULL_SKIN
-	ship_quad_lit(a - n0, b - n1, b, a, colour_shade(COLOUR_CLIFF, 1.05), {0, facing, 0})
+	// The edge takes the water like every other outboard surface. It was the one that didn't, and
+	// because the window is cut to a hand's breadth under the hold floor, most of its run is
+	// below the waterline — so her bilge was traced underwater in bright untinted cream, the
+	// brightest thing on that half of the screen. That gold outline round her belly is what made
+	// the opened hold read as standing out of the sea rather than sunk in it; the interior behind
+	// it was never the problem. Where the cut does rise above the water, at the bow and the
+	// quarter, it comes up bright again and draws her sheer.
+	// Bright in the air and bright under the water, but not the same colour in both — and that
+	// second half was missed when the tint was first put on this edge. A raw cream given a cool
+	// sea to pass through goes the one way a warm colour can: it measured #698C74, 25% saturation,
+	// running the whole length of her bilge, which is the line the eye follows from stem to post.
+	// Under water the edge is the sawn face of sheathed planking, so it is the same copper gone
+	// green as the strakes it caps — lifted, because a fresh cut is brighter than the weathered
+	// face beside it.
+	mid := (a.y + b.y) / 2
+	raw := mid < 0 ? colour_shade(HULL_VERDIGRIS, 1.3) : colour_shade(COLOUR_CLIFF, 1.05)
+	ship_quad_lit(a - n0, b - n1, b, a, hull_water(raw, mid), {0, facing, 0})
 }
 
 // draw_hull_keel lays the keel timber under her bottom, standing proud of the planking the way
@@ -225,7 +376,13 @@ draw_hull_keel :: proc(x0, x1: f32) {
 	fullness := cutaway.galleon_half_beam((x0 + x1) / 2) / cutaway.GALLEON_HALF_BEAM
 	KEEL := 0.075 * (0.40 + 0.60 * fullness)
 	DROP :: f32(0.09)
-	oak := colour_shade(COLOUR_ROCK, 1.05)
+	// The keel is sheathed like the rest of the bottom, and it has to be for the same reason the
+	// bottom is: it never comes out of the water anywhere along her length, and a warm brown that
+	// never comes out of the water is walked straight through neutral by the tint. Painted in oak
+	// it measured a flat sage the whole length of her — the dullest band on the screen, laid along
+	// the one line the eye follows from stem to post. Darker than the planking so the spine still
+	// stands away from what it carries.
+	oak := colour_shade(HULL_VERDIGRIS, 0.74)
 	deep := (y0 + y1) / 2 - DROP / 2
 
 	side := hull_water(ship_lit(oak, {0, 0, -1}), deep)
@@ -243,20 +400,37 @@ draw_hull_keel :: proc(x0, x1: f32) {
 // draw_hull_cap closes a frame across the beam — the transom aft and the stem's fine cross-
 // section forward — so the loft is a solid with ends rather than an open shell.
 draw_hull_cap :: proc(x, facing: f32) {
+	// Split on the waterline, for the same reason the skin is. The cap is one cross-section, so
+	// the split is a single parameter rather than a seam between two — but the stem is exactly
+	// where the eye lands first, and a boot-top that steps a band's worth up out of the sea there
+	// undoes the levelling done everywhere else.
+	w := hull_section_t(x, 0)
 	for j in 0 ..< HULL_BANDS {
 		t0 := f32(j) / HULL_BANDS
 		t1 := f32(j + 1) / HULL_BANDS
-		p0 := hull_surface(x, t0, -1)
-		s0 := hull_surface(x, t0, 1)
-		s1 := hull_surface(x, t1, 1)
-		p1 := hull_surface(x, t1, -1)
-		ship_quad_flat(p0, s0, s1, p1, hull_water(ship_lit(hull_timber(p0.y, j), ship_facing(p0, {facing, 0, 0})), p0.y))
-
-		// And its inboard face, a plank's thickness in. The cut looks straight down the length of
-		// the ship at both of these, so a cap with only an outside is a hole seen from within.
-		in_ := rl.Vector3{facing * HULL_SKIN, 0, 0}
-		ship_quad_lit(p0 - in_, s0 - in_, s1 - in_, p1 - in_, hull_timber_inner(j), {-facing, 0, 0})
+		if t0 < w && t1 > w {
+			draw_hull_cap_band(x, facing, t0, w, j)
+			draw_hull_cap_band(x, facing, w, t1, j)
+			continue
+		}
+		draw_hull_cap_band(x, facing, t0, t1, j)
 	}
+}
+
+// draw_hull_cap_band is one band of a cap: the cross-section between two section parameters, and
+// the inboard face a plank's thickness in behind it.
+draw_hull_cap_band :: proc(x, facing, t0, t1: f32, strake: int) {
+	p0 := hull_surface(x, t0, -1)
+	s0 := hull_surface(x, t0, 1)
+	s1 := hull_surface(x, t1, 1)
+	p1 := hull_surface(x, t1, -1)
+	mid := (p0.y + p1.y) / 2
+	ship_quad_flat(p0, s0, s1, p1, hull_water(ship_lit(hull_timber(mid, strake), ship_facing(p0, {facing, 0, 0})), mid))
+
+	// And its inboard face, a plank's thickness in. The cut looks straight down the length of
+	// the ship at both of these, so a cap with only an outside is a hole seen from within.
+	in_ := rl.Vector3{facing * HULL_SKIN, 0, 0}
+	ship_quad_lit(p0 - in_, s0 - in_, s1 - in_, p1 - in_, hull_timber_inner(strake), {-facing, 0, 0})
 }
 
 // draw_hull_sole lays the below-deck floor the compartments stand on, wall to wall, and closes
@@ -274,7 +448,13 @@ draw_hull_sole :: proc() {
 	x1 := cutaway.GALLEON_HOLD_X1
 	STEPS :: 22
 	step := (x1 - x0) / STEPS
-	deal := colour_shade(COLOUR_CLIFF, 0.62)
+	// Dark deal, and darker than the light on it would suggest. The sole faces straight up, so the
+	// painter gives it almost the full value of a sun that is 0.8 up — and it came out the best-lit
+	// surface on the ship while being the floor of a covered hold, twice the value of the bulkheads
+	// standing on it. With the cut edge no longer outlining her bilge in gold, that pale floor was
+	// the next thing to read as timber lying on top of the water. Nothing down there sees the sky;
+	// what light reaches it comes sideways through the window, and this is that much light.
+	deal := colour_shade(COLOUR_CLIFF, 0.38)
 
 	for i in 0 ..< STEPS {
 		a := x0 + f32(i) * step
@@ -365,8 +545,15 @@ draw_hull_deck :: proc() {
 	for i in 0 ..< STEPS {
 		x0 := stern + f32(i) * step
 		x1 := x0 + step
-		w0 := cutaway.galleon_frame_half_beam(x0, deck) - 0.02
-		w1 := cutaway.galleon_frame_half_beam(x1, deck) - 0.02
+		// The deck runs *into* her planking, not up to it. Held 2cm short — which is what the
+		// inset here used to be — it left a slit down each side between the deck edge and the
+		// hull, and from a camera at deck height that slit is a thin bright line of sky running
+		// along the foot of both castles: the daylight showing through her walls. A deck lands on
+		// the shelf inside the frames and its edge is buried in the side, so the overlap is what
+		// the real join looks like as well as what closes the hole. The underside below was
+		// already drawn at full width, and that mismatch is what made the gap one-sided.
+		w0 := cutaway.galleon_frame_half_beam(x0, deck) + 0.03
+		w1 := cutaway.galleon_frame_half_beam(x1, deck) + 0.03
 
 		for p in 0 ..< PLANKS {
 			f0 := f32(p) / PLANKS * 2 - 1
@@ -467,7 +654,7 @@ draw_ship_ornament :: proc(rooms: [cutaway.MAX_SLOTS]cutaway.Room, n: int) {
 		if room.kind == .Hold || room.kind == .Waist {
 			continue
 		}
-		top := room.centre.y + room.half.y + 0.03
+		top := room.centre.y + room.half.y + SHIP_CASTLE_ROOF
 
 		// The deck over the castle, planked athwartships and following the castle's own taper —
 		// a roof cut to one width over a structure that narrows would overhang her side at the
@@ -490,18 +677,38 @@ draw_ship_ornament :: proc(rooms: [cutaway.MAX_SLOTS]cutaway.Room, n: int) {
 
 		// The gilded band capping her side under that deck, run down both quarters with the same
 		// taper — the strongest horizontal on the castle, and the line that ties roof to wall.
+		//
+		// It is also the deck's fascia, and that is why it is deeper than it looks like it needs to
+		// be and why it is now carried round the ends. This deck overhangs the walls under it on all
+		// four sides, and an overhang with nothing hanging off its edge is a shelf: from a camera
+		// below the castle the eye passes *under* the band, over the wall it stands outboard of, and
+		// straight out to sky. That was the last of the bright lines — a thin diagonal following the
+		// forecastle's deck edge, which is exactly the path an overhang's own shadow should occupy.
+		FASCIA :: f32(0.14)
+		za := cutaway.galleon_room_half_z(room, room.centre.x - room.half.x) + 0.04
+		zf := cutaway.galleon_room_half_z(room, room.centre.x + room.half.x) + 0.04
+		x0 := room.centre.x - room.half.x - 0.05
+		x1 := room.centre.x + room.half.x + 0.05
 		for side in ([2]f32{1, -1}) {
-			za := room.centre.z + side * (cutaway.galleon_room_half_z(room, room.centre.x - room.half.x) + 0.04)
-			zf := room.centre.z + side * (cutaway.galleon_room_half_z(room, room.centre.x + room.half.x) + 0.04)
-			x0 := room.centre.x - room.half.x - 0.05
-			x1 := room.centre.x + room.half.x + 0.05
 			ship_quad_lit(
-				{x0, top - 0.075, za},
-				{x1, top - 0.075, zf},
-				{x1, top, zf},
-				{x0, top, za},
+				{x0, top - FASCIA, room.centre.z + side * za},
+				{x1, top - FASCIA, room.centre.z + side * zf},
+				{x1, top, room.centre.z + side * zf},
+				{x0, top, room.centre.z + side * za},
 				COLOUR_SAND,
 				{0, 0, side},
+			)
+		}
+		// The two ends of the same board, closing the deck's after and forward edges.
+		for end in ([2][3]f32{{x0, za, -1}, {x1, zf, 1}}) {
+			x, z, facing := end[0], end[1], end[2]
+			ship_quad_lit(
+				{x, top - FASCIA, room.centre.z - z},
+				{x, top - FASCIA, room.centre.z + z},
+				{x, top, room.centre.z + z},
+				{x, top, room.centre.z - z},
+				COLOUR_SAND,
+				{facing, 0, 0},
 			)
 		}
 

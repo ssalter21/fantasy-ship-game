@@ -50,13 +50,23 @@ COLOUR_SKY_HIGH :: rl.Color{63, 121, 192, 255}
 COLOUR_SKY :: rl.Color{90, 147, 210, 255}
 COLOUR_HAZE :: rl.Color{143, 188, 232, 255} // the band of sky just above the horizon
 COLOUR_CLOUD :: rl.Color{238, 241, 248, 255}
-COLOUR_CLOUD_SHADOW :: rl.Color{183, 188, 224, 255}
+COLOUR_CLOUD_SHADOW :: rl.Color{146, 183, 224, 255} // a cumulus base is lit by the sky, so it is blue
 
 COLOUR_PARCHMENT :: rl.Color{235, 217, 166, 255} // the ground for text: panels and cards
 COLOUR_SAND :: rl.Color{210, 169, 104, 255} // panel shade, dividers, gilding
 COLOUR_CLIFF :: rl.Color{185, 138, 80, 255} // deeper sand; borders, and weather-deck timber
 COLOUR_ROCK :: rl.Color{126, 92, 58, 255} // the darkest warm; hull planking
 COLOUR_TRUNK :: rl.Color{135, 95, 56, 255} // masts, yards, spars
+
+// Foliage, straight off the guide's own Foliage roster — four vivid greens it heads "this is
+// where the old guide was most muted", and which nothing in the code had ever drawn with. That
+// is why every island on the horizon was a blue lump with blue trees on it: there was no green
+// in the constants to paint one, so the islands were built out of the recessive slate instead.
+// island-tropical.jpg is the keystone reference and its greens are the loudest thing in it.
+COLOUR_GREEN_HIGHLIGHT :: rl.Color{155, 222, 87, 255} // sun straight onto the canopy
+COLOUR_GREEN_LIGHT :: rl.Color{87, 201, 77, 255} // lit foliage
+COLOUR_GREEN :: rl.Color{47, 162, 62, 255} // the mass of it
+COLOUR_GREEN_DEEP :: rl.Color{27, 106, 43, 255} // shade under the canopy
 
 COLOUR_CORAL :: rl.Color{225, 85, 43, 255} // scarce by law: danger and damage
 

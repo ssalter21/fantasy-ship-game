@@ -14,8 +14,9 @@ have not looked at, and don't ask the maintainer what it looks like — take a s
 
 ## Read the style guide before you draw
 
-`docs/ui/style-guide.md` is the fixed target for "good": exact palette values, the 40/20 type scale, the amber
-rule, Pixelify Sans via `#load`, and the rules for raylib. **Read it before writing draw calls, not after.**
+`docs/ui/style-guide.md` is the fixed target for "good": exact palette values, the 40/20 type scale, the
+saturation rule, Pixelify Sans via `#load`, and the rules for raylib. **Read it before writing draw calls, not
+after.**
 It answers what the palette is, why there is no bold, and why a size is a font rather than a parameter.
 
 Two rules from it that decide the *shape* of your code, so you want them before you start rather than in review:

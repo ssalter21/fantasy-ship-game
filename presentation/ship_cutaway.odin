@@ -166,6 +166,22 @@ draw_ship_face_highlight :: proc(face: [4]rl.Vector2, highlight: Room_Highlight)
 	}
 }
 
+// SHIP_CASTLE_ROOF is how far above a castle's walls its own deck is laid. draw_ship_ornament
+// lays that deck and this file builds the walls under it, and the two used to arrive at the
+// height separately — three centimetres apart. Three centimetres of daylight running right round
+// a castle is not a detail: the camera is *below* these structures, so the eye goes in at the
+// slit on the near side, through the chamber, and out at the slit on the far side, and what it
+// finds there is sky. Those were the bright bands cutting across her castles. One constant, read
+// by both, is the only thing that keeps a roof on a wall.
+SHIP_CASTLE_ROOF :: f32(0.03)
+
+// ship_room_roofed is whether a room carries a deck of its own overhead. The holds are roofed by
+// the weather deck the hull draws, and the waist is the weather deck, so it is the structures
+// standing on it that need one — and they are exactly the rooms draw_ship_ornament decks.
+ship_room_roofed :: proc(kind: cutaway.Room_Kind) -> bool {
+	return kind != .Hold && kind != .Waist
+}
+
 // draw_ship_room paints one empty chamber, open on the cut side and on top so the camera looks
 // straight in. It follows the room's taper (cutaway.galleon_room_half_z) rather than standing
 // as a box, so a compartment narrows into the ends of the ship along with the planking it is
@@ -202,6 +218,26 @@ draw_ship_room :: proc(room: cutaway.Room, base: rl.Color) {
 		}
 	}
 
+	// Where a wall starts. A structure standing on the weather deck is matched to the deck by a
+	// tolerance — `on_deck` admits anything within a few centimetres — and any part of that
+	// tolerance that puts the room's floor *above* the plate leaves a horizontal slit between the
+	// two. Looking into a castle from off the bow that slit is a thin bright line of sky running
+	// along its foot, which is exactly what the gaps in her castles were. Walls of an on-deck
+	// structure therefore start at the deck itself, with a hand's overlap below it: an overlap
+	// costs nothing where two solids meet, and a hairline of daylight costs the whole illusion.
+	//
+	// A structure standing on *another* structure has the identical problem, and the poop is one:
+	// it sits on the sterncastle's deck with its own floor three centimetres above it, and that gap
+	// was a bright line of sky right round its foot. So the overlap is given to anything standing
+	// above the weather deck, not only to what stands on it.
+	above_deck := floor_y > cutaway.GALLEON_DECK_Y - 0.03
+	wall_base := floor_y
+	if on_deck {
+		wall_base = cutaway.GALLEON_DECK_Y - 0.05
+	} else if above_deck {
+		wall_base = floor_y - 0.08
+	}
+
 	if room.kind == .Waist {
 		// The waist is the open weather deck between the castles. It has no floor of its own and
 		// no walls at all — nothing may stand up in the middle of the main deck.
@@ -214,7 +250,15 @@ draw_ship_room :: proc(room: cutaway.Room, base: rl.Color) {
 
 	// The after bulkhead, whole: it is the back wall of the room, and the sun over her quarter
 	// catches it, which is what gives the chamber its depth.
-	ship_box({aft, room.centre.y, room.centre.z}, {THICKNESS, 2 * room.half.y, 2 * room.half_aft}, base)
+	// A roofed room's walls are built up to the underside of its own deck rather than to the top of
+	// its box — which is the same three centimetres, spent on timber instead of on sky.
+	roofed := ship_room_roofed(room.kind)
+	wall_top := room.centre.y + room.half.y + (roofed ? SHIP_CASTLE_ROOF : 0)
+	ship_box(
+		{aft, (wall_base + wall_top) / 2, room.centre.z},
+		{THICKNESS, wall_top - wall_base, 2 * room.half_aft},
+		base,
+	)
 
 	// The forward one is cut through, and that is not a shortcut — it is the whole cutaway. The
 	// camera stands off her bow, so a compartment's *forward* bulkhead is the wall between the
@@ -223,35 +267,45 @@ draw_ship_room :: proc(room: cutaway.Room, base: rl.Color) {
 	// ship with every chamber sealed behind it — which is exactly what the belly of her read as.
 	// A cutaway drawing cuts the near end as well as the near side, and leaves the frame of it
 	// standing: sill, header, and the post at the outboard edge.
-	draw_ship_cut_bulkhead(room, base, fore, floor_y)
+	draw_ship_cut_bulkhead(room, base, fore, wall_base, wall_top)
 
 	// The far side follows the taper, so it is laid as a raked wall rather than a slab: the
 	// outer face, the inner one the camera actually looks at, and the plank edge capping them.
-	top := room.centre.y + room.half.y
+	top := wall_top
 	out_aft := room.centre.z + room.half_aft
 	out_fore := room.centre.z + room.half_fore
 	for inset in ([2]f32{0, THICKNESS}) {
 		za := out_aft - inset
 		zf := out_fore - inset
-		ship_quad_lit({aft, floor_y, za}, {fore, floor_y, zf}, {fore, top, zf}, {aft, top, za}, base, {0, 0, inset == 0 ? 1 : -1})
+		ship_quad_lit({aft, wall_base, za}, {fore, wall_base, zf}, {fore, top, zf}, {aft, top, za}, base, {0, 0, inset == 0 ? 1 : -1})
 	}
-	ship_quad_lit(
-		{aft, top, out_aft},
-		{fore, top, out_fore},
-		{fore, top, out_fore - THICKNESS},
-		{aft, top, out_aft - THICKNESS},
-		colour_shade(base, 1.1),
-		{0, 1, 0},
-	)
+	// The plank edge across the top of that wall — but only where the wall is actually the top of
+	// something. Under a castle's own deck it would be laid in the same plane as that deck and the
+	// two would fight for the depth buffer, which is a flicker rather than a fix.
+	if !roofed {
+		ship_quad_lit(
+			{aft, top, out_aft},
+			{fore, top, out_fore},
+			{fore, top, out_fore - THICKNESS},
+			{aft, top, out_aft - THICKNESS},
+			colour_shade(base, 1.1),
+			{0, 1, 0},
+		)
+	}
 
 	// Her frames, standing up the far side of the compartment. A hold is a space between ribs
 	// and they are the only thing in it — without them the back wall is a painted panel, and no
 	// amount of light on a panel makes it a room.
 	if room.kind == .Hold {
+		// Lighter than the ceiling behind them, not darker, and that is the whole of whether they
+		// read. A rib stands *proud* of the planking it is bolted to, so it is the thing in a hold
+		// that catches what little light gets down there — drawn a shade under the wall it stands on
+		// it had the same tone as the wall from every angle the camera can reach, and a compartment
+		// went back to being one flat panel with a gradient on it.
 		for f := f32(0.12); f < 0.99; f += 0.19 {
 			x := aft + f * 2 * room.half.x
 			z := room.centre.z + cutaway.galleon_room_half_z(room, x) - THICKNESS
-			ship_box({x, room.centre.y, z - 0.03}, {0.055, 2 * room.half.y * 0.96, 0.06}, colour_shade(base, 0.82))
+			ship_box({x, room.centre.y, z - 0.045}, {0.07, 2 * room.half.y * 0.96, 0.09}, colour_shade(base, 1.18))
 		}
 	}
 }
@@ -260,16 +314,16 @@ draw_ship_room :: proc(room: cutaway.Room, base: rl.Color) {
 // stood on, the header under the beams, and the post at its outboard edge — the raw sawn timber
 // of a cut, bright against the shadow inside, so the eye is told the wall was taken away rather
 // than never built. The middle is open, and the room is looked through it.
-draw_ship_cut_bulkhead :: proc(room: cutaway.Room, base: rl.Color, x, floor_y: f32) {
+draw_ship_cut_bulkhead :: proc(room: cutaway.Room, base: rl.Color, x, floor_y, top: f32) {
 	THICKNESS :: f32(0.05)
 	FRAME :: f32(0.08)
 	half_z := room.half_fore
-	height := 2 * room.half.y
+	height := top - floor_y
 	sawn := colour_shade(COLOUR_CLIFF, 1.05)
 
 	ship_box({x, floor_y + FRAME / 2, room.centre.z}, {THICKNESS, FRAME, 2 * half_z}, sawn)
 	ship_box({x, floor_y + height - FRAME / 2, room.centre.z}, {THICKNESS, FRAME, 2 * half_z}, sawn)
-	ship_box({x, room.centre.y, room.centre.z + half_z - FRAME / 2}, {THICKNESS, height, FRAME}, base)
+	ship_box({x, (floor_y + top) / 2, room.centre.z + half_z - FRAME / 2}, {THICKNESS, height, FRAME}, base)
 }
 
 // draw_ship_coaming frames a deck structure onto the deck it stands on: the raised sill its

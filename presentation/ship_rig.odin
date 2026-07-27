@@ -202,14 +202,21 @@ draw_rig_stays :: proc() {
 	masts := rig_masts()
 	deck := cutaway.GALLEON_DECK_Y
 
-	// Forestays, each mast leaning its weight on the deck ahead of it.
+	// Forestays, each mast leaning its weight on the mast — or the spar — ahead of it. The
+	// foremast's leads to the bowsprit, and it asks rig_bowsprit_tip for where that is rather
+	// than carrying its own copy: the two numbers were within a tenth of each other and drawn a
+	// finger apart, and a stay that misses the spar it is set up on does not read as an
+	// approximation. It reads as a line ending in open sky.
 	for i in 0 ..< len(masts) {
 		head := rig_mast_point(masts[i], masts[i].height * 0.92)
-		ahead := i == 0 ? rl.Vector3{cutaway.GALLEON_BOW_X + 1.05, deck + 1.05, 0} : rig_mast_point(masts[i - 1], masts[i - 1].height * 0.5)
+		ahead := i == 0 ? rig_bowsprit_tip() : rig_mast_point(masts[i - 1], masts[i - 1].height * 0.5)
 		ship_rope(head, ahead, 0.013, cord)
 
-		// And a preventer under it, down to the deck, so the run of cordage reads as a web.
-		ship_rope(rig_mast_point(masts[i], masts[i].height * 0.60), {ahead.x, deck + 0.08, 0}, 0.009, cord)
+		// And a preventer under it, so the run of cordage reads as a web. Abaft the foremast that
+		// is the deck ahead; at the foremast it is the bowsprit's own length, since there is no
+		// deck out there to set anything up on.
+		under := i == 0 ? rig_bowsprit_at(0.45) : rl.Vector3{ahead.x, deck + 0.08, 0}
+		ship_rope(rig_mast_point(masts[i], masts[i].height * 0.60), under, 0.009, cord)
 	}
 
 	// Backstays from each masthead down to her quarters, outboard of the shrouds.
@@ -223,16 +230,41 @@ draw_rig_stays :: proc() {
 	}
 }
 
+// The bowsprit's two ends, and any point along it. Everything that is set up on the spar — the
+// spar itself, the spritsail slung under it, the foremast's forestay and preventer — takes its
+// position from here, so there is one bowsprit rather than one per caller.
+rig_bowsprit_stem :: proc() -> rl.Vector3 {
+	return {cutaway.GALLEON_BOW_X - 0.35, cutaway.GALLEON_DECK_Y + 0.42, 0}
+}
+
+rig_bowsprit_tip :: proc() -> rl.Vector3 {
+	return {cutaway.GALLEON_BOW_X + 0.92, cutaway.GALLEON_DECK_Y + 1.02, 0}
+}
+
+// rig_bowsprit_at is a point a fraction f out along the spar, 0 at the stem and 1 at the tip.
+rig_bowsprit_at :: proc(f: f32) -> rl.Vector3 {
+	stem, tip := rig_bowsprit_stem(), rig_bowsprit_tip()
+	return stem + (tip - stem) * f
+}
+
 // draw_rig_bowsprit runs the bowsprit out over the head, with its spritsail slung under and the
 // bobstay holding it down to the stem — the spar that carries the whole rig's forward pull.
 draw_rig_bowsprit :: proc() {
-	stem := rl.Vector3{cutaway.GALLEON_BOW_X - 0.35, cutaway.GALLEON_DECK_Y + 0.42, 0}
-	tip := rl.Vector3{cutaway.GALLEON_BOW_X + 0.92, cutaway.GALLEON_DECK_Y + 1.02, 0}
+	stem, tip := rig_bowsprit_stem(), rig_bowsprit_tip()
 	ship_spar(stem, tip, 0.062, 0.03, COLOUR_TRUNK)
 
-	// The spritsail, on its own little yard under the spar.
-	yard := rl.Vector3{cutaway.GALLEON_BOW_X + 0.42, cutaway.GALLEON_DECK_Y + 0.85, 0}
+	// The spritsail, on its own little yard *under* the spar — hung off a point on the spar and
+	// dropped, not placed by its own pair of numbers. Placed independently it crossed a fraction
+	// above the bowsprit instead of below it, and a yard floating clear of the spar it hangs from
+	// takes the sail with it: the canvas read as a loose flap beside the rig rather than part of it.
+	SPRIT_DROP :: f32(0.11)
+	on_spar := rig_bowsprit_at(0.62)
+	yard := rl.Vector3{on_spar.x, on_spar.y - SPRIT_DROP, 0}
 	ship_spar({yard.x, yard.y, -0.38}, {yard.x, yard.y, 0.38}, 0.022, 0.022, COLOUR_TRUNK)
+
+	// The halliard the yard is slung by: a short length up to the spar, so the eye is told what
+	// is holding it there.
+	ship_rope(on_spar, yard, 0.009, colour_shade(COLOUR_ROCK, 0.62))
 	draw_rig_sail(yard, {yard.x + 0.05, yard.y - 0.36, 0}, 0.68)
 
 	// The bobstay, down to the stem, and the jackstaff at the tip.
