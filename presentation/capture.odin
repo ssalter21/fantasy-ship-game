@@ -126,10 +126,10 @@ capture_shots := [?]Capture_Shot {
 	{name = "fight-jettison", stage = capture_stage_fight, frame = capture_frame_fight_jettison},
 	// PROTOTYPE — throwaway, appended so nothing above renumbers. Goes with
 	// presentation/shop_prototype.odin; delete both together.
-	{name = "shop-proto-1", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_1},
-	{name = "shop-proto-2", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_2},
-	{name = "shop-proto-3", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_3},
-	{name = "shop-proto-4", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_4},
+	{name = "shop-proto", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto},
+	{name = "shop-proto-move-25", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_move_25},
+	{name = "shop-proto-move-50", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_move_50},
+	{name = "shop-proto-move-75", stage = capture_stage_shop_proto, frame = capture_frame_shop_proto_move_75},
 }
 
 // capture_shot_for finds a standalone shot by name, with the number its file carries.

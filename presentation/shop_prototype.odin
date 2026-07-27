@@ -1,6 +1,7 @@
 package presentation
 
 import "core:fmt"
+import "core:math"
 import "core:os"
 import "core:slice"
 import cutaway "./cutaway"
@@ -8,53 +9,46 @@ import ship "../core/ship"
 import sim "../core/sim"
 import voyage "../core/voyage"
 import rl "vendor:raylib"
+import rlgl "vendor:raylib/rlgl"
 
 // PROTOTYPE — THROWAWAY. Not production. Delete this file when the question below is answered.
 //
-// The question: what should a Shop stage look like once every encounter screen is a
-// variation on the main ship screen rather than a surface of its own?
+// Settled over three rounds and no longer under test — the Shop screen is the ship screen
+// reframed: an **orthographic** broadside elevation, panned left, with the stock as opaque
+// parchment in one aligned column. Orthographic is the point of it, not a detail: it is the
+// only projection with no convergence anywhere, so every bulkhead is a true rectangle
+// however far off-axis she sits.
 //
-// Settled in the first two rounds and no longer under test:
-//   - the ship is **dead broadside**, yaw 0, so every bulkhead projects as a rectangle and
-//     the berths read as squared-off compartments rather than as receding chambers;
-//   - she is **panned left**, by sliding the camera along its own right axis, so she never
-//     turns to make the room;
-//   - the stock is **paper on the sea** — parchment, opaque, shadowed — in a single
-//     **aligned** column with one left edge, one width and one rhythm.
+// Under test here: **the move**. Entering a Shop should not cut to that framing, it should
+// travel to it from the ship screen the player is already looking at. Space replays it, the
+// arrow keys scrub it by hand, and it plays once on launch.
 //
-// Under test here: four framings of that screen. Three vary only the camera, so the
-// comparison between them is clean; the fourth varies the column instead.
-//
-//   1  Sheer draught — orthographic. The only one where the walls are square *exactly*.
-//   2  One sheet     — the column's four cards fused into a single ruled sheet.
-//   3  Alongside     — in close and low, the berth row at eye level.
-//   4  Overlap       — no gutter: her stern runs in under the paper.
-//
-// A note on "square", because it decides whether 1 is the answer or a curiosity: yaw 0
-// makes the ship broadside, but a *perspective* camera still converges toward its own
-// centre, so a ship panned well off-axis shows a little of each berth's side wall — more
-// the further from frame centre it sits. Orthographic has no convergence anywhere by
-// construction. 1 is therefore the only framing where every wall is exactly square; 2, 3
-// and 4 are square to the eye with a residue that grows with the pan.
+// The hard part is that the two ends do not share a projection. The ship screen is a
+// perspective camera at three-quarters; the Shop is an orthographic elevation on the beam.
+// Lerping the eye and switching projection at the end pops: her square sails snap from
+// visible to gone and every bulkhead straightens in one frame. So the **projection matrix
+// itself is blended** — see shop_proto_projection. That is what makes the sails foreshorten
+// away smoothly and the hull straighten as she swings, which is the whole effect.
 //
 // The ship is painted by the shipped painters — same sky, sea, hull, rooms, ornament, rig
-// and waterline — under a camera this file reframed, so it is the real screen and not a
-// mock of it. What is deliberately missing: hit-testing, dragging, buying, hover.
+// and waterline — so this is the real screen reframed and not a mock of it. What is
+// deliberately missing: hit-testing, dragging, buying, hover.
 
 @(private)
-SHOP_PROTO_VARIANTS :: 4
+SHOP_PROTO_MOVE_SECONDS :: f32(0.9)
 
-// shop_proto_variant is which framing the interactive run is showing. Prototype-global on
-// purpose: the switcher writes it, the draw reads it, and nothing else exists.
+// shop_proto_t is where the move has got to: 0 is the ship screen, 1 is the Shop.
+// Prototype-global on purpose — the loop writes it, the draw reads it, nothing else exists.
 @(private)
-shop_proto_variant := 0
+shop_proto_t := f32(0)
+@(private)
+shop_proto_playing := true
 
-// Shop_Proto_Framing is one variant's camera. `pan` is in world units along the camera's
+// Shop_Proto_Framing is one end of the move. `pan` is in world units along the camera's
 // right axis, so a positive pan walks the eye to starboard and the ship drifts to port of
 // frame centre without turning. `ortho` is zero for a perspective camera and otherwise the
 // **vertical extent of the view volume in world units** — raylib reads Camera3D.fovy that
-// way under an orthographic projection, so one field says both "orthographic" and "how
-// much of the world is in shot".
+// way under an orthographic projection.
 @(private)
 Shop_Proto_Framing :: struct {
 	eye:   cutaway.Eye,
@@ -62,94 +56,167 @@ Shop_Proto_Framing :: struct {
 	ortho: f32,
 }
 
-// Every framing is yaw 0 — dead broadside, on the negative-z beam, which is the side her
-// cutaway is opened on. What varies is the projection, how close she is, and how far left.
+// Moored is the shipped ship screen, unmodified: the same eye draw_ship_cutaway uses, so
+// the move starts from exactly the frame the player was already looking at.
 @(private)
-shop_proto_framings := [SHOP_PROTO_VARIANTS]Shop_Proto_Framing {
-	// 1 — Sheer draught. Orthographic: no convergence anywhere, so every bulkhead is a true
-	// rectangle however far off-axis she sits. Under ortho `dist` no longer sets her size —
-	// `ortho` does — and only has to keep her in front of the near plane. 8.5 units of
-	// height is 15.1 of width at this aspect, which leaves her about 60% of the frame.
-	// `height` must equal `look`, so the view axis is horizontal — see shop_proto_horizon.
-	{eye = {yaw = 0, dist = 9.0, height = 1.05, look = 1.05, fov = 55.24}, pan = 3.00, ortho = 8.5},
-	// 2 — One sheet. Her whole length, easy in frame, against the fused column.
-	{eye = {yaw = 0, dist = 8.6, height = 0.15, look = 1.05, fov = 55.24}, pan = 3.30},
-	// 3 — Alongside. In close and under her rail: bow and stern run off the frame and the
-	// row of open berths is at eye level, which is the closest this screen gets to being
-	// about the ship's insides rather than about her.
-	{eye = {yaw = 0, dist = 5.4, height = -0.10, look = 0.75, fov = 55.24}, pan = 2.30},
-	// 4 — Overlap. Barely panned, so there is no clean gutter between ship and shop: her
-	// stern runs in under the paper and the two halves read as one picture. The cards keep
-	// their cast shadow, which is what stops the overlap reading as a collision.
-	{eye = {yaw = 0, dist = 6.6, height = 0.05, look = 1.00, fov = 55.24}, pan = 1.55},
+SHOP_PROTO_MOORED :: Shop_Proto_Framing{eye = cutaway.GALLEON_EYE, pan = 0, ortho = 0}
+
+// Alongside is the Shop. Dead broadside on the negative-z beam — the side her cutaway is
+// opened on — orthographic, and panned left to clear the column. Under ortho `dist` no
+// longer sets her size (`ortho` does) and only has to keep her in front of the near plane;
+// `height` must equal `look`, so the view axis is horizontal — see shop_proto_horizon.
+@(private)
+SHOP_PROTO_ALONGSIDE :: Shop_Proto_Framing {
+	eye   = {yaw = 0, dist = 9.0, height = 1.05, look = 1.05, fov = 55.24},
+	pan   = 3.00,
+	ortho = 8.5,
+}
+
+// shop_proto_ease is smootherstep — zero first *and* second derivative at both ends. A
+// camera that leaves or arrives with non-zero acceleration reads as a jolt on a move this
+// short, and plain smoothstep still kicks at the ends.
+@(private)
+shop_proto_ease :: proc(t: f32) -> f32 {
+	x := clamp(t, 0, 1)
+	return x * x * x * (x * (x * 6 - 15) + 10)
 }
 
 @(private)
-shop_proto_names := [SHOP_PROTO_VARIANTS]string {
-	"1 — Sheer draught (orthographic)",
-	"2 — One sheet",
-	"3 — Alongside",
-	"4 — Overlap",
+shop_proto_mix :: proc(a, b, k: f32) -> f32 {
+	return a + (b - a) * k
 }
 
-// shop_proto_view builds the variant's camera. It starts from the shipped galleon view so
-// the ship is framed by the same code the ship screen uses, then slides eye and target
-// together along the camera's right axis. Moving both is what makes it a pan rather than a
-// turn: the view direction is untouched, so a broadside stays a broadside however far she
-// slides.
+// shop_proto_framing_at is the camera partway through the move. Everything the eye carries
+// interpolates; the projection does not, and is handled separately.
 @(private)
-shop_proto_view :: proc(framing: Shop_Proto_Framing) -> cutaway.View {
+shop_proto_framing_at :: proc(k: f32) -> Shop_Proto_Framing {
+	a := SHOP_PROTO_MOORED
+	b := SHOP_PROTO_ALONGSIDE
+	return Shop_Proto_Framing {
+		eye = {
+			yaw = shop_proto_mix(a.eye.yaw, b.eye.yaw, k),
+			dist = shop_proto_mix(a.eye.dist, b.eye.dist, k),
+			height = shop_proto_mix(a.eye.height, b.eye.height, k),
+			look = shop_proto_mix(a.eye.look, b.eye.look, k),
+			fov = a.eye.fov,
+		},
+		pan = shop_proto_mix(a.pan, b.pan, k),
+		ortho = b.ortho,
+	}
+}
+
+// shop_proto_view builds the camera. It starts from the shipped galleon view so the ship is
+// framed by the same code the ship screen uses, then slides eye and target together along
+// the camera's right axis. Moving both is what makes it a pan rather than a turn: the view
+// direction is untouched, so a broadside stays a broadside however far she slides.
+//
+// `orthographic` is passed rather than read off the framing because mid-move the camera
+// stays perspective and the *matrix* carries the blend; only the resting Shop is a genuine
+// orthographic camera.
+@(private)
+shop_proto_view :: proc(framing: Shop_Proto_Framing, orthographic: bool) -> cutaway.View {
 	view := cutaway.galleon_view_from(framing.eye, WINDOW_WIDTH, WINDOW_HEIGHT)
 	forward := view.camera.target - view.camera.position
 	right := rl.Vector3Normalize(rl.Vector3CrossProduct(forward, view.camera.up))
 	offset := right * framing.pan
 	view.camera.position += offset
 	view.camera.target += offset
-	if framing.ortho > 0 {
+	if orthographic {
 		view.camera.projection = .ORTHOGRAPHIC
 		view.camera.fovy = framing.ortho
 	}
 	return view
 }
 
-// draw_shop_proto_ship paints the ship exactly as draw_ship_cutaway does — same sky, same
-// sea, same hull, rooms, ornament, rig and waterline, from the same procs — under a view
-// this file chose. What is dropped is everything that answers a cursor: the hover
-// highlight and the description card, which belong to refit and not to a shop's backdrop.
-// shop_proto_horizon is where the sea's edge crosses the screen for this framing.
+// shop_proto_projection is the blended projection, and the reason the move reads as one
+// continuous thing rather than a pan followed by a snap.
 //
-// Under perspective that is the water plane's vanishing point, which galleon_horizon_y
-// finds by projecting far down the view. **Under an orthographic projection there is no
-// vanishing point**: parallel rays each meet the water plane exactly once, so a plane that
-// is even slightly oblique to the view axis projects over the *entire* frame, and asking
-// for its horizon is asking a question with no answer. That is not a raylib bug — it is
-// what removing the perspective divide means, and the first pass of this variant came back
-// with a flat blue screen and no sea in it at all.
-//
-// An elevation's view axis is horizontal by definition, which is the case that has an
-// answer: with `height == look` the water plane is exactly edge-on and projects to a single
-// line, world y maps linearly to screen y, and the waterline is wherever y = 0 lands.
+// A perspective matrix divides by -z (its w row is `0 0 -1 0`); an orthographic one does
+// not (`0 0 0 1`). Blending the two component-wise gives a valid projective transform whose
+// convergence falls off smoothly with `k` — so as the camera swings to the beam, her
+// bulkheads straighten and her square sails foreshorten away instead of vanishing in one
+// frame. Both ends are exact: k=0 is the shipped perspective, k=1 the Shop's orthographic.
 @(private)
-shop_proto_horizon :: proc(view: cutaway.View, framing: Shop_Proto_Framing) -> f32 {
-	if framing.ortho <= 0 {
-		return backdrop_floor(cutaway.galleon_horizon_y(view))
+shop_proto_projection :: proc(k: f32) -> rl.Matrix {
+	aspect := f32(WINDOW_WIDTH) / f32(WINDOW_HEIGHT)
+	near :: f32(rlgl.CULL_DISTANCE_NEAR)
+	far :: f32(rlgl.CULL_DISTANCE_FAR)
+
+	persp := rl.MatrixPerspective(math.to_radians(SHOP_PROTO_MOORED.eye.fov), aspect, near, far)
+	top := SHOP_PROTO_ALONGSIDE.ortho / 2
+	ortho := rl.MatrixOrtho(-top * aspect, top * aspect, -top, top, near, far)
+
+	out: rl.Matrix
+	for r in 0 ..< 4 {
+		for c in 0 ..< 4 {
+			out[r, c] = persp[r, c] * (1 - k) + ortho[r, c] * k
+		}
 	}
-	assert(framing.eye.height == framing.eye.look, "an orthographic framing needs a horizontal view axis")
-	top := framing.eye.look + framing.ortho / 2 // world y at screen y = 0
-	return backdrop_floor(top / framing.ortho * WINDOW_HEIGHT)
+	return out
 }
 
+// shop_proto_horizon is where the sea's edge crosses the screen.
+//
+// Under perspective that is the water plane's vanishing point, which galleon_horizon_y finds
+// by projecting far down the view. **Under an orthographic projection there is no vanishing
+// point**: parallel rays each meet the water plane exactly once, so a plane even slightly
+// oblique to the view axis projects over the *entire* frame, and asking for its horizon is a
+// question with no answer. That is not a raylib bug — it is what removing the perspective
+// divide means, and the first pass of this framing came back a flat blue screen with no sea
+// in it at all. An elevation's view axis is horizontal by definition, which *is* the case
+// that has an answer: with `height == look` the plane is exactly edge-on, world y maps
+// linearly to screen y, and the waterline is wherever y = 0 lands.
+//
+// Mid-move the two are blended in screen space rather than derived from the blended matrix.
+// It is an approximation, but a monotone one that is exact at both ends, and the horizon
+// only has to travel plausibly for the ~0.9s the camera is moving.
 @(private)
-draw_shop_proto_ship :: proc(state: ^Game_State, view: cutaway.View, framing: Shop_Proto_Framing) {
-	horizon := shop_proto_horizon(view, framing)
+shop_proto_horizon :: proc(k: f32) -> f32 {
+	moored := shop_proto_view(SHOP_PROTO_MOORED, false)
+	from := cutaway.galleon_horizon_y(moored)
+	assert(
+		SHOP_PROTO_ALONGSIDE.eye.height == SHOP_PROTO_ALONGSIDE.eye.look,
+		"an orthographic framing needs a horizontal view axis",
+	)
+	top := SHOP_PROTO_ALONGSIDE.eye.look + SHOP_PROTO_ALONGSIDE.ortho / 2 // world y at screen y = 0
+	to := top / SHOP_PROTO_ALONGSIDE.ortho * WINDOW_HEIGHT
+	return backdrop_floor(shop_proto_mix(from, to, k))
+}
+
+// draw_shop_proto_ship paints the ship as draw_ship_cutaway does — same sky, same sea, same
+// hull, rooms, ornament, rig and waterline, from the same procs — under this file's camera.
+// Dropped is everything that answers a cursor: the hover highlight and the description card
+// belong to refit, not to a shop's backdrop.
+@(private)
+draw_shop_proto_ship :: proc(state: ^Game_State, k: f32) {
+	resting := k >= 1
+	view := shop_proto_view(shop_proto_framing_at(k), resting)
+	horizon := shop_proto_horizon(k)
+
 	draw_ship_sky(horizon)
 	draw_ship_sea(horizon)
-	draw_ship_wake(view, horizon)
+
+	// The wake and the waterline foam are the one thing this prototype drops mid-move, and
+	// the reason is worth keeping: both project world points through `view.camera`, which
+	// knows nothing about the blended matrix the hull is actually being drawn with, so they
+	// would sit detached from her planking by tens of pixels at the middle of the swing.
+	// Drawing them only at rest is a prototype shortcut — the real fix is to project them
+	// through the same matrix, which means a projection seam in the cutaway package that is
+	// not worth opening to answer whether the move feels right.
+	if resting {
+		draw_ship_wake(view, horizon)
+	}
 
 	rooms, n := cutaway.galleon_rooms(state.player.layout)
 
 	ship_paint_view(view.camera)
 	rl.BeginMode3D(view.camera)
+	// Overriding after BeginMode3D is deliberate: BeginMode3D pushes the projection stack and
+	// sets a matrix from the camera, and this replaces the one rlgl will actually draw the
+	// queued batch with. EndMode3D pops the stack, so nothing leaks past this block.
+	if !resting {
+		rlgl.SetMatrixProjection(shop_proto_projection(k))
+	}
 	draw_ship_hull()
 	for i in 0 ..< n {
 		draw_ship_room(rooms[i], ship_room_timber(rooms[i].kind))
@@ -158,11 +225,13 @@ draw_shop_proto_ship :: proc(state: ^Game_State, view: cutaway.View, framing: Sh
 	draw_ship_rig()
 	rl.EndMode3D()
 
-	draw_ship_waterline(view, horizon)
+	if resting {
+		draw_ship_waterline(view, horizon)
+	}
 }
 
-// shop_proto_options flattens the staged shelf to the options actually present, so every
-// variant lays out against a count rather than skipping holes in the array.
+// shop_proto_options flattens the staged shelf to the options actually present, so the
+// column lays out against a count rather than skipping holes in the array.
 @(private)
 shop_proto_options :: proc(state: ^Game_State) -> (out: [sim.STAGE_OPTION_MAX]sim.Stage_Option, n: int) {
 	for slot in state.stage_options {
@@ -178,35 +247,47 @@ shop_proto_options :: proc(state: ^Game_State) -> (out: [sim.STAGE_OPTION_MAX]si
 // a shot and the window are the same screen. `bar` is the switcher, drawn only for the
 // window — a shot wants clean pixels to judge, not the tool that took it.
 @(private)
-draw_shop_prototype :: proc(state: ^Game_State, variant: int, bar: bool) {
+draw_shop_prototype :: proc(state: ^Game_State, t: f32, bar: bool) {
 	frame_begin()
 	defer frame_end()
 	defer free_all(context.temp_allocator)
 
-	framing := shop_proto_framings[variant]
-	draw_shop_proto_ship(state, shop_proto_view(framing), framing)
+	k := shop_proto_ease(t)
+	draw_shop_proto_ship(state, k)
 
-	options, n := shop_proto_options(state)
-	// Three framings share the column so the camera is the only thing that differs between
-	// them; only 2 swaps the column out, which is the one layout question still open.
-	if variant == 1 {
-		draw_shop_proto_sheet(state, options[:], n)
-	} else {
-		draw_shop_proto_column(state, options[:], n)
+	// The ship's readout is hers, not the market's, so it is on screen for the whole move.
+	// Drawing it with the column popped it into existence partway through the swing.
+	rl.DrawTextEx(
+		ui_font_body,
+		fmt.ctprintf("%s", ship_stat_line(&state.player)),
+		{40, 28},
+		UI_BODY_SIZE,
+		1,
+		COLOUR_CREAM_BRIGHT,
+	)
+
+	// The column comes in over the back half of the move and slides from off the right edge.
+	// Held back rather than travelling with the camera: paper arriving while the ship is
+	// still swinging gives the eye two things moving in different directions at once.
+	arrival := shop_proto_ease(clamp((t - 0.45) / 0.55, 0, 1))
+	if arrival > 0 {
+		options, n := shop_proto_options(state)
+		draw_shop_proto_column(state, options[:], n, (1 - arrival) * 440)
 	}
 
 	if bar {
-		draw_shop_proto_switcher(variant)
+		draw_shop_proto_readout(t)
 	}
 }
 
 // ---------------------------------------------------------------------------
 // The column — four discrete cards, aligned
 //
-// Paper on the sea with no panel behind it, so the ship's own water runs between the
-// cards and the screen is the ship screen with paper on it rather than the ship screen
-// with a wall on it. Every edge lines up: card left, card right, the heading above them
-// and the control below. Four prices scan down one straight line.
+// Paper on the sea with no panel behind it, so the ship's own water runs between the cards
+// and the screen is the ship screen with paper on it rather than the ship screen with a wall
+// on it. Every edge lines up: card left, card right, the heading above them and the control
+// below. Four prices scan down one straight line. `dx` slides the whole block in from the
+// right during the move and is zero at rest.
 // ---------------------------------------------------------------------------
 
 @(private)
@@ -221,16 +302,17 @@ SHOP_PROTO_COL_PITCH :: f32(120)
 SHOP_PROTO_COL_Y0 :: f32(104)
 
 @(private)
-draw_shop_proto_column :: proc(state: ^Game_State, options: []sim.Stage_Option, n: int) {
-	draw_shop_proto_stat_line(state)
-	// The heading starts on the column's own left edge rather than being centred over it:
-	// a centred title above a left-aligned stack has nothing for the eye to run down.
-	rl.DrawTextEx(ui_font_title, "Market", {SHOP_PROTO_COL_X, 44}, UI_TITLE_SIZE, 2, COLOUR_CREAM_BRIGHT)
+draw_shop_proto_column :: proc(state: ^Game_State, options: []sim.Stage_Option, n: int, dx: f32) {
+	x := SHOP_PROTO_COL_X + dx
+
+	// The heading starts on the column's own left edge rather than being centred over it: a
+	// centred title above a left-aligned stack has nothing for the eye to run down.
+	rl.DrawTextEx(ui_font_title, "Market", {x, 44}, UI_TITLE_SIZE, 2, COLOUR_CREAM_BRIGHT)
 
 	for i in 0 ..< n {
 		option := options[i]
 		card := rl.Rectangle {
-			SHOP_PROTO_COL_X,
+			x,
 			SHOP_PROTO_COL_Y0 + f32(i) * SHOP_PROTO_COL_PITCH,
 			SHOP_PROTO_COL_W,
 			SHOP_PROTO_COL_CARD_H,
@@ -238,22 +320,21 @@ draw_shop_proto_column :: proc(state: ^Game_State, options: []sim.Stage_Option, 
 		afford := voyage.voyage_option_can_afford(&state.player, option)
 
 		// A cast shadow, not a glow: the sea is bright, so the only way paper sits above it
-		// is to darken what is under the paper. It is also what keeps variant 4's overlap
-		// reading as depth rather than as a collision.
+		// is to darken what is under the paper.
 		rl.DrawRectangleRec({card.x + 5, card.y + 6, card.width, card.height}, rl.Fade(COLOUR_SEA_DEEP, 0.45))
-		// Paper is opaque. Dimming an unaffordable card by alpha was an early pass and it
-		// let a hull-down island read straight through the card as a stain — translucency
-		// costs a panel its own ground. Unaffordable is a duller sheet plus duller ink,
-		// shaded down the one swatch rather than mixed toward anything.
+		// Paper is opaque. Dimming an unaffordable card by alpha was an early pass and it let
+		// a hull-down island read straight through the card as a stain — translucency costs a
+		// panel its own ground. Unaffordable is a duller sheet plus duller ink, shaded down
+		// the one swatch rather than mixed toward anything.
 		rl.DrawRectangleRec(card, afford ? COLOUR_PARCHMENT : colour_shade(COLOUR_PARCHMENT, 0.90))
 		rl.DrawRectangleLinesEx(card, 2, afford ? COLOUR_SEA_DEEP : COLOUR_CLIFF)
 		draw_shop_proto_entry(card, option, afford)
 	}
 
-	// The control takes the column's full width so the block closes on the same two edges
-	// it opened on. No shadow — it is not another piece of stock.
+	// The control takes the column's full width so the block closes on the same two edges it
+	// opened on. No shadow — it is not another piece of stock.
 	shop_proto_control(
-		{SHOP_PROTO_COL_X, SHOP_PROTO_COL_Y0 + f32(n) * SHOP_PROTO_COL_PITCH + 16, SHOP_PROTO_COL_W, 40},
+		{x, SHOP_PROTO_COL_Y0 + f32(n) * SHOP_PROTO_COL_PITCH + 16, SHOP_PROTO_COL_W, 40},
 		"Leave",
 		COLOUR_SEA_DEEP,
 		COLOUR_PARCHMENT,
@@ -261,68 +342,9 @@ draw_shop_proto_column :: proc(state: ^Game_State, options: []sim.Stage_Option, 
 }
 
 // ---------------------------------------------------------------------------
-// 2 — One sheet
-//
-// The same four entries on one piece of paper instead of four, ruled apart rather than
-// bordered apart. Alignment taken as far as it goes: a single outline, a single ground,
-// and the heading and the control brought inside it, so the shop is one object on the sea
-// rather than a stack of them. What it gives up is the read of stock as separate goods —
-// four things you could pick up become four lines you read.
-// ---------------------------------------------------------------------------
-
-@(private)
-SHOP_PROTO_SHEET :: rl.Rectangle{x = 812, y = 76, width = 400, height = 548}
-@(private)
-SHOP_PROTO_SHEET_PAD :: f32(18)
-@(private)
-SHOP_PROTO_SHEET_ROW_Y :: f32(156)
-@(private)
-SHOP_PROTO_SHEET_PITCH :: f32(104)
-
-@(private)
-draw_shop_proto_sheet :: proc(state: ^Game_State, options: []sim.Stage_Option, n: int) {
-	draw_shop_proto_stat_line(state)
-
-	sheet := SHOP_PROTO_SHEET
-	rl.DrawRectangleRec({sheet.x + 5, sheet.y + 6, sheet.width, sheet.height}, rl.Fade(COLOUR_SEA_DEEP, 0.45))
-	rl.DrawRectangleRec(sheet, COLOUR_PARCHMENT)
-	rl.DrawRectangleLinesEx(sheet, 2, COLOUR_SEA_DEEP)
-
-	x := sheet.x + SHOP_PROTO_SHEET_PAD
-	right := sheet.x + sheet.width - SHOP_PROTO_SHEET_PAD
-
-	// The heading is ink here, not cream: it has parchment under it now, and cream is the
-	// roster's tone for a heading placed over the sea.
-	rl.DrawTextEx(ui_font_title, "Market", {x, sheet.y + 16}, UI_TITLE_SIZE, 2, COLOUR_INK_PRIMARY)
-	rl.DrawLineEx({x, sheet.y + 68}, {right, sheet.y + 68}, 2, COLOUR_SAND)
-
-	for i in 0 ..< n {
-		option := options[i]
-		y := SHOP_PROTO_SHEET_ROW_Y + f32(i) * SHOP_PROTO_SHEET_PITCH
-		afford := voyage.voyage_option_can_afford(&state.player, option)
-		draw_shop_proto_entry({x, y - 12, right - x, SHOP_PROTO_SHEET_PITCH - 12}, option, afford)
-		// Rules go *between* entries, never after the last one: a trailing rule reads as a
-		// fifth row that failed to draw.
-		if i < n - 1 {
-			rl.DrawLineEx({x, y + 80}, {right, y + 80}, 1, rl.Fade(COLOUR_SAND, 0.8))
-		}
-	}
-
-	shop_proto_control(
-		{x, sheet.y + sheet.height - 58, right - x, 38},
-		"Leave",
-		COLOUR_SEA_DEEP,
-		rl.Fade(COLOUR_SAND, 0.35),
-	)
-}
-
-// ---------------------------------------------------------------------------
 // Shared marks
 // ---------------------------------------------------------------------------
 
-// draw_shop_proto_entry lays one item out inside `rect`, which is a card in the column and
-// a ruled band on the sheet. One proc so the two columns cannot drift apart in wording,
-// spacing or tone while the framings around them are being judged.
 @(private)
 draw_shop_proto_entry :: proc(rect: rl.Rectangle, option: sim.Stage_Option, afford: bool) {
 	name_tone := afford ? COLOUR_INK_PRIMARY : COLOUR_INK_MUTED
@@ -340,20 +362,6 @@ draw_shop_proto_entry :: proc(rect: rl.Rectangle, option: sim.Stage_Option, affo
 	if cost, priced := option.cost.?; priced {
 		shop_proto_price_right(rect.x + rect.width - 14, rect.y + 12, cost, name_tone)
 	}
-}
-
-// draw_shop_proto_stat_line puts the ship's readout over the sea, top left, away from the
-// shop: what you have is a fact about the ship, not a line of the market's.
-@(private)
-draw_shop_proto_stat_line :: proc(state: ^Game_State) {
-	rl.DrawTextEx(
-		ui_font_body,
-		fmt.ctprintf("%s", ship_stat_line(&state.player)),
-		{40, 28},
-		UI_BODY_SIZE,
-		1,
-		COLOUR_CREAM_BRIGHT,
-	)
 }
 
 // shop_proto_crate is the cargo mark: a crate, drawn as shapes because the guide will not
@@ -376,9 +384,9 @@ shop_proto_price_right :: proc(right, y: f32, cost: int, tone: rl.Color) {
 	shop_proto_crate({right - w - 20, y + 1}, tone)
 }
 
-// shop_proto_control is every control on every variant: a 2px border in the tone that
-// states its role, a translucent ground, and a label in the same tone. No fill marks the
-// default action — the guide retired that accent and this prototype does not reopen it.
+// shop_proto_control is every control here: a 2px border in the tone that states its role, a
+// ground, and a label in the same tone. No fill marks the default action — the guide retired
+// that accent and this prototype does not reopen it.
 @(private)
 shop_proto_control :: proc(rect: rl.Rectangle, label: cstring, tone: rl.Color, ground: rl.Color) {
 	rl.DrawRectangleRec(rect, ground)
@@ -394,33 +402,38 @@ shop_proto_control :: proc(rect: rl.Rectangle, label: cstring, tone: rl.Color, g
 	)
 }
 
-// draw_shop_proto_switcher is the prototype's own furniture and is drawn to look like it:
-// the retired navy ramp, hard edges, nothing off the bright roster. It must never be
-// mistaken for part of the design being judged.
+// draw_shop_proto_readout is the prototype's own furniture and is drawn to look like it: the
+// retired navy ramp, hard edges, nothing off the bright roster. It must never be mistaken for
+// part of the design being judged. It shows where the move has got to, because scrubbing by
+// hand is useless without a number to scrub against.
 @(private)
-draw_shop_proto_switcher :: proc(variant: int) {
-	bar := rl.Rectangle{(WINDOW_WIDTH - 420) / 2, 652, 420, 34}
+draw_shop_proto_readout :: proc(t: f32) {
+	bar := rl.Rectangle{(WINDOW_WIDTH - 460) / 2, 652, 460, 34}
 	rl.DrawRectangleRec(bar, rl.Fade(COLOUR_VIGNETTE, 0.92))
 	rl.DrawRectangleLinesEx(bar, 1, COLOUR_STEEL)
 
-	mid := bar.y + bar.height / 2
-	// Left arrow: the caret's mirror. Vertex order is raylib's counter-clockwise
-	// requirement — reverse it and the triangle is culled to nothing.
-	rl.DrawTriangle({bar.x + 22, mid - 6}, {bar.x + 12, mid}, {bar.x + 22, mid + 6}, COLOUR_STEEL)
-	draw_caret({bar.x + bar.width - 17, mid}, COLOUR_STEEL)
+	// A progress rule along the bar's foot: the number says where it is, this says how far.
+	rl.DrawRectangleRec({bar.x + 1, bar.y + bar.height - 3, (bar.width - 2) * clamp(t, 0, 1), 2}, COLOUR_CYAN)
 
-	label := fmt.ctprintf("%s", shop_proto_names[variant])
+	label := fmt.ctprintf("t %.2f  ·  Space replays  ·  arrows scrub", t)
 	size := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1)
-	rl.DrawTextEx(ui_font_body, label, {bar.x + (bar.width - size.x) / 2, mid - size.y / 2}, UI_BODY_SIZE, 1, COLOUR_CREAM)
+	rl.DrawTextEx(
+		ui_font_body,
+		label,
+		{bar.x + (bar.width - size.x) / 2, bar.y + bar.height / 2 - size.y / 2 - 1},
+		UI_BODY_SIZE,
+		1,
+		COLOUR_CREAM,
+	)
 }
 
 // ---------------------------------------------------------------------------
 // Staging and the interactive run
 // ---------------------------------------------------------------------------
 
-// shop_proto_stage builds the world every variant draws from: the real starting ship and
-// the same four-item shelf capture's own `shop` shot stages, so a variant is judged
-// against the stock the shipped screen is judged against.
+// shop_proto_stage builds the world the screen draws from: the real starting ship and the
+// same four-item shelf capture's own `shop` shot stages, so this is judged against the stock
+// the shipped screen is judged against.
 @(private)
 shop_proto_stage :: proc(state: ^Game_State, player: ^ship.Ship) {
 	player^ = ship.ship_starting_ship()
@@ -435,34 +448,36 @@ shop_proto_stage :: proc(state: ^Game_State, player: ^ship.Ship) {
 	}
 }
 
-// The capture entries. Appended to the end of `capture_shots` so no shipped shot
-// renumbers; they add four names to the manifest and move nothing.
+// The capture entries. Appended to the end of `capture_shots` so no shipped shot renumbers.
+// Three of the four are frames *through* the move: a move is the one thing a still cannot
+// judge, but stills along it are what say whether the blend is monotone and whether anything
+// tears halfway.
 @(private)
 capture_stage_shop_proto :: proc(scene: ^Capture_Scene) {
 	shop_proto_stage(&scene.game, &scene.player)
 }
 
 @(private)
-capture_frame_shop_proto_1 :: proc(scene: ^Capture_Scene) -> bool {
-	draw_shop_prototype(&scene.game, 0, false)
-	return true
-}
-
-@(private)
-capture_frame_shop_proto_2 :: proc(scene: ^Capture_Scene) -> bool {
+capture_frame_shop_proto :: proc(scene: ^Capture_Scene) -> bool {
 	draw_shop_prototype(&scene.game, 1, false)
 	return true
 }
 
 @(private)
-capture_frame_shop_proto_3 :: proc(scene: ^Capture_Scene) -> bool {
-	draw_shop_prototype(&scene.game, 2, false)
+capture_frame_shop_proto_move_25 :: proc(scene: ^Capture_Scene) -> bool {
+	draw_shop_prototype(&scene.game, 0.25, false)
 	return true
 }
 
 @(private)
-capture_frame_shop_proto_4 :: proc(scene: ^Capture_Scene) -> bool {
-	draw_shop_prototype(&scene.game, 3, false)
+capture_frame_shop_proto_move_50 :: proc(scene: ^Capture_Scene) -> bool {
+	draw_shop_prototype(&scene.game, 0.50, false)
+	return true
+}
+
+@(private)
+capture_frame_shop_proto_move_75 :: proc(scene: ^Capture_Scene) -> bool {
+	draw_shop_prototype(&scene.game, 0.75, false)
 	return true
 }
 
@@ -471,15 +486,14 @@ shop_proto_requested :: proc() -> bool {
 	return slice.contains(os.args[1:], "--shop-proto")
 }
 
-// shop_proto_main is the interactive run: one window, the four framings under the arrow
-// keys. No Sim — nothing here needs one.
+// shop_proto_main is the interactive run. No Sim — nothing here needs one.
 //
-// It boots borderless fullscreen the same way `run` does, because a variant judged in a
-// 1244x700 window is not the variant the player sees: the session composes into a render
-// texture and blits it, and that path is the only place translucency reads true (the
-// style guide's "a render texture loses alpha"). Every card shadow, faded rule and dimmed
-// ink on these screens is translucent, so this is the run that tells the truth about them
-// — and the one `--shot` structurally cannot photograph.
+// It boots borderless fullscreen the same way `run` does, because a screen judged in a
+// 1244x700 window is not the screen the player sees: the session composes into a render
+// texture and blits it, and that path is the only place translucency reads true (the style
+// guide's "a render texture loses alpha"). Every card shadow, faded rule and dimmed ink here
+// is translucent, so this is the run that tells the truth about them — and the one `--shot`
+// structurally cannot photograph.
 shop_proto_main :: proc() {
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game — shop prototype")
 	defer rl.CloseWindow()
@@ -498,20 +512,33 @@ shop_proto_main :: proc() {
 	shop_proto_stage(&state, &player)
 
 	for !rl.WindowShouldClose() {
-		if rl.IsKeyPressed(.RIGHT) {
-			shop_proto_variant = (shop_proto_variant + 1) % SHOP_PROTO_VARIANTS
+		if rl.IsKeyPressed(.SPACE) {
+			shop_proto_t = 0
+			shop_proto_playing = true
 		}
-		if rl.IsKeyPressed(.LEFT) {
-			shop_proto_variant = (shop_proto_variant + SHOP_PROTO_VARIANTS - 1) % SHOP_PROTO_VARIANTS
+		// Scrubbing takes the move off the clock: holding an arrow is how you sit inside the
+		// middle of the swing, which is where a blend goes wrong and where 60fps never lets
+		// you look.
+		if rl.IsKeyDown(.RIGHT) || rl.IsKeyDown(.LEFT) {
+			shop_proto_playing = false
+			step := rl.GetFrameTime() / SHOP_PROTO_MOVE_SECONDS
+			shop_proto_t = clamp(shop_proto_t + (rl.IsKeyDown(.RIGHT) ? step : -step), 0, 1)
+		}
+		if shop_proto_playing {
+			shop_proto_t = clamp(shop_proto_t + rl.GetFrameTime() / SHOP_PROTO_MOVE_SECONDS, 0, 1)
+			if shop_proto_t >= 1 {
+				shop_proto_playing = false
+			}
 		}
 		// F11 drops back to a window and returns. fullscreen_active stays true either way:
-		// frame_end letterboxes against whatever GetScreenWidth reports, so the texture path
-		// — and with it the honest alpha — is in play at both sizes.
+		// frame_end letterboxes against whatever GetScreenWidth reports, so the texture path —
+		// and with it the honest alpha — is in play at both sizes.
 		if rl.IsKeyPressed(.F11) {
 			rl.ToggleBorderlessWindowed()
 		}
-		draw_shop_prototype(&state, shop_proto_variant, true)
+		draw_shop_prototype(&state, shop_proto_t, true)
 	}
 
-	shop_proto_variant = 0
+	shop_proto_t = 0
+	shop_proto_playing = true
 }
