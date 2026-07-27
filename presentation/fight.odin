@@ -21,14 +21,14 @@ import rl "vendor:raylib"
 //     above the line or an exposed hold below it, and the screen renders exactly that). A
 //     scouted opponent's concealed slots read "???" and its hold / weight stay hidden, the same gate
 //     draw_ship_panel used; you see your own ship whole.
-//   - The captain action-row, no amber. The one-decision-per-round menu is a bottom row of
+//   - The captain action-row, uniform. The one-decision-per-round menu is a bottom row of
 //     steel controls (a Press per phase while the battle's one Press is unspent, Commit,
 //     Jettison, Hold, and Break Off once escape-eligible). Jettison is one order that picks
 //     its target in a **second step** — the row is replaced by the laden fittings, and
 //     clicking one heaves it — so the order set stays at ADR-0028's five however many holds
-//     the ship has. A Fight has no single default move — choosing *is* the game — so none of
-//     them takes the reserved amber; hover is carried by the caret + scrim lift, exactly as
-//     the Build surface (amber is assigned, not tracked).
+//     the ship has. A Fight has no single default move — choosing *is* the game — so no order
+//     is marked out from the rest, which is what the style guide asks of every screen's
+//     controls; hover is carried by the caret + scrim lift, exactly as the Build surface.
 //   - Per-round-exchange playback. A round's simultaneous exchange lands as one beat through
 //     the shared playback layer (#311): both damage numbers float over their hulls in the
 //     Fight hue and both hulls drain together, one click to the next round (ADR-0006). The
@@ -65,8 +65,9 @@ Fight_Action_Kind :: enum {
 // Fight_Action is one button of the captain action-row: where it sits, what it reads, what
 // clicking it does, and whether it is takeable this round (Break Off is not until
 // escape-eligible, and a Press is not once the battle's one Press is spent). `command` is the
-// order a .Submit button sends, and is nil on the other two kinds. No amber flag — nothing on
-// the Fight is the default, so the row is drawn uniformly steel and only hover lifts a scrim.
+// order a .Submit button sends, and is nil on the other two kinds. There is no "this is the
+// default" flag — nothing on the Fight is, so the row is drawn uniformly steel and only hover
+// lifts a scrim.
 Fight_Action :: struct {
 	rect:    rl.Rectangle,
 	label:   string,
@@ -409,7 +410,7 @@ draw_fight_statblock :: proc(s: ^ship.Ship, area_x: f32, title: string, gate: bo
 // position top-right (a position within the encounter, not a preview of upcoming kinds, so it
 // keeps #304's no-preview rule) and, top-centre, the round about to be fought with the escape
 // window leading and the hard cap (ADR-0006) as a quiet ceiling — because a fight rarely
-// reaches it and "/20" alone would misread as a fixed length. Readouts, never amber.
+// reaches it and "/20" alone would misread as a fixed length. Readouts, never controls.
 draw_fight_readouts :: proc(state: ^Game_State) {
 	if progress, ok := state.stage_progress.?; ok {
 		txt := fmt.ctprintf("Stage %d / %d", progress.index + 1, progress.count)
@@ -447,10 +448,10 @@ fight_escape_text :: proc(state: ^Game_State) -> string {
 
 // draw_fight_action_row draws the captain action-row from the laid-out list: each takeable
 // button a steel-bordered translucent control whose scrim lifts and whose caret appears on
-// hover (hover carried by the scrim + caret, not by amber — the amber rule); an untakeable
+// hover (hover is carried by the scrim + caret, never by a change of colour); an untakeable
 // order — Break Off before the escape window, a Press after the battle's one is spent, a
-// Jettison with nothing aboard to heave — dimmed to recessive blue and un-hoverable. No amber
-// anywhere, because a Fight has no default move.
+// Jettison with nothing aboard to heave — dimmed to recessive blue and un-hoverable. Every
+// takeable order looks the same, because a Fight has no default move.
 //
 // Jettison's target step carries a caption, because the row's meaning changes under it: the
 // same buttons now name what goes over the side, and clicking one does it. It is the only
@@ -585,8 +586,9 @@ draw_fight_exchange :: proc(state: ^Game_State, dmg_a: int, dmg_b: int) {
 }
 
 // draw_fight_damage_number floats a round's damage over a ship's deck in the Fight hue
-// (#A6485A, stage_tint's one warm), at title size for impact — never amber (damage is the
-// world talking, not a control to act on). Nothing drawn when the side took no damage. The
+// (#A6485A, stage_tint's one warm), at title size for impact — the stage's own hue, because
+// damage is the world talking, not a control to act on. Nothing drawn when the side took no
+// damage. The
 // deck line comes off the same region the ship drew in, so the number can't drift from the
 // cutaway it floats over.
 draw_fight_damage_number :: proc(area_x: f32, damage: int) {

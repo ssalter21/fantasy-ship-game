@@ -19,12 +19,12 @@ import rl "vendor:raylib"
 // Max Hull the top-right stat line hides becomes visible, and where a Cargo gain
 // above capacity shows its #157 waste as an after that stalls short of before+amount.
 //
-// Accept (left) is the one amber on the screen — but only when the ship can pay; an unaffordable
-// bargain dims it to inert recessive-blue and won't click, the give card's after sits below its
-// floor, and a dim-cyan shortfall hint names the stat that falls short. No warm warning colour:
-// the screen says "you can't" by withholding the amber, not by turning red. Decline (right) is a
-// steel control, one clean click, no confirm — declining a Trade halts the encounter (ADR-0014),
-// and #304's no-preview rule keeps a forfeit warning off it.
+// The two answers are the same steel control — no colour marks the default action (style guide,
+// "Controls do not have a signal colour") — so Accept is the one to press because it sits left
+// and says Accept. What the drawing does separate is affordability, not rank: an unaffordable
+// bargain draws Accept inert recessive-blue, refuses it the hover lift, and won't click; the
+// give card's after sits below its floor, and a dim-cyan shortfall hint names the stat that
+// falls short. No warm warning colour.
 //
 // Split composition (draw_trade) from polling (trade_menu_loop) like every other stage, so
 // --capture photographs it at rest (#277).
@@ -65,8 +65,8 @@ trade_get_card_rect :: proc() -> rl.Rectangle {
 }
 
 // trade_accept_rect / trade_decline_rect are the two answers, centred as a pair below the cards.
-// Accept sits left (the amber, when payable), Decline right (steel) — Decline is never the
-// default, so it never takes the amber (the amber rule).
+// The two are drawn identically, so this order is what says which one the screen expects:
+// Accept left, Decline right.
 trade_accept_rect :: proc() -> rl.Rectangle {
 	total := f32(TRADE_BUTTON_W * 2 + TRADE_BUTTON_GAP)
 	return rl.Rectangle {
@@ -120,7 +120,7 @@ trade_consequence_text :: proc(read: voyage.Trade_Reading) -> string {
 
 // trade_shortfall_text names the stat an unaffordable bargain falls short in, shown dim-cyan
 // beneath the answers only while can_accept is false (#310). It is the one place the screen says
-// why Accept is dark — there is no warm warning, just the missing amber and this line.
+// why Accept is dark — there is no warm warning, just the dimmed control and this line.
 trade_shortfall_text :: proc(stat: voyage.Trade_Stat) -> string {
 	return fmt.tprintf("Not enough %s", trade_stat_label(stat))
 }
@@ -188,7 +188,7 @@ draw_trade :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	arrow_mid := rl.Vector2{(give.x + give.width + get.x) / 2, give.y + give.height / 2}
 	draw_trade_arrow(arrow_mid, get.x - (give.x + give.width) - 24, COLOUR_STEEL)
 
-	draw_trade_accept(state.trade_can_accept)
+	draw_trade_accept(state.trade_can_accept, mouse)
 	draw_trade_decline(mouse)
 
 	// The shortfall hint, only while the bargain can't be paid: the one line that says why Accept
@@ -233,31 +233,39 @@ draw_trade_arrow :: proc(mid: rl.Vector2, length: f32, colour: rl.Color) {
 	)
 }
 
-// draw_trade_accept draws the left answer. Payable, it is the screen's one amber — a filled
-// amber panel with an ink label, the default action offered. Unaffordable, it dims to an inert
-// recessive-blue outline with a dimmed label: no amber on screen, and the loop won't click it
-// (#310). It never carries a hover scrim, because when it is live it is already the brightest
-// thing here.
-draw_trade_accept :: proc(can_accept: bool) {
+// draw_trade_accept draws the left answer. Payable, it is the same steel control Decline is —
+// no colour on the roster means "act here" (style guide, "Controls do not have a signal
+// colour").
+//
+// Unaffordable, it drops to recessive-blue and is left out of draw_trade_answer, so it never
+// takes the hover lift either. Those two together carry the whole affordability signal: a
+// control that cannot be clicked reads dim *and* does not answer the mouse. The shortfall line
+// below names the stat that falls short (#310); there is no warm warning colour.
+draw_trade_accept :: proc(can_accept: bool, mouse: rl.Vector2) {
 	rect := trade_accept_rect()
-	if can_accept {
-		rl.DrawRectangleRec(rect, COLOUR_AMBER)
-		draw_trade_button_label(rect, "Accept", COLOUR_INK)
-	} else {
+	if !can_accept {
 		rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, 0.4))
 		rl.DrawRectangleLinesEx(rect, 2, COLOUR_BLUE_RECESSIVE)
 		draw_trade_button_label(rect, "Accept", COLOUR_BLUE_RECESSIVE)
+		return
 	}
+	draw_trade_answer(rect, "Accept", mouse)
 }
 
-// draw_trade_decline draws the right answer: a steel control whose scrim lifts on hover (hover
-// carried by the scrim, not by amber — the amber rule). One clean click, no confirm.
+// draw_trade_decline draws the right answer: one clean click, no confirm — declining a Trade
+// halts the encounter (ADR-0014), and #304's no-preview rule keeps a forfeit warning off it.
 draw_trade_decline :: proc(mouse: rl.Vector2) {
-	rect := trade_decline_rect()
+	draw_trade_answer(trade_decline_rect(), "Decline", mouse)
+}
+
+// draw_trade_answer draws a live answer: a steel border and label over a scrim that lifts on
+// hover. Both answers go through it, which is what makes them read alike — the only control
+// on this screen it does not draw is an unaffordable Accept, which is inert.
+draw_trade_answer :: proc(rect: rl.Rectangle, label: string, mouse: rl.Vector2) {
 	hovered := rl.CheckCollisionPointRec(mouse, rect)
 	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, hovered ? 0.75 : 0.55))
 	rl.DrawRectangleLinesEx(rect, 2, COLOUR_STEEL)
-	draw_trade_button_label(rect, "Decline", COLOUR_STEEL)
+	draw_trade_button_label(rect, label, COLOUR_STEEL)
 }
 
 // draw_trade_button_label centres a label in an answer button, the shared layout so Accept and

@@ -36,12 +36,12 @@ MAP_PAD_Y :: 34
 MAP_PAD_REF_W :: 620
 
 // The parchment Chart's ink palette (spec 0001 §8). The reskin drops the blue
-// nautical-chart tones on this surface — steel rings, blue chart routes, the amber
+// nautical-chart tones on this surface — steel rings, blue chart routes, the warm
 // snap — for a cartographer's-hand ink language over the sourced parchment page. Two
 // registers carry identity vs. recession: node identity and the road behind you ink
 // in strong sepia; the fog ahead (unexplored ? buoys, charted-not-yet routes) recedes
 // to faded-ink. Coral is the page's one warm accent, and it is spent only on the
-// Haven X and the danger tick — nowhere else, and never amber.
+// Haven X and the danger tick — nowhere else.
 INK_SEPIA :: rl.Color{126, 92, 58, 255} // Rock #7E5C3A — node identity, the road behind
 INK_FADED :: rl.Color{156, 138, 99, 255} // Faded-ink #9C8A63 — the recessive register only
 INK_SEA_DEEP :: rl.Color{23, 134, 188, 255} // #1786BC — reachable ring + hover, the interactive tone
@@ -142,13 +142,14 @@ stage_kind_label :: proc(kind: voyage.Stage_Kind) -> string {
 // stage_tint is a stage primitive's colour, shared by the map marker and the encounter
 // strip so a Battle node and a Battle chip read as the same thing. These are the style
 // guide's muted category tones ("category is hue, state is brightness"): each kind keeps a
-// distinct hue but pulled into the palette's register and never at full saturation, so none
-// competes with the reserved amber. Retires the rl.MAROON/LIME/ORANGE/SKYBLUE/GOLD rainbow
-// the guide bans — two of whose five were amber-adjacent and broke the amber rule.
+// distinct hue but pulled into the palette's register and never at full saturation, so a
+// category tint stays ambient and none of them competes with the reserved coral. Retires the
+// rl.MAROON/LIME/ORANGE/SKYBLUE/GOLD rainbow the guide bans — five stock colours at full
+// saturation, two of them loud warms.
 stage_tint :: proc(kind: voyage.Stage_Kind) -> rl.Color {
 	switch kind {
 	case .Fight:
-		return rl.Color{166, 72, 90, 255} // muted maroon (#A6485A) — the one warm beside amber
+		return rl.Color{166, 72, 90, 255} // muted maroon (#A6485A) — the set's one warm hue
 	case .Offer:
 		return rl.Color{110, 158, 90, 255} // muted lime (#6E9E5A)
 	case .Trade:
@@ -433,9 +434,9 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	// The ship is the one raster on the inked page (spec §5) and the current-node marker: moored
 	// at its default heading on the node it stands on, or out on the leg it is sailing, facing the
 	// curve's tangent. Either way it rocks in the water (spec §6) — bob and heel over the baked
-	// frame, the heading snap untouched. No amber ring+dot, no procedural glyph. A landed sail
-	// still holding while its ink sets rocks at its moored amplitude, not its working one: the
-	// ship has arrived, and only the Sim hasn't heard yet.
+	// frame, the heading snap untouched. No drawn ring+dot marker, no procedural glyph. A landed
+	// sail still holding while its ink sets rocks at its moored amplitude, not its working one:
+	// the ship has arrived, and only the Sim hasn't heard yet.
 	under_way := sailing && state.sail_progress < 1
 	bob, heel := ship_rock(now, under_way)
 	if sailing {

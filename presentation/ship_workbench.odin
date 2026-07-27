@@ -225,9 +225,11 @@ workbench_panel :: proc(w: ^Workbench) {
 		rl.DrawRectangleRec({track.x + track.width * fill - 2, track.y - 3, 4, track.height + 6}, COLOUR_FOAM)
 
 		// A knob standing away from its shipped value is worth saying, so a session that has
-		// wandered is visible without comparing thirteen numbers by eye.
+		// wandered is visible without comparing thirteen numbers by eye. The mark is brightness,
+		// not hue — a moved label at full foam, an untouched one faded — which ranks state the
+		// way the roster does and spends no second tone on it.
 		moved := index < 5 ? false : abs(knob.value^ - workbench_shipped(w, index)) > 0.0005
-		workbench_text(knob.label, panel.x + 10, y + 2, moved ? COLOUR_AMBER : COLOUR_FOAM)
+		workbench_text(knob.label, panel.x + 10, y + 2, moved ? COLOUR_FOAM : rl.Fade(COLOUR_FOAM, 0.55))
 		workbench_text(fmt.tprintf("%.3f", knob.value^), panel.x + panel.width - 54, y + 2, COLOUR_SEA_SHALLOW)
 		y += WORKBENCH_ROW
 	}
@@ -241,7 +243,8 @@ workbench_panel :: proc(w: ^Workbench) {
 	workbench_text(views, panel.x + 10, y, COLOUR_SEA_SHALLOW)
 	workbench_text("R reset    C copy Loft as Odin    Tab hide", panel.x + 10, y + 18, COLOUR_FOAM)
 	if w.copied > 0 {
-		workbench_text(fmt.tprintf("copied %d bytes", w.copied), panel.x + 10, y + 36, COLOUR_AMBER)
+		// A readout of what the copy did, in the tone the panel gives its other readouts.
+		workbench_text(fmt.tprintf("copied %d bytes", w.copied), panel.x + 10, y + 36, COLOUR_SEA_SHALLOW)
 	}
 }
 

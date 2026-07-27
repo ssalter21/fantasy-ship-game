@@ -23,7 +23,7 @@ ENCOUNTER_STAT_MARGIN :: 24
 
 // draw_encounter_header names the current stage top-left in its category colour — the same
 // stage_tint the node and chip carry — one word, no strip and no preview. A label, not a
-// control, so never amber.
+// control, so it takes no control tone.
 draw_encounter_header :: proc(kind: voyage.Stage_Kind) {
 	rl.DrawTextEx(
 		ui_font_body,
@@ -37,7 +37,7 @@ draw_encounter_header :: proc(kind: voyage.Stage_Kind) {
 
 // draw_encounter_stat_line draws the compact top-right readout — the shared ship_stat_line
 // (#428) — steel and right-aligned, so the top-right corner is identical on all five stages
-// (#304). A readout, never amber.
+// (#304). A readout, not a control.
 draw_encounter_stat_line :: proc(s: ^ship.Ship) {
 	draw_encounter_stat_line_text(ship_stat_line(s))
 }

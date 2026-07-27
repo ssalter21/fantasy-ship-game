@@ -25,9 +25,7 @@ NO_MOUSE :: rl.Vector2{-1, -1}
 // COLOUR_GROUND is the chrome name for the ramp's first stop, so a call site that reads
 // as "ground" still says so.
 COLOUR_GROUND :: COLOUR_DEEP
-COLOUR_AMBER :: rl.Color{247, 167, 43, 255} // reserved for "the thing you can act on right now"
-COLOUR_INK :: rl.Color{8, 18, 43, 255} // the only text colour that goes on amber
-COLOUR_STEEL :: rl.Color{138, 169, 214, 255} // unselected controls: border and label
+COLOUR_STEEL :: rl.Color{138, 169, 214, 255} // every control on a dark ground: border and label
 COLOUR_CREAM :: rl.Color{231, 210, 163, 255} // titles and headings only
 COLOUR_CYAN :: rl.Color{111, 224, 236, 255} // subtitles and taglines; the eye's rest point
 COLOUR_CYAN_DIM :: rl.Color{87, 181, 195, 255} // hints and secondary help text
@@ -38,8 +36,9 @@ COLOUR_BLUE_RECESSIVE :: rl.Color{58, 90, 130, 255} // present but never read fi
 // from; these are the swatches the ship screen paints its galleon and its water from, and
 // every screen re-coloured after it will take them too.
 //
-// The names track the guide's roster rows, with one forced rename: the roster's "Shallow" is
-// COLOUR_SEA_SHALLOW here, because COLOUR_SHALLOW is already the navy ramp's third stop.
+// The names track the guide's roster rows, with two forced renames: the roster's "Shallow" is
+// COLOUR_SEA_SHALLOW here and its "Cream" is COLOUR_CREAM_BRIGHT, because COLOUR_SHALLOW and
+// COLOUR_CREAM are already taken by the navy ramp above.
 COLOUR_SEA :: rl.Color{31, 169, 208, 255} // the world backdrop, and the sea itself
 COLOUR_SEA_BRIGHT :: rl.Color{44, 195, 222, 255} // near-surface water, highlights
 COLOUR_SEA_SHALLOW :: rl.Color{99, 226, 236, 255} // brightest cool; where water meets land
@@ -72,6 +71,7 @@ COLOUR_CORAL :: rl.Color{225, 85, 43, 255} // scarce by law: danger and damage
 
 COLOUR_INK_PRIMARY :: rl.Color{18, 51, 63, 255} // titles and body on parchment; deep teal, not black
 COLOUR_INK_MUTED :: rl.Color{76, 115, 133, 255} // secondary and help text on parchment
+COLOUR_CREAM_BRIGHT :: rl.Color{243, 230, 196, 255} // light text placed over the sea, never on parchment
 
 // colour_shade multiplies a colour's channels by `factor`, clamped to the byte range. A lit
 // face and a shadowed one are then the same roster swatch under different light, rather than
