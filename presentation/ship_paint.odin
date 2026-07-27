@@ -82,7 +82,7 @@ ship_quad :: proc(a, b, c, d: rl.Vector3, base: rl.Color) {
 // of a curved skin, where the true surface normal is known from the loft and the little quad
 // standing in for it is too nearly degenerate to hand back a usable one.
 ship_quad_lit :: proc(a, b, c, d: rl.Vector3, base: rl.Color, normal: rl.Vector3) {
-	colour := ship_lit(base, ship_facing((a + c) / 2, normal))
+	colour := ship_inboard_dusk(ship_lit(base, ship_facing((a + c) / 2, normal)), (a.y + b.y + c.y + d.y) / 4)
 	// Wound both ways. raylib culls back faces into nothing, and a cutaway is looked into from
 	// an angle that sees the inside of half of what is drawn — a face culled away would be a
 	// silent hole, the failure mode the run-game skill warns about. Both windings carry the same
@@ -91,6 +91,34 @@ ship_quad_lit :: proc(a, b, c, d: rl.Vector3, base: rl.Color, normal: rl.Vector3
 	rl.DrawTriangle3D(a, c, d, colour)
 	rl.DrawTriangle3D(c, b, a, colour)
 	rl.DrawTriangle3D(d, c, a, colour)
+}
+
+// SHIP_INBOARD_DUSK is how much of the light is gone off an inboard surface at a full fathom
+// down — the same fathom the skin's tint is measured against, because it is the same water.
+SHIP_INBOARD_DUSK :: f32(0.52)
+
+// ship_inboard_dusk takes the light off a surface the further below the waterline it sits.
+//
+// Everything the cutaway looks into stands behind the same water her outer planking stands
+// behind, and water eats light before it does anything else. Without this her bow went green
+// below the waterline while her opened waist stayed dry brown down to the keel — one end sunk and
+// the other in a dry dock, which is exactly what "the front is deep in the water but the side
+// isn't" describes. It is the outer skin's own waterline, continued across the opening.
+//
+// Value only, deliberately, and this is the part that is easy to get wrong. Tinting her interior
+// toward the sea is what fills a hold with standing water; worse, warm timber mixed toward a cool
+// sea passes through neutral on the way, which is the trap the style guide now has a section
+// about. Taking the light off asserts that this is under the water and asserts nothing else — the
+// timber keeps its own hue, and the bottom of a hold really is the darkest place on a ship.
+//
+// It goes here, in the one procedure every inboard surface is painted through, rather than at
+// each call site: the ceiling planking, the sole, the bulkheads and every fitting yet to be drawn
+// in a room all take it without knowing about it.
+ship_inboard_dusk :: proc(colour: rl.Color, y: f32) -> rl.Color {
+	if y >= 0 {
+		return colour
+	}
+	return colour_shade(colour, 1 - SHIP_INBOARD_DUSK * min(-y / HULL_TINT_SPAN, 1))
 }
 
 // ship_quad_flat paints a surface whose colour has already been decided — for the skin below

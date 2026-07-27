@@ -251,6 +251,18 @@ draw_hull_side :: proc(x0, x1, side, lo0, lo1, hi0, hi1: f32) {
 	if hi0 - lo0 <= 0.002 && hi1 - lo1 <= 0.002 {
 		return
 	}
+	// Where the sea cuts this strip, as a section parameter at each end. Every band is split on it,
+	// so no quad is ever part in the water and part out — which is what put her boot-top on the
+	// loft's band grid instead of on the sea. A band is one flat colour; a band that crossed the
+	// waterline took the colour of whichever end was measured, so the painted line climbed and fell
+	// with the loft, a pixel a strip. Across her bow, where the loft climbs fastest, that came to
+	// sixteen pixels of slope against a sea that is dead level — and a hull whose green rides above
+	// the water forward and below it aft reads as one end being deeper in than the other.
+	//
+	// Split here, the seam between the two halves *is* y=0 at both ends of every strip, so the
+	// boot-top is exact by construction rather than approximately right at a fine enough grid.
+	w0 := hull_section_t(x0, 0)
+	w1 := hull_section_t(x1, 0)
 	for j in 0 ..< HULL_BANDS {
 		f0 := f32(j) / HULL_BANDS
 		f1 := f32(j + 1) / HULL_BANDS
@@ -258,19 +270,47 @@ draw_hull_side :: proc(x0, x1, side, lo0, lo1, hi0, hi1: f32) {
 		u0 := lo1 + (hi1 - lo1) * f0 // at x1, bottom
 		t1 := lo0 + (hi0 - lo0) * f1 // at x0, top
 		u1 := lo1 + (hi1 - lo1) * f1 // at x1, top
+		strake := int((t0 + t1) * 7)
 
-		a := hull_surface(x0, t0, side)
-		b := hull_surface(x1, u0, side)
-		c := hull_surface(x1, u1, side)
-		d := hull_surface(x0, t1, side)
-		normal := hull_normal((x0 + x1) / 2, (t0 + t1) / 2, side)
-		timber := hull_timber((a.y + d.y) / 2, int((t0 + t1) * 7))
-
-		ship_quad_flat(a, b, c, d, hull_water(ship_lit(timber, ship_facing((a + c) / 2, normal)), (a.y + d.y) / 2))
-
-		inner := normal * HULL_SKIN
-		ship_quad_lit(a - inner, b - inner, c - inner, d - inner, hull_timber_inner(int((t0 + t1) * 7)), -normal)
+		if (t0 < w0 && t1 > w0) || (u0 < w1 && u1 > w1) {
+			// The seam runs from the waterline at one end of the strip to the waterline at the
+			// other. The two ends sit at different section parameters — the loft is climbing —
+			// and that is fine: a quad's corners are independent, and both of these are y=0.
+			m0 := clamp(w0, t0, t1)
+			m1 := clamp(w1, u0, u1)
+			draw_hull_band(x0, x1, side, t0, u0, m0, m1, strake)
+			draw_hull_band(x0, x1, side, m0, m1, t1, u1, strake)
+			continue
+		}
+		draw_hull_band(x0, x1, side, t0, u0, t1, u1, strake)
 	}
+}
+
+// draw_hull_band plates one quad of the skin and the inner face behind it: bottom edge from
+// (x0, b0) to (x1, b1), top edge from (x0, t0) to (x1, t1). The four corners are given
+// independently because the waterline split needs a seam that is level in the *world* across a
+// strip whose loft is climbing, and that is not a seam at one section parameter.
+draw_hull_band :: proc(x0, x1, side, b0, b1, t0, t1: f32, strake: int) {
+	a := hull_surface(x0, b0, side)
+	b := hull_surface(x1, b1, side)
+	c := hull_surface(x1, t1, side)
+	d := hull_surface(x0, t0, side)
+	// A split that landed on a band boundary leaves a band with no height at all. Drawn, it is a
+	// degenerate quad that raylib will happily rasterize as a hairline.
+	if abs(d.y - a.y) < 0.0005 && abs(c.y - b.y) < 0.0005 {
+		return
+	}
+	normal := hull_normal((x0 + x1) / 2, (b0 + t0) / 2, side)
+
+	// The height that picks the timber and the depth tint is taken across all four corners. Down
+	// one edge — which is what it was — the whole band answered to the end of the strip that
+	// happened to be measured, and both the boot-top and the tint leaned upstream with the loft.
+	mid := (a.y + b.y + c.y + d.y) / 4
+	timber := hull_timber(mid, strake)
+	ship_quad_flat(a, b, c, d, hull_water(ship_lit(timber, ship_facing((a + c) / 2, normal)), mid))
+
+	inner := normal * HULL_SKIN
+	ship_quad_lit(a - inner, b - inner, c - inner, d - inner, hull_timber_inner(strake), -normal)
 }
 
 // draw_hull_cut_edge caps an opened edge of the port planking with the thickness of the plank
@@ -333,20 +373,37 @@ draw_hull_keel :: proc(x0, x1: f32) {
 // draw_hull_cap closes a frame across the beam — the transom aft and the stem's fine cross-
 // section forward — so the loft is a solid with ends rather than an open shell.
 draw_hull_cap :: proc(x, facing: f32) {
+	// Split on the waterline, for the same reason the skin is. The cap is one cross-section, so
+	// the split is a single parameter rather than a seam between two — but the stem is exactly
+	// where the eye lands first, and a boot-top that steps a band's worth up out of the sea there
+	// undoes the levelling done everywhere else.
+	w := hull_section_t(x, 0)
 	for j in 0 ..< HULL_BANDS {
 		t0 := f32(j) / HULL_BANDS
 		t1 := f32(j + 1) / HULL_BANDS
-		p0 := hull_surface(x, t0, -1)
-		s0 := hull_surface(x, t0, 1)
-		s1 := hull_surface(x, t1, 1)
-		p1 := hull_surface(x, t1, -1)
-		ship_quad_flat(p0, s0, s1, p1, hull_water(ship_lit(hull_timber(p0.y, j), ship_facing(p0, {facing, 0, 0})), p0.y))
-
-		// And its inboard face, a plank's thickness in. The cut looks straight down the length of
-		// the ship at both of these, so a cap with only an outside is a hole seen from within.
-		in_ := rl.Vector3{facing * HULL_SKIN, 0, 0}
-		ship_quad_lit(p0 - in_, s0 - in_, s1 - in_, p1 - in_, hull_timber_inner(j), {-facing, 0, 0})
+		if t0 < w && t1 > w {
+			draw_hull_cap_band(x, facing, t0, w, j)
+			draw_hull_cap_band(x, facing, w, t1, j)
+			continue
+		}
+		draw_hull_cap_band(x, facing, t0, t1, j)
 	}
+}
+
+// draw_hull_cap_band is one band of a cap: the cross-section between two section parameters, and
+// the inboard face a plank's thickness in behind it.
+draw_hull_cap_band :: proc(x, facing, t0, t1: f32, strake: int) {
+	p0 := hull_surface(x, t0, -1)
+	s0 := hull_surface(x, t0, 1)
+	s1 := hull_surface(x, t1, 1)
+	p1 := hull_surface(x, t1, -1)
+	mid := (p0.y + p1.y) / 2
+	ship_quad_flat(p0, s0, s1, p1, hull_water(ship_lit(hull_timber(mid, strake), ship_facing(p0, {facing, 0, 0})), mid))
+
+	// And its inboard face, a plank's thickness in. The cut looks straight down the length of
+	// the ship at both of these, so a cap with only an outside is a hole seen from within.
+	in_ := rl.Vector3{facing * HULL_SKIN, 0, 0}
+	ship_quad_lit(p0 - in_, s0 - in_, s1 - in_, p1 - in_, hull_timber_inner(strake), {-facing, 0, 0})
 }
 
 // draw_hull_sole lays the below-deck floor the compartments stand on, wall to wall, and closes
