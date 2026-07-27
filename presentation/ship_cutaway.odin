@@ -297,10 +297,15 @@ draw_ship_room :: proc(room: cutaway.Room, base: rl.Color) {
 	// and they are the only thing in it — without them the back wall is a painted panel, and no
 	// amount of light on a panel makes it a room.
 	if room.kind == .Hold {
+		// Lighter than the ceiling behind them, not darker, and that is the whole of whether they
+		// read. A rib stands *proud* of the planking it is bolted to, so it is the thing in a hold
+		// that catches what little light gets down there — drawn a shade under the wall it stands on
+		// it had the same tone as the wall from every angle the camera can reach, and a compartment
+		// went back to being one flat panel with a gradient on it.
 		for f := f32(0.12); f < 0.99; f += 0.19 {
 			x := aft + f * 2 * room.half.x
 			z := room.centre.z + cutaway.galleon_room_half_z(room, x) - THICKNESS
-			ship_box({x, room.centre.y, z - 0.03}, {0.055, 2 * room.half.y * 0.96, 0.06}, colour_shade(base, 0.82))
+			ship_box({x, room.centre.y, z - 0.045}, {0.07, 2 * room.half.y * 0.96, 0.09}, colour_shade(base, 1.18))
 		}
 	}
 }

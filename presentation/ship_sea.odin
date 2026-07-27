@@ -356,8 +356,29 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 	// the stem, a shorter one off her quarter, and her whole middle left alone. Amidships a ship
 	// lying at anchor meets the sea on a line, and drawing that line honestly is better than
 	// papering over it for two-thirds of her length.
-	FOAM_BOW :: f32(0.20) // the fraction of her length the forward run covers
-	FOAM_QUARTER :: f32(0.16)
+	// Where those two runs end is not a fraction any more — it is asked of the hull. A fifth of her
+	// length forward and a sixth aft were guesses, and the aft one was wrong: her side is cut open
+	// well abaft of where that run started, so the last of its marks were laid over the *inside* of
+	// her hold. Bright water standing in mid-air inside a compartment is the same failure as the
+	// line across her wale, in a smaller place.
+	//
+	// Foam belongs where the sea meets whole planking, and the hull already knows exactly where that
+	// is: it is where the cut is still above the waterline. Asked rather than guessed, the two runs
+	// end at her openings by construction, and they follow the cut if it is ever moved.
+	whole :: proc(x: f32) -> bool {
+		return hull_cut_t(x) > hull_section_t(x, 0)
+	}
+	STEP :: f32(0.04)
+	fwd, aft := cutaway.GALLEON_BOW_X, cutaway.GALLEON_STERN_X
+	for x := cutaway.GALLEON_BOW_X; x > cutaway.GALLEON_STERN_X && whole(x); x -= STEP {
+		fwd = x
+	}
+	for x := cutaway.GALLEON_STERN_X; x < cutaway.GALLEON_BOW_X && whole(x); x += STEP {
+		aft = x
+	}
+	f_bow := max((cutaway.galleon_project({fwd, 0, 0}, view).x - bow.x) / span, 0.001)
+	f_aft := min((cutaway.galleon_project({aft, 0, 0}, view).x - bow.x) / span, 0.999)
+
 	base := backdrop_floor(bow.x)
 	cells := int(backdrop_ceil(span) / BACKDROP_PIXEL)
 	for i in 0 ..< cells {
@@ -365,7 +386,7 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 			continue // the sea showing through: without these gaps the marks tile into the rule
 		}
 		f := f32(i) / f32(max(cells, 1))
-		ends := max(1 - f / FOAM_BOW, (f - (1 - FOAM_QUARTER)) / FOAM_QUARTER, 0)
+		ends := max(1 - f / f_bow, (f - f_aft) / max(1 - f_aft, 0.001), 0)
 		if ends <= 0 {
 			continue
 		}
@@ -376,9 +397,17 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 		// air in it, and COLOUR_FOAM against her dark topsides was the highest contrast on the
 		// screen — which is what made a soft effect shout. Mixed back toward the shallow sea it
 		// belongs to, it reads as water rather than as paint.
+		// Most of the mark is below the line, and what is above it is one cell laid on almost solid.
+		// Both because of the same trap in a place the guide had not yet caught it: a light cool
+		// composited at a third alpha over her dark planking does not come out pale, it comes out
+		// *grey*. The compositor walks brown toward turquoise and passes through neutral exactly as a
+		// lerp would — alpha is a lerp — so the run at her stem was a row of grey teeth bolted to her
+		// side. Below the waterline the same mark lands on sea it already agrees with and stays foam.
+		// Above it, one cell at near-full weight is a colour rather than a blend, and that thin bright
+		// lip is all that was ever wanted: the line where the water actually takes her.
 		backdrop_block(
-			{base + f32(i) * BACKDROP_PIXEL, horizon_y - h, BACKDROP_PIXEL, h},
-			rl.Fade(colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.55), (0.34 + sea_noise(i, 44) * 0.30) * ends),
+			{base + f32(i) * BACKDROP_PIXEL, horizon_y - BACKDROP_PIXEL, BACKDROP_PIXEL, h + BACKDROP_PIXEL},
+			rl.Fade(colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.62), (0.66 + sea_noise(i, 44) * 0.30) * ends),
 		)
 	}
 
