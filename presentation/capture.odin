@@ -22,67 +22,101 @@ import rl "vendor:raylib"
 @(private)
 CAPTURE_DIR :: "docs/ui/shots"
 
-// Capture_State drives the scripted walk and numbers the shots. The Game_State it
-// wraps is handed to the *real* dispatch untouched, so capture sees exactly the
-// screens the game draws rather than a second, drifting copy: the two halves take
-// separate rawptrs, so capture's Input_Source and the game's Event_Sink can read
-// different structs without either knowing about the other.
+// Capture_State drives the scripted walk and numbers the shots it takes. The Game_State
+// it wraps is handed to the *real* dispatch untouched, so capture sees exactly the screens
+// the game draws rather than a second, drifting copy: the two halves take separate
+// rawptrs, so capture's Input_Source and the game's Event_Sink can read different structs
+// without either knowing about the other.
 //
-// `wanted` is the one shot a targeted run asked for: its group still draws every frame
-// it composes, but capture_write keeps that one and drops the rest.
+// The registry's shots are numbered by their place in it rather than by a running count,
+// so this counter belongs to the voyage half alone and starts past them.
 @(private)
 Capture_State :: struct {
 	game:    Game_State,
-	shots:   int, // the number the next shot's file carries, dropped shots included
+	shots:   int, // the number the next voyage shot carries
 	written: int, // shots that reached CAPTURE_DIR, not shots attempted
-	wanted:  Maybe(string),
 }
 
-// A Capture_Shot_Group is one standalone screen setup and the shots it writes, named
-// in the order it writes them. The names are what --shot asks for and what an unknown
-// name is reported against, and their position in this table is the number a shot's
-// file carries — so a shot shot on its own lands on the same file the full walk gives it.
+// Capture_Scene is the world one shot draws from, staged fresh for that shot and torn
+// down after it. Every screen capture shoots standalone reads some part of it: a ship, a
+// voyage map, an opponent. Each shot gets its own, so no shot inherits the state another
+// left behind and every entry stands alone.
 @(private)
-Capture_Shot_Group :: struct {
-	names: []string,
-	shoot: proc(state: ^Capture_State),
+Capture_Scene :: struct {
+	game:     Game_State,
+	// player and opponent are the ships this scene built for itself, if it built any.
+	// game.player is not necessarily one of them: staging from a Sim leaves it pointing at
+	// arena-backed storage the Sim owns, since dispatch assigns Event_Voyage_Started's ship
+	// straight through. So the scene frees the ships it made, never the one game happens to
+	// point at.
+	player:   ship.Ship,
+	opponent: ship.Ship,
+	// voyage is the Sim a staged screen was populated from, and the scene keeps it alive
+	// for exactly as long as it keeps the Game_State: dispatch leaves arena-backed slices
+	// borrowed from the Sim in there (travel_options), so a Sim destroyed at the end of
+	// staging leaves the frame drawing freed memory. nil when the shot staged no voyage.
+	voyage:   ^sim.Sim,
 }
 
-// The standalone screens, in walk order. Everything past them needs the scripted
-// voyage (capture_phase_slug names those), so they are reachable only through --capture.
+// A Capture_Shot is one named state of one screen — the resting screen, but equally the
+// hovered berth, the drag in flight and the animation caught mid-raise. Capture has no
+// mouse and so cannot discover those, but it can be told where the cursor is: a state
+// belongs here as its own entry, never hard-coded into another shot's frame for one run
+// and reverted after. The name is what --shot asks for and what an unknown name is
+// reported against, and the entry's place in the table is the number its file carries —
+// so a shot taken on its own lands on the same file the full walk gives it.
+//
+// The work splits in two because the frame is drawn twice (capture_write says why):
+//
+//   - `stage` builds the state the shot draws from, and runs *once*. It is where the
+//     allocation goes — a ship, a ticked Sim — and it is nil for a screen that draws from
+//     nothing at all.
+//   - `frame` composes one frame, and runs *twice*. It may arrange the scene it was given
+//     (a drag, a cursor, a raise) but must not allocate, since it does that twice too. It
+//     returns false when the state it names cannot be arranged — a missing roster item, a
+//     berth with nowhere to put a hover — and then nothing is shot.
 @(private)
-capture_shot_groups := [?]Capture_Shot_Group {
-	{names = {"chart-table"}, shoot = capture_shot_chart_table},
-	{names = {"home", "home-chart-rising", "home-chart"}, shoot = capture_shot_home},
-	{
-		names = {"build", "build-hover", "build-shelf", "build-placing", "build-burning", "build-burn-confirm"},
-		shoot = capture_shot_build_surface,
-	},
-	{names = {"encounter-frame", "encounter-playback"}, shoot = capture_shot_encounter_frame},
-	{names = {"shop", "shop-buying"}, shoot = capture_shot_offer_shop},
-	{names = {"fight", "fight-exchange", "fight-jettison"}, shoot = capture_shot_fight},
+Capture_Shot :: struct {
+	name:  string,
+	stage: proc(scene: ^Capture_Scene),
+	frame: proc(scene: ^Capture_Scene) -> bool,
 }
 
-// capture_shot_group_for finds the group that writes a named shot, with the number the
-// first of that group's shots carries (where a targeted run starts counting) and the
-// number the named shot itself carries.
+// The standalone shots, in walk order — the one source of truth for what capture can
+// photograph without a voyage. `--shot <name>` takes one of these; `--capture` takes all
+// of them and then walks. Everything past them needs the scripted voyage
+// (capture_phase_slug names those), so it is reachable only through --capture.
 @(private)
-capture_shot_group_for :: proc(
-	name: string,
-) -> (
-	group: Capture_Shot_Group,
-	start: int,
-	number: int,
-	ok: bool,
-) {
-	walked := 0
-	for candidate in capture_shot_groups {
-		if offset, found := slice.linear_search(candidate.names, name); found {
-			return candidate, walked, walked + offset, true
+capture_shots := [?]Capture_Shot {
+	{name = "chart-table", frame = capture_frame_chart_table},
+	{name = "chart-table-hover", frame = capture_frame_chart_table_hover},
+	{name = "home", stage = capture_stage_home, frame = capture_frame_home},
+	{name = "home-chart-rising", stage = capture_stage_home, frame = capture_frame_home_chart_rising},
+	{name = "home-chart", stage = capture_stage_home, frame = capture_frame_home_chart},
+	{name = "build", stage = capture_stage_refit, frame = capture_frame_build},
+	{name = "build-hover", stage = capture_stage_refit, frame = capture_frame_build_hover},
+	{name = "build-shelf", stage = capture_stage_refit, frame = capture_frame_build_shelf},
+	{name = "build-placing", stage = capture_stage_refit, frame = capture_frame_build_placing},
+	{name = "build-burning", stage = capture_stage_refit, frame = capture_frame_build_burning},
+	{name = "build-burn-confirm", stage = capture_stage_refit, frame = capture_frame_build_burn_confirm},
+	{name = "encounter-frame", stage = capture_stage_refit, frame = capture_frame_encounter_frame},
+	{name = "encounter-playback", stage = capture_stage_refit, frame = capture_frame_encounter_playback},
+	{name = "shop", stage = capture_stage_shop, frame = capture_frame_shop},
+	{name = "shop-buying", stage = capture_stage_shop, frame = capture_frame_shop_buying},
+	{name = "fight", stage = capture_stage_fight, frame = capture_frame_fight},
+	{name = "fight-exchange", stage = capture_stage_fight, frame = capture_frame_fight_exchange},
+	{name = "fight-jettison", stage = capture_stage_fight, frame = capture_frame_fight_jettison},
+}
+
+// capture_shot_for finds a shot by name, with the number its file carries.
+@(private)
+capture_shot_for :: proc(name: string) -> (shot: Capture_Shot, number: int, ok: bool) {
+	for candidate, i in capture_shots {
+		if candidate.name == name {
+			return candidate, i, true
 		}
-		walked += len(candidate.names)
 	}
-	return {}, 0, 0, false
+	return {}, 0, false
 }
 
 // capture_open builds the window every capture entry shoots in. Paired with
@@ -110,17 +144,61 @@ capture_close :: proc() {
 	rl.CloseWindow()
 }
 
+// capture_take shoots one registry entry: stages the scene, composes the frame twice and
+// writes the PNG. Reports whether the shot reached CAPTURE_DIR.
+@(private)
+capture_take :: proc(state: ^Capture_State, shot: Capture_Shot, number: int) -> bool {
+	if !rl.IsWindowReady() {
+		return false
+	}
+
+	scene := Capture_Scene{}
+	defer capture_scene_destroy(&scene)
+	if shot.stage != nil {
+		shot.stage(&scene)
+	}
+
+	if !shot.frame(&scene) {
+		fmt.eprintfln("capture: %s could not be arranged", shot.name)
+		return false
+	}
+	shot.frame(&scene) // the second of the two draws capture_write needs
+	return capture_write(state, number, shot.name)
+}
+
+// capture_scene_destroy frees everything staging a scene allocated. Odin's delete is
+// happy with the zero value, so this covers a scene whose stage set only some of it —
+// and a shot that staged nothing at all.
+@(private)
+capture_scene_destroy :: proc(scene: ^Capture_Scene) {
+	// dispatch clones the nodes into UI-owned storage and makes the two parallel arrays;
+	// travel_options stays borrowed from the Sim, so it is not freed here.
+	delete(scene.game.visited)
+	delete(scene.game.positions)
+	delete(scene.game.voyage_map.nodes)
+	// game.player and game.sighted_opponent are copies of these two and share their
+	// layouts, so the deletes here free both sides.
+	delete(scene.player.layout)
+	delete(scene.opponent.layout)
+
+	// Last: the Game_State above borrows from this arena.
+	if scene.voyage != nil {
+		sim.sim_destroy(scene.voyage)
+		free(scene.voyage)
+	}
+}
+
 // capture_shot_main renders one named screen, writes its PNG and returns — the targeted
 // counterpart to capture_main's walk, entered from main when --shot is passed. Only the
-// asked-for shot's group runs, so the cost is the window and one screen rather than a
-// voyage. Reports whether the shot reached CAPTURE_DIR.
+// asked-for entry runs, so the cost is the window and one screen rather than a voyage.
+// Reports whether the shot reached CAPTURE_DIR.
 capture_shot_main :: proc(name: string) -> bool {
-	group, start, number, found := capture_shot_group_for(name)
+	shot, number, found := capture_shot_for(name)
 	if !found {
 		names: [dynamic]string
 		defer delete(names)
-		for candidate in capture_shot_groups {
-			append(&names, ..candidate.names)
+		for candidate in capture_shots {
+			append(&names, candidate.name)
 		}
 		fmt.eprintfln(
 			"capture: no shot named %q. Shots: %s. (The voyage screens are --capture only.)",
@@ -133,13 +211,11 @@ capture_shot_main :: proc(name: string) -> bool {
 	capture_open("Fantasy Ship Game (shot)")
 	defer capture_close()
 
-	state := Capture_State{shots = start, wanted = name}
-	group.shoot(&state)
-	if state.written == 0 {
-		// Either the group reached its own early return — a missing roster item, a berth
-		// its hover has nowhere to land — before composing this frame, or the shot was
-		// composed and could not be moved out of the working directory, which capture_write
-		// has already reported. Both are failures: nothing is in CAPTURE_DIR to look at.
+	state := Capture_State{}
+	if !capture_take(&state, shot, number) {
+		// Either the frame reported it could not be arranged, or the shot was composed and
+		// could not be moved out of the working directory. capture_take has already said
+		// which. Both are failures: nothing is in CAPTURE_DIR to look at.
 		fmt.eprintfln("capture: %s did not land in %s", name, CAPTURE_DIR)
 		return false
 	}
@@ -150,18 +226,19 @@ capture_shot_main :: proc(name: string) -> bool {
 
 // capture_main is the scripted session, entered from main when --capture is passed.
 // It builds the same window and Sim the real game does; only the Input_Source
-// differs.
+// differs. The standalone shots come from the same registry --shot reads, so there is
+// no second list of them to drift.
 capture_main :: proc() {
 	capture_open("Fantasy Ship Game (capture)")
 	defer capture_close()
 
-	state := Capture_State{}
+	state := Capture_State{shots = len(capture_shots)}
 	defer delete(state.game.visited)
 	defer delete(state.game.positions)
 	defer delete(state.game.voyage_map.nodes)
 
-	for group in capture_shot_groups {
-		group.shoot(&state)
+	for shot, number in capture_shots {
+		capture_take(&state, shot, number)
 	}
 
 	s := sim.sim_create(VOYAGE_SEED)
@@ -188,7 +265,7 @@ capture_main :: proc() {
 capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Capture_State)data
 
-	capture_shot(state, awaiting, capture_phase_slug(awaiting))
+	capture_voyage_shot(state, awaiting, capture_phase_slug(awaiting))
 	return sim.scripted_player_command(
 		state.game.voyage_map,
 		state.game.current_node_id,
@@ -197,83 +274,201 @@ capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Com
 	)
 }
 
-// capture_shot renders one frame of the current decision screen and writes it out.
+// capture_voyage_shot renders one frame of the current decision screen and writes it out.
+// This is the voyage half, which reaches its screens by walking rather than by name, so it
+// numbers its own shots as it goes rather than reading a number off the registry.
 @(private)
-capture_shot :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
+capture_voyage_shot :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	if !rl.IsWindowReady() {
 		return
 	}
 
 	capture_draw_screen(state, awaiting, label)
 	capture_draw_screen(state, awaiting, label)
-	capture_write(state, label)
+	capture_write(state, state.shots, label)
+	state.shots += 1
 }
 
-// capture_shot_chart_table photographs the Chart Table at frame 0 — no voyage, no
-// script, and none of the un-photographable beats a scripted walk pays for its screens.
-// It is the one screen capture can shoot without a Sim at all, because #278 made the
-// Chart Table stateless and made it precede any voyage.
-@(private)
-capture_shot_chart_table :: proc(state: ^Capture_State) {
-	if !rl.IsWindowReady() {
-		return
-	}
+// The Chart Table (#278) is stateless and precedes any voyage, so it is the one screen
+// capture can shoot without staging anything at all.
 
-	// -1: no button is hovered. Capture has no mouse, and the screen must photograph in
-	// its resting state rather than in whatever state the pointer happens to leave it.
+// -1: no button is hovered. The screen photographs in its resting state rather than in
+// whatever state a pointer happens to leave it.
+@(private)
+capture_frame_chart_table :: proc(scene: ^Capture_Scene) -> bool {
 	draw_chart_table(-1)
-	draw_chart_table(-1)
-	capture_write(state, "chart-table")
+	return true
 }
 
-// capture_shot_home photographs Home (#317) — the persistent between-encounters Build surface
-// and the chart raised over it. Home reads the same map, positions and travel options a real
-// voyage's first tick emits, so a throwaway Sim ticked once and dispatched into a fresh
-// Game_State populates both states without a scripted walk — which has no mouse to raise the
-// tab. The first tick emits only Event_Voyage_Started and Event_Travel_Options, neither of which
-// plays a beat, so dispatching them here is safe.
+// Begin under the cursor. The guide holds one amber per screen, so the fill does not
+// follow the mouse and hover is carried by the caret in the label's margin — which makes
+// this shot's whole difference from the resting one the thing hover actually draws.
 @(private)
-capture_shot_home :: proc(state: ^Capture_State) {
-	if !rl.IsWindowReady() {
-		return
-	}
+capture_frame_chart_table_hover :: proc(scene: ^Capture_Scene) -> bool {
+	draw_chart_table(0)
+	return true
+}
 
-	s := sim.sim_create(VOYAGE_SEED)
-	defer sim.sim_destroy(&s)
-
-	game := Game_State{}
-	defer delete(game.visited)
-	defer delete(game.positions)
-	defer delete(game.voyage_map.nodes)
+// capture_stage_home stages Home (#317) — the persistent between-encounters Build surface
+// and the chart raised over it. Home reads the same map, positions and travel options a
+// real voyage's first tick emits, so a throwaway Sim ticked once and dispatched into a
+// fresh Game_State populates it without a scripted walk — which has no mouse to raise the
+// tab. The first tick emits only Event_Voyage_Started and Event_Travel_Options, neither of
+// which plays a beat, so dispatching them here is safe.
+@(private)
+capture_stage_home :: proc(scene: ^Capture_Scene) {
+	scene.voyage = new_clone(sim.sim_create(VOYAGE_SEED))
 
 	events: [dynamic]sim.Event
 	defer delete(events)
-	sim.sim_tick(&s, &events)
+	sim.sim_tick(scene.voyage, &events)
 	for e in events {
-		dispatch(&game, e)
+		dispatch(&scene.game, e)
 	}
 
 	// home_loop asserts the full-width chart page every frame; capture bypasses the loop,
 	// so assert it here or the raised chart shoots at the voyage width the live game
 	// never shows on this screen.
-	map_width_set(&game, MAP_HOME_W)
+	map_width_set(&scene.game, MAP_HOME_W)
+}
 
-	// At anchor: the ship in refit as the resting home, no granted item, no amber.
-	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
-	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0)
-	capture_write(state, "home")
+// At anchor: the ship in refit as the resting home, no granted item, no amber.
+@(private)
+capture_frame_home :: proc(scene: ^Capture_Scene) -> bool {
+	draw_home(&scene.game, Build_Drag{}, nil, NO_MOUSE, 0)
+	return true
+}
 
-	// Mid-flip: the chart half-raised, sliding up over a partly-dimmed surface. draw_home
-	// composes any elevation, so the click flip (#329) is photographable at rest — the split #277
-	// asks for. This frame is only reachable through the fixed raise, never a poll.
-	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0.5)
-	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 0.5)
-	capture_write(state, "home-chart-rising")
+// Mid-flip: the chart half-raised, sliding up over a partly-dimmed surface. draw_home
+// composes any elevation, so the click flip (#329) is photographable at a fixed point of
+// its animation rather than by racing it — the split #277 asks for.
+@(private)
+capture_frame_home_chart_rising :: proc(scene: ^Capture_Scene) -> bool {
+	draw_home(&scene.game, Build_Drag{}, nil, NO_MOUSE, 0.5)
+	return true
+}
 
-	// The chart raised over the surface: the sailable overlay, the between-encounters travel view.
-	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 1)
-	draw_home(&game, Build_Drag{}, nil, NO_MOUSE, 1)
-	capture_write(state, "home-chart")
+// The chart raised over the surface: the sailable overlay, the between-encounters travel view.
+@(private)
+capture_frame_home_chart :: proc(scene: ^Capture_Scene) -> bool {
+	draw_home(&scene.game, Build_Drag{}, nil, NO_MOUSE, 1)
+	return true
+}
+
+// capture_stage_refit stages the real starting ship (#302) and nothing else. The Build
+// surface, the encounter frame and the shots below them read only the ship, so they need
+// no Sim — which is why they are shot standalone here rather than from the scripted walk,
+// which never opens a Refit.
+@(private)
+capture_stage_refit :: proc(scene: ^Capture_Scene) {
+	scene.player = ship.ship_starting_ship()
+	scene.game.player = scene.player
+}
+
+// At rest: the ship in refit, no granted item, no amber.
+@(private)
+capture_frame_build :: proc(scene: ^Capture_Scene) -> bool {
+	draw_build_surface(&scene.game, Build_Drag{}, nil, NO_MOUSE)
+	return true
+}
+
+// Hovering a berth: its opening lit, and its description card thrown clear of the hull on
+// a leader line. Capture has no mouse, so the cursor is placed on the sterncastle's
+// opening — the same point a real hover lands on.
+@(private)
+capture_frame_build_hover :: proc(scene: ^Capture_Scene) -> bool {
+	rooms, n := cutaway.galleon_rooms(scene.game.player.layout)
+	over, aimed := capture_room_centre(rooms, n, 0)
+	if !aimed {
+		return false
+	}
+	draw_build_surface(&scene.game, Build_Drag{}, nil, over)
+	return true
+}
+
+// capture_shelf_granted puts a granted Large item on the shelf and hands it back — the
+// arrangement the shelf shot and the drag lifting off it both start from. Large, so the
+// empty forecastle is a legal berth for it.
+@(private)
+capture_shelf_granted :: proc(scene: ^Capture_Scene) -> (ship.Fitting, bool) {
+	granted, ok := ship.ship_item_by_name("Long Nines")
+	if !ok {
+		return {}, false
+	}
+	scene.game.refit_incoming = granted.fitting
+	return granted.fitting, true
+}
+
+// A granted Large item waiting on the shelf — the surface's one amber.
+@(private)
+capture_frame_build_shelf :: proc(scene: ^Capture_Scene) -> bool {
+	if _, ok := capture_shelf_granted(scene); !ok {
+		return false
+	}
+	draw_build_surface(&scene.game, Build_Drag{}, nil, NO_MOUSE)
+	return true
+}
+
+// Mid-drag: the granted item lifted off the shelf, its ghost over the empty Large
+// forecastle, legal berths lit and the rest dimmed. The forecastle is the fourth deck slot.
+@(private)
+capture_frame_build_placing :: proc(scene: ^Capture_Scene) -> bool {
+	granted, ok := capture_shelf_granted(scene)
+	if !ok {
+		return false
+	}
+
+	rooms, n := cutaway.galleon_rooms(scene.game.player.layout)
+	over, aimed := capture_room_centre(rooms, n, 3)
+	if !aimed {
+		return false
+	}
+	draw_build_surface(&scene.game, Build_Drag{active = true, from_slot = nil, fitting = granted}, nil, over)
+	return true
+}
+
+// The out-of-combat burn (#401), mid-drag: a laden berth dragged onto the hold ledger,
+// which arms as the burn target.
+@(private)
+capture_frame_build_burning :: proc(scene: ^Capture_Scene) -> bool {
+	slot, any_laden := capture_laden_slot(scene.game.player.layout).?
+	if !any_laden {
+		return false
+	}
+	laden, _ := scene.game.player.layout[slot].fitting.?
+
+	ledger := build_ledger_rect()
+	on_ledger := rl.Vector2{ledger.x + ledger.width / 2, ledger.y + ledger.height / 2}
+	draw_build_surface(
+		&scene.game,
+		Build_Drag{active = true, from_slot = slot, fitting = laden},
+		nil,
+		on_ledger,
+	)
+	return true
+}
+
+// The confirm that drop opens.
+@(private)
+capture_frame_build_burn_confirm :: proc(scene: ^Capture_Scene) -> bool {
+	slot, any_laden := capture_laden_slot(scene.game.player.layout).?
+	if !any_laden {
+		return false
+	}
+	draw_build_surface(&scene.game, Build_Drag{}, Build_Confirm{slot = slot, burn = true}, NO_MOUSE)
+	return true
+}
+
+// capture_laden_slot is the first berth carrying cargo — what the burn shots drag and
+// then confirm.
+@(private)
+capture_laden_slot :: proc(layout: []ship.Layout_Slot) -> Maybe(ship.Slot_Index) {
+	for layout_slot, i in layout {
+		if fitting, filled := layout_slot.fitting.?; filled && fitting.cargo_held > 0 {
+			return ship.Slot_Index(i)
+		}
+	}
+	return nil
 }
 
 // capture_room_centre is where a cursor has to be to point into a berth: the middle of that
@@ -295,236 +490,142 @@ capture_room_centre :: proc(
 		true
 }
 
-// capture_shot_build_surface photographs the Cutaway Build surface on the real starting
-// ship (#302), the states capture can reach without a mouse: at rest, hovering a berth, with a
-// granted item on the shelf, mid-drag with the ghost over a legal berth, and the burn's two
-// frames. Like the Chart Table it needs no Sim — the surface reads only the ship — so it is
-// shot standalone here rather than from the scripted walk, which never opens a Refit. The
-// cursor and drag states are hard-coded, the same trick the run-game skill uses to photograph
-// what capture otherwise can't see.
+// The shared encounter frame (#304) — the constant furniture the per-stage builds fill in:
+// the bare frame on a representative stage, header naming it in its category colour, the
+// top-right stat line, the view-only chart tab, the vignette.
 @(private)
-capture_shot_build_surface :: proc(state: ^Capture_State) {
-	if !rl.IsWindowReady() {
-		return
-	}
-
-	game := Game_State{player = ship.ship_starting_ship()}
-	defer delete(game.player.layout)
-
-	// At rest: the ship in refit, no granted item, no amber.
-	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
-	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
-	capture_write(state, "build")
-
-	// Hovering a berth: its opening lit, and its description card thrown clear of the hull on a
-	// leader line. Capture has no mouse, so the cursor is placed on the sterncastle's opening —
-	// the same point a real hover lands on, and the only way this state is photographable.
-	rooms, n := cutaway.galleon_rooms(game.player.layout)
-	if over, aimed := capture_room_centre(rooms, n, 0); aimed {
-		draw_build_surface(&game, Build_Drag{}, nil, over)
-		draw_build_surface(&game, Build_Drag{}, nil, over)
-		capture_write(state, "build-hover")
-	}
-
-	// A granted Large item waiting on the shelf — the surface's one amber.
-	granted, ok := ship.ship_item_by_name("Long Nines")
-	if !ok {
-		return
-	}
-	game.refit_incoming = granted.fitting
-	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
-	draw_build_surface(&game, Build_Drag{}, nil, NO_MOUSE)
-	capture_write(state, "build-shelf")
-
-	// Mid-drag: the granted item lifted, its ghost over the empty Large forecastle, legal
-	// berths lit and the rest dimmed. The forecastle is the fourth deck slot.
-	drag := Build_Drag{active = true, from_slot = nil, fitting = granted.fitting}
-	over, _ := capture_room_centre(rooms, n, 3)
-	draw_build_surface(&game, drag, nil, over)
-	draw_build_surface(&game, drag, nil, over)
-	capture_write(state, "build-placing")
-
-	// The out-of-combat burn (#401): a laden berth dragged onto the hold ledger, which arms
-	// as the burn target, and the confirm the drop opens.
-	game.refit_incoming = nil
-	first_laden_slot :: proc(layout: []ship.Layout_Slot) -> Maybe(ship.Slot_Index) {
-		for layout_slot, i in layout {
-			if fitting, filled := layout_slot.fitting.?; filled && fitting.cargo_held > 0 {
-				return ship.Slot_Index(i)
-			}
-		}
-		return nil
-	}
-	laden_slot, any_laden := first_laden_slot(game.player.layout).?
-	if !any_laden {
-		return
-	}
-	laden, _ := game.player.layout[laden_slot].fitting.?
-	burn_drag := Build_Drag{active = true, from_slot = laden_slot, fitting = laden}
-	ledger := build_ledger_rect()
-	on_ledger := rl.Vector2{ledger.x + ledger.width / 2, ledger.y + ledger.height / 2}
-	draw_build_surface(&game, burn_drag, nil, on_ledger)
-	draw_build_surface(&game, burn_drag, nil, on_ledger)
-	capture_write(state, "build-burning")
-
-	burn := Build_Confirm{slot = laden_slot, burn = true}
-	draw_build_surface(&game, Build_Drag{}, burn, NO_MOUSE)
-	draw_build_surface(&game, Build_Drag{}, burn, NO_MOUSE)
-	capture_write(state, "build-burn-confirm")
+capture_frame_encounter_frame :: proc(scene: ^Capture_Scene) -> bool {
+	draw_encounter_frame(&scene.game, .Shop, "")
+	return true
 }
 
-// capture_shot_encounter_frame photographs the shared encounter frame (#304) — the constant
-// furniture the per-stage builds fill in. Like the Chart Table and Build surface it reads
-// only the ship, so it is shot standalone here rather than from the scripted walk (which
-// declines every stage and lingers on none). Two shots: the bare frame on a representative
-// stage — header naming it in its category colour, the top-right stat line, the view-only
-// chart tab, the vignette — and the playback layer over it, the Reward beat that is only
-// this overlay.
+// The playback layer over that frame — the Reward beat, which is only this overlay.
 @(private)
-capture_shot_encounter_frame :: proc(state: ^Capture_State) {
-	if !rl.IsWindowReady() {
-		return
-	}
-
-	game := Game_State{player = ship.ship_starting_ship()}
-	defer delete(game.player.layout)
-
-	draw_encounter_frame(&game, .Shop, "")
-	draw_encounter_frame(&game, .Shop, "")
-	capture_write(state, "encounter-frame")
-
-	draw_encounter_frame(&game, .Reward, "Salvage! You haul aboard 4 cargo.")
-	draw_encounter_frame(&game, .Reward, "Salvage! You haul aboard 4 cargo.")
-	capture_write(state, "encounter-playback")
+capture_frame_encounter_playback :: proc(scene: ^Capture_Scene) -> bool {
+	draw_encounter_frame(&scene.game, .Reward, "Salvage! You haul aboard 4 cargo.")
+	return true
 }
 
-// capture_shot_offer_shop photographs the Shop stage (#312) — the two states the scripted
-// walk can't reach: a Shop's priced shelf (the walk only meets free Offers, since a Shop
-// lives at a Port), and a buy mid-drag with the cargo preview. Like the Build surface it
-// reads only the ship plus a synthesized shelf, so it is shot standalone here rather than
-// from the walk; the drag state is hard-coded, the same trick capture_shot_build_surface
-// uses. Two shots: the shelf at rest — priced cards, one dearer than the hold can pay so its
-// dimmed, undraggable read shows — and a buy in flight, the amber ghost over the empty Large
-// forecastle with the stat line ghosting the post-buy cargo (`Cargo 80/90 → 62/90`).
+// capture_stage_shop stages the Shop stage (#312): the starting ship plus a synthesized
+// priced shelf. The scripted walk only ever meets free Offers — a Shop lives at a Port —
+// so this stop is built here instead.
 @(private)
-capture_shot_offer_shop :: proc(state: ^Capture_State) {
-	if !rl.IsWindowReady() {
-		return
-	}
-
-	game := Game_State{player = ship.ship_starting_ship()}
-	defer delete(game.player.layout)
+capture_stage_shop :: proc(scene: ^Capture_Scene) {
+	capture_stage_refit(scene)
 	// The screen reads its kind off the stage-entered Event (#430), so the synthesized
 	// stop announces itself a Shop the way a real walk would.
-	game.stage_progress = sim.Event_Stage_Entered{kind = .Shop, index = 0, count = 1}
+	scene.game.stage_progress = sim.Event_Stage_Entered{kind = .Shop, index = 0, count = 1}
 	names := [?]string{"Long Nines", "Chain & Bar Shot", "Titan's Heart", "Outriggers"}
 	costs := [?]int{18, 34, 120, 26} // the 120 sits above the starting hold, so it dims
 	for name, i in names {
 		if item, ok := ship.ship_item_by_name(name); ok {
-			game.stage_options[i] = sim.Stage_Option{fitting = item.fitting, cost = costs[i]}
+			scene.game.stage_options[i] = sim.Stage_Option{fitting = item.fitting, cost = costs[i]}
 		}
 	}
+}
 
-	draw_offer_shop(&game, Shelf_Drag{}, NO_MOUSE)
-	draw_offer_shop(&game, Shelf_Drag{}, NO_MOUSE)
-	capture_write(state, "shop")
+// The shelf at rest: priced cards, one dearer than the hold can pay so its dimmed,
+// undraggable read shows.
+@(private)
+capture_frame_shop :: proc(scene: ^Capture_Scene) -> bool {
+	draw_offer_shop(&scene.game, Shelf_Drag{}, NO_MOUSE)
+	return true
+}
 
+// A buy in flight: the amber ghost over the empty Large forecastle, with the stat line
+// ghosting the post-buy cargo (`Cargo 80/90 → 62/90`).
+@(private)
+capture_frame_shop_buying :: proc(scene: ^Capture_Scene) -> bool {
 	item, ok := ship.ship_item_by_name("Long Nines") // Large, so the empty Large forecastle lights
 	if !ok {
-		return
+		return false
 	}
+
+	rects, n := cutaway.cutaway_slot_rects(scene.game.player.layout, offer_shop_ship_region())
+	if n <= 3 {
+		return false
+	}
+	over := rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}
+
 	drag := Shelf_Drag{active = true, option_index = sim.Option_Index(0), fitting = item.fitting, cost = 18}
-	rects, n := cutaway.cutaway_slot_rects(game.player.layout, offer_shop_ship_region())
-	over := NO_MOUSE
-	if n > 3 {
-		over = rl.Vector2{rects[3].x + rects[3].width / 2, rects[3].y + rects[3].height / 2}
-	}
-	draw_offer_shop(&game, drag, over)
-	draw_offer_shop(&game, drag, over)
-	capture_write(state, "shop-buying")
+	draw_offer_shop(&scene.game, drag, over)
+	return true
 }
 
-// capture_shot_fight photographs the Fight stage (#315) — the facing cutaways the scripted
-// walk can't linger on (it Holds every round and the battle blurs past in beats). Like the
-// other stage shots it reads only two ships, so it is synthesized here: the starting ship as
-// the player, a second one as a mid-fight opponent (Hull dropped, so a scouted, damaged foe
-// reads) whose concealed holds render "???". Three shots: the fight at rest — both cutaways, the
-// per-slot visibility badges, the round / stage readouts, the no-amber action row — the
-// round-exchange beat, both damage numbers floating over their hulls under the shared scrim,
-// and Jettison's target step.
+// capture_stage_fight stages the Fight stage (#315) — the facing cutaways the scripted
+// walk can't linger on (it Holds every round and the battle blurs past in beats). It reads
+// only two ships: the starting ship as the player, a second one as a mid-fight opponent
+// (Hull dropped, so a scouted, damaged foe reads) whose concealed holds render "???".
 @(private)
-capture_shot_fight :: proc(state: ^Capture_State) {
-	if !rl.IsWindowReady() {
-		return
-	}
+capture_stage_fight :: proc(scene: ^Capture_Scene) {
+	capture_stage_refit(scene)
+	scene.opponent = ship.ship_starting_ship()
+	scene.opponent.hull = 58 // a foe already worn down, so the opponent stat block reads a real fight
 
-	game := Game_State{player = ship.ship_starting_ship()}
-	defer delete(game.player.layout)
-	opponent := ship.ship_starting_ship()
-	defer delete(opponent.layout)
-	opponent.hull = 58 // a foe already worn down, so the opponent stat block reads a real fight
-
-	game.sighted_opponent = opponent
-	game.in_battle = true
-	game.battle_round = 3 // "Round 4", escape still a couple of rounds off
-	game.may_press = true // the fight's one Press still in hand, so the row shows it takeable
-	game.stage_progress = sim.Event_Stage_Entered{kind = .Fight, index = 0, count = 2}
-	draw_fight(&game, NO_MOUSE)
-	draw_fight(&game, NO_MOUSE)
-	capture_write(state, "fight")
-
-	draw_fight_exchange(&game, 9, 14)
-	draw_fight_exchange(&game, 9, 14)
-	capture_write(state, "fight-exchange")
-
-	// Jettison's target step: the same row, showing what the ship is carrying rather than the
-	// captain's orders. Shot here because a player reaches it with a click and capture has no
-	// mouse — without this the second step goes unphotographed.
-	game.jettison_targeting = true
-	draw_fight(&game, NO_MOUSE)
-	draw_fight(&game, NO_MOUSE)
-	capture_write(state, "fight-jettison")
+	scene.game.sighted_opponent = scene.opponent
+	scene.game.in_battle = true
+	scene.game.battle_round = 3 // "Round 4", escape still a couple of rounds off
+	scene.game.may_press = true // the fight's one Press still in hand, so the row shows it takeable
+	scene.game.stage_progress = sim.Event_Stage_Entered{kind = .Fight, index = 0, count = 2}
 }
 
-// capture_write writes the presented frame to CAPTURE_DIR, numbered in walk order so a
-// session reading the shots back can see the route.
+// The fight at rest: both cutaways, the per-slot visibility badges, the round / stage
+// readouts, the no-amber action row.
+@(private)
+capture_frame_fight :: proc(scene: ^Capture_Scene) -> bool {
+	draw_fight(&scene.game, NO_MOUSE)
+	return true
+}
+
+// The round-exchange beat: both damage numbers floating over their hulls under the shared scrim.
+@(private)
+capture_frame_fight_exchange :: proc(scene: ^Capture_Scene) -> bool {
+	draw_fight_exchange(&scene.game, 9, 14)
+	return true
+}
+
+// Jettison's target step: the same row, showing what the ship is carrying rather than the
+// captain's orders. A player reaches it with a click, so without this entry the second
+// step goes unphotographed.
+@(private)
+capture_frame_fight_jettison :: proc(scene: ^Capture_Scene) -> bool {
+	scene.game.jettison_targeting = true
+	draw_fight(&scene.game, NO_MOUSE)
+	return true
+}
+
+// capture_write writes the presented frame to CAPTURE_DIR under `number`, so the shots
+// carry the walk order a session reading them back follows. Reports whether the file
+// landed there.
 //
 // Callers draw their frame twice before calling: rl.TakeScreenshot reads back the
 // framebuffer that EndDrawing just presented, so a single draw would screenshot
 // whatever was on screen *before* this one. Drawing the same scene into both buffers
 // makes the read-back land on this frame regardless of which buffer is read.
 @(private)
-capture_write :: proc(state: ^Capture_State, label: string) {
-	// A targeted run draws its group's other frames and drops them here rather than
-	// writing them. The number still advances, so the shot that is kept lands on the
-	// file the full walk would have given it.
-	if wanted, targeted := state.wanted.?; targeted && wanted != label {
-		state.shots += 1
-		return
-	}
-
+capture_write :: proc(state: ^Capture_State, number: int, label: string) -> bool {
 	// rl.TakeScreenshot runs the filename through GetFileName() and writes into the
 	// process's working directory, so a path prefix here is silently dropped — the shot
 	// always lands beside the exe's cwd. Each one is moved into CAPTURE_DIR immediately
 	// rather than left to litter the repo root; capture does not get to choose where
 	// raylib writes, only where the file ends up.
-	name := fmt.tprintf("%02d-%s.png", state.shots, label)
+	name := fmt.tprintf("%02d-%s.png", number, label)
 	rl.TakeScreenshot(strings.clone_to_cstring(name, context.temp_allocator))
 
 	// A shot that cannot be moved is removed rather than left behind: the repo root is not
 	// a capture directory, `*.png` there is not gitignored, and a stranded shot is one
-	// `git add .` away from being committed. It is counted as unwritten either way, so a
+	// `git add .` away from being committed. It is reported unwritten either way, so a
 	// targeted run fails rather than reporting a file that is not there.
-	state.shots += 1
 	dest := fmt.tprintf("%s/%s", CAPTURE_DIR, name)
 	if err := os.rename(name, dest); err != nil {
 		fmt.eprintfln("capture: could not move %s into %s (%v)", name, CAPTURE_DIR, err)
 		if err := os.remove(name); err != nil {
 			fmt.eprintfln("capture: %s is stranded in the working directory (%v)", name, err)
 		}
-		return
+		return false
 	}
 	state.written += 1
+	return true
 }
 
 // capture_draw_screen draws the frame a player would be looking at for this decision. The

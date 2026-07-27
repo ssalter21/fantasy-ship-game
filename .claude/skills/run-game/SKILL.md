@@ -38,7 +38,7 @@ odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
 foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','presentation','presentation/cutaway','cmd/headless') { odin test $pkg }
-# 400 core (54+131+140+75), 70 presentation, 4 presentation/cutaway, 4 cmd/headless — same list CI runs
+# 403 core (54+131+140+78), 87 presentation, 11 presentation/cutaway, 1 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
@@ -64,22 +64,27 @@ odin run cmd/game -- --shot build          # or --shot=build
 ```
 
 Under a second, one PNG, then the process exits. The shot lands in `docs/ui/shots/` at the same number and
-filename a full run gives it (`04-build.png`), so a shot taken this way is interchangeable with one from the
+filename a full run gives it (`05-build.png`), so a shot taken this way is interchangeable with one from the
 walk. `--shot` beats `--capture` when both are passed.
 
 An unknown name — or a bare `--shot` — prints the names that exist and exits 1 without opening a window, so
 **ask for a wrong name to get the list** rather than hunting for it:
 
 ```
-capture: no shot named "buld". Shots: chart-table, home, home-chart-rising, … (The voyage screens are
---capture only.)
+capture: no shot named "buld". Shots: chart-table, chart-table-hover, home, home-chart-rising, … (The voyage
+screens are --capture only.)
 ```
 
-Those are the **standalone** screens — the ones `capture_shot_groups` in `presentation/capture.odin` sets up
-without a voyage. The walk's own screens (`travel`, `options`, `trade`, `refit`, `battle`, `ended`) need the
-scripted session and are reachable only through the full run. Adding a screen to the standalone set means
-adding its name to that table; a test checks the names are unique and that each shot carries its walk-order
-number.
+Those are the **standalone** screens — the entries of `capture_shots` in `presentation/capture.odin`, the
+registry of every state capture can set up without a voyage. The walk's own screens (`travel`, `options`,
+`trade`, `refit`, `battle`, `ended`) need the scripted session and are reachable only through the full run.
+
+**A state is a line in that table, not a source edit.** Each entry pairs a name with a `stage` (builds the
+world it draws from — a ship, a ticked Sim — and runs once) and a `frame` (composes one frame, and runs
+twice, so it may arrange a drag or a cursor but must not allocate). A `frame` returning false says the state
+could not be arranged — a missing roster item, a berth with nowhere to put a hover — and nothing is shot.
+Adding a state means adding a line and its `frame`; a test checks the names are unique and that each shot
+carries its walk-order number.
 
 A targeted run that writes nothing — a screen that bailed out, or a shot that couldn't be moved into
 `docs/ui/shots/` — says so and exits 1. It never reports a file that isn't there.
@@ -88,10 +93,11 @@ A targeted run that writes nothing — a screen that bailed out, or a shot that 
 odin run cmd/game -- --capture
 ```
 
-The whole gallery: walks a scripted voyage and writes 37 PNGs to `docs/ui/shots/` (gitignored, regenerable) in
-about 40s. It reuses `draw_scene` and the real `dispatch` untouched, so what the game draws is what gets shot —
-there is no second copy to drift. Reach for it when you want the gallery or a voyage screen; reach for `--shot`
-the other 90% of the time.
+The whole gallery: takes every `capture_shots` entry, then walks a scripted voyage for the rest — 38 PNGs to
+`docs/ui/shots/` (gitignored, regenerable) in about 40s. The registry is the same one `--shot` reads, so there
+is no second list to drift; it reuses `draw_scene` and the real `dispatch` untouched, so what the game draws is
+what gets shot. Reach for it when you want the gallery or a voyage screen; reach for `--shot` the other 90% of
+the time.
 
 **Never kill a capture mid-walk to get at one shot.** That was the old recipe and it is what `--shot` replaces:
 deleting the shots directory out from under a running walk makes every subsequent `os.rename` fail, stranding
@@ -138,7 +144,7 @@ against the *previous shot* rather than against your memory of it.
 
 ```bash
 python scripts/shot.py zoom 00-chart-table top-left --factor 3
-python scripts/shot.py diff 04-build 05-build-hover
+python scripts/shot.py diff 05-build 06-build-hover
 ```
 
 Both take a bare shot name (resolved against `docs/ui/shots/`, `.png` optional) or a path, and write under
@@ -149,8 +155,8 @@ Both take a bare shot name (resolved against `docs/ui/shots/`, `.png` optional) 
 Copy the before-shot somewhere else, or send output there with `--out` (zoom) and `--out-dir` (diff):
 
 ```bash
-cp docs/ui/shots/04-build.png /tmp/before.png     # survives the next capture
-python scripts/shot.py diff /tmp/before.png 04-build --out-dir /tmp/diff
+cp docs/ui/shots/05-build.png /tmp/before.png     # survives the next capture
+python scripts/shot.py diff /tmp/before.png 05-build --out-dir /tmp/diff
 ```
 
 **Zoom** crops a region and magnifies it by an integer factor (default 3), **nearest-neighbour**, so a pixel
@@ -205,8 +211,8 @@ loop; budget it like it is.
   a thousand lines each) and keep the digest it reports back; the code informs your edit without settling
   permanently into the window. Full-read a file only for the lines you are about to change. One avoided
   full-read pays for a dozen looks.
-- **Read the shots you are iterating on, not the gallery.** A full walk writes **37 per run**; one to three of
-  them are yours. `--shot <name>` writes exactly the one you asked for, so the other 36 never exist to be read.
+- **Read the shots you are iterating on, not the gallery.** A full walk writes **38 per run**; one to three of
+  them are yours. `--shot <name>` writes exactly the one you asked for, so the other 37 never exist to be read.
 - **Push noisy investigation into a sub-agent.** Tracing how the encounter frame, build surface and a retired
   loop fit together is fan-out reading — dispatch it and keep the findings, not the file dumps.
 - **Size the work to one screen, one seam.** A ticket scoped to a single screen opens few files and looks at
@@ -216,9 +222,12 @@ loop; budget it like it is.
 
 Capture is the fast path, not the whole picture. Three blind spots, all real:
 
-- **Resting states only.** Capture has no mouse, so it shoots `draw_chart_table(-1)` — no hover. Half the
-  Chart Table's design (the amber caret, the scrim lift) is invisible to it. Verifying hover means temporarily
-  hard-coding the hovered index in the capture call, shooting, and reverting.
+- **Only the states someone named.** Capture has no mouse, so it cannot *discover* a hover, a drag or a frame
+  mid-animation — but it can be told where the cursor is. Those are entries in `capture_shots` like any other
+  screen (`chart-table-hover`, `build-hover`, `build-placing`, `home-chart-rising`), each shot by name in a
+  second. What is invisible is the state nobody has added yet, and the fix is a line in the table — **never a
+  hard-coded cursor edited in, shot, and reverted**, which is the old recipe and strands the repo one
+  forgotten `git checkout` away from a wrong screen.
 - **The outer loop, at all.** `capture_main` has its own entry and never enters `chart_table_loop`, so the one
   structure ADR-0022 changed is invisible. Verifying *Begin → voyage → back*, or that *Quit* quits, needs the
   real window (below).
@@ -317,8 +326,8 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
   (ADR-0003 argues against linking the renderer into `cmd/headless`, not against this).
 - The scripted walk declines everything and cannot target a *particular* screen — it reaches *a* screen of most
   kinds, and never opens a Refit at all. `--shot` targets by name, but only among the standalone screens.
-- A targeted shot still draws its group's other frames (they share one setup) and simply doesn't write them.
-  The frame you asked for is composed and double-drawn exactly as the full walk composes it.
+- A targeted shot stages its own scene and draws nothing else — the frame you asked for is composed and
+  double-drawn exactly as the full walk composes it, from a world nothing else has touched.
 
 ## Relation to /run and /verify
 

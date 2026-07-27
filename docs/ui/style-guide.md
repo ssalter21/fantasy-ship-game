@@ -315,7 +315,7 @@ Take a capture shot, then crop and scale `NEAREST` to see the cells, and count c
 ```bash
 python -c "
 from PIL import Image
-im = Image.open('docs/ui/shots/04-build.png').convert('RGB')
+im = Image.open('docs/ui/shots/05-build.png').convert('RGB')
 im.crop((880,450,1120,560)).resize((960,440), Image.NEAREST).save('/tmp/zoom.png')   # then open it
 print(len({im.getpixel((30, y)) for y in range(0, 424)}), 'distinct colours down the sky')
 "
