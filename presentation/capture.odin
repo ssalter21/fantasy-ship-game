@@ -35,12 +35,13 @@ CAPTURE_CLOCK :: 0.3
 // rawptrs, so capture's Input_Source and the game's Event_Sink can read different structs
 // without either knowing about the other.
 //
-// The registry's shots are numbered by their place in it rather than by a running count,
-// so this counter belongs to the voyage half alone and starts past them (capture_walk).
+// The registry's shots are numbered by their place in it, so the running count here belongs
+// to the voyage half alone: it counts decision screens passed, which capture_voyage_number
+// turns into the number a file carries.
 @(private)
 Capture_State :: struct {
 	game:    Game_State,
-	shots:   int, // the number the next voyage shot carries
+	shots:   int, // decision screens the walk has passed, shot or skipped
 	written: int, // shots that reached CAPTURE_DIR, not shots attempted
 	// target is the one voyage screen a targeted walk came for, "" for the full gallery.
 	// The walk numbers every screen it passes either way and shoots only this one, so a
@@ -136,21 +137,33 @@ capture_shot_for :: proc(name: string) -> (shot: Capture_Shot, number: int, ok: 
 	return {}, 0, false
 }
 
-// capture_voyage_named reports whether a name is one of the walk's own screens. Those have
-// no registry of their own — a decision screen is named for its Phase (capture_phase_slug),
-// and the Phases *are* the list — so this asks the same proc the walk names its files with
-// rather than keeping a second copy to drift.
-//
-// Unlike a standalone shot, the number is not knowable here: it falls out of where the
-// screen sits in the walk, which is what walking is for.
+// capture_voyage_names is what the walk's own screens can be asked for by. They have no
+// registry of their own: a decision screen is named for its Phase, so the Phases are the
+// list and capture_phase_slug is the naming.
+@(private)
+capture_voyage_names :: proc() -> (names: [len(sim.Phase)]string) {
+	for phase, i in sim.Phase {
+		names[i] = capture_phase_slug(phase)
+	}
+	return
+}
+
+// capture_voyage_named reports whether a name is one of the walk's own screens. Unlike a
+// standalone shot, the number is not knowable here: it falls out of where the screen sits
+// in the walk, which is what walking is for.
 @(private)
 capture_voyage_named :: proc(name: string) -> bool {
-	for phase in sim.Phase {
-		if capture_phase_slug(phase) == name {
-			return true
-		}
-	}
-	return false
+	names := capture_voyage_names()
+	return slice.contains(names[:], name)
+}
+
+// capture_voyage_number is the number the file of the walk's `passed`th decision screen
+// carries. The voyage numbers on from the registry, so the two halves of the gallery share
+// one run of numbers and a walked shot lands past every standalone one — which is what lets
+// a targeted walk write the gallery's own filename without having shot the registry first.
+@(private)
+capture_voyage_number :: proc(passed: int) -> int {
+	return len(capture_shots) + passed
 }
 
 // capture_open builds the window every capture entry shoots in. Paired with
@@ -268,35 +281,33 @@ capture_shots_main :: proc() -> bool {
 // that is neither is answered without opening a window at all.
 capture_shot_main :: proc(name: string) -> bool {
 	if shot, number, standalone := capture_shot_for(name); standalone {
-		return capture_standalone_shot_main(shot, number)
+		return capture_shot_by_staging(shot, number)
 	}
 	if capture_voyage_named(name) {
-		return capture_voyage_shot_main(name)
+		return capture_shot_by_sailing(name)
 	}
 
-	names: [dynamic]string
-	defer delete(names)
-	for candidate in capture_shots {
-		append(&names, candidate.name)
+	// Both lists are fixed-width — one entry per registry row, one per Phase — so the
+	// report that closes the process allocates nothing but the two joined strings.
+	shot_names: [len(capture_shots)]string
+	for candidate, i in capture_shots {
+		shot_names[i] = candidate.name
 	}
-	voyage_names: [dynamic]string
-	defer delete(voyage_names)
-	for phase in sim.Phase {
-		append(&voyage_names, capture_phase_slug(phase))
-	}
+	voyage_names := capture_voyage_names()
 	fmt.eprintfln(
-		"capture: no shot named %q.\n  screens: %s\n  voyage screens: %s",
+		"capture: no shot named %q.\n  screens: %s\n  voyage screens: %s\n" +
+		"  A voyage screen is reached by sailing to it, so the walk need not pass every one.",
 		name,
-		strings.join(names[:], ", ", context.temp_allocator),
+		strings.join(shot_names[:], ", ", context.temp_allocator),
 		strings.join(voyage_names[:], ", ", context.temp_allocator),
 	)
 	return false
 }
 
-// capture_standalone_shot_main shoots one registry entry in a window of its own. No Sim,
-// no voyage: only the asked-for entry's stage and frame run.
+// capture_shot_by_staging shoots one registry entry in a window of its own. No Sim, no
+// voyage: only the asked-for entry's stage and frame run.
 @(private)
-capture_standalone_shot_main :: proc(shot: Capture_Shot, number: int) -> bool {
+capture_shot_by_staging :: proc(shot: Capture_Shot, number: int) -> bool {
 	capture_open("Fantasy Ship Game (shot)")
 	defer capture_close()
 
@@ -311,12 +322,12 @@ capture_standalone_shot_main :: proc(shot: Capture_Shot, number: int) -> bool {
 	return true
 }
 
-// capture_voyage_shot_main sails the scripted voyage for one of its own screens and stops
-// the moment that shot lands — the standalone entry's counterpart for a screen that can
-// only be reached by playing to it. The standalone set is skipped entirely, so what a
-// targeted run costs is the sailing up to that screen and no more.
+// capture_shot_by_sailing sails the scripted voyage for one of its own screens and stops
+// the moment that shot lands — the counterpart for a screen no staging can reach, only
+// playing to it. The registry is skipped entirely, so a targeted run costs the sailing up
+// to that screen and no more.
 @(private)
-capture_voyage_shot_main :: proc(name: string) -> bool {
+capture_shot_by_sailing :: proc(name: string) -> bool {
 	capture_open("Fantasy Ship Game (shot)")
 	defer capture_close()
 
@@ -324,10 +335,10 @@ capture_voyage_shot_main :: proc(name: string) -> bool {
 	capture_walk(&state)
 
 	if !state.taken {
-		// The walk sailed to the end without ever reaching this screen. The scripted player
-		// declines everything, so it never opens a Refit and run_session returns on the
-		// voyage-ended event before an Ended screen is ever a decision — both are nameable
-		// and neither is on the route. Said plainly rather than reported as a written file.
+		// The walk sailed to the end without ever reaching this screen. Two names are always
+		// in this case on this route: the scripted player declines everything, so it never
+		// opens a Refit, and run_session returns on the voyage-ended event before an Ended
+		// screen is ever a decision.
 		fmt.eprintfln("capture: the scripted voyage never reached %s, so nothing was shot", name)
 		return false
 	}
@@ -358,12 +369,12 @@ capture_main :: proc() {
 // capture_walk sails the scripted voyage, photographing the decision screens it passes:
 // every one of them for the gallery, or just the one a targeted run named. Both entries
 // walk the same seed through the same driver, which is what makes the two land on the same
-// file — the numbering starts past the registry here rather than at either call site, so a
-// targeted walk numbers as the gallery does without having shot the standalone set first.
+// file.
+//
+// It owns the storage the walk's dispatch clones into and frees it on the way out, so
+// state.game is not readable once this returns.
 @(private)
 capture_walk :: proc(state: ^Capture_State) {
-	state.shots = len(capture_shots)
-
 	// The walk's dispatch clones the voyage map into UI-owned storage; a standalone shot's
 	// scene owns its own copies and frees them in capture_scene_destroy.
 	defer delete(state.game.visited)
@@ -428,7 +439,7 @@ capture_voyage_shot :: proc(state: ^Capture_State, awaiting: sim.Phase, label: s
 		return
 	}
 
-	number := state.shots
+	number := capture_voyage_number(state.shots)
 	state.shots += 1
 
 	if state.target != "" {

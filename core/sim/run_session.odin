@@ -6,14 +6,12 @@ package sim
 // get_captain_choice is handed the Sim's current Phase so it knows which kind of
 // decision to make.
 //
-// should_stop is the driver's way out of a voyage the input never meant to finish, and
-// is optional: nil means run to the end, which is what headless and the player session
-// both want — a voyage is over when it is over, not when its driver has seen enough. It
-// exists for capture, which walks the scripted voyage to photograph one screen and has
-// what it came for the moment that shot lands. Asked once a round, after that round's
-// decision, so an input that only knows it is done from inside get_captain_choice gets
-// asked straight afterwards. Stopping this way returns from run_session normally, so the
-// caller's teardown runs exactly as it does at a voyage's end.
+// should_stop is the driver's way out of a voyage the input never meant to finish, and is
+// optional: nil means run to the end, which is what headless and the player session both
+// want. Capture supplies one — it walks the scripted voyage to photograph one screen, and
+// has what it came for the moment that shot lands. It is asked once a round, *after* that
+// round's decision, so an input that only learns it is done from inside get_captain_choice
+// is asked straight afterwards.
 Input_Source :: struct {
 	data:                rawptr,
 	get_captain_choice: proc(data: rawptr, awaiting: Phase) -> Command,
@@ -32,9 +30,8 @@ Event_Sink :: struct {
 // decision, ask the input source and submit it before ticking again.
 //
 // It returns on the voyage ending, or on an input that supplied should_stop saying it has
-// what it came for. Both are ordinary returns, so the caller's teardown is the same either
-// way — which is the reason the second one is a hook here rather than an os.exit at the
-// call site.
+// what it came for. Both are ordinary returns, so a caller's teardown — the Sim's arena,
+// the storage its sink cloned into — runs the same either way.
 //
 // The scratch buffers sim_tick allocates live on context.temp_allocator, freed by the
 // one free_all per iteration below; they're fully drained into events before sim_tick

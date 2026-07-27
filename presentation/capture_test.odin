@@ -86,6 +86,27 @@ capture_voyage_named_takes_every_phase :: proc(t: ^testing.T) {
 	testing.expect(t, !capture_voyage_named("no-such-screen"), "an unnamed screen is not a voyage screen")
 }
 
+// The two halves of the gallery share one run of numbers: the walk's first shot takes the
+// number after the registry's last, so no walked shot can land on a standalone one's file.
+// This is what makes a targeted walk — which shoots none of the registry — write the same
+// filename the full gallery gives that screen.
+@(test)
+capture_voyage_numbers_run_on_from_the_registry :: proc(t: ^testing.T) {
+	testing.expect_value(t, capture_voyage_number(0), len(capture_shots))
+	for _, i in capture_shots {
+		testing.expectf(
+			t,
+			capture_voyage_number(0) > i,
+			"the walk's first shot should number past %s",
+			capture_shots[i].name,
+		)
+	}
+
+	// Passing a screen spends its number whether or not it is the one being shot, so the
+	// count is of screens reached rather than of shots written.
+	testing.expect_value(t, capture_voyage_number(3) - capture_voyage_number(2), 1)
+}
+
 // A name has to mean exactly one screen: the two classes are tried in order, so a name in
 // both would make the standalone entry shadow the voyage screen and a --shot for it would
 // silently photograph the wrong thing.

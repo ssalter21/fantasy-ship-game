@@ -38,7 +38,7 @@ odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
 foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','presentation','presentation/cutaway','cmd/headless') { odin test $pkg }
-# 405 core (54+131+140+80), 91 presentation, 11 presentation/cutaway, 1 cmd/headless — same list CI runs
+# 405 core (54+131+140+80), 92 presentation, 11 presentation/cutaway, 1 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
@@ -132,6 +132,9 @@ If you find loose `NN-*.png` beside `game.exe`, they are strays from an older ru
 ```powershell
 Get-ChildItem -Filter '??-*.png' | Remove-Item        # repo root, not docs/ui/shots
 ```
+
+If you do run the full walk, use **PowerShell**, not the Bash tool: backgrounding with `&` there blocks the
+tool until the walk finishes anyway.
 
 ## Look every time — then check the numbers
 
