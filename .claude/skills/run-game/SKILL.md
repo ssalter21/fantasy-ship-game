@@ -38,7 +38,7 @@ odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
 foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','presentation','presentation/cutaway','cmd/headless') { odin test $pkg }
-# 403 core (54+131+140+78), 87 presentation, 11 presentation/cutaway, 1 cmd/headless — same list CI runs
+# 405 core (54+131+140+80), 92 presentation, 11 presentation/cutaway, 1 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
@@ -61,23 +61,35 @@ the loop is a few seconds, and it's the difference between finding a break now a
 
 ```bash
 odin run cmd/game -- --shot build          # or --shot=build
+odin run cmd/game -- --shot battle         # a voyage screen: walks only as far as it
 ```
 
-Under a second, one PNG, then the process exits. The shot lands in `docs/ui/shots/` at the same number and
-filename a full run gives it (`05-build.png`), so a shot taken this way is interchangeable with one from the
-walk. `--shot` beats `--capture` when both are passed.
+One PNG, then the process exits — a second for a screen capture can stage, a few for one it has to sail to.
+**Every screen is nameable**, and the shot lands in `docs/ui/shots/` at the same number and filename a full run
+gives it (`05-build.png`, `24-battle.png`), so a shot taken this way is interchangeable with one from the walk.
+`--shot` beats `--capture` when both are passed.
 
 An unknown name — or a bare `--shot` — prints the names that exist and exits 1 without opening a window, so
 **ask for a wrong name to get the list** rather than hunting for it:
 
 ```
-capture: no shot named "buld". Shots: chart-table, chart-table-hover, home, home-chart-rising, … (The voyage
-screens are --capture only.)
+capture: no shot named "buld".
+  screens: chart-table, chart-table-hover, home, home-chart-rising, home-chart, build, …
+  voyage screens: travel, battle, options, trade, refit, ended
 ```
 
-Those are the **standalone** screens — the entries of `capture_shots` in `presentation/capture.odin`, the
-registry of every state capture can set up without a voyage. The walk's own screens (`travel`, `options`,
-`trade`, `refit`, `battle`, `ended`) need the scripted session and are reachable only through the full run.
+The two lists are the two ways a screen is reached, and they cost differently:
+
+- **Screens** are the entries of `capture_shots` in `presentation/capture.odin` — every state capture can stage
+  without a voyage. One frame, under a second, no Sim.
+- **Voyage screens** are the walk's own decision screens, named for their phase. Capture can't stage one; it
+  sails to it. A targeted run skips the standalone set, walks the scripted voyage, shoots the **first** screen
+  carrying that name and **stops there** — so `--shot travel` is instant, `--shot battle` is about five seconds,
+  and neither pays for the rest of the walk.
+
+`refit` and `ended` are nameable but off this walk's route: the scripted player declines everything, so it never
+opens a Refit, and the session returns on the voyage-ended event before an Ended screen is ever a decision.
+Asking for either sails the whole voyage and then says so, exiting 1 — it does not invent a file.
 
 **A state is a line in that table, not a source edit.** Each entry pairs a name with a `stage` (builds the
 world it draws from — a ship, a ticked Sim — and runs once) and a `frame` (composes one frame, and runs
@@ -103,22 +115,26 @@ odin run cmd/game -- --capture
 ```
 
 The whole gallery: takes every `capture_shots` entry, then walks a scripted voyage for the rest — 38 PNGs to
-`docs/ui/shots/` (gitignored, regenerable) in about 40s. The registry is the same one `--shot` reads, so there
-is no second list to drift; it reuses `draw_scene` and the real `dispatch` untouched, so what the game draws is
-what gets shot. Reach for it when you want the gallery or a voyage screen; reach for `--shot` the other 90% of
-the time.
+`docs/ui/shots/` (gitignored, regenerable) in about 40s. Both halves are the ones `--shot` reads and walks, so
+there is no second list or second route to drift; it reuses `draw_scene` and the real `dispatch` untouched, so
+what the game draws is what gets shot. **Reach for it when you want the gallery or the route** — the whole set
+side by side, or the order the voyage visits its screens in. For one screen, reach for `--shot`.
 
-**Never kill a capture mid-walk to get at one shot.** That was the old recipe and it is what `--shot` replaces:
-deleting the shots directory out from under a running walk makes every subsequent `os.rename` fail, stranding
-raylib's screenshots in the repo root — where **`*.png` is not gitignored**, so a later `git add .` commits 35
-battle screens. If you find loose `NN-*.png` beside `game.exe`, that's what happened:
+A targeted shot lands on the gallery's own filename **and its own pixels**: `--shot travel` writes the same
+`18-travel.png` a full run does, byte for byte, because it walks the same seed through the same driver and
+carries the walk's numbering with it. A shot taken either way is interchangeable, and a session reading shots
+back still sees the route.
+
+If you find loose `NN-*.png` beside `game.exe`, they are strays from an older run — capture moves each shot into
+`docs/ui/shots/` after raylib writes it to the cwd, and **`*.png` in the repo root is not gitignored**, so a
+`git add .` would commit them:
 
 ```powershell
 Get-ChildItem -Filter '??-*.png' | Remove-Item        # repo root, not docs/ui/shots
 ```
 
-If you do run the full walk, use **PowerShell**, not the Bash tool: this repo's Git Bash has no `pkill`, and
-backgrounding with `&` there blocks the tool until the walk finishes.
+If you do run the full walk, use **PowerShell**, not the Bash tool: backgrounding with `&` there blocks the
+tool until the walk finishes anyway.
 
 ## Look every time — then check the numbers
 
@@ -232,9 +248,10 @@ the screens that moved but cannot show you a frame it has already replaced.
 
 Two limits worth knowing before you trust a result:
 
-- **The named shots only.** The voyage screens are reached by walking and numbered by position — the
-  churn the manifest exists to avoid — so `trade`, `refit` and `ended` sit outside it until they
-  become registry entries.
+- **The registry's shots only.** The voyage screens are askable for by name, but they are reached by
+  walking and numbered by position — the churn the manifest exists to avoid — so `travel`, `trade` and
+  `battle` sit outside the check until they become registry entries. Shoot one and look at it; the
+  check will not tell you it moved.
 - **One machine.** The hashes are the pixels one GPU and driver produced. A wholesale mismatch after
   switching machines is not a design change; re-`accept` there.
 
@@ -389,8 +406,13 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
 - There is no `cmd/capture`: capture lives in the presentation package beside the private `draw_scene`,
   `Game_State` and `dispatch` it photographs, and `cmd/game` enters it behind `--capture` and `--shot`
   (ADR-0003 argues against linking the renderer into `cmd/headless`, not against this).
-- The scripted walk declines everything and cannot target a *particular* screen — it reaches *a* screen of most
-  kinds, and never opens a Refit at all. `--shot` targets by name, but only among the standalone screens.
+- The scripted walk declines everything, so it reaches *a* screen of most kinds and never opens a Refit at all.
+  `--shot` names a screen, not an occasion: a voyage name means the *first* screen of that phase on the route,
+  so "the trade screen" is askable for and "the trade screen at the third Deep node" is not.
+- **A targeted walk stops from inside the driver, not with an `os.exit`.** `Input_Source.should_stop` is an
+  optional hook `run_session` asks once a round (`core/sim/run_session.odin`); capture sets it once its shot has
+  landed. Headless and the player session pass nil and run to the voyage's end. Stopping this way is an ordinary
+  return, so the Sim's teardown and the owning deletes happen exactly as they do at a voyage's end.
 - A targeted shot stages its own scene and draws nothing else — the frame you asked for is composed and
   double-drawn exactly as the full walk composes it, from a world nothing else has touched.
 

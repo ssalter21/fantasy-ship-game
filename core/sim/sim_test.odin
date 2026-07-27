@@ -234,6 +234,70 @@ drive_policy :: proc(seed: u64, policy: Travel_Policy, battle_cmd: combat.Comman
 	return res
 }
 
+// Halting_Pilot is an Auto_Pilot that also counts the decisions it has answered, so a
+// test can ask run_session to stop partway rather than at the voyage's end. It is the
+// shape capture's targeted shot uses: an input that knows from inside get_captain_choice
+// that it has what it came for, and says so on the way out of the round.
+Halting_Pilot :: struct {
+	pilot:    Auto_Pilot,
+	answered: int,
+	stop_at:  int, // 0 leaves the hook silent, so the session runs to the end
+}
+
+halting_choice :: proc(data: rawptr, awaiting: Phase) -> Command {
+	halting := cast(^Halting_Pilot)data
+	halting.answered += 1
+	return auto_pilot_choice(&halting.pilot, awaiting)
+}
+
+halting_stop :: proc(data: rawptr) -> bool {
+	halting := cast(^Halting_Pilot)data
+	return halting.stop_at > 0 && halting.answered >= halting.stop_at
+}
+
+// drive_halting sails seed 12's battle-free route — the one a_battle_free_route_reaches_the_haven_and_wins
+// pins as reaching Haven — and stops after `stop_at` decisions, or runs to the end when that
+// is 0. Reports the decisions answered and the voyage's status at the return.
+drive_halting :: proc(stop_at: int) -> (answered: int, status: voyage.Voyage_Status) {
+	sim := sim_create(12)
+	defer sim_destroy(&sim)
+
+	m := voyage.voyage_map_create(12)
+	defer voyage.voyage_map_destroy(&m)
+
+	halting := Halting_Pilot{pilot = {m = m, policy = .Avoid_Battles}, stop_at = stop_at}
+	defer delete(halting.pilot.events)
+
+	input := Input_Source {
+		data               = &halting,
+		get_captain_choice = halting_choice,
+		should_stop        = halting_stop,
+	}
+	sink := Event_Sink{data = &halting.pilot, dispatch = auto_pilot_dispatch}
+
+	run_session(&sim, input, sink)
+	return halting.answered, sim.status
+}
+
+// The hook is the driver's way out of a voyage its input never meant to finish — capture
+// walking to one screen. It stops the round after the decision that satisfied it, so no
+// further screen is reached.
+@(test)
+run_session_stops_when_the_input_has_what_it_came_for :: proc(t: ^testing.T) {
+	answered, status := drive_halting(1)
+	testing.expect_value(t, answered, 1)
+	testing.expect_value(t, status, voyage.Voyage_Status.In_Progress)
+}
+
+// The same route with the hook silent: the voyage runs to its end, so a session that stops
+// early stopped because it asked to and not because the hook exists.
+@(test)
+run_session_runs_to_the_end_while_the_stop_hook_stays_silent :: proc(t: ^testing.T) {
+	answered, status := drive_halting(0)
+	testing.expect_value(t, status, voyage.Voyage_Status.Won)
+	testing.expect(t, answered > 1, "a whole voyage takes more than one decision")
+}
+
 PRESS_FIRE :: combat.Command_Press{phase = .Fire}
 HOLD :: combat.Command_Hold{}
 

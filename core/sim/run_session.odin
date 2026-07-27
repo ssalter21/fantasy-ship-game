@@ -5,9 +5,17 @@ package sim
 // supplies a scripted implementation, UI one that blocks on a rendered decision menu.
 // get_captain_choice is handed the Sim's current Phase so it knows which kind of
 // decision to make.
+//
+// should_stop is the driver's way out of a voyage the input never meant to finish, and is
+// optional: nil means run to the end, which is what headless and the player session both
+// want. Capture supplies one — it walks the scripted voyage to photograph one screen, and
+// has what it came for the moment that shot lands. It is asked once a round, *after* that
+// round's decision, so an input that only learns it is done from inside get_captain_choice
+// is asked straight afterwards.
 Input_Source :: struct {
 	data:                rawptr,
 	get_captain_choice: proc(data: rawptr, awaiting: Phase) -> Command,
+	should_stop:        proc(data: rawptr) -> bool,
 }
 
 // Event_Sink is the pluggable destination run_session dispatches a Tick's Events to
@@ -20,6 +28,10 @@ Event_Sink :: struct {
 // run_session is the single driver loop shared by headless and UI modes (ADR-0002):
 // tick, dispatch that round's events to the sink, and if the Sim is awaiting a captain
 // decision, ask the input source and submit it before ticking again.
+//
+// It returns on the voyage ending, or on an input that supplied should_stop saying it has
+// what it came for. Both are ordinary returns, so a caller's teardown — the Sim's arena,
+// the storage its sink cloned into — runs the same either way.
 //
 // The scratch buffers sim_tick allocates live on context.temp_allocator, freed by the
 // one free_all per iteration below; they're fully drained into events before sim_tick
@@ -56,6 +68,10 @@ run_session :: proc(sim: ^Sim, input: Input_Source, sink: Event_Sink) {
 		if sim.awaiting_decision {
 			cmd := input.get_captain_choice(input.data, sim.phase)
 			sim_submit_captain_choice(sim, cmd)
+		}
+
+		if input.should_stop != nil && input.should_stop(input.data) {
+			return
 		}
 	}
 }

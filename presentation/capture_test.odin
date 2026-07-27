@@ -74,6 +74,54 @@ capture_shot_for_rejects_an_unknown_name :: proc(t: ^testing.T) {
 	testing.expect(t, !ok, "an unnamed screen should not resolve to a shot")
 }
 
+// The walk's own screens are asked for by the same name their files carry, so every phase
+// slug is a name --shot answers to. Their numbers fall out of the walk rather than a table,
+// which is why they are looked up by name alone.
+@(test)
+capture_voyage_named_takes_every_phase :: proc(t: ^testing.T) {
+	for phase in sim.Phase {
+		slug := capture_phase_slug(phase)
+		testing.expectf(t, capture_voyage_named(slug), "%s should be askable for by name", slug)
+	}
+	testing.expect(t, !capture_voyage_named("no-such-screen"), "an unnamed screen is not a voyage screen")
+}
+
+// The two halves of the gallery share one run of numbers: the walk's first shot takes the
+// number after the registry's last, so no walked shot can land on a standalone one's file.
+// This is what makes a targeted walk — which shoots none of the registry — write the same
+// filename the full gallery gives that screen.
+@(test)
+capture_voyage_numbers_run_on_from_the_registry :: proc(t: ^testing.T) {
+	testing.expect_value(t, capture_voyage_number(0), len(capture_shots))
+	for _, i in capture_shots {
+		testing.expectf(
+			t,
+			capture_voyage_number(0) > i,
+			"the walk's first shot should number past %s",
+			capture_shots[i].name,
+		)
+	}
+
+	// Passing a screen spends its number whether or not it is the one being shot, so the
+	// count is of screens reached rather than of shots written.
+	testing.expect_value(t, capture_voyage_number(3) - capture_voyage_number(2), 1)
+}
+
+// A name has to mean exactly one screen: the two classes are tried in order, so a name in
+// both would make the standalone entry shadow the voyage screen and a --shot for it would
+// silently photograph the wrong thing.
+@(test)
+capture_names_belong_to_one_class :: proc(t: ^testing.T) {
+	for shot in capture_shots {
+		testing.expectf(
+			t,
+			!capture_voyage_named(shot.name),
+			"%s names both a standalone shot and a voyage screen",
+			shot.name,
+		)
+	}
+}
+
 @(test)
 capture_shot_arg_reads_the_requested_name :: proc(t: ^testing.T) {
 	name, requested := capture_shot_arg({"--shot", "build"})
