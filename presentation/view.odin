@@ -285,6 +285,32 @@ draw_map_page :: proc() {
 	rl.DrawTexturePro(parchment_page_tex, src, MAP_AREA, rl.Vector2{0, 0}, 0, rl.WHITE)
 }
 
+// juice_clock_pinned freezes the wall clock the chart's idle motion rides — the moored ship's
+// rock and an arrival bloom's age (spec §6). nil is the live clock, which is what a session runs
+// on and what the motion is for.
+//
+// Capture pins it, so a screen that never stops moving still photographs the same frame twice.
+// Unpinned, a shot of the raised chart differs from itself run to run and a hash of it records
+// only that time passed.
+@(private)
+juice_clock_pinned: Maybe(f64)
+
+// juice_clock_pin freezes the chart's idle motion at `now` for every frame drawn afterwards.
+@(private)
+juice_clock_pin :: proc(now: f64) {
+	juice_clock_pinned = now
+}
+
+// juice_now is the clock the chart's idle motion reads: the pinned instant when a caller has
+// frozen it, wall time otherwise.
+@(private)
+juice_now :: proc() -> f64 {
+	if pinned, frozen := juice_clock_pinned.?; frozen {
+		return pinned
+	}
+	return rl.GetTime()
+}
+
 // draw_map draws the whole parchment Chart at once: the sourced parchment page, every route
 // in one of three sepia states on a hand-wavy curve, every node as its cartographer's-hand
 // doodle, the Sea-deep reachability rings with a coral danger tick on an unrevealed
@@ -310,7 +336,7 @@ draw_map :: proc(state: ^Game_State, mouse: rl.Vector2) {
 	// The juice's clock (spec §6). Wall time, not the sail's progress: the hull keeps rocking
 	// while moored and an arrival's bloom outlives the sail that caused it, so neither can be
 	// driven off a tween that stops at 1.
-	now := rl.GetTime()
+	now := juice_now()
 
 	// Routes, under the marks; each undirected pair once. A route reads in one of three sepia
 	// states — sailable now (from the ship to a reachable node) is bold dashes; already sailed

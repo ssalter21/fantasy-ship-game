@@ -97,3 +97,33 @@ capture_shot_arg_reads_the_requested_name :: proc(t: ^testing.T) {
 	_, requested = capture_shot_arg({"--capture"})
 	testing.expect(t, !requested, "the scripted walk is not a shot request")
 }
+
+// A shot has to be the same frame twice or a hash of it records only that time passed, so the
+// clock the chart's idle motion rides is one capture pins rather than reads.
+@(test)
+capture_pins_the_clock_the_chart_rides :: proc(t: ^testing.T) {
+	defer juice_clock_pinned = nil
+
+	juice_clock_pinned = nil
+	juice_clock_pin(CAPTURE_CLOCK)
+	testing.expect(t, juice_now() == CAPTURE_CLOCK, "a pinned clock reads back the instant it was pinned at")
+	testing.expect(t, juice_now() == juice_now(), "two frames of one shot see one instant")
+
+	// Off the zero crossing, so the moored hull photographs mid-rock rather than at rest.
+	bob, heel := ship_rock(CAPTURE_CLOCK, false)
+	testing.expect(t, bob != 0, "a shot should catch the ship off its bob's zero crossing")
+	testing.expect(t, heel != 0, "a shot should catch the ship heeled")
+}
+
+// --shots renders the whole registry and --shot names one of it. They share a prefix, so
+// the flag that takes a name must not swallow the flag that takes none — a --shots run
+// read as a shot request would go looking for a screen and exit 1 without shooting any.
+@(test)
+capture_shots_flag_is_not_a_targeted_shot :: proc(t: ^testing.T) {
+	_, requested := capture_shot_arg({"--shots"})
+	testing.expect(t, !requested, "--shots asks for the whole set, not for one screen")
+
+	testing.expect(t, capture_shots_arg({"--shots"}), "--shots asks for the whole set")
+	testing.expect(t, !capture_shots_arg({"--shot", "build"}), "one named screen is not the whole set")
+	testing.expect(t, !capture_shots_arg({"--capture"}), "the scripted walk is not the whole set")
+}

@@ -1,7 +1,9 @@
-"""Zoom into a capture shot, and diff two of them.
+"""Zoom into a capture shot, diff two of them, and see which screens a change moved.
 
     python scripts/shot.py zoom 00-chart-table top-left --factor 3
     python scripts/shot.py diff 05-build 06-build-hover
+    python scripts/shot.py check
+    python scripts/shot.py accept
 
 When to reach for which, and why this is an instrument for 2D chrome rather than for
 the 3D ship screen, are in `.claude/skills/run-game/SKILL.md` -- kept there rather
@@ -9,12 +11,24 @@ than restated here, so the two cannot drift apart.
 """
 
 import argparse
+import hashlib
+import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageChops
 
-SHOTS = Path(__file__).resolve().parent.parent / "docs" / "ui" / "shots"
+REPO = Path(__file__).resolve().parent.parent
+SHOTS = REPO / "docs" / "ui" / "shots"
+MANIFEST = REPO / "docs" / "ui" / "shot-manifest.txt"
+GAME = REPO / ("game.exe" if os.name == "nt" else "game")
+
+# `capture: wrote docs/ui/shots/05-build.png` -- one line per shot capture landed, in
+# every capture mode. The check reads the set it compares off these rather than off the
+# directory, so a stale PNG left there by an older walk is not mistaken for this run's.
+WROTE = re.compile(r"^capture: wrote (\S+\.png)$")
 
 # Fractions of the shot, so a name means the same thing at any resolution.
 REGIONS = {
@@ -178,6 +192,143 @@ def diff(args):
     print(f"mask: {mask_path}")
 
 
+MANIFEST_HEADER = """\
+# What each named screen looks like, as a hash -- so a change to shared chrome names the
+# screens it moved instead of moving them silently.
+#
+# `python scripts/shot.py check` re-renders the shots and reports which of these moved;
+# `python scripts/shot.py accept` records the new ones, and is the deliberate step that
+# says an intended change is intended.
+#
+# One line per entry of capture_shots in presentation/capture.odin, keyed by the screen's
+# name and sorted by it: inserting a shot adds a line rather than renumbering the file,
+# and the walk-order number a PNG carries appears nowhere here. The hash is SHA-256 over
+# the shot's decoded RGB pixels, not over the PNG, so it moves when the screen does and
+# not when the encoder, the file's timestamp or its place in the walk does.
+#
+# These are the pixels one machine's GPU and driver produced. Regenerate on the machine
+# that reads them; a mismatch across two machines is not a design change.
+
+"""
+
+
+def shot_name(path):
+    """The screen behind a shot's filename: `05-build.png` -> `build`.
+
+    The number is the shot's place in the walk, so it shifts when a shot is inserted
+    ahead of it and says nothing about the screen. The manifest is keyed by the name
+    alone, which is also the only half of it a report has any business saying.
+    """
+    return re.sub(r"^\d+-", "", Path(path).stem)
+
+
+def pixel_hash(path):
+    """SHA-256 over a shot's decoded RGB pixels."""
+    return hashlib.sha256(load(path).tobytes()).hexdigest()
+
+
+def render_shots():
+    """Rebuild the game, render every registry shot, and hash them. name -> hash.
+
+    Builds first so the shots are of the working tree rather than of whatever the last
+    build left in `game.exe`. This opens a real window, so it wants a real desktop --
+    the same limit every capture mode has.
+    """
+    build = subprocess.run(
+        ["odin", "build", "cmd/game", f"-out:{GAME.name}"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+    )
+    if build.returncode != 0:
+        sys.exit(f"odin build cmd/game failed:\n{build.stdout}{build.stderr}")
+
+    render = subprocess.run(
+        [str(GAME), "--shots"], cwd=REPO, capture_output=True, text=True
+    )
+    written = {}
+    for line in render.stdout.splitlines():
+        match = WROTE.match(line.strip())
+        if match:
+            written[shot_name(match.group(1))] = REPO / match.group(1)
+    # Non-zero means at least one shot did not land, and a shot missing from the
+    # comparison would read as an unchanged screen. Fail rather than compare a subset.
+    if render.returncode != 0 or not written:
+        sys.exit(
+            f"capture --shots failed ({render.returncode}), "
+            f"{len(written)} shot(s) written:\n{render.stderr}"
+        )
+    return {name: pixel_hash(path) for name, path in written.items()}
+
+
+def read_manifest():
+    """The recorded hashes as name -> hash, or None when nothing is recorded yet."""
+    if not MANIFEST.is_file():
+        return None
+    recorded = {}
+    for line in MANIFEST.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            name, _, digest = line.partition(" ")
+            recorded[name] = digest.strip()
+    return recorded
+
+
+def write_manifest(hashes):
+    # Sorted by name and newline-terminated with explicit "\n": the file is committed, so
+    # its byte order and line endings should depend on the shots and nothing else.
+    body = "".join(f"{name}  {hashes[name]}\n" for name in sorted(hashes))
+    MANIFEST.write_text(MANIFEST_HEADER + body, newline="\n")
+
+
+def compare(recorded, current):
+    """Which screens moved, which are unrecorded, and which the manifest still expects."""
+    moved = sorted(n for n, h in current.items() if n in recorded and recorded[n] != h)
+    added = sorted(n for n in current if n not in recorded)
+    gone = sorted(n for n in recorded if n not in current)
+    return moved, added, gone
+
+
+def report(heading, names):
+    if names:
+        print(f"{heading}:")
+        for name in names:
+            print(f"  {name}")
+
+
+def check(args):
+    recorded = read_manifest()
+    if recorded is None:
+        sys.exit(f"no manifest at {MANIFEST} - record one with: python scripts/shot.py accept")
+
+    current = render_shots()
+    moved, added, gone = compare(recorded, current)
+    if not (moved or added or gone):
+        print(f"{len(current)} shots, none moved")
+        return
+
+    report(f"{len(moved)} of {len(current)} shots moved", moved)
+    report("shot, but not in the manifest", added)
+    report("in the manifest, but not shot", gone)
+    print("\naccept with: python scripts/shot.py accept")
+    sys.exit(1)
+
+
+def accept(args):
+    recorded = read_manifest() or {}
+    current = render_shots()
+    moved, added, gone = compare(recorded, current)
+    write_manifest(current)
+
+    if not (moved or added or gone):
+        print(f"{MANIFEST.name} already matched all {len(current)} shots")
+        return
+    report("accepted as intended", moved)
+    report("newly recorded", added)
+    report("dropped from the manifest", gone)
+    print(f"\n{len(current)} shots recorded in {MANIFEST}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__.split("\n")[0],
@@ -198,6 +349,16 @@ def main():
     diff_parser.add_argument("after", help="shot name or path")
     diff_parser.add_argument("--out-dir", help="output directory (default docs/ui/shots/diff/)")
     diff_parser.set_defaults(func=diff)
+
+    check_parser = sub.add_parser(
+        "check", help="re-render the named shots and report which moved (exit 1 if any did)"
+    )
+    check_parser.set_defaults(func=check)
+
+    accept_parser = sub.add_parser(
+        "accept", help="re-render the named shots and record them as the manifest"
+    )
+    accept_parser.set_defaults(func=accept)
 
     args = parser.parse_args()
     args.func(args)

@@ -21,6 +21,14 @@ main :: proc() {
 		}
 		return
 	}
+	if presentation.capture_shots_requested() {
+		// A short set is a failure too: the manifest check reads these back, and a missing
+		// shot leaves the stale PNG it would have overwritten to be compared in its place.
+		if !presentation.capture_shots_main() {
+			os.exit(1)
+		}
+		return
+	}
 	if presentation.capture_requested() {
 		presentation.capture_main()
 		return
