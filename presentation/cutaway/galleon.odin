@@ -107,9 +107,10 @@ View :: struct {
 // off her three-quarter bow never needed.
 //
 // The game builds two — the moored eye the ship screen is composed around, and the alongside
-// eye an Offer or Shop presents her under (ADR-0032) — and the hull workbench builds a third to
-// fly round her with. Both shipped ones are settled and tuned by eye; neither is a thing a tool
-// may move.
+// eye an Offer or Shop presents her under (ADR-0032). The tools build the rest off those: the
+// workbench flies one under the mouse, and the hull contact sheet swings the moored one to six
+// named angles. Both shipped ones are settled and tuned by eye; neither is a thing a tool may
+// move, and a tool that wants a different angle takes the shipped eye and turns it.
 //
 // `pan` slides the eye **and its target together** along the camera's right axis, in world
 // units. Moving both is what makes it a pan rather than a turn: the view direction is left

@@ -8,9 +8,13 @@ import cutaway "./cutaway"
 import sim "../core/sim"
 import rl "vendor:raylib"
 
-// The hull workbench: `game.exe --workbench`. A fourth entry beside --capture and the player
-// session, and the answer to a fair question — whether there is a better way to model this ship
-// than editing a number, rebuilding, taking a screenshot and looking at it.
+// The hull workbench: `game.exe --workbench`. An entry beside --capture, --hull-sheet and the
+// player session, and the answer to a fair question — whether there is a better way to model this
+// ship than editing a number, rebuilding, taking a screenshot and looking at it.
+//
+// It is the one you *steer*, which is what separates it from the contact sheet (hull_sheet.odin):
+// the sheet finds the surface that is wrong from six fixed eyes in one PNG, and this is where you
+// go to see why.
 //
 // There is, and it is this. Every hard defect on the ship screen so far has been a *diagnostic*
 // failure rather than an expressive one: the loft could always describe a fine bow, but nothing

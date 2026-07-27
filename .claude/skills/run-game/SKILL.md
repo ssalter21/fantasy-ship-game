@@ -38,7 +38,7 @@ odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
 foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','presentation','presentation/cutaway','cmd/headless') { odin test $pkg }
-# 405 core (54+131+140+80), 92 presentation, 11 presentation/cutaway, 1 cmd/headless — same list CI runs
+# 405 core (54+131+140+80), 105 presentation, 17 presentation/cutaway, 1 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
@@ -135,6 +135,30 @@ Get-ChildItem -Filter '??-*.png' | Remove-Item        # repo root, not docs/ui/s
 
 If you do run the full walk, use **PowerShell**, not the Bash tool: backgrounding with `&` there blocks the
 tool until the walk finishes anyway.
+
+## The hull contact sheet: the whole ship in one Read
+
+```bash
+odin run cmd/game -- --hull-sheet
+```
+
+**Reach for this before reasoning about the hull's geometry by text.** One PNG, about a second, no mouse and no
+keyboard: `docs/ui/shots/hull-sheet.png`, six tiles of the galleon from six named eyes — **bow, stern, beam,
+quarter, above, below** — each captioned with the eye it was taken from. Two runs write byte-identical pixels,
+so it diffs like any other shot. A run that cannot write it says so and exits 1 without naming a file it didn't
+write — the previous sheet is still sitting there, so check the exit code, not the file's presence.
+
+Read it **in pairs**: bow against stern, beam against quarter, above against below. A face that is solid from
+one eye and missing from its opposite is a winding, and nothing else looks like that — which is the whole
+answer to *silent culling* below, invisible in a resting shot from the shipped quarter.
+
+The five moved eyes are `cutaway.GALLEON_EYE` swung, through the same `galleon_view_from` the workbench flies
+(`quarter` **is** the shipped framing, so the other five read against the screen the game actually draws). The
+sheet has no framing of its own to tune and must not grow one — a test asserts every eye keeps the shipped
+lens, the shipped standoff and the shipped target height.
+
+For *why* a surface looks wrong once the sheet says which one it is, go to the workbench below: normal paint and
+wireframe are diagnoses, and this is the thing that finds the patient.
 
 ## Look every time — then check the numbers
 
@@ -309,6 +333,8 @@ Capture is the fast path, not the whole picture. Three blind spots, all real:
   real window (below).
 - **Silent culling.** A wrongly-wound `rl.DrawTriangle` draws *nothing* rather than something wrong, so a
   resting shot looks fine and the bug ships. If a shape is missing, suspect winding before you suspect colour.
+  One shot of the ship screen cannot show this at all — `--hull-sheet` (above) is the entry that can, because a
+  face missing from one eye and solid from its opposite is a winding by construction.
 - **Anything the fullscreen blit does.** The player session composes into a render texture and blits it;
   `--capture` draws at logical size with no texture in the path. A whole class of bug lives only in the real
   window — see the style guide's "A render texture loses alpha". Measure translucency there, never in a shot.
@@ -319,9 +345,10 @@ Capture is the fast path, not the whole picture. Three blind spots, all real:
 odin run cmd/game -- --workbench
 ```
 
-The ship screen has a fourth entry beside `--capture` and the session, and **use it before editing any number
-in `cutaway/galleon.odin`**. It draws the real `draw_ship_cutaway` into the real logical frame with a control
-panel over it:
+An interactive entry beside `--capture`, `--hull-sheet` and the session, and **use it before editing any number
+in `cutaway/galleon.odin`**. Where the sheet is one look at six fixed eyes, this is the one you steer — reach
+for it once the sheet has said *which* surface is wrong. It draws the real `draw_ship_cutaway` into the real
+logical frame with a control panel over it:
 
 - **Every curve in the loft is a slider** — keel camber, sheer, the entry, the run, the wale, tumblehome. The
   ship redraws under the mouse. `C` copies the tuned `GALLEON_LOFT` to the clipboard as Odin to paste back;
@@ -335,8 +362,9 @@ panel over it:
 - **The camera flies** — yaw, distance, height, look and fov, plus the wheel to dolly. This is the one that
   answers *is this thing actually solid*: orbit and a room standing through the planking is obvious.
 
-The shipped framing is not tunable and must not become so: `galleon_view` builds from the five constants and
-`galleon_view_from` exists only for this tool. A test asserts the two agree.
+The shipped framing is not tunable and must not become so: `galleon_view` builds from the five constants, and
+`galleon_view_from` exists for the two things that move an eye off them — this tool's sliders and the contact
+sheet's six. A test asserts `galleon_view` and `galleon_view_from(GALLEON_EYE, …)` agree.
 
 Why it is not in the Forge: **the Forge never imports `presentation/`**, in writing, and everything that paints
 this hull lives there. Moving it needs the galleon's painter and the palette extracted into shared packages.

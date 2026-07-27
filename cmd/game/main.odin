@@ -6,8 +6,9 @@ import presentation "../../presentation"
 // The thin adapter ADR-0003 wants each executable to be: every screen, the session
 // loop, capture mode and the hull workbench live in the presentation package (#433),
 // and this main only picks which of its entries the process runs — one named screen
-// behind --shot, the scripted capture walk behind --capture, the hull workbench behind
-// --workbench, or the player-facing session.
+// behind --shot, the scripted capture walk behind --capture, the hull contact sheet
+// behind --hull-sheet, the hull workbench behind --workbench, or the player-facing
+// session.
 //
 // This package deliberately carries no tests (the standards' every-package rule):
 // there is nothing here but the dispatch below, and everything it calls is tested
@@ -25,6 +26,14 @@ main :: proc() {
 		// A short set is a failure too: the manifest check reads these back, and a missing
 		// shot leaves the stale PNG it would have overwritten to be compared in its place.
 		if !presentation.capture_shots_main() {
+			os.exit(1)
+		}
+		return
+	}
+	if presentation.hull_sheet_requested() {
+		// A sheet that could not be written is a failure like any other shot: exit non-zero so a
+		// session asking for the hull's six angles never reads a stale sheet as this run's.
+		if !presentation.hull_sheet_main() {
 			os.exit(1)
 		}
 		return
