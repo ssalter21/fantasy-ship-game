@@ -36,12 +36,21 @@ CAPTURE_CLOCK :: 0.3
 // without either knowing about the other.
 //
 // The registry's shots are numbered by their place in it rather than by a running count,
-// so this counter belongs to the voyage half alone and starts past them.
+// so this counter belongs to the voyage half alone and starts past them (capture_walk).
 @(private)
 Capture_State :: struct {
 	game:    Game_State,
 	shots:   int, // the number the next voyage shot carries
 	written: int, // shots that reached CAPTURE_DIR, not shots attempted
+	// target is the one voyage screen a targeted walk came for, "" for the full gallery.
+	// The walk numbers every screen it passes either way and shoots only this one, so a
+	// targeted shot lands on the file the gallery would have given it.
+	target:  string,
+	// taken is set once the target has been shot at, whether or not the file landed. It is
+	// what stops the walk, and it stops it on the *first* screen carrying the name — a
+	// phase recurs (there are many travel screens) and the first is the one the number
+	// belongs to.
+	taken:   bool,
 }
 
 // Capture_Scene is the world one shot draws from, staged fresh for that shot and torn
@@ -90,9 +99,10 @@ Capture_Shot :: struct {
 }
 
 // The standalone shots, in walk order — the one source of truth for what capture can
-// photograph without a voyage. `--shot <name>` takes one of these; `--capture` takes all
-// of them and then walks. Everything past them needs the scripted voyage
-// (capture_phase_slug names those), so it is reachable only through --capture.
+// photograph without a voyage. `--shot <name>` takes one of these and needs no Sim at all;
+// `--capture` takes all of them and then walks. Everything past them is a decision screen
+// the scripted voyage reaches by sailing to it (capture_phase_slug names those), and
+// `--shot` gets there by walking (capture_walk).
 @(private)
 capture_shots := [?]Capture_Shot {
 	{name = "chart-table", frame = capture_frame_chart_table},
@@ -115,7 +125,7 @@ capture_shots := [?]Capture_Shot {
 	{name = "fight-jettison", stage = capture_stage_fight, frame = capture_frame_fight_jettison},
 }
 
-// capture_shot_for finds a shot by name, with the number its file carries.
+// capture_shot_for finds a standalone shot by name, with the number its file carries.
 @(private)
 capture_shot_for :: proc(name: string) -> (shot: Capture_Shot, number: int, ok: bool) {
 	for candidate, i in capture_shots {
@@ -124,6 +134,23 @@ capture_shot_for :: proc(name: string) -> (shot: Capture_Shot, number: int, ok: 
 		}
 	}
 	return {}, 0, false
+}
+
+// capture_voyage_named reports whether a name is one of the walk's own screens. Those have
+// no registry of their own — a decision screen is named for its Phase (capture_phase_slug),
+// and the Phases *are* the list — so this asks the same proc the walk names its files with
+// rather than keeping a second copy to drift.
+//
+// Unlike a standalone shot, the number is not knowable here: it falls out of where the
+// screen sits in the walk, which is what walking is for.
+@(private)
+capture_voyage_named :: proc(name: string) -> bool {
+	for phase in sim.Phase {
+		if capture_phase_slug(phase) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // capture_open builds the window every capture entry shoots in. Paired with
@@ -232,25 +259,44 @@ capture_shots_main :: proc() -> bool {
 }
 
 // capture_shot_main renders one named screen, writes its PNG and returns — the targeted
-// counterpart to capture_main's walk, entered from main when --shot is passed. Only the
-// asked-for entry runs, so the cost is the window and one screen rather than a voyage.
+// counterpart to capture_main's whole gallery, entered from main when --shot is passed.
 // Reports whether the shot reached CAPTURE_DIR.
+//
+// The name decides how much has to run: a standalone screen stages itself, so the cost is
+// the window and one frame; one of the walk's own screens has to be sailed to, so the
+// voyage runs — but only as far as that screen. Resolving the name comes first, so a name
+// that is neither is answered without opening a window at all.
 capture_shot_main :: proc(name: string) -> bool {
-	shot, number, found := capture_shot_for(name)
-	if !found {
-		names: [dynamic]string
-		defer delete(names)
-		for candidate in capture_shots {
-			append(&names, candidate.name)
-		}
-		fmt.eprintfln(
-			"capture: no shot named %q. Shots: %s. (The voyage screens are --capture only.)",
-			name,
-			strings.join(names[:], ", ", context.temp_allocator),
-		)
-		return false
+	if shot, number, standalone := capture_shot_for(name); standalone {
+		return capture_standalone_shot_main(shot, number)
+	}
+	if capture_voyage_named(name) {
+		return capture_voyage_shot_main(name)
 	}
 
+	names: [dynamic]string
+	defer delete(names)
+	for candidate in capture_shots {
+		append(&names, candidate.name)
+	}
+	voyage_names: [dynamic]string
+	defer delete(voyage_names)
+	for phase in sim.Phase {
+		append(&voyage_names, capture_phase_slug(phase))
+	}
+	fmt.eprintfln(
+		"capture: no shot named %q.\n  screens: %s\n  voyage screens: %s",
+		name,
+		strings.join(names[:], ", ", context.temp_allocator),
+		strings.join(voyage_names[:], ", ", context.temp_allocator),
+	)
+	return false
+}
+
+// capture_standalone_shot_main shoots one registry entry in a window of its own. No Sim,
+// no voyage: only the asked-for entry's stage and frame run.
+@(private)
+capture_standalone_shot_main :: proc(shot: Capture_Shot, number: int) -> bool {
 	capture_open("Fantasy Ship Game (shot)")
 	defer capture_close()
 
@@ -259,6 +305,35 @@ capture_shot_main :: proc(name: string) -> bool {
 		// Either the frame reported it could not be arranged, or the shot was composed and
 		// could not be moved out of the working directory. capture_take has already said
 		// which. Both are failures: nothing is in CAPTURE_DIR to look at.
+		fmt.eprintfln("capture: %s did not land in %s", shot.name, CAPTURE_DIR)
+		return false
+	}
+	return true
+}
+
+// capture_voyage_shot_main sails the scripted voyage for one of its own screens and stops
+// the moment that shot lands — the standalone entry's counterpart for a screen that can
+// only be reached by playing to it. The standalone set is skipped entirely, so what a
+// targeted run costs is the sailing up to that screen and no more.
+@(private)
+capture_voyage_shot_main :: proc(name: string) -> bool {
+	capture_open("Fantasy Ship Game (shot)")
+	defer capture_close()
+
+	state := Capture_State{target = name}
+	capture_walk(&state)
+
+	if !state.taken {
+		// The walk sailed to the end without ever reaching this screen. The scripted player
+		// declines everything, so it never opens a Refit and run_session returns on the
+		// voyage-ended event before an Ended screen is ever a decision — both are nameable
+		// and neither is on the route. Said plainly rather than reported as a written file.
+		fmt.eprintfln("capture: the scripted voyage never reached %s, so nothing was shot", name)
+		return false
+	}
+	if state.written == 0 {
+		// Reached and composed, but the file could not be moved into CAPTURE_DIR —
+		// capture_write has already said why.
 		fmt.eprintfln("capture: %s did not land in %s", name, CAPTURE_DIR)
 		return false
 	}
@@ -273,25 +348,50 @@ capture_main :: proc() {
 	capture_open("Fantasy Ship Game (capture)")
 	defer capture_close()
 
-	state := Capture_State{shots = len(capture_shots)}
+	state := Capture_State{}
+	capture_take_all(&state)
+	capture_walk(&state)
+
+	fmt.printfln("capture: wrote %d shot(s) to %s", state.written, CAPTURE_DIR)
+}
+
+// capture_walk sails the scripted voyage, photographing the decision screens it passes:
+// every one of them for the gallery, or just the one a targeted run named. Both entries
+// walk the same seed through the same driver, which is what makes the two land on the same
+// file — the numbering starts past the registry here rather than at either call site, so a
+// targeted walk numbers as the gallery does without having shot the standalone set first.
+@(private)
+capture_walk :: proc(state: ^Capture_State) {
+	state.shots = len(capture_shots)
+
+	// The walk's dispatch clones the voyage map into UI-owned storage; a standalone shot's
+	// scene owns its own copies and frees them in capture_scene_destroy.
 	defer delete(state.game.visited)
 	defer delete(state.game.positions)
 	defer delete(state.game.voyage_map.nodes)
-
-	capture_take_all(&state)
 
 	s := sim.sim_create(VOYAGE_SEED)
 	defer sim.sim_destroy(&s)
 
 	// The two halves take separate rawptrs: the sink gets the plain Game_State the
 	// real dispatch expects, the input gets the Capture_State that also holds the
-	// shot counter.
-	input := sim.Input_Source{data = &state, get_captain_choice = capture_get_captain_choice}
+	// shot counter. The stop hook is passed either way and simply never fires for the
+	// gallery, which has no target to have reached.
+	input := sim.Input_Source {
+		data               = state,
+		get_captain_choice = capture_get_captain_choice,
+		should_stop        = capture_shot_taken,
+	}
 	sink := sim.Event_Sink{data = &state.game, dispatch = dispatch}
 
 	sim.run_session(&s, input, sink)
+}
 
-	fmt.printfln("capture: wrote %d shot(s) to %s", state.written, CAPTURE_DIR)
+// capture_shot_taken is the walk's way out: a targeted run has what it came for once its
+// screen has been shot at. The gallery never sets this, so it sails to the voyage's end.
+@(private)
+capture_shot_taken :: proc(data: rawptr) -> bool {
+	return (cast(^Capture_State)data).taken
 }
 
 // capture_get_captain_choice is the capture Input_Source: draw the decision screen
@@ -316,16 +416,31 @@ capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Com
 // capture_voyage_shot renders one frame of the current decision screen and writes it out.
 // This is the voyage half, which reaches its screens by walking rather than by name, so it
 // numbers its own shots as it goes rather than reading a number off the registry.
+//
+// A targeted walk passes the same screens in the same order and takes the number with it,
+// shooting only the one it named: skipping a screen still spends its number, or a shot
+// taken this way would land on a different file than the gallery gives it. A phase recurs
+// along the route, so the first screen carrying the name is the one that is shot — and the
+// one that ends the walk.
 @(private)
 capture_voyage_shot :: proc(state: ^Capture_State, awaiting: sim.Phase, label: string) {
 	if !rl.IsWindowReady() {
 		return
 	}
 
-	capture_draw_screen(state, awaiting, label)
-	capture_draw_screen(state, awaiting, label)
-	capture_write(state, state.shots, label)
+	number := state.shots
 	state.shots += 1
+
+	if state.target != "" {
+		if state.taken || label != state.target {
+			return
+		}
+		state.taken = true
+	}
+
+	capture_draw_screen(state, awaiting, label)
+	capture_draw_screen(state, awaiting, label)
+	capture_write(state, number, label)
 }
 
 // The Chart Table (#278) is stateless and precedes any voyage, so it is the one screen

@@ -74,6 +74,33 @@ capture_shot_for_rejects_an_unknown_name :: proc(t: ^testing.T) {
 	testing.expect(t, !ok, "an unnamed screen should not resolve to a shot")
 }
 
+// The walk's own screens are asked for by the same name their files carry, so every phase
+// slug is a name --shot answers to. Their numbers fall out of the walk rather than a table,
+// which is why they are looked up by name alone.
+@(test)
+capture_voyage_named_takes_every_phase :: proc(t: ^testing.T) {
+	for phase in sim.Phase {
+		slug := capture_phase_slug(phase)
+		testing.expectf(t, capture_voyage_named(slug), "%s should be askable for by name", slug)
+	}
+	testing.expect(t, !capture_voyage_named("no-such-screen"), "an unnamed screen is not a voyage screen")
+}
+
+// A name has to mean exactly one screen: the two classes are tried in order, so a name in
+// both would make the standalone entry shadow the voyage screen and a --shot for it would
+// silently photograph the wrong thing.
+@(test)
+capture_names_belong_to_one_class :: proc(t: ^testing.T) {
+	for shot in capture_shots {
+		testing.expectf(
+			t,
+			!capture_voyage_named(shot.name),
+			"%s names both a standalone shot and a voyage screen",
+			shot.name,
+		)
+	}
+}
+
 @(test)
 capture_shot_arg_reads_the_requested_name :: proc(t: ^testing.T) {
 	name, requested := capture_shot_arg({"--shot", "build"})
