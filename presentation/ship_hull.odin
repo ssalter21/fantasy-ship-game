@@ -58,6 +58,23 @@ HULL_WET_STEP :: f32(0.2)
 // is as far down as any of her gets.
 HULL_TINT_SPAN :: f32(0.95)
 
+// HULL_VERDIGRIS is her sheathing below the waterline. It is not a new swatch — it is the
+// guide's Green mixed into its Sea deep — and it replaces the sand the bottom used to be
+// painted in, for a reason the depth model above could never fix on its own.
+//
+// The absorb-and-scatter model keeps a colour *in* colour on its way down; it cannot rescue a
+// colour that was already halfway to neutral before the water touched it. Sand is bright in all
+// three channels, so absorption could only pull its red down toward its own green while scatter
+// pushed its green and blue up toward that same red, and the three met: measured in the real
+// window her mid-belly came out #728367, 21% saturation, a sage wedge on the port bow that was
+// the dullest thing left on the screen.
+//
+// Copper weathers green under salt water, so the fix is also the true one. Starting cool and
+// saturated, the same model runs the bottom from verdigris at the surface to a deep blue-green
+// at the keel — 78% saturation at mid-belly rather than 21% — and the boot-top now changes hue
+// at the waterline instead of dissolving through grey at mid-depth.
+HULL_VERDIGRIS :: rl.Color{37, 151, 112, 255}
+
 // hull_surface is one point on her outer skin: the frame at length x, at section height t — 0
 // at the keel, 1 at the rail — on the given side, +1 starboard and -1 port.
 hull_surface :: proc(x, t, side: f32) -> rl.Vector3 {
@@ -166,7 +183,7 @@ hull_water :: proc(lit: rl.Color, y: f32) -> rl.Color {
 // without a single drawn line. What the water then does to it is hull_water's business.
 hull_timber :: proc(y: f32, band: int) -> rl.Color {
 	if y < 0 {
-		return colour_shade(COLOUR_SAND, band % 2 == 0 ? 1.0 : 0.9)
+		return colour_shade(HULL_VERDIGRIS, band % 2 == 0 ? 1.0 : 0.86)
 	}
 	// Her topsides are deliberately the darkest warm on the ship. Everything built on the deck —
 	// castles, rails, deck planking — is the lighter sand, so the hull reads as one mass under

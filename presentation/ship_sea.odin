@@ -254,15 +254,22 @@ draw_ship_sea :: proc(horizon_y: f32) {
 	// The glitter path: the sun's own road down the water. It stays under the sun and widens as
 	// it comes on, every fleck thrown by the scatter so the road is broken light rather than a
 	// dotted line drawn from A to B.
-	// Narrower than it was, for the same reason the sun moved: a road 240 wide at the viewer's
-	// end covered a fifth of the frame, and a glitter path that wide is not a road, it is a
-	// wash. Kept tight, it reads as one bright thing with an obvious source.
+	// The taper runs the way perspective runs it: a point at the horizon opening out toward the
+	// viewer. It was doing the opposite. `pow(noise, 1.4)` crowds the marks up at the horizon,
+	// where the road is at its narrowest, so two hundred flecks piled into a twenty-pixel column
+	// and the near end thinned away to nothing — a white geyser standing on the sea, tapering
+	// downward, which is exactly inverted from a sun path.
+	//
+	// Linear f spreads the flecks evenly down the road; the spread starts near nothing and opens
+	// wide; and the weight now falls off *toward* the horizon rather than away from it, so the
+	// far end is a suggestion and the near end is where the light actually is. Each fleck is a
+	// flat horizontal dash, because that is what a wave face catching the sun looks like.
 	for i in 0 ..< 200 {
-		f := math.pow(sea_noise(i, 11), 1.4)
+		f := sea_noise(i, 11)
 		y := horizon_y + 4 + f * (depth - 4)
-		spread := 20 + f * 130
+		spread := 6 + f * 300
 		x := SHIP_SUN_X + (sea_noise(i, 12) - 0.5) * spread
-		backdrop_block({x, y, 4 + f * 22, 1 + f * 2}, rl.Fade(COLOUR_FOAM, 0.46 - f * 0.2))
+		backdrop_block({x, y, 5 + f * 26, 1 + f}, rl.Fade(COLOUR_FOAM, 0.16 + f * 0.30))
 	}
 }
 
@@ -318,6 +325,18 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 	// On the lattice that means walking her side a cell at a time and leaving cells unlit, rather
 	// than scattering marks and trusting the gaps: every mark here is at least a cell wide and
 	// starts on a cell boundary, so a scatter dense enough to read tiles into the bar instead.
+	// And only at her ends. Breaking the run up did not save it and could not have: the marks
+	// were correct — her waterline really is that straight from this eye — but eight hundred
+	// pixels of near-white laid along a dark wale reads as a line of particles drawn *across the
+	// ship*, whatever the marks are shaped like. Nothing about a dash pattern survives being
+	// ruled that far.
+	//
+	// So the foam is spent where the eye already expects broken water and nowhere else: a run at
+	// the stem, a shorter one off her quarter, and her whole middle left alone. Amidships a ship
+	// lying at anchor meets the sea on a line, and drawing that line honestly is better than
+	// papering over it for two-thirds of her length.
+	FOAM_BOW :: f32(0.20) // the fraction of her length the forward run covers
+	FOAM_QUARTER :: f32(0.16)
 	base := backdrop_floor(bow.x)
 	cells := int(backdrop_ceil(span) / BACKDROP_PIXEL)
 	for i in 0 ..< cells {
@@ -325,18 +344,20 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 			continue // the sea showing through: without these gaps the marks tile into the rule
 		}
 		f := f32(i) / f32(max(cells, 1))
-		// One or two cells, never four. Standing up to sixteen pixels of hard white, the run
-		// stopped reading as water breaking at her side and became a dashed stripe painted along
-		// her wale — a line of particles laid across the ship rather than the sea meeting it.
-		// Foam hugs the line it belongs to.
+		ends := max(1 - f / FOAM_BOW, (f - (1 - FOAM_QUARTER)) / FOAM_QUARTER, 0)
+		if ends <= 0 {
+			continue
+		}
+		// One or two cells, never four. Standing up to sixteen pixels the run became a stripe
+		// painted along her wale. Foam hugs the line it belongs to.
 		h := (1 + math.floor(sea_noise(i, 42) * 2)) * BACKDROP_PIXEL
-		// Heaviest forward, where she is driving the water, thinning away aft — but never down to
-		// nothing. Faded off aft the run of foam petered out halfway along her and the after half
-		// of her side met the sea on a ruled line again, which is the very thing this pass exists
-		// to break up.
+		// Nor is it white. Foam seen edge-on at the waterline is mostly lit water with a little
+		// air in it, and COLOUR_FOAM against her dark topsides was the highest contrast on the
+		// screen — which is what made a soft effect shout. Mixed back toward the shallow sea it
+		// belongs to, it reads as water rather than as paint.
 		backdrop_block(
 			{base + f32(i) * BACKDROP_PIXEL, horizon_y - h, BACKDROP_PIXEL, h},
-			rl.Fade(COLOUR_FOAM, (0.30 + sea_noise(i, 44) * 0.34) * (1 - f * 0.34)),
+			rl.Fade(colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.55), (0.34 + sea_noise(i, 44) * 0.30) * ends),
 		)
 	}
 
