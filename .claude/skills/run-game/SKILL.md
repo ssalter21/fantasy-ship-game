@@ -87,9 +87,11 @@ The two lists are the two ways a screen is reached, and they cost differently:
   carrying that name and **stops there** — so `--shot travel` is instant, `--shot battle` is about five seconds,
   and neither pays for the rest of the walk.
 
-`refit` and `ended` are nameable but off this walk's route: the scripted player declines everything, so it never
-opens a Refit, and the session returns on the voyage-ended event before an Ended screen is ever a decision.
-Asking for either sails the whole voyage and then says so, exiting 1 — it does not invent a file.
+Every voyage screen is on this walk's route, `refit` and `ended` included: the scripted player takes Offers and
+buys from Shops, so a Refit opens and `--shot refit` stops at the first one like any other voyage screen. `ended`
+is the one exception to stopping early — it is a screen but never a decision (`run_session` returns on the
+voyage-ended event), so the walk shoots it *after* the session returns and asking for it sails the whole voyage.
+A screen the route never met still says so and exits 1 — it does not invent a file.
 
 **A state is a line in that table, not a source edit.** Each entry pairs a name with a `stage` (builds the
 world it draws from — a ship, a ticked Sim — and runs once) and a `frame` (composes one frame, and runs
@@ -434,7 +436,8 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
 - There is no `cmd/capture`: capture lives in the presentation package beside the private `draw_scene`,
   `Game_State` and `dispatch` it photographs, and `cmd/game` enters it behind `--capture` and `--shot`
   (ADR-0003 argues against linking the renderer into `cmd/headless`, not against this).
-- The scripted walk declines everything, so it reaches *a* screen of most kinds and never opens a Refit at all.
+- The scripted walk plays the voyage by the stated rules in `core/sim/scripted_player.odin`, so it reaches *a*
+  screen of every kind its route presents.
   `--shot` names a screen, not an occasion: a voyage name means the *first* screen of that phase on the route,
   so "the trade screen" is askable for and "the trade screen at the third Deep node" is not.
 - **A targeted walk stops from inside the driver, not with an `os.exit`.** `Input_Source.should_stop` is an

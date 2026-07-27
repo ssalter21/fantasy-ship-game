@@ -40,10 +40,10 @@ the_quiet_sink_tracks_everything_the_printing_one_does :: proc(t: ^testing.T) {
 	}
 
 	testing.expect_value(t, quiet.event_count, 2)
-	testing.expect_value(t, quiet.current, sim.Node_ID(3))
+	testing.expect_value(t, quiet.view.current, sim.Node_ID(3))
 	testing.expect_value(t, quiet.status, voyage.Voyage_Status.Won)
 	testing.expect_value(t, printing.event_count, quiet.event_count)
-	testing.expect_value(t, printing.current, quiet.current)
+	testing.expect_value(t, printing.view.current, quiet.view.current)
 	testing.expect_value(t, printing.status, quiet.status)
 }
 

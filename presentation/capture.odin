@@ -337,10 +337,8 @@ capture_shot_by_sailing :: proc(name: string) -> bool {
 	capture_walk(&state)
 
 	if !state.taken {
-		// The walk sailed to the end without ever reaching this screen. Two names are always
-		// in this case on this route: the scripted player declines everything, so it never
-		// opens a Refit, and run_session returns on the voyage-ended event before an Ended
-		// screen is ever a decision.
+		// The walk sailed to the end without ever reaching this screen: its route met no
+		// stage that presents one.
 		fmt.eprintfln("capture: the scripted voyage never reached %s, so nothing was shot", name)
 		return false
 	}
@@ -398,6 +396,15 @@ capture_walk :: proc(state: ^Capture_State) {
 	sink := sim.Event_Sink{data = &state.game, dispatch = dispatch}
 
 	sim.run_session(&s, input, sink)
+
+	// The voyage's end is a screen but never a decision: run_session returns on
+	// Event_Voyage_Ended, so nothing asks the input for a command in the Ended phase. The
+	// walk shoots it here instead, numbered and filed like every other screen it passed —
+	// but only when the voyage actually ended, since a targeted walk returns as soon as its
+	// own shot has landed.
+	if state.game.status != .In_Progress {
+		capture_voyage_shot(state, .Ended, capture_phase_slug(.Ended))
+	}
 }
 
 // capture_shot_taken is the walk's way out: a targeted run has what it came for once its
@@ -418,12 +425,26 @@ capture_get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Com
 	state := cast(^Capture_State)data
 
 	capture_voyage_shot(state, awaiting, capture_phase_slug(awaiting))
-	return sim.scripted_player_command(
-		state.game.voyage_map,
-		state.game.current_node_id,
-		state.game.travel_options,
-		awaiting,
-	)
+	return sim.scripted_player_command(capture_scripted_view(&state.game), awaiting)
+}
+
+// capture_scripted_view is the scripted player's input, read off the Game_State the real
+// dispatch fills. Every field it wants is already tracked there for the screen that renders
+// it, so the walk needs no second copy of the event stream — it hands over the same facts
+// the player would have been looking at.
+@(private)
+capture_scripted_view :: proc(game: ^Game_State) -> sim.Scripted_View {
+	return sim.Scripted_View {
+		voyage_map       = game.voyage_map,
+		current          = game.current_node_id,
+		travel_options   = game.travel_options,
+		player           = game.player,
+		stage_options    = game.stage_options,
+		trade            = game.active_trade,
+		trade_can_accept = game.trade_can_accept,
+		may_press        = game.may_press,
+		refit_incoming   = game.refit_incoming,
+	}
 }
 
 // capture_voyage_shot renders one frame of the current decision screen and writes it out.
@@ -524,7 +545,7 @@ capture_frame_home_chart :: proc(scene: ^Capture_Scene) -> bool {
 // capture_stage_refit stages the real starting ship (#302) and nothing else. The Build
 // surface, the encounter frame and the shots below them read only the ship, so they need
 // no Sim — which is why they are shot standalone here rather than from the scripted walk,
-// which never opens a Refit.
+// whose own ship is whatever the route has made of it by the time it refits.
 @(private)
 capture_stage_refit :: proc(scene: ^Capture_Scene) {
 	scene.player = ship.ship_starting_ship()
@@ -867,6 +888,10 @@ capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: s
 		draw_trade(&state.game, NO_MOUSE)
 	case .Awaiting_Battle_Command:
 		draw_fight(&state.game, NO_MOUSE)
+	case .Ended:
+		// The end-of-voyage beat, which is the whole of that screen: the same headline over
+		// the same scene the dispatch plays it over.
+		draw_beat(&state.game, voyage_end_headline(state.game.status))
 	case:
 		draw_scene(&state.game, fmt.tprintf("[capture] %s", label), NO_MOUSE)
 	}

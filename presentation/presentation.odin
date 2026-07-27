@@ -360,10 +360,17 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 
 	case sim.Event_Voyage_Ended:
 		state.status = e.status
-		message := "Your ship has been lost."
-		if e.status == .Won {
-			message = "Victory! You reached Haven."
-		}
-		play_beat(state, message)
+		play_beat(state, voyage_end_headline(e.status))
 	}
+}
+
+// voyage_end_headline is what the end-of-voyage beat says, by how the voyage ended. It is
+// the whole of that screen's content, so capture composes the same frame from it as the
+// beat this dispatch plays.
+@(private)
+voyage_end_headline :: proc(status: voyage.Voyage_Status) -> string {
+	if status == .Won {
+		return "Victory! You reached Haven."
+	}
+	return "Your ship has been lost."
 }

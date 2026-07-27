@@ -16,6 +16,8 @@ Single-context repo. This glossary states what each term **is**; the why behind 
   _Avoid_: frame; step (when referring to rendering).
 - **run_session** — the single driver loop, shared by headless and UI: calls Tick, dispatches Events to an Event_Sink, and asks an Input_Source for a captain's decision whenever the Sim is awaiting one.
 - **Input_Source** — the pluggable source `run_session` asks for a captain's decision. Headless: scripted or seeded-random; UI: renders a decision menu and blocks until the player picks.
+- **Scripted player** — the no-player captain the headless runner and the capture walk share as their Input_Source (`core/sim/scripted_player.odin`): a **reference player, not an AI**, whose every decision is a stated rule written down beside the code that applies it. Deterministic and unseeded, so a seed reproduces its voyage exactly and a sweep measures the voyage those rules play. It reads a **Scripted_View** — facts the Sim broadcast on Events, never the Sim itself (ADR-0001) — which a driver fills from the stream its Event_Sink already tracks.
+  _Avoid_: bot, AI; and confusing it with a **ghost's** scripted orders (Hold every round — `combat_scripted_command`), which is the opponent side of a Fight.
 - **Event_Sink** — the pluggable destination `run_session` dispatches a Tick's Events to. Headless: logs or records; UI: plays back with animation, blocking until playback finishes.
 - **Headless mode** — running a session with no rendering — tests, simulation, ghost-battle resolution. A separate executable, compile-time incapable of importing the rendering library.
   _Avoid_: simulation mode, test mode.
@@ -152,7 +154,7 @@ The in-voyage UI is **two top-level modes** — Home and Encounter — and nothi
 - **EncounterResolved** — the Event emitted when an encounter resolves, carrying a fresh `Ghost_Snapshot` of the ship as it leaves the node.
 - **Capture cadence** — **once per encounter, at the end of the node's walk** (ADR-0018, #155/#162): per node, never per stage. A **halt** emits (the cursor jumps to the end, the node resolves); a **sinking** does not — the one encounter that leaves no ghost. The Event's "Resolved" and the Sim's `resolved` flag are one fact.
   _Avoid_: emitting a snapshot from a stage's apply proc — the retired cadence, which left Offer and Shop recording nothing.
-- **Hold** (scripted use) — a scripted ship submits Hold every round except when auto-taking Break Off; never Press, Commit or Jettison in this slice. Its Input_Source needs no randomness (ADR-0008).
+- **Hold** (a ghost's orders) — the ghost side of a Fight submits Hold every round except when auto-taking Break Off; never Press, Commit or Jettison (`combat_scripted_command`). It needs no randomness of its own (ADR-0008), and it is not the **Scripted player**'s order set, which spends both.
 
 A `Ghost_Snapshot`'s Hull always resets to max at capture — a ghost is a decoupled copy fought independently by multiple opponents, while the real ship's Hull degrades on its own voyage. Hand-authored PvE opponents may set Hull explicitly as a power knob.
 

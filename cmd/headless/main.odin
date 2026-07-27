@@ -101,21 +101,21 @@ headless_voyage :: proc(seed: u64, quiet: bool) -> (status: voyage.Voyage_Status
 // It counts events rather than keeping them: an Event borrows from the Sim's run arena,
 // so a kept copy is only valid as long as the Sim is. status is what both sinks leave
 // behind for a caller that outlives the Sim — a plain value, and the voyage's whole
-// outcome.
+// outcome. `view` is the scripted player's own input, filled by the sink from the same
+// stream: the map, ship and stage state it decides from all borrow from the Sim's arena
+// too, and are read only while it lives.
 Headless_State :: struct {
-	event_count:    int,
-	last_event:     sim.Event, // borrowed from the Sim's run arena; valid only while it lives
-	status:         voyage.Voyage_Status,
-	voyage_map:     voyage.Map, // borrowed from Event_Voyage_Started
-	current:        sim.Node_ID,
-	travel_options: []sim.Node_ID, // borrowed from the latest Event_Travel_Options
+	event_count: int,
+	last_event:  sim.Event, // borrowed from the Sim's run arena; valid only while it lives
+	status:      voyage.Voyage_Status,
+	view:        sim.Scripted_View,
 }
 
 // get_captain_choice is the headless Input_Source: it hands the shared scripted
 // player (sim.scripted_player_command) the voyage state the sink tracked.
 get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 	state := cast(^Headless_State)data
-	return sim.scripted_player_command(state.voyage_map, state.current, state.travel_options, awaiting)
+	return sim.scripted_player_command(state.view, awaiting)
 }
 
 // headless_print is the printing sink: format the event, then track it like the quiet one
@@ -126,8 +126,9 @@ headless_print :: proc(data: rawptr, event: sim.Event) {
 }
 
 // headless_track is the quiet sink: count every event, keep the voyage's outcome, and
-// track the current node plus the Sim's latest travel options that get_captain_choice
-// plans from — all of it without formatting a thing.
+// keep the scripted player's view of the voyage current — all of it without formatting a
+// thing. The view's fields are the facts the player decides from, each taken from the one
+// Event that carries it (sim.Scripted_View).
 // Event_Encounter_Resolved.snapshot needs no cleanup here — it lives in the Sim's
 // run-scoped arena and is freed wholesale by sim_destroy, not owned per-recipient.
 headless_track :: proc(data: rawptr, event: sim.Event) {
@@ -137,31 +138,41 @@ headless_track :: proc(data: rawptr, event: sim.Event) {
 
 	switch e in event {
 	case sim.Event_Voyage_Started:
-		state.voyage_map = e.voyage_map
+		state.view.voyage_map = e.voyage_map
+		state.view.player = e.ship
 	case sim.Event_Travel_Options:
-		state.travel_options = e.options
+		state.view.travel_options = e.options
 	case sim.Event_Arrived_At_Node:
-		state.current = e.node.id
+		state.view.current = e.node.id
 	case sim.Event_Voyage_Ended:
 		state.status = e.status
-	case sim.Event_Ship_Battle_Sighted:
 	case sim.Event_Battle_Menu:
-	case sim.Event_Battle_Event:
+		state.view.may_press = e.may_press
 	case sim.Event_Ship_Updated:
+		state.view.player = e.ship
+	case sim.Event_Options_Presented:
+		state.view.stage_options = e.options
+	case sim.Event_Trade_Presented:
+		state.view.trade = e.trade
+		state.view.trade_can_accept = e.can_accept
+	case sim.Event_Refit_Started:
+		state.view.refit_incoming = e.incoming
+	case sim.Event_Fitting_Installed:
+		// The incoming item has landed, so the refit has nothing left to place.
+		state.view.refit_incoming = nil
+	case sim.Event_Refit_Finished:
+		state.view.refit_incoming = nil
+	case sim.Event_Ship_Battle_Sighted:
+	case sim.Event_Battle_Event:
 	case sim.Event_Wreck_Looted:
 	case sim.Event_Reward_Paid:
 	case sim.Event_Stage_Entered:
 	case sim.Event_Encounter_Halted:
-	case sim.Event_Options_Presented:
-	case sim.Event_Trade_Presented:
 	case sim.Event_Purchase_Rejected:
-	case sim.Event_Refit_Started:
-	case sim.Event_Fitting_Installed:
 	case sim.Event_Fitting_Moved:
 	case sim.Event_Fitting_Removed:
 	case sim.Event_Cargo_Jettisoned:
 	case sim.Event_Refit_Rejected:
-	case sim.Event_Refit_Finished:
 	case sim.Event_Encounter_Resolved:
 	}
 }
