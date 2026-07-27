@@ -169,6 +169,13 @@ Game_State :: struct {
 	// position has to be told rather than read. draw_encounter_strip renders it;
 	// a halt's beat reads it to name what was forfeited.
 	stage_progress:   Maybe(sim.Event_Stage_Entered),
+	// stage_alongside is whether the camera has already travelled to the current Offer/Shop's
+	// framing (ADR-0032). The travel plays once per *stop*, not once per loop call: a Shop
+	// re-enters offer_shop_loop after every buy with a refilled shelf, and swinging round again
+	// each time would put 0.9 seconds of scenery between a captain and their second purchase.
+	// Cleared by Event_Stage_Entered, which is exactly "a new stop". The in-flight tween itself
+	// is a loop local — it runs to completion inside one call.
+	stage_alongside:  bool,
 	// active_trade is the bargain the current Trade stage is offering, copied from
 	// Event_Trade_Presented; trade_menu_loop renders its two cards and offers
 	// accept-or-decline. trade_can_accept comes from the same event rather than being
@@ -297,6 +304,7 @@ dispatch :: proc(data: rawptr, event: sim.Event) {
 		// The cursor moved: remember it so draw_encounter_strip can show the sequence
 		// and where in it the captain is.
 		state.stage_progress = e
+		state.stage_alongside = false // a new stop travels to its framing again
 
 	case sim.Event_Encounter_Halted:
 		// A halt is the one outcome with nothing to show for itself, so it is said out

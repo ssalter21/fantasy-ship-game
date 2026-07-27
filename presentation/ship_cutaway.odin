@@ -28,22 +28,83 @@ Room_Highlight :: enum {
 	Blocked,
 }
 
+// Ship_Framing is the whole of how the galleon is presented this frame: the camera and
+// projection she is drawn through, where the backdrop's sky meets its sea under it, and how far
+// her canvas is handed. **The caller picks it and hands the same one to the draw and to the
+// berth hit-test**, which is what stops the two disagreeing about where a berth is on screen
+// (ADR-0032).
+//
+// `horizon` is the backdrop's join and nothing else. Water that belongs to the *hull* — the foam
+// up her planking, the stream turning at her stem — is projected off her own waterline instead
+// (galleon_waterline_y), because from an eye off the water plane the two are different lines.
+//
+// `handed` is how far she has been worked in to a berth: 0 at sea under full sail, 1 alongside
+// with her canvas gathered on braced-round yards. See draw_ship_rig for why the stage framing
+// needs it.
+Ship_Framing :: struct {
+	view:    cutaway.View,
+	horizon: f32,
+	handed:  f32,
+}
+
+// ship_framing_moored is the shipped ship screen's own framing — the three-quarter cutaway off
+// her port bow, under full sail. It is what Home and the Build surface are always looking at,
+// and the moored end of the travel an Offer or Shop leaves from.
+ship_framing_moored :: proc() -> Ship_Framing {
+	return ship_framing_from(cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))
+}
+
+// ship_framing_travelling is the framing `k` of the way from moored to alongside: the camera
+// swinging to her beam and its projection straightening out from perspective toward
+// orthographic, and her canvas handed as she comes in. k = 0 is exactly the ship screen and
+// k = 1 exactly the stage, so a stage that enters at 0 and settles at 1 pops at neither end.
+//
+// Mid-move the eye is off the water plane, where the sea has no single edge to find — so the
+// backdrop's join follows *her waterline* rather than a vanishing point that would run off frame
+// as k approaches 1. The two are the same line at both ends.
+ship_framing_travelling :: proc(k: f32) -> Ship_Framing {
+	view := cutaway.galleon_view_between(
+		cutaway.GALLEON_EYE,
+		cutaway.GALLEON_ALONGSIDE_EYE,
+		k,
+		WINDOW_WIDTH,
+		WINDOW_HEIGHT,
+	)
+	return Ship_Framing {
+		view = view,
+		horizon = backdrop_floor(cutaway.galleon_waterline_y(view)),
+		handed = clamp(k, 0, 1),
+	}
+}
+
+// ship_framing_from is a framing over an arbitrary view, with the sea's edge derived from it and
+// full sail set. The horizon goes onto the art lattice here: the sky's last row and the sea's
+// first both key off this one number, and a backdrop snapped around an unsnapped horizon leaves
+// a part-pixel seam along the join.
+ship_framing_from :: proc(view: cutaway.View) -> Ship_Framing {
+	return Ship_Framing{view = view, horizon = backdrop_floor(cutaway.galleon_horizon_y(view))}
+}
+
 // draw_ship_cutaway paints one frame of the ship: sea and sky, the hull with its rooms, the
 // rig, and — only when the cursor is in a room and nothing is in hand — that berth's outline
 // and description card. `drag` lights the berths a dragged fitting may legally land in and
 // dims the rest, the same steer the flat cutaway gave (#302), now on the rooms themselves.
-draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector2) {
-	view := cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT)
-	if eye, flown := ship_debug_eye.?; flown {
-		view = cutaway.galleon_view_from(eye, WINDOW_WIDTH, WINDOW_HEIGHT)
-	}
-	// The horizon goes onto the art lattice before anything is drawn against it. The sky's last
-	// row, the sea's first and the foam standing up her planking all key off this one number, and
-	// a backdrop snapped around an unsnapped horizon leaves a part-pixel seam along the join.
-	horizon := backdrop_floor(cutaway.galleon_horizon_y(view))
+//
+// `describe` is whether a hovered berth pops that card at all: the Build surface has open water
+// bottom-right to throw one into, where an Offer or Shop has a column of parchment standing in
+// exactly that corner (ADR-0032).
+draw_ship_cutaway :: proc(
+	state: ^Game_State,
+	framing: Ship_Framing,
+	drag: Build_Drag,
+	mouse: rl.Vector2,
+	describe: bool,
+) {
+	view := framing.view
+	horizon := framing.horizon
 	draw_ship_sky(horizon)
 	draw_ship_sea(horizon)
-	draw_ship_wake(view, horizon)
+	draw_ship_wake(view)
 
 	rooms, n := cutaway.galleon_rooms(state.player.layout)
 
@@ -56,6 +117,13 @@ draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector
 
 	ship_paint_view(view.camera)
 	rl.BeginMode3D(view.camera)
+	// The projection the *view* carries, over the one BeginMode3D derives from the camera.
+	// Overriding after BeginMode3D is deliberate: BeginMode3D pushes the projection stack and
+	// loads a matrix, and this replaces the one rlgl will settle the queued batch with. EndMode3D
+	// pops the stack, so nothing leaks past this block. It is what lets a framing mid-way between
+	// two projections draw at all, and it is the same matrix galleon_project uses, so the hull and
+	// everything registered to it cannot disagree.
+	rlgl.SetMatrixProjection(view.projection)
 	// The wireframe view is bracketed by explicit batch flushes. Wire mode is a GL polygon-mode
 	// switch, but rlgl queues geometry and only settles it when the batch fills or is drawn — so
 	// without the flushes the mode lands on whatever happened to be in flight and the ship comes
@@ -69,7 +137,7 @@ draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector
 		draw_ship_room(rooms[i], ship_room_timber(rooms[i].kind))
 	}
 	draw_ship_ornament(rooms, n)
-	draw_ship_rig()
+	draw_ship_rig(framing.handed)
 	if ship_debug_wires {
 		rlgl.DrawRenderBatchActive()
 		rlgl.DisableWireMode()
@@ -77,7 +145,7 @@ draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector
 	rl.EndMode3D()
 
 	// The foam standing up her planking goes on last, over the hull it is breaking against.
-	draw_ship_waterline(view, horizon)
+	draw_ship_waterline(view)
 
 	// Highlights wash over the openings rather than tinting the timber: a room's inside is
 	// mostly shadow and a colour mixed into the wood barely reads, where a wash across the
@@ -90,7 +158,7 @@ draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector
 		draw_ship_face_highlight(cutaway.galleon_room_face(rooms[i], view), highlight)
 	}
 
-	if slot, over := hovered.?; over {
+	if slot, over := hovered.?; over && describe {
 		room, _ := cutaway.galleon_room_for_slot(rooms, n, slot)
 		draw_ship_slot_card(state.player.layout[slot], room, view)
 	}

@@ -4,11 +4,17 @@ import ship "../../core/ship"
 import rl "vendor:raylib"
 
 // The cutaway module owns where a ship's slots sit (#426), in either of the two forms the
-// game draws them: this file's flat cross-section, laid into a Region for the encounter
-// screens, and galleon.odin's three-quarter hull for the ship screen. Each gives one answer to
-// "where does this slot sit", and drawing and hit-testing both ask it — the two can no longer
-// disagree by convention. The geometry constants live here, so no screen can grow a private
-// copy. Painting stays with the callers: this package decides *where*, never *how it looks*.
+// game draws them: this file's flat cross-section, laid into a Region, and galleon.odin's real
+// hull, which the ship screen and the encounter stages both frame their own way (#476). Each
+// gives one answer to "where does this slot sit", and every screen that both draws and picks
+// asks it — the two can no longer disagree by convention. The geometry constants live here, so
+// no screen can grow a private copy. Painting stays with the callers: this package decides
+// *where*, never *how it looks*.
+//
+// The flat form is **draw-only** now, and has one caller: the Fight, whose two ships are looked
+// at rather than refitted (no drag in a battle, ADR-0024). Every surface a captain can put a
+// fitting into goes through the hull — so the flat form has a slot layout and no picker, and
+// giving it one back is a change to make when something needs to pick against it.
 
 // MAX_SLOTS bounds a laid-out cutaway — the vertical-slice ship's 8 (#91). Exported because
 // it is the size of the value-array both layouts return.
@@ -107,16 +113,4 @@ cutaway_slot_rects :: proc(
 	place_row(layout, &rects, .Exposed, region.deck_y, region, gap, n)
 	place_row(layout, &rects, .Concealed, region.hold_y, region, gap, n)
 	return rects, n
-}
-
-// cutaway_slot_at returns the slot whose card the point is over, or nil — the hit-test half
-// of the one answer: it consults the same laid-out slots the drawing used.
-cutaway_slot_at :: proc(layout: []ship.Layout_Slot, region: Region, point: rl.Vector2) -> Maybe(ship.Slot_Index) {
-	rects, n := cutaway_slot_rects(layout, region)
-	for i in 0 ..< n {
-		if rl.CheckCollisionPointRec(point, rects[i]) {
-			return ship.Slot_Index(i)
-		}
-	}
-	return nil
 }

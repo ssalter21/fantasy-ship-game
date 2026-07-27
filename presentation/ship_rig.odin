@@ -54,16 +54,37 @@ rig_mast_point :: proc(mast: Mast, h: f32) -> rl.Vector3 {
 	return rl.Vector3{mast.x - RIG_RAKE * h, deck + h, 0}
 }
 
+// RIG_BRACE_MAX is how far round her yards come when she is worked in to a berth, in degrees
+// off square. Not the whole ninety: braced flat fore-and-aft, a course is longer than the gap
+// between two masts and the three rigs grow into each other. Forty leaves daylight between them
+// and is still enough angle to give the eye a spar.
+RIG_BRACE_MAX :: f32(40)
+
 // draw_ship_rig raises the whole rig: masts and their tops, the yards and their canvas, the
 // standing rigging, the bowsprit, and a pennant at every truck.
-draw_ship_rig :: proc() {
+//
+// `handed` is how far she has been worked in to a berth: 0 is at sea under full sail with her
+// yards square, 1 is alongside with the canvas gathered on braced-round yards. Both halves move
+// together because they are one act — canvas handed and yards braced to clear what she is coming
+// in beside — and because from dead abeam a square yard points straight at the eye, so bracing is
+// the only thing that gives the rig anything to show. Handed canvas on a square yard: ADR-0032.
+draw_ship_rig :: proc(handed: f32) {
 	for mast in rig_masts() {
 		draw_rig_mast(mast)
 		draw_rig_shrouds(mast)
-		draw_rig_canvas(mast)
+		draw_rig_canvas(mast, handed)
 	}
 	draw_rig_stays()
-	draw_rig_bowsprit()
+	draw_rig_bowsprit(handed)
+}
+
+// rig_yard_axis is the unit direction a yard points: square athwartships at 0, braced round
+// toward fore-and-aft at 1. Everything set up on a yard — the spar itself, the canvas lofted
+// under it, the bundle it is handed into — takes its direction from here, so a yard has one
+// heading rather than one per caller.
+rig_yard_axis :: proc(handed: f32) -> rl.Vector3 {
+	braced := math.to_radians(RIG_BRACE_MAX * clamp(handed, 0, 1))
+	return {-math.sin(braced), 0, math.cos(braced)}
 }
 
 // draw_rig_mast steps one mast: a lower mast tapering to the top, a topmast above it, the top
@@ -96,9 +117,10 @@ draw_rig_mast :: proc(mast: Mast) {
 // draw_rig_canvas hangs one mast's sails: a yard across each tier, and under it a course of
 // canvas lofted with a belly in it. Each sail narrows as it climbs, so the rig comes to a point
 // the way a square rig does, and the yards taper to their arms.
-draw_rig_canvas :: proc(mast: Mast) {
+draw_rig_canvas :: proc(mast: Mast, handed: f32) {
 	COURSE :: f32(1.72)
 	tier_h := mast.height * 0.24
+	axis := rig_yard_axis(handed)
 
 	for tier in 0 ..< mast.tiers {
 		width := COURSE * mast.spread * (1.0 - f32(tier) / f32(mast.tiers) * 0.34)
@@ -106,10 +128,11 @@ draw_rig_canvas :: proc(mast: Mast) {
 		foot := head - tier_h * 0.82
 
 		yard := rig_mast_point(mast, head)
-		ship_spar({yard.x, yard.y, -width / 2 - 0.1}, {yard.x, yard.y, 0}, 0.02, 0.042, COLOUR_TRUNK)
-		ship_spar({yard.x, yard.y, width / 2 + 0.1}, {yard.x, yard.y, 0}, 0.02, 0.042, COLOUR_TRUNK)
+		arm := axis * (width / 2 + 0.1)
+		ship_spar(yard - arm, yard, 0.02, 0.042, COLOUR_TRUNK)
+		ship_spar(yard + arm, yard, 0.02, 0.042, COLOUR_TRUNK)
 
-		draw_rig_sail(rig_mast_point(mast, head), rig_mast_point(mast, foot), width)
+		draw_rig_sail(rig_mast_point(mast, head), rig_mast_point(mast, foot), width, axis, handed)
 	}
 }
 
@@ -118,33 +141,63 @@ draw_rig_canvas :: proc(mast: Mast) {
 // deeper than the head — so the canvas is a curved surface, every strip of it facing its own
 // way, and the light models the bag of wind in it. That, rather than any outline, is what makes
 // it cloth.
-draw_rig_sail :: proc(head, foot: rl.Vector3, width: f32) {
+// RIG_FURLED_BULK is how thick a handed course lies on its yard — a course is a great deal of
+// cloth and a bundle of it is fatter than the spar under it, which is what makes the bundle the
+// thing the eye reads rather than the yard.
+RIG_FURLED_BULK :: f32(0.10)
+
+// `axis` is the direction the yard points (rig_yard_axis) and `handed` hands the sail: the foot
+// is hauled up to the yard and the belly slackens together — a sail being taken in loses its
+// wind before it loses its drop — and what is gathered goes into the bundle lashed along the
+// yard. At handed 0 nothing below changes by a pixel.
+draw_rig_sail :: proc(head, foot: rl.Vector3, width: f32, axis: rl.Vector3, handed: f32) {
 	// belly_at is how far forward the canvas is blown at a fraction f across the sail.
 	belly_at :: proc(f: f32) -> f32 {
 		return math.sin(f * math.PI)
 	}
 
-	for s in 0 ..< SAIL_STRIPS {
-		f0 := f32(s) / SAIL_STRIPS
-		f1 := f32(s + 1) / SAIL_STRIPS
-		z0 := (f0 - 0.5) * width
-		z1 := (f1 - 0.5) * width
-		b0 := belly_at(f0) * RIG_BELLY
-		b1 := belly_at(f1) * RIG_BELLY
+	set := 1 - clamp(handed, 0, 1)
+	hauled := head + (foot - head) * set
+	blown := RIG_BELLY * set
 
-		// The head is laced to the yard and can only bow a little; the foot is loose and bags.
-		a := rl.Vector3{head.x + b0 * 0.55, head.y, z0}
-		b := rl.Vector3{head.x + b1 * 0.55, head.y, z1}
-		c := rl.Vector3{foot.x + b1, foot.y - b1 * 0.22, z1}
-		d := rl.Vector3{foot.x + b0, foot.y - b0 * 0.22, z0}
+	// Below about a hundredth the canvas has no drop worth lofting and its strips are degenerate
+	// — a quad with no area hands back no normal to light it by, which is a NaN rather than a
+	// dark sail. The bundle carries the cloth from there.
+	if set > 0.01 {
+		for s in 0 ..< SAIL_STRIPS {
+			f0 := f32(s) / SAIL_STRIPS
+			f1 := f32(s + 1) / SAIL_STRIPS
+			p0 := axis * ((f0 - 0.5) * width)
+			p1 := axis * ((f1 - 0.5) * width)
+			b0 := belly_at(f0) * blown
+			b1 := belly_at(f1) * blown
 
-		ship_quad_cloth(a, b, c, d, COLOUR_PARCHMENT)
+			// The head is laced to the yard and can only bow a little; the foot is loose and bags.
+			a := head + p0 + {b0 * 0.55, 0, 0}
+			b := head + p1 + {b1 * 0.55, 0, 0}
+			c := hauled + p1 + {b1, -b1 * 0.22, 0}
+			d := hauled + p0 + {b0, -b0 * 0.22, 0}
 
-		// A reef band across the canvas, a shade off it, so the cloth has a seam to catch light.
-		mid_a := (a + d) / 2
-		mid_b := (b + c) / 2
-		band := rl.Vector3{0, 0.028, 0}
-		ship_quad_cloth(mid_a - band, mid_b - band, mid_b + band, mid_a + band, colour_shade(COLOUR_PARCHMENT, 0.88))
+			ship_quad_cloth(a, b, c, d, COLOUR_PARCHMENT)
+
+			// A reef band across the canvas, a shade off it, so the cloth has a seam to catch light.
+			mid_a := (a + d) / 2
+			mid_b := (b + c) / 2
+			band := rl.Vector3{0, 0.028, 0}
+			ship_quad_cloth(mid_a - band, mid_b - band, mid_b + band, mid_a + band, colour_shade(COLOUR_PARCHMENT, 0.88))
+		}
+	}
+
+	// The bundle: the handed canvas, gathered and lashed along the yard it hangs from. Two lengths
+	// tapering out to the arms rather than one bar, because a furled course is fattest where the
+	// most cloth is gathered — at the slings, amidships.
+	if handed > 0.01 {
+		bulk := RIG_FURLED_BULK * clamp(handed, 0, 1)
+		cloth := colour_shade(COLOUR_PARCHMENT, 0.94)
+		slings := rl.Vector3{head.x + 0.02, head.y - bulk * 0.7, head.z}
+		arm := axis * (width / 2)
+		ship_spar(slings - arm, slings, bulk * 0.4, bulk, cloth)
+		ship_spar(slings + arm, slings, bulk * 0.4, bulk, cloth)
 	}
 }
 
@@ -249,7 +302,7 @@ rig_bowsprit_at :: proc(f: f32) -> rl.Vector3 {
 
 // draw_rig_bowsprit runs the bowsprit out over the head, with its spritsail slung under and the
 // bobstay holding it down to the stem — the spar that carries the whole rig's forward pull.
-draw_rig_bowsprit :: proc() {
+draw_rig_bowsprit :: proc(handed: f32) {
 	stem, tip := rig_bowsprit_stem(), rig_bowsprit_tip()
 	ship_spar(stem, tip, 0.062, 0.03, COLOUR_TRUNK)
 
@@ -260,12 +313,13 @@ draw_rig_bowsprit :: proc() {
 	SPRIT_DROP :: f32(0.11)
 	on_spar := rig_bowsprit_at(0.62)
 	yard := rl.Vector3{on_spar.x, on_spar.y - SPRIT_DROP, 0}
-	ship_spar({yard.x, yard.y, -0.38}, {yard.x, yard.y, 0.38}, 0.022, 0.022, COLOUR_TRUNK)
+	axis := rig_yard_axis(handed)
+	ship_spar(yard - axis * 0.38, yard + axis * 0.38, 0.022, 0.022, COLOUR_TRUNK)
 
 	// The halliard the yard is slung by: a short length up to the spar, so the eye is told what
 	// is holding it there.
 	ship_rope(on_spar, yard, 0.009, colour_shade(COLOUR_ROCK, 0.62))
-	draw_rig_sail(yard, {yard.x + 0.05, yard.y - 0.36, 0}, 0.68)
+	draw_rig_sail(yard, {yard.x + 0.05, yard.y - 0.36, 0}, 0.68, axis, handed)
 
 	// The bobstay, down to the stem, and the jackstaff at the tip.
 	ship_rope(tip, {cutaway.GALLEON_BOW_X + 0.05, cutaway.galleon_sheer_y(cutaway.GALLEON_BOW_X) - 0.18, 0}, 0.011, colour_shade(COLOUR_ROCK, 0.62))

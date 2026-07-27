@@ -277,9 +277,19 @@ draw_ship_sea :: proc(horizon_y: f32) {
 // it: the bow wave thrown out ahead of her and the wake trailing away astern. It goes down on
 // the sea rather than on the ship, so what survives is the part standing out either side of
 // her — which is all of it that should be seen.
-draw_ship_wake :: proc(view: cutaway.View, horizon_y: f32) {
+//
+// Both ends take their row from the projection of her own stem and stern at the waterline
+// rather than from the backdrop's horizon. The two are the same number from any eye sitting on
+// the water plane, and a different one from an eye between two framings (ship_framing_travelling)
+// — where world y = 0 is a band rather than a line, and water anchored to a single painted row
+// detaches from the hull it belongs to by a dozen pixels mid-move.
+draw_ship_wake :: proc(view: cutaway.View) {
 	bow := cutaway.galleon_project({cutaway.GALLEON_BOW_X, 0, 0}, view)
 	stern := cutaway.galleon_project({cutaway.GALLEON_STERN_X, 0, 0}, view)
+	// Onto the art lattice, as every mark below is: an unsnapped row would round a mark's height
+	// up by a whole cell.
+	bow_y := backdrop_floor(bow.y)
+	stern_y := backdrop_floor(stern.y)
 
 	// Astern: broken water fanning back from her quarter, thinning as it falls behind. Scattered
 	// rather than stepped, or it draws itself as a road running off to the horizon.
@@ -295,7 +305,7 @@ draw_ship_wake :: proc(view: cutaway.View, horizon_y: f32) {
 		f := sea_noise(i, 21)
 		spread := sea_noise(i, 22)
 		x := stern.x + f * 138
-		y := horizon_y + 1 + f * 34 * spread
+		y := stern_y + 1 + f * 34 * spread
 		backdrop_block(
 			{x, y, 26 - f * 17, 2 + f * 2},
 			rl.Fade(
@@ -319,7 +329,7 @@ draw_ship_wake :: proc(view: cutaway.View, horizon_y: f32) {
 		f := math.pow(sea_noise(i, 31), 1.3)
 		side := sea_noise(i, 32)
 		backdrop_block(
-			{bow.x - 12 - f * 34, horizon_y - 2 + f * 26 * side, 22 - f * 12, 2 + f * 2},
+			{bow.x - 12 - f * 34, bow_y - 2 + f * 26 * side, 22 - f * 12, 2 + f * 2},
 			rl.Fade(
 				colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.5),
 				(0.34 - f * 0.24) * (1 - side * 0.45),
@@ -329,10 +339,17 @@ draw_ship_wake :: proc(view: cutaway.View, horizon_y: f32) {
 }
 
 // draw_ship_waterline is the one pass that goes on *after* the hull: the foam standing up her
-// planking where the sea takes her, drawn along the camera's own horizon because that is
-// precisely where the waterline lands from an eye at sea level. Without it the hull ends at the
-// water on a ruled line, and no amount of work on either reads as a ship floating.
-draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
+// planking where the sea takes her. Without it the hull ends at the water on a ruled line, and
+// no amount of work on either reads as a ship floating.
+//
+// **The run follows her projected waterline rather than a painted row.** From an eye sitting on
+// the water plane the two are the same line — every point at y = 0 lands on one screen row, which
+// is why this was a constant for as long as there was one framing. From an eye part-way between
+// two framings (ship_framing_travelling) they are not: the plane no longer contains the eye, so
+// y = 0 spreads into a band fifteen pixels deep along her length and foam laid on one row of it
+// floats clear of her planking. Her waterline is a straight line in world space and a projective
+// transform takes straight lines to straight lines, so interpolating stem to stern is exact.
+draw_ship_waterline :: proc(view: cutaway.View) {
 	bow := cutaway.galleon_project({cutaway.GALLEON_BOW_X + 0.2, 0, 0}, view)
 	stern := cutaway.galleon_project({cutaway.GALLEON_STERN_X - 0.1, 0, 0}, view)
 	span := max(stern.x - bow.x, 1)
@@ -393,6 +410,10 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 		// One or two cells, never four. Standing up to sixteen pixels the run became a stripe
 		// painted along her wale. Foam hugs the line it belongs to.
 		h := (1 + math.floor(sea_noise(i, 42) * 2)) * BACKDROP_PIXEL
+		// The row this cell's foam stands on: her own waterline where this cell crosses it, put on
+		// the lattice before the offsets below are taken off it, so a mark's height is a whole
+		// number of cells however the line is sloping.
+		row := backdrop_floor(bow.y + (stern.y - bow.y) * f)
 		// Nor is it white. Foam seen edge-on at the waterline is mostly lit water with a little
 		// air in it, and COLOUR_FOAM against her dark topsides was the highest contrast on the
 		// screen — which is what made a soft effect shout. Mixed back toward the shallow sea it
@@ -406,7 +427,7 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 		// Above it, one cell at near-full weight is a colour rather than a blend, and that thin bright
 		// lip is all that was ever wanted: the line where the water actually takes her.
 		backdrop_block(
-			{base + f32(i) * BACKDROP_PIXEL, horizon_y - BACKDROP_PIXEL, BACKDROP_PIXEL, h + BACKDROP_PIXEL},
+			{base + f32(i) * BACKDROP_PIXEL, row - BACKDROP_PIXEL, BACKDROP_PIXEL, h + BACKDROP_PIXEL},
 			rl.Fade(colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.62), (0.66 + sea_noise(i, 44) * 0.30) * ends),
 		)
 	}
@@ -435,11 +456,12 @@ draw_ship_waterline :: proc(view: cutaway.View, horizon_y: f32) {
 	// back in the water, and that reasoning does not change with the size of it.
 	SPRAY_REACH :: f32(24)
 	SPRAY_PEAK :: f32(4)
+	stem := backdrop_floor(bow.y)
 	for i in 0 ..< 9 {
 		f := sea_noise(i, 51)
 		arc := math.sin(f * math.PI)
 		backdrop_block(
-			{bow.x - 8 - f * SPRAY_REACH, horizon_y - arc * SPRAY_PEAK, 6 - f * 3, 2},
+			{bow.x - 8 - f * SPRAY_REACH, stem - arc * SPRAY_PEAK, 6 - f * 3, 2},
 			rl.Fade(colour_mix(COLOUR_SEA_SHALLOW, COLOUR_FOAM, 0.6), 0.18 + arc * 0.22),
 		)
 	}

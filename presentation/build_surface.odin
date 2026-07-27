@@ -168,23 +168,24 @@ build_confirm_command :: proc(confirm: Build_Confirm) -> sim.Command {
 }
 
 // build_slot_at returns the slot whose room the point is over, or nil — asked of the cutaway
-// module over the same view the drawing used, so the click resolves against the rooms the eye
-// sees. The view is built at the logical frame size, which is what keeps picking in the same
-// coordinate system as the mouse in the borderless-fullscreen build (cutaway.View).
-build_slot_at :: proc(state: ^Game_State, point: rl.Vector2) -> Maybe(ship.Slot_Index) {
-	return cutaway.galleon_room_at(state.player.layout, point, cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))
+// module over the *caller's* framing, which is the same one the draw was handed, so the click
+// resolves against the rooms the eye is actually looking at (#476). The view inside a framing is
+// built at the logical frame size, which is what keeps picking in the same coordinate system as
+// the mouse in the borderless-fullscreen build (cutaway.View).
+build_slot_at :: proc(state: ^Game_State, framing: Ship_Framing, point: rl.Vector2) -> Maybe(ship.Slot_Index) {
+	return cutaway.galleon_room_at(state.player.layout, point, framing.view)
 }
 
 // build_begin_drag decides whether a press starts a drag, and from where: the shelf item
 // if the press is on it, else the filled slot under the press. An empty slot or open water
 // starts nothing.
-build_begin_drag :: proc(state: ^Game_State, point: rl.Vector2) -> (Build_Drag, bool) {
+build_begin_drag :: proc(state: ^Game_State, framing: Ship_Framing, point: rl.Vector2) -> (Build_Drag, bool) {
 	if incoming, has_incoming := state.refit_incoming.?; has_incoming {
 		if rl.CheckCollisionPointRec(point, build_shelf_rect(incoming)) {
 			return Build_Drag{active = true, from_slot = nil, fitting = incoming}, true
 		}
 	}
-	if slot, over := build_slot_at(state, point).?; over {
+	if slot, over := build_slot_at(state, framing, point).?; over {
 		if fitting, filled := state.player.layout[slot].fitting.?; filled {
 			return Build_Drag{active = true, from_slot = slot, fitting = fitting}, true
 		}
@@ -218,11 +219,14 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 	for {
 		window_quit_if_closed()
 		mouse := rl.GetMousePosition()
+		// One framing a frame, handed to the draw and to the hit-test alike: the Build surface
+		// only ever looks at her moored (#476).
+		framing := ship_framing_moored()
 
 		// Confirm sub-state: a destructive drop is one deliberate click away from committing,
 		// or a click anywhere else cancels it.
 		if confirm, confirming := pending_confirm.?; confirming {
-			draw_build_surface(state, Build_Drag{}, pending_confirm, mouse)
+			draw_build_surface(state, framing, Build_Drag{}, pending_confirm, mouse)
 			if rl.IsMouseButtonPressed(.LEFT) {
 				if rl.CheckCollisionPointRec(mouse, build_confirm_yes_rect()) {
 					return build_confirm_command(confirm)
@@ -235,11 +239,12 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 		// A drag in flight: the ghost follows the cursor until release, when where it lands
 		// decides the command (or a cancel).
 		if drag.active {
-			draw_build_surface(state, drag, nil, mouse)
+			draw_build_surface(state, framing, drag, nil, mouse)
 			if rl.IsMouseButtonReleased(.LEFT) {
 				on_discard := rl.CheckCollisionPointRec(mouse, build_discard_rect())
 				on_ledger := rl.CheckCollisionPointRec(mouse, build_ledger_rect())
-				cmd, ready, wants := build_drop_command(state, drag, build_slot_at(state, mouse), on_discard, on_ledger)
+				target := build_slot_at(state, framing, mouse)
+				cmd, ready, wants := build_drop_command(state, drag, target, on_discard, on_ledger)
 				drag.active = false
 				if confirm, asked := wants.?; asked {
 					pending_confirm = confirm
@@ -251,12 +256,12 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 		}
 
 		// Resting: draw, then a press either leaves (Done) or lifts a fitting into a drag.
-		draw_build_surface(state, drag, nil, mouse)
+		draw_build_surface(state, framing, drag, nil, mouse)
 		if rl.IsMouseButtonPressed(.LEFT) {
 			if rl.CheckCollisionPointRec(mouse, build_done_rect()) {
 				return sim.Command(sim.Command_Refit{command = sim.Refit_Finish{}})
 			}
-			if started, ok := build_begin_drag(state, mouse); ok {
+			if started, ok := build_begin_drag(state, framing, mouse); ok {
 				drag = started
 			}
 		}
@@ -267,12 +272,18 @@ build_surface_loop :: proc(state: ^Game_State) -> sim.Command {
 // composing and polling are separate acts — the loop draws then polls, capture draws and
 // never polls (#277). `drag` is the in-flight drag (its ghost drawn at `mouse`), `confirm`
 // a pending discard's slot, `mouse` the cursor for hover and the ghost.
-draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2) {
+draw_build_surface :: proc(
+	state: ^Game_State,
+	framing: Ship_Framing,
+	drag: Build_Drag,
+	confirm: Maybe(Build_Confirm),
+	mouse: rl.Vector2,
+) {
 	frame_begin()
 	defer frame_end()
 	defer free_all(context.temp_allocator)
 
-	draw_build_surface_body(state, drag, confirm, mouse, false)
+	draw_build_surface_body(state, framing, drag, confirm, mouse, false)
 }
 
 // draw_build_surface_body composes the Cutaway without owning the frame's Begin/EndDrawing, so
@@ -282,11 +293,18 @@ draw_build_surface :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(
 // leaves by sailing, not by finishing, so its Home wrapper draws a chart tab over this body
 // instead. Everything else is shared, and the shelf block is naturally skipped at Home, where
 // there is never a granted item.
-draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2, at_home: bool) {
+draw_build_surface_body :: proc(
+	state: ^Game_State,
+	framing: Ship_Framing,
+	drag: Build_Drag,
+	confirm: Maybe(Build_Confirm),
+	mouse: rl.Vector2,
+	at_home: bool,
+) {
 	// The ship herself, and everything that reads off her rooms: the hover highlight and its
 	// description card, and — while a drag is up — the berths the fitting in hand may land in
 	// lit and the rest dimmed (#302).
-	draw_ship_cutaway(state, drag, mouse)
+	draw_ship_cutaway(state, framing, drag, mouse, describe = true)
 
 	incoming, has_incoming := state.refit_incoming.?
 	dragging := drag.active
@@ -834,6 +852,8 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 	for {
 		window_quit_if_closed()
 		mouse := rl.GetMousePosition()
+		// One framing a frame, handed to the draw and to the hit-test alike (#476).
+		framing := ship_framing_moored()
 		map_width_set(state, MAP_HOME_W) // the raised chart owns this screen — full-width page
 
 		// The chart eases toward its toggle target each frame. A lowered, un-touched chart is
@@ -847,7 +867,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		// EndDrawing, so a skip tested ahead of the frame's draw would still see the very click
 		// that set the sail going and snap it to arrival on its first frame.
 		if dest, sailing := state.sail_pending.?; sailing {
-			draw_home(state, Build_Drag{}, nil, mouse, 1)
+			draw_home(state, framing, Build_Drag{}, nil, mouse, 1)
 			skipped := rl.IsMouseButtonPressed(.LEFT) || rl.IsKeyPressed(.SPACE)
 
 			// Landed. The ship holds on the node it reached while the arrival's ink sets (spec
@@ -889,7 +909,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		// hit-test is travel_menu_loop's, over the same emitted options the Sim gates on, with the
 		// cursor un-shifted by the chart's centre/rise offset so it lands on the mark the eye sees.
 		if chart_raise >= 1 && chart_target >= 1 {
-			draw_home(state, Build_Drag{}, nil, mouse, 1)
+			draw_home(state, framing, Build_Drag{}, nil, mouse, 1)
 			if rl.IsMouseButtonPressed(.LEFT) {
 				offset := chart_offset(1)
 				hit := rl.Vector2{mouse.x - offset.x, mouse.y - offset.y}
@@ -916,7 +936,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		// swallow input so a click never lands on a half-raised chart — the tab only toggles at
 		// rest, so neither the surface nor a node is live until the flip settles.
 		if chart_raise > 0 || chart_target > 0 {
-			draw_home(state, Build_Drag{}, nil, mouse, chart_raise)
+			draw_home(state, framing, Build_Drag{}, nil, mouse, chart_raise)
 			continue
 		}
 
@@ -925,7 +945,7 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		// Confirm sub-state: a destructive drop is one deliberate click from committing, or a
 		// click anywhere else cancels it (same as build_surface_loop).
 		if confirm, confirming := pending_confirm.?; confirming {
-			draw_home(state, Build_Drag{}, pending_confirm, mouse, 0)
+			draw_home(state, framing, Build_Drag{}, pending_confirm, mouse, 0)
 			if rl.IsMouseButtonPressed(.LEFT) {
 				if rl.CheckCollisionPointRec(mouse, build_confirm_yes_rect()) {
 					return build_confirm_command(confirm)
@@ -940,11 +960,12 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 		// build_begin_drag only ever lifts a filled slot, so build_drop_command yields a Move, a
 		// discard or a cargo burn — never an Install/Replace.
 		if drag.active {
-			draw_home(state, drag, nil, mouse, 0)
+			draw_home(state, framing, drag, nil, mouse, 0)
 			if rl.IsMouseButtonReleased(.LEFT) {
 				on_discard := rl.CheckCollisionPointRec(mouse, build_discard_rect())
 				on_ledger := rl.CheckCollisionPointRec(mouse, build_ledger_rect())
-				cmd, ready, wants := build_drop_command(state, drag, build_slot_at(state, mouse), on_discard, on_ledger)
+				target := build_slot_at(state, framing, mouse)
+				cmd, ready, wants := build_drop_command(state, drag, target, on_discard, on_ledger)
 				drag.active = false
 				if confirm, asked := wants.?; asked {
 					pending_confirm = confirm
@@ -957,11 +978,11 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 
 		// Resting: draw, then a click on the chart tab flips it up, or a press lifts a fitting
 		// into a refit drag.
-		draw_home(state, drag, nil, mouse, 0)
+		draw_home(state, framing, drag, nil, mouse, 0)
 		if rl.IsMouseButtonPressed(.LEFT) {
 			if rl.CheckCollisionPointRec(mouse, home_chart_tab_rect()) {
 				chart_target = 1
-			} else if started, ok := build_begin_drag(state, mouse); ok {
+			} else if started, ok := build_begin_drag(state, framing, mouse); ok {
 				drag = started
 			}
 		}
@@ -977,12 +998,19 @@ home_loop :: proc(state: ^Game_State) -> sim.Command {
 // a raise/lower, not a split view; the rlgl translate slides the whole chart as one, so draw_map
 // keeps drawing at its fixed MAP_AREA positions and only the hover mouse is un-shifted back into
 // chart space.
-draw_home :: proc(state: ^Game_State, drag: Build_Drag, confirm: Maybe(Build_Confirm), mouse: rl.Vector2, raise: f32) {
+draw_home :: proc(
+	state: ^Game_State,
+	framing: Ship_Framing,
+	drag: Build_Drag,
+	confirm: Maybe(Build_Confirm),
+	mouse: rl.Vector2,
+	raise: f32,
+) {
 	frame_begin()
 	defer frame_end()
 	defer free_all(context.temp_allocator)
 
-	draw_build_surface_body(state, drag, confirm, mouse, true)
+	draw_build_surface_body(state, framing, drag, confirm, mouse, true)
 
 	if raise > 0 {
 		rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, rl.Fade(COLOUR_DEEP, 0.55 * raise))
