@@ -1,6 +1,8 @@
 # Claude Code
 .claude/worktrees/
 .claude/settings.local.json
+.claude/commands/
+.claude/skills/audit/
 
 # OS
 .DS_Store
