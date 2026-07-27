@@ -1,7 +1,7 @@
 """Zoom into a capture shot, and diff two of them.
 
     python scripts/shot.py zoom 00-chart-table top-left --factor 3
-    python scripts/shot.py diff 04-build 05-build-hover
+    python scripts/shot.py diff 05-build 06-build-hover
 
 When to reach for which, and why this is an instrument for 2D chrome rather than for
 the 3D ship screen, are in `.claude/skills/run-game/SKILL.md` -- kept there rather

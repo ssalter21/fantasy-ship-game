@@ -1,12 +1,13 @@
 package presentation
 
+import "core:slice"
 import "core:testing"
 import sim "../core/sim"
 
 // This covers the windowless sliver of capture that is the package's own — the
 // scripted player it answers decisions with is tested where it lives, in core/sim.
 // The drawing half can't be tested here for the same reason the menu loops can't:
-// rl.IsWindowReady() is false under `odin test`, and capture_shot guards on it.
+// rl.IsWindowReady() is false under `odin test`, and every shot guards on it.
 
 @(test)
 capture_phase_slug_names_every_phase_distinctly :: proc(t: ^testing.T) {
@@ -22,48 +23,55 @@ capture_phase_slug_names_every_phase_distinctly :: proc(t: ^testing.T) {
 }
 
 @(test)
-capture_shot_groups_name_every_shot_once :: proc(t: ^testing.T) {
+capture_shots_name_every_shot_once :: proc(t: ^testing.T) {
 	seen: map[string]bool
 	defer delete(seen)
 
-	for group in capture_shot_groups {
-		testing.expect(t, group.shoot != nil, "every group needs the proc that shoots it")
-		testing.expect(t, len(group.names) > 0, "a group that writes no shot cannot be asked for")
-		for name in group.names {
-			testing.expect(t, name != "", "a shot needs a name to be asked for by")
-			testing.expectf(t, !seen[name], "two shots share the name %s", name)
-			seen[name] = true
-		}
+	for shot in capture_shots {
+		testing.expect(t, shot.name != "", "a shot needs a name to be asked for by")
+		testing.expectf(t, shot.frame != nil, "%s needs the proc that composes it", shot.name)
+		testing.expectf(t, !seen[shot.name], "two shots share the name %s", shot.name)
+		seen[shot.name] = true
 	}
 }
 
-// A targeted shot has to land on the file a full --capture run would write, so the
-// group's start index must be its position in the flattened walk order, and the shot's
-// own number its position within that.
+// A state a mouse reaches is shootable only for as long as it is an entry, so the ones the
+// registry exists to carry — a hover, a drag, an animation caught mid-raise — are named
+// here rather than left to be hard-coded into a frame for one run.
 @(test)
-capture_shot_group_for_numbers_shots_in_walk_order :: proc(t: ^testing.T) {
-	walked := 0
-	for group in capture_shot_groups {
-		for name, offset in group.names {
-			found, start, number, ok := capture_shot_group_for(name)
-			testing.expectf(t, ok, "%s should be findable by name", name)
-			testing.expectf(t, start == walked, "%s should start its group at %d", name, walked)
-			testing.expectf(t, number == walked + offset, "%s should carry number %d", name, walked + offset)
-			testing.expectf(
-				t,
-				len(found.names) == len(group.names) && found.names[offset] == name,
-				"%s should find the group that writes it",
-				name,
-			)
-		}
-		walked += len(group.names)
+capture_shots_name_the_states_a_mouse_reaches :: proc(t: ^testing.T) {
+	names := make([dynamic]string, 0, len(capture_shots))
+	defer delete(names)
+	for shot in capture_shots {
+		append(&names, shot.name)
+	}
+
+	for named in ([?]string {
+			"chart-table-hover", // a hovered button
+			"build-hover", // a hovered berth
+			"build-placing", // a drag in flight
+			"home-chart-rising", // an animation caught mid-raise
+		}) {
+		testing.expectf(t, slice.contains(names[:], named), "%s should be a shot, not a source edit", named)
+	}
+}
+
+// A targeted shot has to land on the file a full --capture run would write, so a shot's
+// number is its position in the table.
+@(test)
+capture_shot_for_numbers_shots_in_walk_order :: proc(t: ^testing.T) {
+	for shot, i in capture_shots {
+		found, number, ok := capture_shot_for(shot.name)
+		testing.expectf(t, ok, "%s should be findable by name", shot.name)
+		testing.expectf(t, number == i, "%s should carry number %d", shot.name, i)
+		testing.expectf(t, found.name == shot.name, "%s should find the shot it names", shot.name)
 	}
 }
 
 @(test)
-capture_shot_group_for_rejects_an_unknown_name :: proc(t: ^testing.T) {
-	_, _, _, ok := capture_shot_group_for("no-such-screen")
-	testing.expect(t, !ok, "an unnamed screen should not resolve to a group")
+capture_shot_for_rejects_an_unknown_name :: proc(t: ^testing.T) {
+	_, _, ok := capture_shot_for("no-such-screen")
+	testing.expect(t, !ok, "an unnamed screen should not resolve to a shot")
 }
 
 @(test)
