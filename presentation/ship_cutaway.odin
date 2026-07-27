@@ -28,19 +28,53 @@ Room_Highlight :: enum {
 	Blocked,
 }
 
+// Ship_Framing is the whole of how the galleon is presented this frame: the camera and
+// projection she is drawn through, and where the sea's edge falls under it. **The caller
+// picks it and hands the same one to the draw and to the berth hit-test**, which is what
+// stops the two disagreeing about where a berth is on screen — they each built their own
+// before there was more than one framing to build (#476).
+//
+// The horizon is carried rather than re-derived because a framing part-way through a move
+// between two projections has no exact one: the camera the eye is looking through is a blend,
+// and the sea's edge under it is blended too (offer_shop_framing). Every other framing simply
+// asks the cutaway module for it.
+Ship_Framing :: struct {
+	view:    cutaway.View,
+	horizon: f32,
+}
+
+// ship_framing_moored is the shipped ship screen's own framing — the three-quarter cutaway off
+// her port bow. It is what Home and the Build surface are always looking at, and the moored end
+// of the travel an Offer or Shop leaves from.
+ship_framing_moored :: proc() -> Ship_Framing {
+	return ship_framing_from(cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))
+}
+
+// ship_framing_from is a framing over an arbitrary view, with the sea's edge derived from it.
+// The horizon goes onto the art lattice here: the sky's last row, the sea's first and the foam
+// standing up her planking all key off this one number, and a backdrop snapped around an
+// unsnapped horizon leaves a part-pixel seam along the join.
+ship_framing_from :: proc(view: cutaway.View) -> Ship_Framing {
+	return Ship_Framing{view = view, horizon = backdrop_floor(cutaway.galleon_horizon_y(view))}
+}
+
 // draw_ship_cutaway paints one frame of the ship: sea and sky, the hull with its rooms, the
 // rig, and — only when the cursor is in a room and nothing is in hand — that berth's outline
 // and description card. `drag` lights the berths a dragged fitting may legally land in and
 // dims the rest, the same steer the flat cutaway gave (#302), now on the rooms themselves.
-draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector2) {
-	view := cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT)
-	if eye, flown := ship_debug_eye.?; flown {
-		view = cutaway.galleon_view_from(eye, WINDOW_WIDTH, WINDOW_HEIGHT)
-	}
-	// The horizon goes onto the art lattice before anything is drawn against it. The sky's last
-	// row, the sea's first and the foam standing up her planking all key off this one number, and
-	// a backdrop snapped around an unsnapped horizon leaves a part-pixel seam along the join.
-	horizon := backdrop_floor(cutaway.galleon_horizon_y(view))
+//
+// `describe` is whether a hovered berth pops that card at all: the Build surface has open water
+// bottom-right to throw one into, where an Offer or Shop has a column of parchment standing in
+// exactly that corner (#476).
+draw_ship_cutaway :: proc(
+	state: ^Game_State,
+	framing: Ship_Framing,
+	drag: Build_Drag,
+	mouse: rl.Vector2,
+	describe: bool,
+) {
+	view := framing.view
+	horizon := framing.horizon
 	draw_ship_sky(horizon)
 	draw_ship_sea(horizon)
 	draw_ship_wake(view, horizon)
@@ -90,7 +124,7 @@ draw_ship_cutaway :: proc(state: ^Game_State, drag: Build_Drag, mouse: rl.Vector
 		draw_ship_face_highlight(cutaway.galleon_room_face(rooms[i], view), highlight)
 	}
 
-	if slot, over := hovered.?; over {
+	if slot, over := hovered.?; over && describe {
 		room, _ := cutaway.galleon_room_for_slot(rooms, n, slot)
 		draw_ship_slot_card(state.player.layout[slot], room, view)
 	}

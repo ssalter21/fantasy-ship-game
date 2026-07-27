@@ -1,11 +1,13 @@
 #+private
 package presentation
 
-import cutaway "./cutaway"
-
-// The hooks the hull workbench drives the ship screen through, and nothing else does. All of
-// them are inert in the game: the flags are false and the eye is absent, so draw_ship_cutaway
-// composes exactly the frame it composed before they existed.
+// The hooks the hull workbench drives the ship screen through, and nothing else does. Both are
+// inert in the game — the flags are false — so draw_ship_cutaway composes exactly the frame it
+// composed before they existed.
+//
+// Flying the camera is no longer one of them: the framing is chosen by the caller (#476), so the
+// workbench simply hands draw_ship_cutaway a framing built from its own eye, and there is no
+// package-level override for the shipped view to be dragged off by.
 //
 // They are here rather than inside the workbench because they are read on the *drawing* path,
 // which is the whole point of them. Every hard bug on this screen so far has been something
@@ -22,9 +24,3 @@ ship_debug_normals: bool
 // ship_debug_wires draws the ship as its own wireframe: the loft's resolution, any quad gone
 // degenerate, and — the one that matters — daylight between two pieces that ought to meet.
 ship_debug_wires: bool
-
-// ship_debug_eye flies the camera off the shipped framing. Absent in the game, and it must
-// stay absent: the five knobs in cutaway/galleon.odin are the composition every other element
-// on this screen is placed against. This is for walking round her to find out whether a thing
-// is solid, then coming back.
-ship_debug_eye: Maybe(cutaway.Eye)

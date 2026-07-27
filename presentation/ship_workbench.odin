@@ -103,10 +103,12 @@ workbench_main :: proc() {
 	for !rl.WindowShouldClose() {
 		workbench_keys(&w)
 		cutaway.galleon_loft = w.loft
-		ship_debug_eye = w.eye
 
 		rl.BeginDrawing()
-		draw_ship_cutaway(&w.game, Build_Drag{}, rl.GetMousePosition())
+		// The tool's own eye, handed in as an ordinary framing: the shipped view is not something
+		// this can move, it simply asks for a different one (#476).
+		flown := ship_framing_from(cutaway.galleon_view_from(w.eye, WINDOW_WIDTH, WINDOW_HEIGHT))
+		draw_ship_cutaway(&w.game, flown, Build_Drag{}, rl.GetMousePosition(), true)
 		workbench_panel(&w)
 		rl.EndDrawing()
 		free_all(context.temp_allocator)
@@ -114,7 +116,6 @@ workbench_main :: proc() {
 
 	// Left as the game leaves them, so nothing this tool did outlives it.
 	cutaway.galleon_loft = cutaway.GALLEON_LOFT
-	ship_debug_eye = nil
 	ship_debug_normals = false
 	ship_debug_wires = false
 }

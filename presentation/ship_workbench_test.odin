@@ -68,11 +68,13 @@ the_emitted_loft_carries_every_field_and_the_dragged_value :: proc(t: ^testing.T
 @(test)
 the_workbench_hooks_are_inert_in_the_game :: proc(t: ^testing.T) {
 	// The game must draw the same frame whether or not this tool exists. That is one fact about
-	// each hook: the loft in force is the shipped one, and nothing is overriding the camera or
-	// the paint.
+	// each hook: the loft in force is the shipped one, and nothing is overriding the paint.
 	testing.expect_value(t, cutaway.galleon_loft, cutaway.GALLEON_LOFT)
 	testing.expect(t, !ship_debug_normals, "the normals view is off")
 	testing.expect(t, !ship_debug_wires, "the wireframe view is off")
-	_, flown := ship_debug_eye.?
-	testing.expect(t, !flown, "the shipped camera is not overridden")
+
+	// The camera needs no hook at all any more: the framing is a parameter (#476), so the
+	// workbench asks for its own and the shipped screens ask for the moored one. Which means
+	// the fact to hold is that the moored framing *is* the shipped eye's, with nothing between.
+	testing.expect_value(t, ship_framing_moored().view, cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))
 }

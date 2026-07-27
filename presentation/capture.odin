@@ -499,7 +499,7 @@ capture_stage_home :: proc(scene: ^Capture_Scene) {
 // At anchor: the ship in refit as the resting home, no granted item and so no shelf.
 @(private)
 capture_frame_home :: proc(scene: ^Capture_Scene) -> bool {
-	draw_home(&scene.game, Build_Drag{}, nil, NO_MOUSE, 0)
+	draw_home(&scene.game, ship_framing_moored(), Build_Drag{}, nil, NO_MOUSE, 0)
 	return true
 }
 
@@ -508,14 +508,14 @@ capture_frame_home :: proc(scene: ^Capture_Scene) -> bool {
 // its animation rather than by racing it — the split #277 asks for.
 @(private)
 capture_frame_home_chart_rising :: proc(scene: ^Capture_Scene) -> bool {
-	draw_home(&scene.game, Build_Drag{}, nil, NO_MOUSE, 0.5)
+	draw_home(&scene.game, ship_framing_moored(), Build_Drag{}, nil, NO_MOUSE, 0.5)
 	return true
 }
 
 // The chart raised over the surface: the sailable overlay, the between-encounters travel view.
 @(private)
 capture_frame_home_chart :: proc(scene: ^Capture_Scene) -> bool {
-	draw_home(&scene.game, Build_Drag{}, nil, NO_MOUSE, 1)
+	draw_home(&scene.game, ship_framing_moored(), Build_Drag{}, nil, NO_MOUSE, 1)
 	return true
 }
 
@@ -532,7 +532,7 @@ capture_stage_refit :: proc(scene: ^Capture_Scene) {
 // At rest: the ship in refit, no granted item and so no shelf.
 @(private)
 capture_frame_build :: proc(scene: ^Capture_Scene) -> bool {
-	draw_build_surface(&scene.game, Build_Drag{}, nil, NO_MOUSE)
+	draw_build_surface(&scene.game, ship_framing_moored(), Build_Drag{}, nil, NO_MOUSE)
 	return true
 }
 
@@ -546,7 +546,7 @@ capture_frame_build_hover :: proc(scene: ^Capture_Scene) -> bool {
 	if !aimed {
 		return false
 	}
-	draw_build_surface(&scene.game, Build_Drag{}, nil, over)
+	draw_build_surface(&scene.game, ship_framing_moored(), Build_Drag{}, nil, over)
 	return true
 }
 
@@ -569,7 +569,7 @@ capture_frame_build_shelf :: proc(scene: ^Capture_Scene) -> bool {
 	if _, ok := capture_shelf_granted(scene); !ok {
 		return false
 	}
-	draw_build_surface(&scene.game, Build_Drag{}, nil, NO_MOUSE)
+	draw_build_surface(&scene.game, ship_framing_moored(), Build_Drag{}, nil, NO_MOUSE)
 	return true
 }
 
@@ -587,7 +587,7 @@ capture_frame_build_placing :: proc(scene: ^Capture_Scene) -> bool {
 	if !aimed {
 		return false
 	}
-	draw_build_surface(&scene.game, Build_Drag{active = true, from_slot = nil, fitting = granted}, nil, over)
+	draw_build_surface(&scene.game, ship_framing_moored(), Build_Drag{active = true, from_slot = nil, fitting = granted}, nil, over)
 	return true
 }
 
@@ -605,6 +605,7 @@ capture_frame_build_burning :: proc(scene: ^Capture_Scene) -> bool {
 	on_ledger := rl.Vector2{ledger.x + ledger.width / 2, ledger.y + ledger.height / 2}
 	draw_build_surface(
 		&scene.game,
+		ship_framing_moored(),
 		Build_Drag{active = true, from_slot = slot, fitting = laden},
 		nil,
 		on_ledger,
@@ -619,7 +620,7 @@ capture_frame_build_burn_confirm :: proc(scene: ^Capture_Scene) -> bool {
 	if !any_laden {
 		return false
 	}
-	draw_build_surface(&scene.game, Build_Drag{}, Build_Confirm{slot = slot, burn = true}, NO_MOUSE)
+	draw_build_surface(&scene.game, ship_framing_moored(), Build_Drag{}, Build_Confirm{slot = slot, burn = true}, NO_MOUSE)
 	return true
 }
 
@@ -808,7 +809,7 @@ capture_draw_screen :: proc(state: ^Capture_State, awaiting: sim.Phase, label: s
 		// home_loop asserts the full-width chart page every frame; capture bypasses the
 		// loop, so assert it here to shoot what the player would see.
 		map_width_set(&state.game, MAP_HOME_W)
-		draw_home(&state.game, Build_Drag{}, nil, NO_MOUSE, 0)
+		draw_home(&state.game, ship_framing_moored(), Build_Drag{}, nil, NO_MOUSE, 0)
 	case .Awaiting_Option_Choice:
 		draw_offer_shop(&state.game, Shelf_Drag{}, NO_MOUSE)
 	case .Awaiting_Trade_Choice:
