@@ -654,7 +654,7 @@ draw_ship_ornament :: proc(rooms: [cutaway.MAX_SLOTS]cutaway.Room, n: int) {
 		if room.kind == .Hold || room.kind == .Waist {
 			continue
 		}
-		top := room.centre.y + room.half.y + 0.03
+		top := room.centre.y + room.half.y + SHIP_CASTLE_ROOF
 
 		// The deck over the castle, planked athwartships and following the castle's own taper —
 		// a roof cut to one width over a structure that narrows would overhang her side at the
@@ -677,18 +677,38 @@ draw_ship_ornament :: proc(rooms: [cutaway.MAX_SLOTS]cutaway.Room, n: int) {
 
 		// The gilded band capping her side under that deck, run down both quarters with the same
 		// taper — the strongest horizontal on the castle, and the line that ties roof to wall.
+		//
+		// It is also the deck's fascia, and that is why it is deeper than it looks like it needs to
+		// be and why it is now carried round the ends. This deck overhangs the walls under it on all
+		// four sides, and an overhang with nothing hanging off its edge is a shelf: from a camera
+		// below the castle the eye passes *under* the band, over the wall it stands outboard of, and
+		// straight out to sky. That was the last of the bright lines — a thin diagonal following the
+		// forecastle's deck edge, which is exactly the path an overhang's own shadow should occupy.
+		FASCIA :: f32(0.14)
+		za := cutaway.galleon_room_half_z(room, room.centre.x - room.half.x) + 0.04
+		zf := cutaway.galleon_room_half_z(room, room.centre.x + room.half.x) + 0.04
+		x0 := room.centre.x - room.half.x - 0.05
+		x1 := room.centre.x + room.half.x + 0.05
 		for side in ([2]f32{1, -1}) {
-			za := room.centre.z + side * (cutaway.galleon_room_half_z(room, room.centre.x - room.half.x) + 0.04)
-			zf := room.centre.z + side * (cutaway.galleon_room_half_z(room, room.centre.x + room.half.x) + 0.04)
-			x0 := room.centre.x - room.half.x - 0.05
-			x1 := room.centre.x + room.half.x + 0.05
 			ship_quad_lit(
-				{x0, top - 0.075, za},
-				{x1, top - 0.075, zf},
-				{x1, top, zf},
-				{x0, top, za},
+				{x0, top - FASCIA, room.centre.z + side * za},
+				{x1, top - FASCIA, room.centre.z + side * zf},
+				{x1, top, room.centre.z + side * zf},
+				{x0, top, room.centre.z + side * za},
 				COLOUR_SAND,
 				{0, 0, side},
+			)
+		}
+		// The two ends of the same board, closing the deck's after and forward edges.
+		for end in ([2][3]f32{{x0, za, -1}, {x1, zf, 1}}) {
+			x, z, facing := end[0], end[1], end[2]
+			ship_quad_lit(
+				{x, top - FASCIA, room.centre.z - z},
+				{x, top - FASCIA, room.centre.z + z},
+				{x, top, room.centre.z + z},
+				{x, top, room.centre.z - z},
+				COLOUR_SAND,
+				{facing, 0, 0},
 			)
 		}
 
