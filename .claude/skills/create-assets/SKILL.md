@@ -1,6 +1,6 @@
 ---
 name: create-assets
-description: Generate the game's pixel-art assets — ship sprites, sea tiles, node icons, UI panels, fonts — through the PixelLab MCP, conformed to the style guide's palette ramp and embedded in the self-contained exe. Use when creating, regenerating, or sourcing any game art asset.
+description: Generate the game's pixel-art assets — ship sprites, sea tiles, node icons, UI panels, fonts — through the PixelLab MCP, conformed to the style guide's palette roster and embedded in the self-contained exe. Use when creating, regenerating, or sourcing any game art asset.
 ---
 
 # Generating game art with PixelLab
@@ -19,18 +19,21 @@ session; stop and say so rather than working around it.
 decide whether an asset belongs here at all, so read them *before* you generate, not after:
 
 - **This game draws its chrome, it does not source it.** The Chart Table's background, its rose, its buttons
-  are raylib primitives, drawn from the ramp — precisely so they *cannot* clash with the palette. A generated
+  are raylib primitives, drawn from the roster — precisely so they *cannot* clash with the palette. A generated
   panel or button is swimming against that current. The legitimate targets for sourced art are the ones the
   guide files under **out of scope with a carve-out**: illustration, **ship art**, **node icons**, and a
   *sourced* Chart Table background ([#284](https://github.com/ssalter21/fantasy-ship-game/issues/284)). Generate
   those. Don't generate UI chrome that the guide already draws — you'd be replacing measured, conformant
-  primitives with art that has to be dragged back onto the ramp.
-- **The palette is one ramp, and it is law.** Exact hexes: Deep `#081127`, Mid `#0A1C30`, Shallow `#0E2E3F`,
-  vignette `#050B18`; amber `#F7A72B` is reserved for *the* action and nothing else. Generated art will not
-  land on these hexes on its own — conforming it (below) is the step that makes it this game's art rather than
-  generic pixel art.
+  primitives with art that has to be dragged back onto the roster.
+- **The palette is one flat roster, and it is law.** Not a ramp: a fixed set of named swatches, and no asset
+  may reach outside it. Read the guide's *The roster* tables for the hexes — sea `#1FA9D0`, shallow `#63E2EC`,
+  sea-deep `#1786BC`, foam `#F2FBFB`; parchment `#EBD9A6`, sand `#D2A968`, cliff `#B98A50`, rock `#7E5C3A`;
+  the four foliage greens; ink `#12333F` / `#4C7385`. Two rules bite hardest on generated art: **the warm
+  neutrals are all desaturated**, and **coral-red `#E1552B` is the roster's only saturated warm and it is
+  reserved** (danger, damage, the chart's X). Generated art will not land on these hexes on its own —
+  conforming it (below) is the step that makes it this game's art rather than generic pixel art.
 
-**Completion criterion:** you can name the asset, the guide section that sanctions it, and the ramp stops it
+**Completion criterion:** you can name the asset, the guide section that sanctions it, and the roster swatches it
 must resolve to — or you've concluded it should be drawn, not generated, and stopped.
 
 ## The tool map
@@ -63,29 +66,35 @@ Every generator is a queue, not a call. This is the mechanical core and it is th
    nothing reaches the repo until you fetch it. `create_map_object` results **expire after 8 hours**, so
    download before you do anything else.
 
-**Steer at creation, not after.** Pass the ramp into `create_*`: a `color_palette` hint (e.g.
-`"navy #081127 deep, cyan #6FE0EC highlight, amber #F7A72B accent"`) and a style-reference image
-(`background_image` / `style_image_base64`) built from `docs/ui/references/` — `ship-night.jpg` and
-`ship-battle.jpg` are the two references that carry this game's amber-on-navy register. A good reference image
-does more than any text hint. Use `seed` so a regenerate is a variation, not a fresh roll.
+**Steer at creation, not after.** Pass the roster into `create_*`: a `color_palette` hint (e.g.
+`"saturated turquoise sea #1FA9D0, warm tan cliffs #B98A50, vivid greens #2FA23E, foam #F2FBFB"`) and a
+style-reference image (`background_image` / `style_image_base64`) built from `docs/ui/references/` —
+**`style/island-tropical.jpg` is the keystone**, with `style/menu-port-tropical.jpg` supporting it for the
+bright daylight sea. Do not reach for `ship-night.jpg` or `ship-battle.jpg`: the guide retired both, they are
+night scenes on a navy ground the palette has moved off, and the amber-on-navy register they witnessed no
+longer exists. A good reference image does more than any text hint. Use `seed` so a regenerate is a variation,
+not a fresh roll.
 
 **Completion criterion:** the PNG is on disk under `assets/`, opened once with Read, and it is the asset you
 asked for — not a placeholder or a failed frame.
 
-## Conform it to the ramp
+## Conform it to the roster
 
 Generated art lands *near* the palette, never *on* it, and "near" is what reads as a foreign asset. Snap it,
 then measure it — the same discipline run-game's style loop uses: look, then settle the value with a scan:
 
-- **Quantize to the ramp.** Map every pixel to its nearest ramp stop / tone (the tables in the guide's
-  *Palette* section). A short PIL pass does it; verify afterward by sampling corners and mass, exactly as
-  run-game's pixel-scan does, and check each sampled hex against the guide's stated value.
+- **Quantize to the roster.** Map every pixel to its nearest swatch (the tables in the guide's *The roster*
+  section). A short PIL pass does it; verify afterward by sampling corners and mass, exactly as run-game's
+  pixel-scan does, and check each sampled hex against the guide's stated value.
 - **The world must never outshine the chrome.** The guide's hard rule for anything behind the UI: peak
   luminance of a background asset must sit **below the title's**. A sourced chart background that reads brighter
   than the cream title is the #284 trap — measure the peak, don't eyeball it.
-- **Amber stays scarce.** If PixelLab sprinkled amber across a sprite, it just broke the amber rule. Amber is
-  reserved for the actionable control; a ship or a tile that ships amber pixels dilutes the one signal the whole
-  palette is built to protect. Quantize those warms to cream or khaki.
+- **Coral stays scarce, and so does saturated warm generally.** If PixelLab sprinkled a hot orange or red
+  across a sprite, it just broke the guide's saturation rule. Coral `#E1552B` is the roster's only saturated
+  warm and it is held for danger and the chart's X; a ship or a tile that ships saturated warm pixels dilutes
+  the one signal the palette is built to protect. Quantize those warms **down in saturation** to sand, cliff,
+  rock or trunk — never across to a cool, which walks through grey (the guide's "never mix a warm into a cool"
+  trap, which has produced three separate bugs).
 
 ## Make it self-contained
 

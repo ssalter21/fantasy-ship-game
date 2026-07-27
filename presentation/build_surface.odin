@@ -17,8 +17,9 @@ import rlgl "vendor:raylib/rlgl"
 // exposed/concealed split (ADR-0030) rather than a badge, and a hold's compartment length
 // tracks its slot size so size reads without a number. Refit is drag-first:
 // press-drag-release installs / moves / swaps, the exact-size fit rule left to the Sim (an
-// illegal drop returns Event_Refit_Rejected and snaps back). The one amber on the screen is
-// a granted item waiting on the shelf.
+// illegal drop returns Event_Refit_Rejected and snaps back). Nothing on the surface is singled
+// out by colour: the granted item on the shelf, the card in hand and the Done tag are all
+// ordinary controls, and only the two destructive drops reach for the reserved coral.
 //
 // Split composition (draw_build_surface) from polling (build_surface_loop) like the Chart
 // Table, so --capture photographs it (#277, style guide).
@@ -31,14 +32,17 @@ BUILD_LEDGER_H :: 34
 BUILD_HEADING_Y :: 28
 BUILD_SHELF_Y :: 470
 
-// BUILD_DANGER is the tone of the surface's two destructive drops — the roster's reserved
-// coral. Never a fill that competes with the amber shelf card.
+// BUILD_DANGER is the tone of the surface's destructive acts — the roster's reserved coral. It
+// reaches three places: the discard bin, an armed hold ledger, and the confirm gate's yes. With
+// amber retired it is the only colour with a job on this screen, which makes keeping it scarce
+// the whole discipline rather than one of two.
 //
-// The guide holds coral to one appearance per screen, and the discard bin and an armed ledger
-// are both up during a laden drag. That is deliberate here: the two are one signal, "a drop
-// here destroys something", on the only two places it is true, and neither is on screen unless
-// a fitting is already in hand. The rule guards against diluting a scarce colour across
-// unrelated meanings, which is not what this is.
+// The guide holds coral to one appearance per screen, and the bin and an armed ledger are both
+// up during a laden drag. That is deliberate here: the two are one signal, "a drop here destroys
+// something", on the only two places it is true, and neither is on screen unless a fitting is
+// already in hand. The rule guards against diluting a scarce colour across unrelated meanings,
+// which is not what this is. The gate is the same signal a third time and never concurrent with
+// either — it only opens once the drag has ended and both drop targets are gone.
 BUILD_DANGER :: COLOUR_CORAL
 
 // Build_Drag is a press-drag-release in progress: the drag primitive #302 builds here for refit.
@@ -53,15 +57,16 @@ Build_Drag :: struct {
 	fitting:   ship.Fitting,
 }
 
-// build_shelf_rect is where a granted item rests, centred below the holds — the one thing
-// on the surface to act on, so it takes the screen's single amber (#302, the amber rule).
+// build_shelf_rect is where a granted item rests, centred below the holds. Centred and under
+// the ship is what makes it the thing to act on — it is in the way of everything else, which
+// is the placement doing the work a fill used to (#302).
 build_shelf_rect :: proc(incoming: ship.Fitting) -> rl.Rectangle {
 	w, h := cutaway.cutaway_card_dims(incoming.size)
 	return rl.Rectangle{x = (WINDOW_WIDTH - w) / 2, y = BUILD_SHELF_Y, width = w, height = h}
 }
 
-// build_done_rect is the "leave the refit" control — a Refit_Finish. It is not amber: the
-// amber is reserved for the granted item, and leaving is never the default.
+// build_done_rect is the "leave the refit" control — a Refit_Finish. Tucked into the heading
+// row, out of the way: leaving is never what the surface is for, and the corner says so.
 build_done_rect :: proc() -> rl.Rectangle {
 	return rl.Rectangle{x = WINDOW_WIDTH - 150, y = BUILD_HEADING_Y - 6, width = 130, height = 34}
 }
@@ -296,8 +301,8 @@ draw_build_surface_body :: proc(state: ^Game_State, drag: Build_Drag, confirm: M
 		draw_build_done(mouse)
 	}
 
-	// The shelf: a granted item at rest is the screen's one amber. While it is being
-	// dragged the resting card gives way to the ghost, so there are never two.
+	// The shelf: a granted item at rest. While it is being dragged the resting card gives way to
+	// the ghost, so there is one card to follow rather than two.
 	if has_incoming && !dragging {
 		draw_build_shelf(incoming)
 	}
@@ -521,34 +526,50 @@ draw_build_dashed_rect :: proc(rect: rl.Rectangle, colour: rl.Color) {
 	}
 }
 
-// draw_build_shelf draws a granted item at rest — the screen's one amber (#302, the amber
-// rule): amber-filled with ink text, the single thing on the surface to act on.
+// draw_build_shelf draws a granted item at rest: a parchment card with the sea-deep
+// interactive border, the same treatment draw_ship_slot_card gives a berth's card, because it
+// is the same kind of object — a fitting written up on paper — and that border is the roster's
+// one "you can operate this" mark (style guide, "Controls do not have a signal colour"). What
+// says it is the thing to act on is the line under it, not a fill — which is why that line is
+// now the card's own parchment and not the dim cyan it was. Dim cyan sits on the bright sea all
+// but invisibly, which cost nothing while amber was carrying the signal and costs the whole
+// signal now that the wording is carrying it. Parchment rather than COLOUR_CREAM: this surface
+// is painted from the guide's bright roster, and cream is the superseded navy block's tone (the
+// two are within a few points of each other anyway).
 draw_build_shelf :: proc(incoming: ship.Fitting) {
 	rect := build_shelf_rect(incoming)
-	rl.DrawRectangleRec(rect, COLOUR_AMBER)
+	rl.DrawRectangleRec(rect, COLOUR_PARCHMENT)
+	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
 	x := rect.x + 12
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", incoming.name), rl.Vector2{x, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK)
+	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", incoming.name), rl.Vector2{x, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
 	spec, intent := fitting_summary_lines(incoming)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", spec), rl.Vector2{x, rect.y + 38}, UI_BODY_SIZE, 1, COLOUR_INK)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), rl.Vector2{x, rect.y + 62}, UI_BODY_SIZE, 1, COLOUR_INK)
+	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", spec), rl.Vector2{x, rect.y + 38}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
+	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), rl.Vector2{x, rect.y + 62}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
 	rl.DrawTextEx(
 		ui_font_body,
 		"drag me to a berth",
 		rl.Vector2{rect.x, rect.y + rect.height + 6},
 		UI_BODY_SIZE,
 		1,
-		COLOUR_CYAN_DIM,
+		COLOUR_PARCHMENT,
 	)
 }
 
-// draw_build_ghost draws the fitting under the cursor while it is dragged — a translucent
-// amber card centred on the mouse, so the thing in hand reads as the thing to place.
+// draw_build_ghost draws the fitting under the cursor while it is dragged — the resting card
+// again, translucent and centred on the mouse.
+//
+// It carries no colour of its own, and did not need one: "this is the thing in your hand" is
+// said by the card having left its place and following the cursor, which is a claim about
+// motion, not rank. The card it lifted out of has vanished for as long as the drag lasts
+// (draw_build_surface_body skips the shelf while dragging), so the two are never both up and
+// the eye has one card to follow.
 draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
 	w, h := cutaway.cutaway_card_dims(fitting.size)
 	rect := rl.Rectangle{x = mouse.x - w / 2, y = mouse.y - h / 2, width = w, height = h}
-	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_AMBER, 0.85))
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", fitting.name), rl.Vector2{rect.x + 12, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%v", fitting.size), rl.Vector2{rect.x + 12, rect.y + 38}, UI_BODY_SIZE, 1, COLOUR_INK)
+	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, 0.85))
+	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
+	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", fitting.name), rl.Vector2{rect.x + 12, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
+	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%v", fitting.size), rl.Vector2{rect.x + 12, rect.y + 38}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
 }
 
 // draw_build_ledger is the stats strip along the bottom, always visible: the shared
@@ -633,7 +654,7 @@ draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool
 }
 
 // draw_build_done draws the "leave the refit" control: a sea-deep-outlined parchment tag, its
-// ground lifting on hover (hover is carried by the ground, not by amber — the amber rule).
+// ground lifting on hover (hover is carried by the ground, never by a change of colour).
 draw_build_done :: proc(mouse: rl.Vector2) {
 	rect := build_done_rect()
 	hovered := rl.CheckCollisionPointRec(mouse, rect)
@@ -662,12 +683,17 @@ draw_build_discard_zone :: proc(hovered: bool) {
 	rl.DrawTextEx(ui_font_body, "drag off to bin", rl.Vector2{rect.x + 14, rect.y + 40}, UI_BODY_SIZE, 1, COLOUR_INK_MUTED)
 }
 
-// draw_build_confirm draws the release-to-confirm gate: a scrim over the surface and one amber
-// button — the deliberate second act that keeps a slip from binning a fitting or burning a
-// berth's cargo (#302, #401). The wording is the whole difference between the two: a discard
-// loses the fitting, a burn loses the cargo and keeps the fitting. This is the only moment a
-// destructive drop shows the screen's amber, and there is no shelf item then, so the one-amber
-// rule holds.
+// draw_build_confirm draws the release-to-confirm gate: a scrim over the surface and one button
+// — the deliberate second act that keeps a slip from binning a fitting or burning a berth's
+// cargo (#302, #401). The wording is the whole difference between the two: a discard loses the
+// fitting, a burn loses the cargo and keeps the fitting.
+//
+// The gate's yes takes the danger tone, not the ordinary control's. Drawing it like every other
+// control would be the wrong reading of "no colour means act here": the guide retires a colour
+// for *the default action*, and this is not one — it is the roster's reserved coral doing the
+// job it is reserved for, on the one control on the surface that destroys something. It matches
+// the discard bin's treatment because it is the bin's second half. Coral appears once: the gate
+// is only up after the drag has ended, so neither the bin nor an armed ledger is on screen.
 draw_build_confirm :: proc(state: ^Game_State, confirm: Build_Confirm, mouse: rl.Vector2) {
 	rl.DrawRectangle(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, rl.Fade(COLOUR_VIGNETTE, 0.7))
 	name := "this fitting"
@@ -693,8 +719,10 @@ draw_build_confirm :: proc(state: ^Game_State, confirm: Build_Confirm, mouse: rl
 	rl.DrawTextEx(ui_font_body, prompt, rl.Vector2{(WINDOW_WIDTH - size.x) / 2, 320}, UI_BODY_SIZE, 1, COLOUR_CREAM)
 
 	yes := build_confirm_yes_rect()
-	rl.DrawRectangleRec(yes, COLOUR_AMBER)
-	rl.DrawTextEx(ui_font_body, label, rl.Vector2{yes.x + 16, yes.y + (yes.height - UI_BODY_SIZE) / 2}, UI_BODY_SIZE, 1, COLOUR_INK)
+	rl.DrawRectangleRec(yes, rl.Fade(COLOUR_PARCHMENT, 0.92))
+	rl.DrawRectangleRec(yes, rl.Fade(BUILD_DANGER, 0.3))
+	rl.DrawRectangleLinesEx(yes, 2, BUILD_DANGER)
+	rl.DrawTextEx(ui_font_body, label, rl.Vector2{yes.x + 16, yes.y + (yes.height - UI_BODY_SIZE) / 2}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
 	rl.DrawTextEx(
 		ui_font_body,
 		"click anywhere else to keep it",

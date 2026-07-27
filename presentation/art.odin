@@ -29,10 +29,10 @@ PARCHMENT_PAGE_PNG :: #load("../assets/art/parchment-page.png")
 
 // The sailing ship (spec 0001 §5/§9): a PixelLab 8-direction pixel-art sprite — deliberately
 // the one raster on the otherwise-procedural live layer, a little vessel *on* the map rather
-// than a mark drawn *in* it. Warm sepia hull + cream sail, no amber, so it reads on the
-// parchment. The eight baked headings (N, NE, E, SE, S, SW, W, NW) are laid out left-to-right
-// in a single horizontal strip, each frame a square the sheet's own height, so a heading
-// indexes a column (view.odin draw_ship_sprite).
+// than a mark drawn *in* it. Warm sepia hull + cream sail, no saturated warm, so it reads on
+// the parchment without spending the reserved coral. The eight baked headings (N, NE, E, SE,
+// S, SW, W, NW) are laid out left-to-right in a single horizontal strip, each frame a square
+// the sheet's own height, so a heading indexes a column (view.odin draw_ship_sprite).
 SHIP_SPRITE_PNG :: #load("../assets/art/ship-sprite.png")
 
 // The uploaded atlases. GPU resources like the font, so they are loaded after InitWindow

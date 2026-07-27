@@ -17,10 +17,11 @@ import rl "vendor:raylib"
 // finishes on its own (build_surface_loop's shelf-drag bridge). So the Sim keeps its
 // choose-then-refit path unchanged — the spine only collapses it in presentation.
 //
-// The shelf cards are steel draggable options, not a row of ambers (the amber rule): an
-// Offer's items are free, a Shop's are priced, and neither is "the one thing to act on".
-// The one amber is the card in hand — the ghost under the cursor while a drag is in flight,
-// exactly one at a time. A Shop reads its cost three ways: a price on each card, an
+// The shelf cards are steel draggable options, all drawn alike: an Offer's items are free, a
+// Shop's are priced, and neither is "the one thing to act on" — which is also what the style
+// guide now says of every control ("Controls do not have a signal colour"). The card in hand
+// is the same card following the cursor, one at a time (draw_build_ghost, shared with the
+// Build surface). A Shop reads its cost three ways: a price on each card, an
 // unaffordable card dimmed and undraggable, and a live cargo projection in the stat line the
 // moment a priced card is picked up.
 //
@@ -131,8 +132,8 @@ offer_shop_shelf_panel_rect :: proc() -> rl.Rectangle {
 }
 
 // offer_shop_leave_rect is the steel "leave the stop" control, beneath the shelf: a Shop's
-// Leave (completes the stop) or an Offer's Skip (halts it), both a nil Choose_Option. Not
-// amber — leaving is never the default (the amber rule), and here there is no default at all.
+// Leave (completes the stop) or an Offer's Skip (halts it), both a nil Choose_Option. Beneath
+// the shelf rather than in it: leaving is never the default, and here there is no default at all.
 offer_shop_leave_rect :: proc() -> rl.Rectangle {
 	return rl.Rectangle {
 		x      = OFFER_SHOP_SHELF_X,
@@ -396,7 +397,7 @@ draw_cargo_price :: proc(pos: rl.Vector2, cost: int, affordable: bool) {
 }
 
 // draw_offer_shop_leave draws the steel Leave/Skip control, its scrim lifting on hover (hover
-// carried by the scrim, not by amber — the amber rule). Its word is the primitive's: a Shop's
+// is carried by the scrim, never by a change of colour). Its word is the primitive's: a Shop's
 // Leave completes the stop, an Offer's Skip halts it.
 draw_offer_shop_leave :: proc(kind: voyage.Stage_Kind, mouse: rl.Vector2) {
 	rect := offer_shop_leave_rect()

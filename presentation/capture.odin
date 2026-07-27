@@ -465,9 +465,9 @@ capture_frame_chart_table :: proc(scene: ^Capture_Scene) -> bool {
 	return true
 }
 
-// Begin under the cursor. The guide holds one amber per screen, so the fill does not
-// follow the mouse and hover is carried by the caret in the label's margin — which makes
-// this shot's whole difference from the resting one the thing hover actually draws.
+// Begin under the cursor. Both rows are drawn identically, so this shot's whole difference
+// from the resting one is what hover actually draws: the caret in the label's margin and the
+// lift in that row's scrim.
 @(private)
 capture_frame_chart_table_hover :: proc(scene: ^Capture_Scene) -> bool {
 	draw_chart_table(0)
@@ -497,7 +497,7 @@ capture_stage_home :: proc(scene: ^Capture_Scene) {
 	map_width_set(&scene.game, MAP_HOME_W)
 }
 
-// At anchor: the ship in refit as the resting home, no granted item, no amber.
+// At anchor: the ship in refit as the resting home, no granted item and so no shelf.
 @(private)
 capture_frame_home :: proc(scene: ^Capture_Scene) -> bool {
 	draw_home(&scene.game, Build_Drag{}, nil, NO_MOUSE, 0)
@@ -530,7 +530,7 @@ capture_stage_refit :: proc(scene: ^Capture_Scene) {
 	scene.game.player = scene.player
 }
 
-// At rest: the ship in refit, no granted item, no amber.
+// At rest: the ship in refit, no granted item and so no shelf.
 @(private)
 capture_frame_build :: proc(scene: ^Capture_Scene) -> bool {
 	draw_build_surface(&scene.game, Build_Drag{}, nil, NO_MOUSE)
@@ -564,7 +564,7 @@ capture_shelf_granted :: proc(scene: ^Capture_Scene) -> (ship.Fitting, bool) {
 	return granted.fitting, true
 }
 
-// A granted Large item waiting on the shelf — the surface's one amber.
+// A granted Large item waiting on the shelf — a parchment card centred under the ship.
 @(private)
 capture_frame_build_shelf :: proc(scene: ^Capture_Scene) -> bool {
 	if _, ok := capture_shelf_granted(scene); !ok {
@@ -697,7 +697,7 @@ capture_frame_shop :: proc(scene: ^Capture_Scene) -> bool {
 	return true
 }
 
-// A buy in flight: the amber ghost over the empty Large forecastle, with the stat line
+// A buy in flight: the card in hand over the empty Large forecastle, with the stat line
 // ghosting the post-buy cargo (`Cargo 80/90 → 62/90`).
 @(private)
 capture_frame_shop_buying :: proc(scene: ^Capture_Scene) -> bool {
@@ -735,7 +735,7 @@ capture_stage_fight :: proc(scene: ^Capture_Scene) {
 }
 
 // The fight at rest: both cutaways, the per-slot visibility badges, the round / stage
-// readouts, the no-amber action row.
+// readouts, the uniform action row.
 @(private)
 capture_frame_fight :: proc(scene: ^Capture_Scene) -> bool {
 	draw_fight(&scene.game, NO_MOUSE)

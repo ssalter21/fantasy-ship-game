@@ -128,8 +128,8 @@ draw_chart_table :: proc(hovered: int) {
 // draw_chart_table_ground draws the sourced tropical-island background this screen sits
 // on (art.odin). The palette rule is enforced at conform time rather than draw time: the
 // asset is measured onto the ramp (peak luminance 142, below the title's ~211) and carries
-// no warm pixels, so the guide's two hard rules — the world never outshines the chrome,
-// amber stays scarce — hold before the texture is ever blitted.
+// no saturated warm pixels, so the guide's two hard rules — the world never outshines the
+// chrome, the reserved coral stays scarce — hold before the texture is ever blitted.
 //
 // The scene is 400x272 at native resolution, POINT-scaled to the window (art.odin sets
 // the filter). Composition is split from polling so capture can photograph this at frame
@@ -159,13 +159,14 @@ draw_menu_title_scrim :: proc() {
 	rl.DrawRectangleGradientV(0, CHART_TABLE_TITLE_CENTRE_Y, WINDOW_WIDTH, MENU_TITLE_SCRIM_HALF, dark, clear)
 }
 
-// draw_chart_table_button renders one row of the stack.
+// draw_chart_table_button renders one row of the stack. Both rows are drawn the same way,
+// because no colour on the roster means "act here" (style guide, "Controls do not have a
+// signal colour"): a steel border and label over a scrim. Begin reads as the one to press
+// by standing at the head of the stack and by what it says — "Begin a voyage" against
+// "Quit" — which is the placement-and-wording the guide asks for in place of a fill.
 //
-// Begin is amber-filled and Quit is steel-bordered on a scrim, and that assignment is
-// fixed rather than following the mouse: the guide reserves amber for "the thing you
-// can act on right now" and holds one amber per screen, so hovering Quit cannot turn it
-// amber without putting two on screen. Hover is carried by the caret and a lift in the
-// scrim instead.
+// Hover is carried by the caret and a lift in the scrim, and now that no row is claimed in
+// advance, either row can take them.
 draw_chart_table_button :: proc(button: Chart_Table_Button, hovered: bool) {
 	label := fmt.ctprint(button.label)
 	text_pos := rl.Vector2 {
@@ -173,20 +174,14 @@ draw_chart_table_button :: proc(button: Chart_Table_Button, hovered: bool) {
 		button.rect.y + (CHART_TABLE_BUTTON_H - UI_BODY_SIZE) / 2,
 	}
 
-	if button.choice == .Begin {
-		rl.DrawRectangleRec(button.rect, COLOUR_AMBER)
-		rl.DrawTextEx(ui_font_body, label, text_pos, UI_BODY_SIZE, 1, COLOUR_INK)
-	} else {
-		scrim: f32 = hovered ? 0.75 : 0.55
-		rl.DrawRectangleRec(button.rect, rl.Fade(COLOUR_GROUND, scrim))
-		rl.DrawRectangleLinesEx(button.rect, 2, COLOUR_STEEL)
-		rl.DrawTextEx(ui_font_body, label, text_pos, UI_BODY_SIZE, 1, COLOUR_STEEL)
-	}
+	rl.DrawRectangleRec(button.rect, rl.Fade(COLOUR_GROUND, hovered ? 0.75 : 0.55))
+	rl.DrawRectangleLinesEx(button.rect, 2, COLOUR_STEEL)
+	rl.DrawTextEx(ui_font_body, label, text_pos, UI_BODY_SIZE, 1, COLOUR_STEEL)
 
 	if hovered {
 		draw_caret(
 			rl.Vector2{button.rect.x + CHART_TABLE_LABEL_INSET / 2, button.rect.y + CHART_TABLE_BUTTON_H / 2},
-			button.choice == .Begin ? COLOUR_INK : COLOUR_STEEL,
+			COLOUR_STEEL,
 		)
 	}
 }

@@ -25,9 +25,7 @@ NO_MOUSE :: rl.Vector2{-1, -1}
 // COLOUR_GROUND is the chrome name for the ramp's first stop, so a call site that reads
 // as "ground" still says so.
 COLOUR_GROUND :: COLOUR_DEEP
-COLOUR_AMBER :: rl.Color{247, 167, 43, 255} // reserved for "the thing you can act on right now"
-COLOUR_INK :: rl.Color{8, 18, 43, 255} // the only text colour that goes on amber
-COLOUR_STEEL :: rl.Color{138, 169, 214, 255} // unselected controls: border and label
+COLOUR_STEEL :: rl.Color{138, 169, 214, 255} // every control on a dark ground: border and label
 COLOUR_CREAM :: rl.Color{231, 210, 163, 255} // titles and headings only
 COLOUR_CYAN :: rl.Color{111, 224, 236, 255} // subtitles and taglines; the eye's rest point
 COLOUR_CYAN_DIM :: rl.Color{87, 181, 195, 255} // hints and secondary help text
