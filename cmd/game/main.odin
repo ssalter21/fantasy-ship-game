@@ -37,5 +37,10 @@ main :: proc() {
 		presentation.workbench_main()
 		return
 	}
+	// PROTOTYPE — throwaway, goes with presentation/shop_prototype.odin.
+	if presentation.shop_proto_requested() {
+		presentation.shop_proto_main()
+		return
+	}
 	presentation.run()
 }
