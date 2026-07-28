@@ -12,11 +12,14 @@ import rl "vendor:raylib"
 // eye in every paint mode, so a session working on the hull sees the whole thing in a single
 // `Read` rather than reasoning about her geometry by text.
 //
-// It exists because the zoom/diff/manifest instrument covers 2D chrome, and a geometry bug on
-// this screen is invisible rather than small: a wrongly-wound face draws *nothing at all*, so a
-// resting shot from the shipped quarter looks fine and the bug ships. Six angles at once is the
-// cheapest thing that makes a hole in her visible — a face that is missing from one eye and
-// solid from its opposite is a winding, and nothing else.
+// It exists because a geometry bug on this screen is invisible rather than small: a wrongly-wound
+// face draws *nothing at all*, so a resting shot from the shipped quarter looks fine and the bug
+// ships. Six angles at once is the cheapest thing that makes a hole in her visible — a face that is
+// missing from one eye and solid from its opposite is a winding, and nothing else.
+//
+// The sheet is also a shot-manifest entry (`docs/ui/shot-manifest.txt`, written by scripts/shot.py):
+// one hash over every tile, so a hole that opens on any of them names itself the way a moved 2D
+// screen does. That is why two runs must write byte-identical pixels — the check re-renders it.
 //
 // The rows are what make it a diagnosis rather than a sighting. Shaded, a face turned the wrong
 // way is a slightly-off shade at best and *identical* at worst, because every surface here is lit

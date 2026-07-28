@@ -151,6 +151,10 @@ wireframe**). Every tile is captioned with both. Two runs write byte-identical p
 other shot. A run that cannot write it says so and exits 1 without naming a file it didn't write — the previous
 sheet is still sitting there, so check the exit code, not the file's presence.
 
+It is also a **shot-manifest entry** (below), so you don't have to think of running this to find out the hull
+moved: `python scripts/shot.py check` re-renders the sheet and names it. Reach for `--hull-sheet` directly when
+you want to *look*; the check only tells you there is something to look at.
+
 Read it **in pairs across a row**: bow against stern, beam against quarter, above against below. A face that is
 solid from one eye and missing from its opposite is a winding, and nothing else looks like that — which is the
 whole answer to *silent culling* below, invisible in a resting shot from the shipped quarter.
@@ -251,17 +255,17 @@ Sizes must match; a mismatch is reported with both dimensions rather than silent
 
 ## Which screens did this change move?
 
-A change to shared chrome alters every screen that draws it, and the source diff doesn't say which.
-`docs/ui/shot-manifest.txt` is a committed hash per named shot, and the check names the screens that
-moved:
+A change to shared chrome alters every screen that draws it — and a change to a loft curve moves the
+ship screen — and the source diff doesn't say which. `docs/ui/shot-manifest.txt` is a committed hash
+per named shot, and the check names the ones that moved:
 
 ```bash
 python scripts/shot.py check      # re-render the named shots, report what moved, exit 1 if any did
 python scripts/shot.py accept     # record the current shots as intended
 ```
 
-`check` rebuilds `game.exe`, renders the whole registry with `--shots` and compares. The report is
-screen names, never file numbers:
+`check` rebuilds `game.exe`, renders the whole registry with `--shots` and the hull contact sheet
+with `--hull-sheet`, and compares. The report is screen names, never file numbers:
 
 ```
 9 of 18 shots moved:
@@ -289,10 +293,10 @@ the screens that moved but cannot show you a frame it has already replaced.
 
 Two limits worth knowing before you trust a result:
 
-- **The registry's shots only.** The voyage screens are askable for by name, but they are reached by
-  walking and numbered by position — the churn the manifest exists to avoid — so `travel`, `trade` and
-  `battle` sit outside the check until they become registry entries. Shoot one and look at it; the
-  check will not tell you it moved.
+- **The registry's shots, plus `hull-sheet`.** The voyage screens are askable for by name, but they
+  are reached by walking and numbered by position — the churn the manifest exists to avoid — so
+  `travel`, `trade` and `battle` sit outside the check until they become registry entries. Shoot one
+  and look at it; the check will not tell you it moved.
 - **One machine.** The hashes are the pixels one GPU and driver produced. A wholesale mismatch after
   switching machines is not a design change; re-`accept` there.
 
@@ -300,9 +304,28 @@ The hash is over **decoded RGB pixels**, not the PNG, so it moves when the scree
 the encoder or the file's timestamp does. It is keyed by name and sorted by name, so adding a shot
 adds one line rather than renumbering the file.
 
-**This is an instrument for 2D chrome.** Geometry bugs on the 3D ship screen are invisible rather than small,
-and magnifying a correctly-drawn but wrong-facing surface tells you nothing. The workbench's normal paint and
-wireframe views are what serve those (below).
+### The hull is in the check too — what that does and doesn't buy you
+
+`hull-sheet` is an entry like any other, so **a change to a loft curve or to the hull painter names
+itself**: `check` re-renders the sheet, reports `hull-sheet` moved and exits 1, and `accept` records
+it. Two runs of `--hull-sheet` write byte-identical pixels, which is what makes that hash mean
+something. What it covers, and what it still cannot say:
+
+- **It covers the whole hull, not one angle of it.** The entry is every tile at once, so a face
+  missing from one of the six eyes moves the hash even though the shipped quarter looks fine. That
+  narrows the *silent culling* blind spot below: finding a winding still takes reading the sheet,
+  but noticing there is one to find no longer takes someone thinking to run `--hull-sheet` at all.
+- **It says the hull moved. It never says it moved for the better.** True of every entry, but worth
+  saying twice here — a hull is a shape, and "moved" covers the fix and the regression equally. The
+  sheet is a PNG sitting in `docs/ui/shots/` after the check; **open it before you accept.**
+- **It does not aim you at the surface.** A moved hash names the sheet, not the tile. Read the sheet
+  in pairs across a row and down its columns (above), then take the workbench to whatever that
+  points at — magnifying a correctly-drawn but wrong-facing surface still tells you nothing.
+- **It sees only what the sheet photographs.** Six fixed eyes, three paints, one staged ship, no
+  cursor and no drag. A defect that shows only from a seventh angle, or only under the fullscreen
+  blit, is outside it.
+- **One machine, more so.** The 2D shots' driver caveat applies harder to a 3D render: re-`accept`
+  the sheet after switching machines rather than reading the mismatch as a design change.
 
 ## Context budget: look every iteration, scout the source
 
@@ -351,7 +374,9 @@ Capture is the fast path, not the whole picture. Three blind spots, all real:
 - **Silent culling.** A wrongly-wound `rl.DrawTriangle` draws *nothing* rather than something wrong, so a
   resting shot looks fine and the bug ships. If a shape is missing, suspect winding before you suspect colour.
   One shot of the ship screen cannot show this at all — `--hull-sheet` (above) is the entry that can, because a
-  face missing from one eye and solid from its opposite is a winding by construction.
+  face missing from one eye and solid from its opposite is a winding by construction. The manifest check
+  re-renders that sheet, so a winding you open today is named by `check` rather than left for whoever next
+  thinks to look; reading the sheet is still what tells you which face it was.
 - **Anything the fullscreen blit does.** The player session composes into a render texture and blits it;
   `--capture` draws at logical size with no texture in the path. A whole class of bug lives only in the real
   window — see the style guide's "A render texture loses alpha". Measure translucency there, never in a shot.

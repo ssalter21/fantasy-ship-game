@@ -5,9 +5,9 @@
     python scripts/shot.py check
     python scripts/shot.py accept
 
-When to reach for which, and why this is an instrument for 2D chrome rather than for
-the 3D ship screen, are in `.claude/skills/run-game/SKILL.md` -- kept there rather
-than restated here, so the two cannot drift apart.
+When to reach for which, and what the check does and does not cover, are in
+`.claude/skills/run-game/SKILL.md` -- kept there rather than restated here, so the two
+cannot drift apart.
 """
 
 import argparse
@@ -200,11 +200,17 @@ MANIFEST_HEADER = """\
 # `python scripts/shot.py accept` records the new ones, and is the deliberate step that
 # says an intended change is intended.
 #
-# One line per entry of capture_shots in presentation/capture.odin, keyed by the screen's
-# name and sorted by it: inserting a shot adds a line rather than renumbering the file,
-# and the walk-order number a PNG carries appears nowhere here. The hash is SHA-256 over
-# the shot's decoded RGB pixels, not over the PNG, so it moves when the screen does and
-# not when the encoder, the file's timestamp or its place in the walk does.
+# One line per entry of capture_shots in presentation/capture.odin, plus `hull-sheet` for the
+# hull contact sheet, keyed by the screen's name and sorted by it: inserting a shot adds a line
+# rather than renumbering the file, and the walk-order number a PNG carries appears nowhere
+# here. The hash is SHA-256 over the shot's decoded RGB pixels, not over the PNG, so it moves
+# when the screen does and not when the encoder, the file's timestamp or its place in the walk
+# does.
+#
+# `hull-sheet` is the 3D ship screen from six eyes in three paints, in one PNG, so a change to
+# the loft or to the hull painter names itself here rather than moving that screen silently. A
+# hash says a hull moved, never whether it moved for the better -- look at the sheet before
+# accepting it.
 #
 # These are the pixels one machine's GPU and driver produced. Regenerate on the machine
 # that reads them; a mismatch across two machines is not a design change.
@@ -227,8 +233,31 @@ def pixel_hash(path):
     return hashlib.sha256(load(path).tobytes()).hexdigest()
 
 
+def run_capture_mode(mode):
+    """Run one capture mode and return the shots it wrote. name -> path."""
+    render = subprocess.run([str(GAME), mode], cwd=REPO, capture_output=True, text=True)
+    written = {}
+    for line in render.stdout.splitlines():
+        match = WROTE.match(line.strip())
+        if match:
+            written[shot_name(match.group(1))] = REPO / match.group(1)
+    # Non-zero means at least one shot did not land, and a shot missing from the
+    # comparison would read as an unchanged screen. Fail rather than compare a subset.
+    if render.returncode != 0 or not written:
+        sys.exit(
+            f"capture {mode} failed ({render.returncode}), "
+            f"{len(written)} shot(s) written:\n{render.stderr}"
+        )
+    return written
+
+
 def render_shots():
-    """Rebuild the game, render every registry shot, and hash them. name -> hash.
+    """Rebuild the game, render every manifest entry, and hash them. name -> hash.
+
+    Two capture modes, because the manifest is not the registry alone: `--shots` writes one
+    PNG per standalone screen and `--hull-sheet` writes one for the whole contact sheet, which
+    joins as a single entry named for its file. What that buys is in MANIFEST_HEADER, which is
+    where a reader of the manifest finds it.
 
     Builds first so the shots are of the working tree rather than of whatever the last
     build left in `game.exe`. This opens a real window, so it wants a real desktop --
@@ -243,21 +272,15 @@ def render_shots():
     if build.returncode != 0:
         sys.exit(f"odin build cmd/game failed:\n{build.stdout}{build.stderr}")
 
-    render = subprocess.run(
-        [str(GAME), "--shots"], cwd=REPO, capture_output=True, text=True
-    )
     written = {}
-    for line in render.stdout.splitlines():
-        match = WROTE.match(line.strip())
-        if match:
-            written[shot_name(match.group(1))] = REPO / match.group(1)
-    # Non-zero means at least one shot did not land, and a shot missing from the
-    # comparison would read as an unchanged screen. Fail rather than compare a subset.
-    if render.returncode != 0 or not written:
-        sys.exit(
-            f"capture --shots failed ({render.returncode}), "
-            f"{len(written)} shot(s) written:\n{render.stderr}"
-        )
+    for mode in ("--shots", "--hull-sheet"):
+        for name, path in run_capture_mode(mode).items():
+            # One name, one entry: two modes writing the same name would leave the manifest
+            # hashing one of the two files and saying nothing about the other -- a subset
+            # compared silently, which is what each mode's own check above refuses to do.
+            if name in written:
+                sys.exit(f"{mode} wrote {name}, which an earlier capture mode already wrote")
+            written[name] = path
     return {name: pixel_hash(path) for name, path in written.items()}
 
 

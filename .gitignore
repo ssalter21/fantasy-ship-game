@@ -21,6 +21,9 @@ node_modules/
 dist/
 build/
 
+# Python bytecode — importing scripts/shot.py rather than running it leaves this behind
+__pycache__/
+
 # Capture output — regenerable with `odin run cmd/game -- --capture`
 docs/ui/shots/
 *.log
