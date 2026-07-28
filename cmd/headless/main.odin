@@ -4,60 +4,66 @@ import "core:fmt"
 import "core:os"
 import "core:strconv"
 import "core:strings"
+import ship "../../core/ship"
 import voyage "../../core/voyage"
 import sim "../../core/sim"
 
 main :: proc() {
 	req, ok := headless_request(os.args[1:])
 	if !ok {
-		fmt.eprintln("headless: usage: headless [--seed <n>] [--runs <n>]")
+		fmt.eprintln("headless: usage: headless [--seed <n>] [--runs <n>] [--out <path>]")
 		os.exit(1)
 	}
 
-	// A sweep runs quiet, because a thousand printed voyages is a million lines; one voyage
-	// prints its events, which is what watching a single run go by means.
-	quiet := req.runs > 1
-	events := 0
-	for i in 0 ..< req.runs {
-		_, voyage_events := headless_voyage(req.seed + u64(i), quiet)
-		events += voyage_events
+	destination := req.out.? or_else "stdout"
+	out, opened := headless_open_destination(req.out)
+	if !opened {
+		fmt.eprintfln("headless: cannot open %s for writing", destination)
+		os.exit(1)
 	}
 
-	if quiet {
-		fmt.printfln("%d voyages ended after %d event(s)", req.runs, events)
-	} else {
-		fmt.printfln("run_session ended after %d event(s)", events)
+	// stdout is not this run's to close, and a file's close is a write's last chance to fail,
+	// so it counts toward whether the sweep landed.
+	wrote := headless_sweep(req, out)
+	closed := out == os.stdout || os.close(out) == nil
+	if !wrote || !closed {
+		fmt.eprintfln("headless: could not write the sweep to %s", destination)
+		os.exit(1)
 	}
 }
 
 // Run_Request is the run a command line asked for: `runs` voyages from consecutive seeds
-// starting at `seed`, so repeating the pair repeats the whole sweep. Its zero value is a
-// run of no voyages, which is nothing — headless_request starts from the one-voyage
-// default instead (a deliberate break with the zero-value-is-meaningful rule).
+// starting at `seed`, so repeating the pair repeats the whole sweep, with the rows written to
+// `out` — a path, or nil for stdout. Its zero value is a run of no voyages, which is nothing —
+// headless_request starts from the one-voyage default instead (a deliberate break with the
+// zero-value-is-meaningful rule).
 Run_Request :: struct {
 	seed: u64,
 	runs: int,
+	out:  Maybe(string),
 }
 
 // headless_request reads the run out of a command line, in either `--flag <value>` or
-// `--flag=<value>` spelling. Absent flags give one voyage from seed 0.
+// `--flag=<value>` spelling. Absent flags give one voyage from seed 0, written to stdout.
 //
 // Anything it cannot read as a runnable request is rejected: an unknown flag, a bare word,
-// a non-number, a run of none, a flag whose value is the next flag. A sweep script that
-// misspells `--seed` gets an error rather than a thousand voyages from the wrong seed.
+// a non-number, a run of none, an empty path, a flag whose value is the next flag. A sweep
+// script that misspells `--seed` gets an error rather than a thousand voyages from the wrong
+// seed. A spaced value that itself begins `--` is refused before any flag's own reading of it,
+// which is the only guard `--out` can have — a path is otherwise any string at all.
 headless_request :: proc(args: []string) -> (req: Run_Request, ok: bool) {
-	req = Run_Request{seed = 0, runs = 1}
+	req = Run_Request{seed = 0, runs = 1, out = nil}
 
 	for i := 0; i < len(args); {
 		flag, value := args[i], ""
 		if eq := strings.index_byte(flag, '='); eq >= 0 {
 			flag, value = flag[:eq], flag[eq + 1:]
 			i += 1
-		} else if i + 1 < len(args) {
+		} else if i + 1 < len(args) && !strings.has_prefix(args[i + 1], "--") {
 			value = args[i + 1]
 			i += 2
 		} else {
-			return req, false // a flag at the tail naming nothing
+			return req, false // a flag at the tail, or one naming the next flag as its value
 		}
 
 		switch flag {
@@ -68,6 +74,11 @@ headless_request :: proc(args: []string) -> (req: Run_Request, ok: bool) {
 			if req.runs < 1 {
 				return req, false
 			}
+		case "--out":
+			if value == "" {
+				return req, false
+			}
+			req.out = value
 		case:
 			return req, false
 		}
@@ -75,13 +86,16 @@ headless_request :: proc(args: []string) -> (req: Run_Request, ok: bool) {
 	return req, true
 }
 
-// headless_voyage runs one scripted voyage from a seed and reports how it ended.
+// headless_voyage runs one scripted voyage from a seed and reports how it ended, as the row
+// a sweep writes for it.
 //
 // The Sim is built and destroyed here, so a sweep holds one voyage's run-scoped arena at a
 // time (ADR-0010) rather than a thousand. Only values cross back out: everything the sink
 // tracked by reference — the Event it last saw, the Map, the travel options — borrows from
-// that arena and is gone by the time this returns.
-headless_voyage :: proc(seed: u64, quiet: bool) -> (status: voyage.Voyage_Status, events: int) {
+// that arena and is gone by the time this returns. That is why the row is assembled here,
+// while the Sim still stands: the ship's cargo is summed across its layout (ship_cargo), and
+// that layout is arena-borrowed like the rest.
+headless_voyage :: proc(seed: u64, quiet: bool) -> Voyage_Row {
 	s := sim.sim_create(seed)
 	defer sim.sim_destroy(&s)
 
@@ -91,7 +105,16 @@ headless_voyage :: proc(seed: u64, quiet: bool) -> (status: voyage.Voyage_Status
 
 	sim.run_session(&s, input, sink)
 
-	return state.status, state.event_count
+	return Voyage_Row {
+		seed = seed,
+		status = state.status,
+		zone = state.deepest_zone,
+		nodes = state.nodes,
+		hull = state.view.player.hull,
+		cargo = ship.ship_cargo(state.view.player),
+		encounters = state.encounters,
+		events = state.event_count,
+	}
 }
 
 // Headless_State is the shared context the Input_Source and Event_Sink halves of
@@ -99,16 +122,19 @@ headless_voyage :: proc(seed: u64, quiet: bool) -> (status: voyage.Voyage_Status
 // so shared state has nowhere else to live.
 //
 // It counts events rather than keeping them: an Event borrows from the Sim's run arena,
-// so a kept copy is only valid as long as the Sim is. status is what both sinks leave
-// behind for a caller that outlives the Sim — a plain value, and the voyage's whole
-// outcome. `view` is the scripted player's own input, filled by the sink from the same
-// stream: the map, ship and stage state it decides from all borrow from the Sim's arena
-// too, and are read only while it lives.
+// so a kept copy is only valid as long as the Sim is. status, the counts and the zone are
+// what both sinks leave behind for a caller that outlives the Sim — plain values, and the
+// whole of what a Voyage_Row is assembled from. `view` is the scripted player's own input,
+// filled by the sink from the same stream: the map, ship and stage state it decides from all
+// borrow from the Sim's arena too, and are read only while it lives.
 Headless_State :: struct {
-	event_count: int,
-	last_event:  sim.Event, // borrowed from the Sim's run arena; valid only while it lives
-	status:      voyage.Voyage_Status,
-	view:        sim.Scripted_View,
+	event_count:  int,
+	last_event:   sim.Event, // borrowed from the Sim's run arena; valid only while it lives
+	status:       voyage.Voyage_Status,
+	nodes:        int,
+	encounters:   int,
+	deepest_zone: Maybe(voyage.Zone),
+	view:         sim.Scripted_View,
 }
 
 // get_captain_choice is the headless Input_Source: it hands the shared scripted
@@ -120,8 +146,12 @@ get_captain_choice :: proc(data: rawptr, awaiting: sim.Phase) -> sim.Command {
 
 // headless_print is the printing sink: format the event, then track it like the quiet one
 // does. The line is the whole difference between the two.
+//
+// It prints to stderr because stdout is where the rows go when no path was named, and a
+// voyage's events are commentary on a run rather than its output — so watching a single run
+// go by and piping its row are the same command.
 headless_print :: proc(data: rawptr, event: sim.Event) {
-	fmt.printfln("%v", event)
+	fmt.eprintfln("%v", event)
 	headless_track(data, event)
 }
 
@@ -144,6 +174,15 @@ headless_track :: proc(data: rawptr, event: sim.Event) {
 		state.view.travel_options = e.options
 	case sim.Event_Arrived_At_Node:
 		state.view.current = e.node.id
+		state.nodes += 1
+		// The deepest zone, not the latest: travel back to an already-visited node is legal
+		// (voyage_neighbor_is_legal), and how far the voyage got is the fact a row carries.
+		// Zone is declared in stakes order, so the deeper zone is the greater one.
+		if zone, zoned := e.node.zone.?; zoned {
+			if deepest, reached := state.deepest_zone.?; !reached || zone > deepest {
+				state.deepest_zone = zone
+			}
+		}
 	case sim.Event_Voyage_Ended:
 		state.status = e.status
 	case sim.Event_Battle_Menu:
@@ -162,6 +201,10 @@ headless_track :: proc(data: rawptr, event: sim.Event) {
 		state.view.refit_incoming = nil
 	case sim.Event_Refit_Finished:
 		state.view.refit_incoming = nil
+	case sim.Event_Encounter_Resolved:
+		// One per node walked to its end, whatever its stage list held — so this counts the
+		// encounters the voyage got through, and the node it sank at is not one of them.
+		state.encounters += 1
 	case sim.Event_Ship_Battle_Sighted:
 	case sim.Event_Battle_Event:
 	case sim.Event_Wreck_Looted:
@@ -173,6 +216,5 @@ headless_track :: proc(data: rawptr, event: sim.Event) {
 	case sim.Event_Fitting_Removed:
 	case sim.Event_Cargo_Jettisoned:
 	case sim.Event_Refit_Rejected:
-	case sim.Event_Encounter_Resolved:
 	}
 }

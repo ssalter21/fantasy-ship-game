@@ -21,6 +21,10 @@ Single-context repo. This glossary states what each term **is**; the why behind 
 - **Event_Sink** — the pluggable destination `run_session` dispatches a Tick's Events to. Headless: logs or records; UI: plays back with animation, blocking until playback finishes.
 - **Headless mode** — running a session with no rendering — tests, simulation, ghost-battle resolution. A separate executable, compile-time incapable of importing the rendering library.
   _Avoid_: simulation mode, test mode.
+- **Sweep** — a run of the headless executable over a range of consecutive seeds (`--seed`/`--runs`), writing one **voyage row** per voyage to a named file or stdout (`--out`). Each voyage builds and tears down a Sim of its own, so a sweep of any length holds one run-scoped arena at a time, and a seed range is a fixed question: the same range writes the same rows every time.
+  _Avoid_: batch, simulation run.
+- **Voyage row** — one ended voyage as a sweep records it (`Voyage_Row`, `cmd/headless/sweep.odin`): seed, outcome (reaching Haven vs. going down), the deepest zone reached, nodes walked, final Hull and cargo, encounters resolved, events dispatched. Shallow by construction — what the voyage *ended* as, not what happened inside it.
+  _Avoid_: record, result, sample.
 - **UI mode** — running a session with a human player and real-time rendering.
   _Avoid_: game mode, client mode.
 

@@ -49,10 +49,30 @@ the_quiet_sink_tracks_everything_the_printing_one_does :: proc(t: ^testing.T) {
 
 @(test)
 a_quiet_voyage_still_counts_its_events_and_lands_on_an_outcome :: proc(t: ^testing.T) {
-	status, events := headless_voyage(0, quiet = true)
+	row := headless_voyage(0, quiet = true)
 
-	testing.expect(t, events > 0)
-	testing.expect(t, status != .In_Progress)
+	testing.expect(t, row.events > 0)
+	testing.expect(t, row.status != .In_Progress)
+	testing.expect_value(t, row.seed, u64(0))
+}
+
+@(test)
+a_voyage_row_records_the_walk_the_events_described :: proc(t: ^testing.T) {
+	// The row's counts come off the Event stream, so each must square with the outcome the
+	// same stream reported: a voyage that went anywhere walked nodes and reached a zone, and
+	// one that reached Haven is one that did not sink.
+	row := headless_voyage(0, quiet = true)
+
+	testing.expect(t, row.nodes > 0)
+	testing.expect(t, row.encounters <= row.nodes)
+	testing.expect(t, row.cargo >= 0)
+	_, reached := row.zone.?
+	testing.expect(t, reached)
+	if row.status == .Won {
+		testing.expect(t, row.hull > 0)
+	} else {
+		testing.expect(t, row.hull <= 0)
+	}
 }
 
 @(test)
@@ -60,39 +80,40 @@ a_sweep_of_seeds_runs_each_voyage_against_its_own_sim :: proc(t: ^testing.T) {
 	// Each voyage builds and tears down a Sim of its own, so a second pass over the
 	// same seeds must answer exactly what the first did — a Sim (or its run-scoped
 	// arena) carried across runs is what this would catch.
-	first: [4]voyage.Voyage_Status
-	first_events: [4]int
+	first: [4]Voyage_Row
 	for seed in 0 ..< 4 {
-		first[seed], first_events[seed] = headless_voyage(u64(seed), quiet = true)
+		first[seed] = headless_voyage(u64(seed), quiet = true)
 	}
 
 	for seed in 0 ..< 4 {
-		status, events := headless_voyage(u64(seed), quiet = true)
-		testing.expect_value(t, status, first[seed])
-		testing.expect_value(t, events, first_events[seed])
+		testing.expect_value(t, headless_voyage(u64(seed), quiet = true), first[seed])
 	}
 }
 
 @(test)
-a_bare_command_line_asks_for_one_voyage_from_seed_zero :: proc(t: ^testing.T) {
+a_bare_command_line_asks_for_one_voyage_from_seed_zero_written_to_stdout :: proc(t: ^testing.T) {
 	req, ok := headless_request({})
 
 	testing.expect(t, ok)
 	testing.expect_value(t, req.seed, u64(0))
 	testing.expect_value(t, req.runs, 1)
+	_, named := req.out.?
+	testing.expect(t, !named)
 }
 
 @(test)
-seed_and_runs_are_read_in_either_spelling :: proc(t: ^testing.T) {
-	spaced, spaced_ok := headless_request({"--seed", "7", "--runs", "1000"})
+seed_runs_and_out_are_read_in_either_spelling :: proc(t: ^testing.T) {
+	spaced, spaced_ok := headless_request({"--seed", "7", "--runs", "1000", "--out", "sweep.csv"})
 	testing.expect(t, spaced_ok)
 	testing.expect_value(t, spaced.seed, u64(7))
 	testing.expect_value(t, spaced.runs, 1000)
+	testing.expect_value(t, spaced.out.? or_else "", "sweep.csv")
 
-	joined, joined_ok := headless_request({"--seed=7", "--runs=1000"})
+	joined, joined_ok := headless_request({"--seed=7", "--runs=1000", "--out=sweep.csv"})
 	testing.expect(t, joined_ok)
 	testing.expect_value(t, joined.seed, u64(7))
 	testing.expect_value(t, joined.runs, 1000)
+	testing.expect_value(t, joined.out.? or_else "", "sweep.csv")
 }
 
 @(test)
@@ -106,6 +127,9 @@ a_command_line_naming_no_runnable_voyage_is_rejected :: proc(t: ^testing.T) {
 		{"--runs", "-1"},
 		{"--seedd", "7"}, // a misspelling is not the flag it nearly is
 		{"7", "1000"}, // bare words name no flag at all
+		{"--out"}, // named no path
+		{"--out="}, // named an empty one
+		{"--out", "--runs", "3"}, // a path is any string, so the next flag is caught first
 	}
 
 	for args in cases {
