@@ -98,13 +98,17 @@ fight_tally_add :: proc(tally: ^Fight_Tally, row: Fight_Row) {
 	tally.player_swing += row.player_hull_start - row.player_hull_end
 	tally.hostile_swing += row.hostile_hull_start - row.hostile_hull_end
 
-	switch row.ending {
-	case .Destroyed:
-		tally.destroyed += 1
-	case .Broke_Off:
-		tally.broke_off += 1
-	case .Round_Cap:
-		tally.round_cap += 1
+	// A battle the voyage ended mid-fight has no ending to count, and is none of the three.
+	reason, ended := row.ending.?
+	if ended {
+		switch reason {
+		case .Destroyed:
+			tally.destroyed += 1
+		case .Broke_Off:
+			tally.broke_off += 1
+		case .Round_Cap:
+			tally.round_cap += 1
+		}
 	}
 	if side, ran := row.escaped.?; ran {
 		tally.escaped[side] += 1
@@ -129,7 +133,7 @@ fight_tally_add :: proc(tally: ^Fight_Tally, row: Fight_Row) {
 	// A payout arrives only where a wreck was taken, and a wreck that held nothing pays 0 —
 	// so the wreck count is the battles the player won by sinking its opponent, not the
 	// battles that paid.
-	if row.ending == .Destroyed && survived {
+	if ended && reason == .Destroyed && survived {
 		reward := voyage.voyage_reward_cargo(voyage.Scaling_Site{zone = row.zone, depth = row.depth})
 		tally.wrecks += 1
 		tally.payout += row.payout

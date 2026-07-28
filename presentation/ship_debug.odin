@@ -12,10 +12,10 @@ package presentation
 // screenshot — they look slightly dull, or slightly odd — and finding them meant reading pixel
 // values back through the lighting arithmetic to work out which face was on screen.
 //
-// It is a value rather than a pair of key-toggled flags because it has two drivers, and only one
-// of them has a keyboard: the workbench sets it from a key press, and the hull sheet sets it per
-// tile so a headless run can photograph every mode. Modes are exclusive — a wireframe coloured by
-// normal is neither diagnosis.
+// It is one value rather than a flag per mode because the modes are exclusive — a wireframe
+// coloured by normal is neither diagnosis — and because it has two drivers, only one of which has
+// a keyboard: the workbench sets it from a key press, and the hull sheet sets it per tile so a
+// headless run can photograph every mode.
 Ship_Paint :: enum {
 	// The game's own lighting: her timber under this sun.
 	Shaded,

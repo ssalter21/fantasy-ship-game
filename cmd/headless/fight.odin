@@ -34,7 +34,10 @@ Fight_Row :: struct {
 	// rounds is combat's own count at the battle's end, so a round spent breaking off counts
 	// as the round it was.
 	rounds:             int,
-	ending:             combat.End_Reason,
+	// How the battle ended, nil for a battle that never did — a row closed by the voyage ending
+	// mid-fight rather than by Event_Battle_Ended. Nil rather than a zero value, because the
+	// zero End_Reason is Destroyed and an unfought battle must not read as a sinking.
+	ending:             Maybe(combat.End_Reason),
 	// winner at the round cap is combat's hull tiebreak rather than a kill, which is why the
 	// two are separate columns: `ending` is what stops a stalemate reading as a win.
 	winner:             Maybe(combat.Side),
@@ -85,8 +88,13 @@ headless_fight_line :: proc(row: Fight_Row) -> string {
 // headless_ending_name spells how the battle ended, on the same rule as the voyage row's own
 // names: written out rather than printed off the enum, so renaming an End_Reason inside
 // core/combat cannot silently rename a column's values, and exhaustive, so a fourth way for a
-// battle to end is a compile error here rather than a blank cell.
-headless_ending_name :: proc(reason: combat.End_Reason) -> string {
+// battle to end is a compile error here rather than a blank cell. "none" is the battle that
+// never ended, which is a row to discard rather than a fourth ending to read.
+headless_ending_name :: proc(reason_of: Maybe(combat.End_Reason)) -> string {
+	reason, ended := reason_of.?
+	if !ended {
+		return "none"
+	}
 	switch reason {
 	case .Destroyed:
 		return "destroyed"

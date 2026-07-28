@@ -52,11 +52,11 @@ a_battle_the_player_did_not_come_out_of_pays_no_wreck :: proc(t: ^testing.T) {
 	tally: Balance_Tally
 
 	won := report_test_row(voyage.Zone.Deep, 3)
-	won.ending, won.winner, won.hostile_hull_end, won.payout = .Destroyed, combat.Side.A, 0, 40
+	won.ending, won.winner, won.hostile_hull_end, won.payout = combat.End_Reason.Destroyed, combat.Side.A, 0, 40
 	balance_tally_add(&tally, won)
 
 	sank := report_test_row(voyage.Zone.Deep, 3)
-	sank.ending, sank.winner, sank.player_hull_end, sank.payout = .Destroyed, combat.Side.B, 0, 0
+	sank.ending, sank.winner, sank.player_hull_end, sank.payout = combat.End_Reason.Destroyed, combat.Side.B, 0, 0
 	balance_tally_add(&tally, sank)
 
 	testing.expect_value(t, tally.all.destroyed, 2)
@@ -156,15 +156,15 @@ the_report_answers_each_question_the_rows_were_collected_for :: proc(t: ^testing
 	tally: Balance_Tally
 
 	sunk := report_test_row(voyage.Zone.Coastal, 0)
-	sunk.ending, sunk.winner, sunk.hostile_hull_end, sunk.payout = .Destroyed, combat.Side.A, 0, 25
+	sunk.ending, sunk.winner, sunk.hostile_hull_end, sunk.payout = combat.End_Reason.Destroyed, combat.Side.A, 0, 25
 	balance_tally_add(&tally, sunk)
 
 	fled := report_test_row(voyage.Zone.Open_Sea, 1)
-	fled.ending, fled.escaped, fled.commit_rounds = .Broke_Off, combat.Side.B, 2
+	fled.ending, fled.escaped, fled.commit_rounds = combat.End_Reason.Broke_Off, combat.Side.B, 2
 	balance_tally_add(&tally, fled)
 
 	stalled := report_test_row(voyage.Zone.Deep, 2)
-	stalled.ending, stalled.rounds, stalled.press = .Round_Cap, combat.HARD_ROUND_CAP, ship.Phase.Brace
+	stalled.ending, stalled.rounds, stalled.press = combat.End_Reason.Round_Cap, combat.HARD_ROUND_CAP, ship.Phase.Brace
 	balance_tally_add(&tally, stalled)
 
 	text := headless_report(tally, Run_Request{seed = 1, runs = 3})
@@ -258,7 +258,7 @@ report_test_row :: proc(zone: voyage.Zone, depth: int) -> Fight_Row {
 		depth = depth,
 		archetype = "Reef Skimmer",
 		rounds = 5,
-		ending = .Broke_Off,
+		ending = combat.End_Reason.Broke_Off,
 		player_hull_start = 100,
 		player_hull_end = 100,
 		hostile_hull_start = 100,

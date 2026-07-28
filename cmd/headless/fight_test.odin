@@ -24,7 +24,7 @@ a_fight_row_carries_one_field_per_header_column_in_that_order :: proc(t: ^testin
 			depth = 3,
 			archetype = "Ironclad Hulk",
 			rounds = 4,
-			ending = .Destroyed,
+			ending = combat.End_Reason.Destroyed,
 			winner = combat.Side.A,
 			escaped = nil,
 			player_hull_start = 90,
@@ -45,9 +45,10 @@ a_fight_row_carries_one_field_per_header_column_in_that_order :: proc(t: ^testin
 a_row_names_how_the_battle_ended_apart_from_who_it_went_to :: proc(t: ^testing.T) {
 	// The two are separate columns because the round cap awards a winner on Hull alone: a
 	// stalemate must be readable as a stalemate whatever the tiebreak said.
-	testing.expect_value(t, headless_ending_name(.Destroyed), "destroyed")
-	testing.expect_value(t, headless_ending_name(.Broke_Off), "broke_off")
-	testing.expect_value(t, headless_ending_name(.Round_Cap), "round_cap")
+	testing.expect_value(t, headless_ending_name(combat.End_Reason.Destroyed), "destroyed")
+	testing.expect_value(t, headless_ending_name(combat.End_Reason.Broke_Off), "broke_off")
+	testing.expect_value(t, headless_ending_name(combat.End_Reason.Round_Cap), "round_cap")
+	testing.expect_value(t, headless_ending_name(nil), "none")
 
 	testing.expect_value(t, headless_side_name(combat.Side.A), "player")
 	testing.expect_value(t, headless_side_name(combat.Side.B), "hostile")
@@ -133,7 +134,7 @@ the_log_fills_a_row_from_the_battle_it_watched :: proc(t: ^testing.T) {
 			depth = 2,
 			archetype = "Reef Skimmer",
 			rounds = 2,
-			ending = .Destroyed,
+			ending = combat.End_Reason.Destroyed,
 			winner = combat.Side.A,
 			player_hull_start = 80,
 			player_hull_end = 74,
@@ -164,6 +165,35 @@ a_battle_that_resolved_no_round_keeps_the_hulls_it_opened_with :: proc(t: ^testi
 	testing.expect_value(t, row.player_hull_start, row.player_hull_end)
 	testing.expect_value(t, row.hostile_hull_start, row.hostile_hull_end)
 	testing.expect_value(t, row.ending, combat.End_Reason.Broke_Off)
+}
+
+@(test)
+a_battle_the_voyage_ended_mid_fight_is_not_recorded_as_a_sinking :: proc(t: ^testing.T) {
+	// The voyage's end closes whatever row is open, which for a battle still being fought means
+	// a row that saw no Event_Battle_Ended. The zero End_Reason is Destroyed, so an ending held
+	// as a plain value would read that battle as a sinking at 0 rounds — the one shape the
+	// column exists to keep out of the file.
+	log := Fight_Log{seed = 1}
+	defer delete(log.rows)
+
+	fight_log_sighted(&log, voyage.Scaling_Site{zone = .Deep, depth = 2}, "Ironclad Hulk", 80, 120)
+	fight_log_battle_event(&log, combat.Event_Round_Resolved{round = 1, hull = {.A = 70, .B = 110}})
+	fight_log_close(&log)
+
+	if !testing.expect_value(t, len(log.rows), 1) {
+		return
+	}
+	row := log.rows[0]
+	testing.expect_value(t, row.ending, nil)
+	testing.expect_value(t, headless_ending_name(row.ending), "none")
+
+	// Nor does the tally count it as one of the three endings, or as a wreck taken.
+	tally: Fight_Tally
+	fight_tally_add(&tally, row)
+	testing.expect_value(t, tally.destroyed, 0)
+	testing.expect_value(t, tally.broke_off, 0)
+	testing.expect_value(t, tally.round_cap, 0)
+	testing.expect_value(t, tally.wrecks, 0)
 }
 
 @(test)
