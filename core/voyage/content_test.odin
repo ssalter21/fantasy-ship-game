@@ -8,8 +8,8 @@ import "core:testing"
 
 // test_opponent builds an opponent the way voyage_bake_stage does, off a fresh
 // generator for `seed`, so a test can talk about "the hostile seed 3 deals" without
-// standing up a whole map.
-test_opponent :: proc(site: Scaling_Site, seed: u64) -> ship.Ship {
+// standing up a whole map. The drawn entry's name comes back with it.
+test_opponent :: proc(site: Scaling_Site, seed: u64) -> (ship.Ship, string) {
 	state := rand.create(seed)
 	return voyage_pve_opponent(site, rand.default_random_generator(&state))
 }
@@ -63,7 +63,7 @@ hostile_at_power :: proc(archetype: Hostile_Archetype, percent: int) -> ship.Shi
 
 @(test)
 voyage_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testing.T) {
-	opponent := test_opponent(Scaling_Site{zone = .Coastal, depth = 3}, 0)
+	opponent, _ := test_opponent(Scaling_Site{zone = .Coastal, depth = 3}, 0)
 	defer delete(opponent.layout)
 
 	testing.expect_value(t, len(opponent.layout), 8)
@@ -76,7 +76,7 @@ voyage_pve_opponent_fills_every_slot_of_the_one_ship_template :: proc(t: ^testin
 @(test)
 voyage_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_fight_formulas :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Deep, depth = 2}
-	opponent := test_opponent(site, 0)
+	opponent, _ := test_opponent(site, 0)
 	defer delete(opponent.layout)
 
 	testing.expect_value(t, opponent.hull, voyage_fight_opponent_hull(site))
@@ -84,7 +84,7 @@ voyage_pve_opponent_stats_reuse_the_existing_zone_and_depth_scaled_fight_formula
 
 @(test)
 voyage_pve_opponent_carries_no_captain :: proc(t: ^testing.T) {
-	opponent := test_opponent(Scaling_Site{zone = .Coastal, depth = 3}, 0)
+	opponent, _ := test_opponent(Scaling_Site{zone = .Coastal, depth = 3}, 0)
 	defer delete(opponent.layout)
 
 	_, has_captain := opponent.captain.?
@@ -99,18 +99,26 @@ voyage_pve_opponent_carries_no_captain :: proc(t: ^testing.T) {
 @(test)
 voyage_pve_opponent_draws_more_than_one_distinct_archetype_across_seeds :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Open_Sea, depth = 1}
-	seen: map[string]bool
+	seen: map[string]string // loadout signature -> the name the draw gave it
 	defer delete(seen)
 
 	for seed in u64(0) ..< 50 {
-		opponent := test_opponent(site, seed)
+		opponent, archetype := test_opponent(site, seed)
 		defer delete(opponent.layout)
-		// An archetype has no name on the built Ship, so identify the build by the
-		// loadout it produced — which is the thing the player actually meets.
-		seen[loadout_signature(opponent)] = true
+		testing.expectf(t, archetype != "", "the draw named no archetype at seed %d", seed)
+		seen[loadout_signature(opponent)] = archetype
 	}
 
 	testing.expect(t, len(seen) > 1)
+
+	// One name per build and one build per name: a name that didn't track the build it
+	// came with would collapse two of these counts into one.
+	names: map[string]bool
+	defer delete(names)
+	for _, name in seen {
+		names[name] = true
+	}
+	testing.expect_value(t, len(names), len(seen))
 }
 
 // Baked at generation off the map generator's RNG, so the same seed must yield the
@@ -119,9 +127,9 @@ voyage_pve_opponent_draws_more_than_one_distinct_archetype_across_seeds :: proc(
 @(test)
 voyage_pve_opponent_is_reproducible_per_seed :: proc(t: ^testing.T) {
 	site := Scaling_Site{zone = .Deep, depth = 2}
-	a := test_opponent(site, 11)
+	a, _ := test_opponent(site, 11)
 	defer delete(a.layout)
-	b := test_opponent(site, 11)
+	b, _ := test_opponent(site, 11)
 	defer delete(b.layout)
 
 	testing.expect_value(t, loadout_signature(a), loadout_signature(b))
@@ -160,9 +168,9 @@ every_hostile_archetype_is_built_from_real_roster_items :: proc(t: ^testing.T) {
 // the only difference is the site.
 @(test)
 a_deeper_node_gives_the_opponent_harder_hitting_fire_fittings :: proc(t: ^testing.T) {
-	coastal := test_opponent(Scaling_Site{zone = .Coastal, depth = 0}, 4)
+	coastal, _ := test_opponent(Scaling_Site{zone = .Coastal, depth = 0}, 4)
 	defer delete(coastal.layout)
-	deep := test_opponent(Scaling_Site{zone = .Deep, depth = 3}, 4)
+	deep, _ := test_opponent(Scaling_Site{zone = .Deep, depth = 3}, 4)
 	defer delete(deep.layout)
 
 	testing.expect_value(t, loadout_signature(coastal), loadout_signature(deep)) // same build

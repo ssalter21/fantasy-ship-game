@@ -98,24 +98,39 @@ headless_open_destination :: proc(path: Maybe(string)) -> (out: ^os.File, ok: bo
 }
 
 // headless_sweep runs the request's voyages — consecutive seeds from req.seed, in order —
-// writing the header and then one row per voyage to `out`. It returns false on the first
-// write that fails, so a run that cannot write its rows can say so and exit non-zero.
+// writing the header and then one row per voyage to `out`, and the battles fought inside those
+// voyages to `fights` when one was named. It returns false on the first write that fails, so a
+// run that cannot write its rows can say so and exit non-zero.
 //
 // A row is written as its voyage ends rather than collected: the file grows with the sweep,
-// and a thousand voyages hold one voyage's Sim, and one voyage's row, at a time.
-headless_sweep :: proc(req: Run_Request, out: ^os.File) -> (ok: bool) {
+// and a thousand voyages hold one voyage's Sim, and one voyage's rows, at a time. The two
+// files are written in the same seed order, so `seed` joins a Fight row back to the voyage it
+// was fought in.
+headless_sweep :: proc(req: Run_Request, out: ^os.File, fights: Maybe(^os.File)) -> (ok: bool) {
 	// A sweep runs quiet, because a thousand printed voyages is a million lines; one voyage
 	// prints its events, which is what watching a single run go by means.
 	quiet := req.runs > 1
 
+	fights_out, writing_fights := fights.?
+
 	headless_write_line(out, HEADLESS_ROW_HEADER) or_return
+	if writing_fights {
+		headless_write_line(fights_out, HEADLESS_FIGHT_HEADER) or_return
+	}
 
 	for i in 0 ..< req.runs {
-		// The row's own formatting scratch; the Sim's is reclaimed inside run_session.
+		// The rows' own formatting scratch; the Sim's is reclaimed inside run_session.
 		defer free_all(context.temp_allocator)
 
-		row := headless_voyage(req.seed + u64(i), quiet)
+		row, voyage_fights := headless_voyage(req.seed + u64(i), quiet)
+		defer delete(voyage_fights)
+
 		headless_write_line(out, headless_row_line(row)) or_return
+		if writing_fights {
+			for fight in voyage_fights {
+				headless_write_line(fights_out, headless_fight_line(fight)) or_return
+			}
+		}
 	}
 	return true
 }

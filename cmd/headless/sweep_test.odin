@@ -49,11 +49,12 @@ a_row_names_the_zone_reached_and_says_so_when_none_was :: proc(t: ^testing.T) {
 
 @(test)
 a_sweep_writes_a_header_and_one_row_per_seed_in_seed_order :: proc(t: ^testing.T) {
-	text, ok := sweep_test_text(Run_Request{seed = 3, runs = 3}, "sweep-order.csv")
+	text, fights, ok := sweep_test_texts(Run_Request{seed = 3, runs = 3}, "sweep-order.csv")
 	if !testing.expect(t, ok, "the sweep could not be written and read back") {
 		return
 	}
 	defer delete(text)
+	defer delete(fights)
 
 	lines := strings.split_lines(strings.trim_right(text, "\n"), context.allocator)
 	defer delete(lines)
@@ -71,15 +72,21 @@ the_same_seed_range_writes_the_same_rows_every_time :: proc(t: ^testing.T) {
 	// which holds only if a seed range is a fixed question.
 	req := Run_Request{seed = 11, runs = 3}
 
-	first, first_ok := sweep_test_text(req, "sweep-repeat-a.csv")
-	second, second_ok := sweep_test_text(req, "sweep-repeat-b.csv")
+	first, first_fights, first_ok := sweep_test_texts(req, "sweep-repeat-a.csv")
+	second, second_fights, second_ok := sweep_test_texts(req, "sweep-repeat-b.csv")
 	if !testing.expect(t, first_ok && second_ok, "the sweeps could not be written and read back") {
 		return
 	}
 	defer delete(first)
 	defer delete(second)
+	defer delete(first_fights)
+	defer delete(second_fights)
 
 	testing.expect_value(t, first, second)
+	// The Fight rows are the same question asked of a longer stream — the orders the player
+	// gave, round by round — so they are pinned alongside.
+	testing.expect(t, strings.count(first_fights, "\n") > 1) // a header alone proves nothing
+	testing.expect_value(t, first_fights, second_fights)
 }
 
 @(test)
@@ -92,39 +99,56 @@ a_destination_that_cannot_be_opened_is_refused_and_none_named_is_stdout :: proc(
 	testing.expect(t, out == os.stdout)
 }
 
-// sweep_test_text runs `req` into a file of its own under the temp directory and reads the
-// whole of it back, removing the file behind itself. The text is the caller's to delete.
+// sweep_test_texts runs `req` into two files of its own under the temp directory — the voyage
+// rows and the Fight rows — and reads the whole of both back, removing them behind itself.
+// Both texts are the caller's to delete.
 //
 // Every allocation here is on the ordinary allocator: headless_sweep drains
 // context.temp_allocator between voyages, so a path held there would not survive its sweep.
 // `name` is per-test because the test runner is threaded, and two sweeps sharing a file would
 // be one sweep's rows read by the other.
-sweep_test_text :: proc(req: Run_Request, name: string) -> (text: string, ok: bool) {
+sweep_test_texts :: proc(req: Run_Request, name: string) -> (rows: string, fights: string, ok: bool) {
 	dir, dir_err := os.temp_directory(context.allocator)
 	if dir_err != nil {
-		return "", false
+		return "", "", false
 	}
 	defer delete(dir)
 
-	path := fmt.aprintf("%s%s%s", dir, os.Path_Separator_String, name)
-	defer delete(path)
-	defer os.remove(path)
+	rows_path := fmt.aprintf("%s%s%s", dir, os.Path_Separator_String, name)
+	defer delete(rows_path)
+	defer os.remove(rows_path)
+	fights_path := fmt.aprintf("%s.fights", rows_path)
+	defer delete(fights_path)
+	defer os.remove(fights_path)
 
 	sweep := req
-	sweep.out = path
+	sweep.out = rows_path
+	sweep.fights = fights_path
+
 	out, opened := headless_open_destination(sweep.out)
 	if !opened {
-		return "", false
+		return "", "", false
 	}
-	wrote := headless_sweep(sweep, out)
-	closed := os.close(out) == nil
-	if !wrote || !closed {
-		return "", false
+	fights_out, fights_opened := headless_open_destination(sweep.fights)
+	if !fights_opened {
+		os.close(out)
+		return "", "", false
 	}
 
-	data, read_err := os.read_entire_file_from_path(path, context.allocator)
-	if read_err != nil {
-		return "", false
+	wrote := headless_sweep(sweep, out, fights_out)
+	closed := os.close(out) == nil && os.close(fights_out) == nil
+	if !wrote || !closed {
+		return "", "", false
 	}
-	return string(data), true
+
+	rows_data, rows_err := os.read_entire_file_from_path(rows_path, context.allocator)
+	if rows_err != nil {
+		return "", "", false
+	}
+	fights_data, fights_err := os.read_entire_file_from_path(fights_path, context.allocator)
+	if fights_err != nil {
+		delete(rows_data)
+		return "", "", false
+	}
+	return string(rows_data), string(fights_data), true
 }

@@ -15,6 +15,7 @@ the_auto_player_reaches_a_voyage_ended_event_navigating_the_graph :: proc(t: ^te
 	defer sim.sim_destroy(&s)
 
 	state := Headless_State{}
+	defer delete(state.fights.rows) // headless_voyage's caller owns these; here the test does
 	sink := sim.Event_Sink{data = &state, dispatch = headless_print}
 	input := sim.Input_Source{data = &state, get_captain_choice = get_captain_choice}
 
@@ -49,7 +50,8 @@ the_quiet_sink_tracks_everything_the_printing_one_does :: proc(t: ^testing.T) {
 
 @(test)
 a_quiet_voyage_still_counts_its_events_and_lands_on_an_outcome :: proc(t: ^testing.T) {
-	row := headless_voyage(0, quiet = true)
+	row, fights := headless_voyage(0, quiet = true)
+	defer delete(fights)
 
 	testing.expect(t, row.events > 0)
 	testing.expect(t, row.status != .In_Progress)
@@ -61,7 +63,8 @@ a_voyage_row_records_the_walk_the_events_described :: proc(t: ^testing.T) {
 	// The row's counts come off the Event stream, so each must square with the outcome the
 	// same stream reported: a voyage that went anywhere walked nodes and reached a zone, and
 	// one that reached Haven is one that did not sink.
-	row := headless_voyage(0, quiet = true)
+	row, fights := headless_voyage(0, quiet = true)
+	defer delete(fights)
 
 	testing.expect(t, row.nodes > 0)
 	testing.expect(t, row.encounters <= row.nodes)
@@ -82,11 +85,15 @@ a_sweep_of_seeds_runs_each_voyage_against_its_own_sim :: proc(t: ^testing.T) {
 	// arena) carried across runs is what this would catch.
 	first: [4]Voyage_Row
 	for seed in 0 ..< 4 {
-		first[seed] = headless_voyage(u64(seed), quiet = true)
+		fights: [dynamic]Fight_Row
+		first[seed], fights = headless_voyage(u64(seed), quiet = true)
+		delete(fights)
 	}
 
 	for seed in 0 ..< 4 {
-		testing.expect_value(t, headless_voyage(u64(seed), quiet = true), first[seed])
+		row, fights := headless_voyage(u64(seed), quiet = true)
+		defer delete(fights)
+		testing.expect_value(t, row, first[seed])
 	}
 }
 
@@ -117,6 +124,20 @@ seed_runs_and_out_are_read_in_either_spelling :: proc(t: ^testing.T) {
 }
 
 @(test)
+the_fight_rows_go_to_a_named_file_or_nowhere :: proc(t: ^testing.T) {
+	// There is no stdout fallback for this one: two CSVs of different shapes cannot share a
+	// destination, which is also why naming the same file twice is refused.
+	bare, bare_ok := headless_request({"--runs", "3"})
+	testing.expect(t, bare_ok)
+	_, named := bare.fights.?
+	testing.expect(t, !named)
+
+	req, ok := headless_request({"--out", "sweep.csv", "--fights=battles.csv"})
+	testing.expect(t, ok)
+	testing.expect_value(t, req.fights.? or_else "", "battles.csv")
+}
+
+@(test)
 a_command_line_naming_no_runnable_voyage_is_rejected :: proc(t: ^testing.T) {
 	cases := [][]string {
 		{"--seed", "over-yonder"},
@@ -130,6 +151,9 @@ a_command_line_naming_no_runnable_voyage_is_rejected :: proc(t: ^testing.T) {
 		{"--out"}, // named no path
 		{"--out="}, // named an empty one
 		{"--out", "--runs", "3"}, // a path is any string, so the next flag is caught first
+		{"--fights"}, // named no path
+		{"--fights="}, // named an empty one
+		{"--out", "sweep.csv", "--fights", "sweep.csv"}, // two formats into one file
 	}
 
 	for args in cases {

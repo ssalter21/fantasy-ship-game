@@ -133,7 +133,11 @@ voyage_fit_hostile_loadout :: proc(layout: []ship.Layout_Slot, archetype: Hostil
 // tougher hostile, not a different pool. Carries no captain (a captain is a player-side,
 // run-start choice — CONTEXT.md). Caller owns the returned Ship's layout slice;
 // voyage_map_destroy frees it per Fight stage.
-voyage_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Ship {
+//
+// The drawn entry's name comes back beside the ship: the loadout is scaled, refitted and
+// padded with Spoils on its way onto the template, so which entry it was is not recoverable
+// from the ship afterwards. The string is authored static data and borrows nothing.
+voyage_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> (ship.Ship, string) {
 	roster := voyage_hostile_roster()
 	archetype := roster[rand.int_max(len(roster), gen)]
 
@@ -148,7 +152,7 @@ voyage_pve_opponent :: proc(site: Scaling_Site, gen: rand.Generator) -> ship.Shi
 	)
 
 	s.layout = layout
-	return s
+	return s, archetype.name
 }
 
 // voyage_item_offer_options picks the distinct roster items an Offer stage presents

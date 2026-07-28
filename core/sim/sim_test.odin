@@ -1218,11 +1218,11 @@ reward_stage :: proc() -> voyage.Stage_Reward {
 fight_stage :: proc(sim: ^Sim, hull: int) -> voyage.Stage_Fight {
 	context.allocator = sim_arena_allocator(sim)
 	state := rand.create(0)
-	opponent := voyage.voyage_pve_opponent(voyage.Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&state))
+	opponent, archetype := voyage.voyage_pve_opponent(voyage.Scaling_Site{zone = .Coastal, depth = 0}, rand.default_random_generator(&state))
 	opponent.hull = hull
 	opponent.max_hull = hull
 	opponent.speed = 1 // slower than the player below, so escape unlocks once the baseline passes
-	return voyage.Stage_Fight{opponent = opponent}
+	return voyage.Stage_Fight{opponent = opponent, archetype = archetype}
 }
 
 // ready_for_battle gives the player enough Hull to survive a long battle and enough

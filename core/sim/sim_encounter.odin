@@ -151,7 +151,10 @@ sim_enter_stage :: proc(sim: ^Sim, stage: voyage.Stage, events: ^[dynamic]Event)
 		// node's Maybe. Its outcome lands in sim_process_battle_round.
 		sim.active_encounter = s
 		sim.battle = voyage.voyage_start_battle(&sim.player, &sim.active_encounter)
-		append(events, Event(Event_Ship_Battle_Sighted{opponent = sim.active_encounter.opponent}))
+		append(events, Event(Event_Ship_Battle_Sighted{
+			opponent  = sim.active_encounter.opponent,
+			archetype = sim.active_encounter.archetype,
+		}))
 		append(events, Event(sim_battle_menu_event(sim)))
 		sim.phase = .Awaiting_Battle_Command
 		return nil
