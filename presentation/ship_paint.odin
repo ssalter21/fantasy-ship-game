@@ -48,7 +48,14 @@ ship_paint_view :: proc(camera: rl.Camera3D) {
 
 // ship_facing turns a surface's outward normal into the normal of the side actually being
 // looked at, so the light lands on the face the eye is on.
+//
+// Except under normal paint, where the surface keeps the normal its own winding gives it. Turning
+// it toward the eye is what makes a face wound backwards paint the same colour as a right one —
+// which would leave that mode unable to show the one defect it is turned on to find.
 ship_facing :: proc(point: rl.Vector3, normal: rl.Vector3) -> rl.Vector3 {
+	if ship_debug_paint == .Normals {
+		return normal
+	}
 	return rl.Vector3DotProduct(ship_eye - point, normal) < 0 ? -normal : normal
 }
 
@@ -57,9 +64,9 @@ ship_facing :: proc(point: rl.Vector3, normal: rl.Vector3) -> rl.Vector3 {
 // strakes and the frames reading as planking rather than dissolving into an airbrush.
 ship_lit :: proc(base: rl.Color, normal: rl.Vector3) -> rl.Color {
 	n := rl.Vector3Normalize(normal)
-	// The workbench's normals view: +x red, +y green, +z blue, and the negative of each dark,
-	// so which way a surface faces is a colour rather than a shade (ship_debug.odin).
-	if ship_debug_normals {
+	// The normals view: +x red, +y green, +z blue, and the negative of each dark, so which way a
+	// surface faces is a colour rather than a shade (ship_debug.odin).
+	if ship_debug_paint == .Normals {
 		axis :: proc(v: f32) -> u8 {
 			return u8(clamp(v > 0 ? 235 * v : 70 * -v, 0, 255))
 		}
@@ -141,7 +148,10 @@ SHIP_INBOARD_DUSK :: f32(0.52)
 // each call site: the ceiling planking, the sole, the bulkheads and every fitting yet to be drawn
 // in a room all take it without knowing about it.
 ship_inboard_dusk :: proc(colour: rl.Color, y: f32) -> rl.Color {
-	if y >= 0 {
+	// Under normal paint the colour is the reading rather than the light, so the dusk stays off it:
+	// a hold's sole shaded halfway down toward black is the same colour a face pointing the other
+	// way paints, and the row cannot say which of the two it is looking at.
+	if y >= 0 || ship_debug_paint == .Normals {
 		return colour
 	}
 	return colour_shade(colour, 1 - SHIP_INBOARD_DUSK * min(-y / HULL_TINT_SPAN, 1))

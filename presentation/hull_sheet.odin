@@ -8,9 +8,9 @@ import "core:strings"
 import cutaway "./cutaway"
 import rl "vendor:raylib"
 
-// The hull contact sheet: `game.exe --hull-sheet`. One PNG holding the galleon from six named
-// eyes, so a session working on the hull sees the whole thing in a single `Read` rather than
-// reasoning about her geometry by text.
+// The hull contact sheet: `game.exe --hull-sheet`. One PNG holding the galleon from every named
+// eye in every paint mode, so a session working on the hull sees the whole thing in a single
+// `Read` rather than reasoning about her geometry by text.
 //
 // It exists because the zoom/diff/manifest instrument covers 2D chrome, and a geometry bug on
 // this screen is invisible rather than small: a wrongly-wound face draws *nothing at all*, so a
@@ -18,10 +18,16 @@ import rl "vendor:raylib"
 // cheapest thing that makes a hole in her visible — a face that is missing from one eye and
 // solid from its opposite is a winding, and nothing else.
 //
+// The rows are what make it a diagnosis rather than a sighting. Shaded, a face turned the wrong
+// way is a slightly-off shade at best and *identical* at worst, because every surface here is lit
+// from whichever side the eye is on — so the other rows are not a nicety, they are the only place
+// that defect appears at all. The modes are the workbench's own (Ship_Paint, ship_debug.odin, which
+// says what each one shows), taken where there is no keyboard to press them with.
+//
 // It is capture, not a fourth kind of thing: capture_open's window and pinned clock, the
 // registry's own staged ship, and draw_ship_cutaway untouched. Where a shot photographs the
-// framebuffer, this composes tiles into an image — which is the whole difference, since six
-// frames do not fit in one window.
+// framebuffer, this composes tiles into an image — which is the whole difference, since a grid of
+// frames does not fit in one window.
 //
 // The framing is the *shipped* one, moved: every eye here comes off cutaway.GALLEON_EYE through
 // galleon_view_from, the same way the workbench flies its camera. An angle is all a tile's name
@@ -31,19 +37,30 @@ import rl "vendor:raylib"
 @(private)
 HULL_SHEET_FILE :: "hull-sheet.png"
 
-// How many eyes the sheet holds. hull_sheet_tiles names them and the grid below spends them.
+// How many eyes the sheet holds, in how many paint modes. hull_sheet_eyes names the eyes, and
+// every mode there is gets a row — a mode the ship can be painted in that the sheet did not
+// photograph is one a headless session cannot reach at all.
 @(private)
-HULL_SHEET_TILES :: 6
+HULL_SHEET_EYES :: 6
+@(private)
+HULL_SHEET_MODES :: len(Ship_Paint)
+@(private)
+HULL_SHEET_TILES :: HULL_SHEET_EYES * HULL_SHEET_MODES
 
 // The grid, and the sheet it makes. Each tile is one logical frame at full size — the size the
 // game composes at — so every tile is the real screen rather than a resized one, and the 2D
-// backdrop behind her lands where it does in play. Two columns rather than three: a reader scales
-// the sheet to fit its longest side, so the squarer the sheet, the more of that budget each tile
-// gets.
+// backdrop behind her lands where it does in play.
+//
+// A row is a paint mode and a column is an eye, which is the axis the reading runs along: the
+// same hull in three paints, stacked, so a face that is a wrong colour in one row is compared
+// against the shaded frame directly above it rather than against a memory of it. That makes the
+// sheet a long strip, and a reader scaling it to fit its longest side spends less of that budget
+// per tile than a squarer grid would — this finds *which* surface is wrong, and the workbench is
+// where you go to look at it closely.
 @(private)
-HULL_SHEET_COLS :: 2
+HULL_SHEET_COLS :: HULL_SHEET_EYES
 @(private)
-HULL_SHEET_ROWS :: HULL_SHEET_TILES / HULL_SHEET_COLS
+HULL_SHEET_ROWS :: HULL_SHEET_MODES
 @(private)
 HULL_SHEET_W :: WINDOW_WIDTH * HULL_SHEET_COLS
 @(private)
@@ -55,19 +72,42 @@ HULL_SHEET_H :: WINDOW_HEIGHT * HULL_SHEET_ROWS
 @(private)
 HULL_SHEET_ELEVATION :: f32(60)
 
-// Hull_Sheet_Tile is one eye of the sheet: the name it is labelled and reasoned about by, and
+// Hull_Sheet_Eye is one eye of the sheet: the name it is labelled and reasoned about by, and
 // the framing it sees her from.
 @(private)
-Hull_Sheet_Tile :: struct {
+Hull_Sheet_Eye :: struct {
 	name: string,
 	eye:  cutaway.Eye,
 }
 
-// hull_sheet_tiles is the sheet, in the order it is tiled — an order the *reading* depends on:
-// each row is a pair of opposites, because a face solid from one eye and missing from the eye
-// facing it is a winding and nothing else.
+// Hull_Sheet_Tile is one frame of the sheet: an eye, in one paint.
+@(private)
+Hull_Sheet_Tile :: struct {
+	name:  string,
+	eye:   cutaway.Eye,
+	paint: Ship_Paint,
+}
+
+// hull_sheet_tiles is the sheet, in the order it is tiled: a mode at a time, so each row is one
+// paint across every eye and each column is one eye through every paint.
 @(private)
 hull_sheet_tiles :: proc() -> [HULL_SHEET_TILES]Hull_Sheet_Tile {
+	tiles: [HULL_SHEET_TILES]Hull_Sheet_Tile
+	index := 0
+	for paint in Ship_Paint {
+		for eye in hull_sheet_eyes() {
+			tiles[index] = Hull_Sheet_Tile{name = eye.name, eye = eye.eye, paint = paint}
+			index += 1
+		}
+	}
+	return tiles
+}
+
+// hull_sheet_eyes is the six angles, in the order they are laid across a row — an order the
+// *reading* depends on: they go in pairs of opposites, because a face solid from one eye and
+// missing from the eye facing it is a winding and nothing else.
+@(private)
+hull_sheet_eyes :: proc() -> [HULL_SHEET_EYES]Hull_Sheet_Eye {
 	return {
 		{name = "bow", eye = hull_sheet_eye(90, 0)},
 		{name = "stern", eye = hull_sheet_eye(-90, 0)},
@@ -136,7 +176,7 @@ hull_sheet_arg :: proc(args: []string) -> bool {
 	return slice.contains(args, "--hull-sheet")
 }
 
-// hull_sheet_main renders the six tiles into one PNG and returns — no mouse, no keyboard, one
+// hull_sheet_main renders every tile into one PNG and returns — no mouse, no keyboard, one
 // process that draws and exits, the same sense in which the rest of capture is headless.
 //
 // Reports whether the sheet landed in CAPTURE_DIR, and never names a file it did not write. The
@@ -194,27 +234,44 @@ hull_sheet_main :: proc() -> bool {
 	return true
 }
 
-// hull_sheet_draw composes one tile: the real ship screen through this tile's eye, captioned.
-// No cursor and no drag — the sheet is about her surfaces, and a hovered berth's card would
-// stand over the hull it is describing.
+// hull_sheet_draw composes one tile: the real ship screen through this tile's eye, in this tile's
+// paint, captioned. No cursor and no drag — the sheet is about her surfaces, and a hovered berth's
+// card would stand over the hull it is describing.
+//
+// The paint mode is state the drawing path reads rather than an argument it takes, so this sets it
+// for the tile and puts back whatever was standing: a mode left set would paint every tile after
+// this one, and the sheet's whole claim is that its rows differ only in this.
+//
+// Each tile is its own BeginTextureMode/EndTextureMode, and both ends of that flush the render
+// batch — which is what keeps the wireframe row a row. Wire mode is a GL polygon-mode switch over
+// geometry rlgl has only queued, so a tile whose geometry was still in flight when the next tile
+// switched modes would come out part solid, part mesh. draw_ship_cutaway brackets its own 3D pass
+// the same way; between them nothing crosses a tile edge.
 @(private)
 hull_sheet_draw :: proc(scene: ^Capture_Scene, frame: rl.RenderTexture2D, tile: Hull_Sheet_Tile) {
 	rl.BeginTextureMode(frame)
 	defer rl.EndTextureMode()
 
+	standing := ship_debug_paint
+	ship_debug_paint = tile.paint
+	defer ship_debug_paint = standing
+
 	framing := ship_framing_from(cutaway.galleon_view_from(tile.eye, WINDOW_WIDTH, WINDOW_HEIGHT))
 	draw_ship_cutaway(&scene.game, framing, Build_Drag{}, NO_MOUSE, describe = false)
-	hull_sheet_caption(tile.name)
+	hull_sheet_caption(tile)
 }
 
-// hull_sheet_caption names the eye a tile was taken from. It is the sheet's own chrome rather
-// than the game's, so it is set at the title size on an opaque plate: six views of one ship are
-// only comparable if you can tell which is which, and a name laid straight onto the sky reads
-// from some of these eyes and vanishes into the glare from others.
+// hull_sheet_caption names the eye a tile was taken from and the paint it was taken in. It is the
+// sheet's own chrome rather than the game's, so it is set at the title size on an opaque plate:
+// a grid of views of one ship is only comparable if you can tell which is which, and a name laid
+// straight onto the sky reads from some of these eyes and vanishes into the glare from others.
+//
+// Every tile carries its row's mode rather than the row carrying it once, so a tile still says
+// which paint it is when it is read cropped out of the sheet or scaled down to a thumbnail.
 @(private)
-hull_sheet_caption :: proc(name: string) {
+hull_sheet_caption :: proc(tile: Hull_Sheet_Tile) {
 	PAD :: f32(12)
-	text := fmt.ctprintf("%s", name)
+	text := fmt.ctprintf("%s — %s", tile.name, ship_debug_paint_name(tile.paint))
 	size := rl.MeasureTextEx(ui_font_title, text, UI_TITLE_SIZE, 1)
 	plate := rl.Rectangle{x = 0, y = 0, width = size.x + 2 * PAD, height = size.y + 2 * PAD}
 	rl.DrawRectangleRec(plate, COLOUR_INK_PRIMARY)

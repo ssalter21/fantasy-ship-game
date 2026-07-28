@@ -144,23 +144,38 @@ tool until the walk finishes anyway.
 odin run cmd/game -- --hull-sheet
 ```
 
-**Reach for this before reasoning about the hull's geometry by text.** One PNG, about a second, no mouse and no
-keyboard: `docs/ui/shots/hull-sheet.png`, six tiles of the galleon from six named eyes — **bow, stern, beam,
-quarter, above, below** — each captioned with the eye it was taken from. Two runs write byte-identical pixels,
-so it diffs like any other shot. A run that cannot write it says so and exits 1 without naming a file it didn't
-write — the previous sheet is still sitting there, so check the exit code, not the file's presence.
+**Reach for this before reasoning about the hull's geometry by text.** One PNG, a few seconds, no mouse and no
+keyboard: `docs/ui/shots/hull-sheet.png`, eighteen tiles of the galleon — six named eyes (**bow, stern, beam,
+quarter, above, below**) across each of three rows, one row per paint mode (**shaded, normal paint,
+wireframe**). Every tile is captioned with both. Two runs write byte-identical pixels, so it diffs like any
+other shot. A run that cannot write it says so and exits 1 without naming a file it didn't write — the previous
+sheet is still sitting there, so check the exit code, not the file's presence.
 
-Read it **in pairs**: bow against stern, beam against quarter, above against below. A face that is solid from
-one eye and missing from its opposite is a winding, and nothing else looks like that — which is the whole
-answer to *silent culling* below, invisible in a resting shot from the shipped quarter.
+Read it **in pairs across a row**: bow against stern, beam against quarter, above against below. A face that is
+solid from one eye and missing from its opposite is a winding, and nothing else looks like that — which is the
+whole answer to *silent culling* below, invisible in a resting shot from the shipped quarter.
+
+Then read it **down a column**, which is what the rows are for — the same eye in three paints:
+
+- **Shaded** is the screen the game draws. A face turned the wrong way is invisible here, not subtle: every
+  surface is lit from whichever side the eye is on, so a reversed one paints the *identical* colour. Turn every
+  deckhouse roof on the ship upside down and this row does not change by a single pixel.
+- **Normal paint** is where that face is the wrong colour outright — +x red, +y green, +z blue, negatives dark,
+  and unlike the shaded row it keeps each surface's own normal rather than turning it to the eye. A deck that
+  reads dark green is pointing down. The sea tint and the inboard dusk are off in this row, so a colour means
+  one thing: her submerged bottom and the inside of a hold are readable, not two shades of mud. Her **canvas
+  and spars are not** — `ship_quad_cloth` lights a sail from both faces on purpose and a spar carries a fixed
+  normal, so the rig answers the wireframe row, not this one.
+- **Wireframe** is the loft's resolution, a quad gone degenerate, and daylight between two pieces that should
+  meet.
 
 The five moved eyes are `cutaway.GALLEON_EYE` swung, through the same `galleon_view_from` the workbench flies
 (`quarter` **is** the shipped framing, so the other five read against the screen the game actually draws). The
 sheet has no framing of its own to tune and must not grow one — a test asserts every eye keeps the shipped
 lens, the shipped standoff and the shipped target height.
 
-For *why* a surface looks wrong once the sheet says which one it is, go to the workbench below: normal paint and
-wireframe are diagnoses, and this is the thing that finds the patient.
+For *why* a surface looks wrong once the sheet says which one it is, go to the workbench below: the sheet takes
+the three paints from six fixed eyes, and the workbench is where you steer one.
 
 ## Look every time — then check the numbers
 
@@ -356,11 +371,14 @@ logical frame with a control panel over it:
   ship redraws under the mouse. `C` copies the tuned `GALLEON_LOFT` to the clipboard as Odin to paste back;
   the tool never writes to the repo. `R` returns to the shipped hull and the shipped framing.
 - **`N` paints by normal** — +x red, +y green, +z blue, negatives dark. Turn this on *first* when a surface
-  looks merely dull. Every hard bug on this screen has been a face pointing the wrong way, and in normal paint
-  that looks like a slightly-off shade; here it is the wrong colour outright.
+  looks merely dull. Every hard bug on this screen has been a face pointing the wrong way, and shaded that is
+  a slightly-off shade at best and nothing at all at worst; here it is the wrong colour outright.
 - **`M` is wireframe** — the loft's resolution, degenerate quads, and daylight between two pieces that should
   meet. (rlgl batches geometry, so wire mode needs `DrawRenderBatchActive` either side of it or it lands on
   whatever was in flight. `draw_ship_cutaway` does that.)
+- The two are **one mode, not two flags** (`Ship_Paint`, `presentation/ship_debug.odin`): each key presses its
+  paint on, and presses it off back to the shipped shading. The mode is state on the drawing path rather than a
+  key toggle, which is what lets the contact sheet photograph all three without a keyboard.
 - **The camera flies** — yaw, distance, height, look and fov, plus the wheel to dolly. This is the one that
   answers *is this thing actually solid*: orbit and a room standing through the planking is obvious.
 

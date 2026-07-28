@@ -1,22 +1,22 @@
 package presentation
 
+import "core:fmt"
 import "core:math"
 import "core:testing"
 import cutaway "./cutaway"
 
 // The hull sheet's own windowless sliver: which eyes it holds, that each stands where its name
-// says, and that the grid tiles the sheet. The drawing half can't be tested here for the same
-// reason capture's can't — rl.IsWindowReady() is false under `odin test`, and hull_sheet_main
-// guards on it. What a rendered sheet looks like is checked by looking at one.
+// says, which paints it takes them in, and that the grid tiles the sheet. The drawing half can't
+// be tested here for the same reason capture's can't — rl.IsWindowReady() is false under
+// `odin test`, and hull_sheet_main guards on it. What a rendered sheet looks like is checked by
+// looking at one.
 
 @(test)
 hull_sheet_holds_six_named_eyes :: proc(t: ^testing.T) {
-	tiles := hull_sheet_tiles()
-	testing.expect_value(t, len(tiles), HULL_SHEET_TILES)
-
+	eyes := hull_sheet_eyes()
 	seen: map[string]bool
 	defer delete(seen)
-	for tile in tiles {
+	for tile in eyes {
 		testing.expect(t, tile.name != "", "an eye needs a name to be labelled and reasoned about by")
 		testing.expectf(t, !seen[tile.name], "two tiles share the name %s", tile.name)
 		seen[tile.name] = true
@@ -29,13 +29,63 @@ hull_sheet_holds_six_named_eyes :: proc(t: ^testing.T) {
 	}
 }
 
+// Every eye in every paint, and each row one paint. The rows are the reading: a face that is a
+// wrong colour in normal paint is only a defect if the shaded tile directly above it is the same
+// hull from the same place, and a mode the sheet skipped is a mode a headless session cannot see
+// at all.
+@(test)
+hull_sheet_takes_every_eye_in_every_paint :: proc(t: ^testing.T) {
+	tiles := hull_sheet_tiles()
+	seen: map[string]bool
+	defer delete(seen)
+	for tile, index in tiles {
+		// A tile the fill skipped is left zeroed, which is a nameless eye in the shaded paint.
+		testing.expectf(t, tile.name != "", "tile %d was never filled", index)
+
+		key := fmt.tprintf("%s/%v", tile.name, tile.paint)
+		testing.expectf(t, !seen[key], "two tiles are %s", key)
+		seen[key] = true
+
+		// Row is paint, column is eye — the grid the cells lay out below.
+		cell := hull_sheet_cell(index)
+		testing.expectf(
+			t,
+			cell.y == f32(int(tile.paint) * WINDOW_HEIGHT),
+			"the %v tiles should share one row (%s is at y %.0f)",
+			tile.paint,
+			tile.name,
+			cell.y,
+		)
+	}
+
+	for eye in hull_sheet_eyes() {
+		for paint in Ship_Paint {
+			testing.expectf(t, seen[fmt.tprintf("%s/%v", eye.name, paint)], "%s is missing in %v", eye.name, paint)
+		}
+	}
+}
+
+// Each tile says which paint it is, not just which eye — a tile read cropped out of the sheet or
+// scaled to a thumbnail is worth nothing if its row's mode is only knowable from its neighbours.
+@(test)
+hull_sheet_names_every_paint_it_takes :: proc(t: ^testing.T) {
+	seen: map[string]bool
+	defer delete(seen)
+	for paint in Ship_Paint {
+		name := ship_debug_paint_name(paint)
+		testing.expectf(t, name != "", "%v needs a name to caption its row with", paint)
+		testing.expectf(t, !seen[name], "two paints are captioned %s", name)
+		seen[name] = true
+	}
+}
+
 // The framing is the shipped one, moved: her standoff, the height it looks at and the lens are
 // GALLEON_EYE's, and an angle is all a tile's name means. This is the test that stops the sheet
 // becoming a second source of camera constants — tuning a tile would have to break it.
 @(test)
 hull_sheet_eyes_come_off_the_shipped_framing :: proc(t: ^testing.T) {
 	shipped := cutaway.GALLEON_EYE
-	for tile in hull_sheet_tiles() {
+	for tile in hull_sheet_eyes() {
 		testing.expectf(t, tile.eye.fov == shipped.fov, "%s should look through the shipped lens", tile.name)
 		testing.expectf(t, tile.eye.look == shipped.look, "%s should look at the shipped height", tile.name)
 		testing.expectf(t, tile.eye.pan == 0, "%s has nothing to leave room for, so it does not pan", tile.name)
@@ -64,7 +114,7 @@ hull_sheet_eyes_come_off_the_shipped_framing :: proc(t: ^testing.T) {
 // what makes the other five readable against it.
 @(test)
 hull_sheet_shows_the_shipped_framing_itself :: proc(t: ^testing.T) {
-	for tile in hull_sheet_tiles() {
+	for tile in hull_sheet_eyes() {
 		if tile.name == "quarter" {
 			testing.expect_value(t, tile.eye, cutaway.GALLEON_EYE)
 			testing.expect_value(
@@ -82,7 +132,7 @@ hull_sheet_shows_the_shipped_framing_itself :: proc(t: ^testing.T) {
 @(test)
 hull_sheet_eyes_stand_where_their_names_say :: proc(t: ^testing.T) {
 	at :: proc(name: string) -> (position: [3]f32, found: bool) {
-		for tile in hull_sheet_tiles() {
+		for tile in hull_sheet_eyes() {
 			if tile.name == name {
 				return cutaway.galleon_view_from(tile.eye, WINDOW_WIDTH, WINDOW_HEIGHT).camera.position, true
 			}
@@ -115,7 +165,7 @@ hull_sheet_eyes_stand_where_their_names_say :: proc(t: ^testing.T) {
 // catches.
 @(test)
 hull_sheet_eyes_look_from_six_different_places :: proc(t: ^testing.T) {
-	tiles := hull_sheet_tiles()
+	tiles := hull_sheet_eyes()
 	for tile, i in tiles {
 		for other in tiles[i + 1:] {
 			here := cutaway.galleon_view_from(tile.eye, WINDOW_WIDTH, WINDOW_HEIGHT).camera.position

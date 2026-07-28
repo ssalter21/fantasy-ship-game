@@ -1,26 +1,42 @@
 #+private
 package presentation
 
-// The hooks the hull workbench drives the ship screen through, and nothing else does. Both are
-// inert in the game — the flags are false — so draw_ship_cutaway composes exactly the frame it
-// composed before they existed.
+// The paint mode the ship screen draws its surfaces in, and nothing else the hull tools reach
+// into. It is inert in the game — the zero value is the shipped shading — so draw_ship_cutaway
+// composes exactly the frame it composed before this existed.
 //
-// Flying the camera is no longer one of them: the framing is chosen by the caller (#476), so the
-// workbench simply hands draw_ship_cutaway a framing built from its own eye, and there is no
-// package-level override for the shipped view to be dragged off by.
+// It lives here rather than inside the workbench because it is read on the *drawing* path, which
+// is the whole point of it. Every hard bug on this screen so far has been something drawn that
+// could not be seen: a surface facing the wrong way, a room standing through the planking, a
+// window cut into a part of the ship with nothing behind it. None of those look wrong in a
+// screenshot — they look slightly dull, or slightly odd — and finding them meant reading pixel
+// values back through the lighting arithmetic to work out which face was on screen.
 //
-// They are here rather than inside the workbench because they are read on the *drawing* path,
-// which is the whole point of them. Every hard bug on this screen so far has been something
-// drawn that could not be seen: a surface facing the wrong way, a room standing through the
-// planking, a window cut into a part of the ship with nothing behind it. None of those look
-// wrong in a screenshot — they look slightly dull, or slightly odd — and finding them meant
-// reading pixel values back through the lighting arithmetic to work out which face was on
-// screen. These three hooks turn each of those into something visible at a glance.
+// It is a value rather than a pair of key-toggled flags because it has two drivers, and only one
+// of them has a keyboard: the workbench sets it from a key press, and the hull sheet sets it per
+// tile so a headless run can photograph every mode. Modes are exclusive — a wireframe coloured by
+// normal is neither diagnosis.
+Ship_Paint :: enum {
+	// The game's own lighting: her timber under this sun.
+	Shaded,
+	// Every surface painted by the way it faces — +x red, +y green, +z blue, each negative dark —
+	// so a face turned the wrong way is a wrong colour rather than a dull one.
+	Normals,
+	// The ship as its own wireframe: the loft's resolution, any quad gone degenerate, and — the
+	// one that matters — daylight between two pieces that ought to meet.
+	Wires,
+}
 
-// ship_debug_normals paints every surface by the normal it is actually being lit from rather
-// than by its timber, so a face turned the wrong way is a wrong colour instead of a dull one.
-ship_debug_normals: bool
+ship_debug_paint: Ship_Paint
 
-// ship_debug_wires draws the ship as its own wireframe: the loft's resolution, any quad gone
-// degenerate, and — the one that matters — daylight between two pieces that ought to meet.
-ship_debug_wires: bool
+// ship_debug_paint_name is the name a mode is labelled by, on the sheet's tiles and in the
+// workbench's panel. Enumerated, so a mode added without a label is a compile error rather than a
+// row of blank captions.
+ship_debug_paint_name :: proc(paint: Ship_Paint) -> string {
+	names := [Ship_Paint]string {
+		.Shaded  = "shaded",
+		.Normals = "normal paint",
+		.Wires   = "wireframe",
+	}
+	return names[paint]
+}

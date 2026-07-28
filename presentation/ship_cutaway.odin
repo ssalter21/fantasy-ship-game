@@ -128,7 +128,7 @@ draw_ship_cutaway :: proc(
 	// switch, but rlgl queues geometry and only settles it when the batch fills or is drawn — so
 	// without the flushes the mode lands on whatever happened to be in flight and the ship comes
 	// out part solid, part mesh. Flush, switch, draw, flush, switch back.
-	if ship_debug_wires {
+	if ship_debug_paint == .Wires {
 		rlgl.DrawRenderBatchActive()
 		rlgl.EnableWireMode()
 	}
@@ -138,7 +138,7 @@ draw_ship_cutaway :: proc(
 	}
 	draw_ship_ornament(rooms, n)
 	draw_ship_rig(framing.handed)
-	if ship_debug_wires {
+	if ship_debug_paint == .Wires {
 		rlgl.DrawRenderBatchActive()
 		rlgl.DisableWireMode()
 	}
