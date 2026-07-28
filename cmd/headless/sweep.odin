@@ -106,7 +106,11 @@ headless_open_destination :: proc(path: Maybe(string)) -> (out: ^os.File, ok: bo
 // and a thousand voyages hold one voyage's Sim, and one voyage's rows, at a time. The two
 // files are written in the same seed order, so `seed` joins a Fight row back to the voyage it
 // was fought in.
-headless_sweep :: proc(req: Run_Request, out: ^os.File, fights: Maybe(^os.File)) -> (ok: bool) {
+//
+// The Fight rows are tallied as they go by, whether or not a report was asked for: a tally is
+// a fixed set of sums (Balance_Tally), so keeping one costs the same at one voyage as at a
+// thousand and no flag has to reach in here to switch it on.
+headless_sweep :: proc(req: Run_Request, out: ^os.File, fights: Maybe(^os.File)) -> (tally: Balance_Tally, ok: bool) {
 	// A sweep runs quiet, because a thousand printed voyages is a million lines; one voyage
 	// prints its events, which is what watching a single run go by means.
 	quiet := req.runs > 1
@@ -126,13 +130,14 @@ headless_sweep :: proc(req: Run_Request, out: ^os.File, fights: Maybe(^os.File))
 		defer delete(voyage_fights)
 
 		headless_write_line(out, headless_row_line(row)) or_return
-		if writing_fights {
-			for fight in voyage_fights {
+		for fight in voyage_fights {
+			balance_tally_add(&tally, fight)
+			if writing_fights {
 				headless_write_line(fights_out, headless_fight_line(fight)) or_return
 			}
 		}
 	}
-	return true
+	return tally, true
 }
 
 // headless_write_line writes one line plus its terminator and reports whether the whole of

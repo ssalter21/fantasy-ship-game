@@ -12,8 +12,9 @@ main :: proc() {
 	req, ok := headless_request(os.args[1:])
 	if !ok {
 		fmt.eprintln(
-			"headless: usage: headless [--seed <n>] [--runs <n>] [--out <path>] [--fights <path>]",
+			"headless: usage: headless [--seed <n>] [--runs <n>] [--out <path>] [--fights <path>] [--report]",
 		)
+		fmt.eprintln("headless: --report prints to stdout, so it needs an --out for the rows")
 		os.exit(1)
 	}
 
@@ -38,7 +39,7 @@ main :: proc() {
 
 	// stdout is not this run's to close, and a file's close is a write's last chance to fail,
 	// so it counts toward whether the sweep landed.
-	wrote := headless_sweep(req, out, fights)
+	tally, wrote := headless_sweep(req, out, fights)
 	closed := out == os.stdout || os.close(out) == nil
 	if file, writing_fights := fights.?; writing_fights {
 		closed = os.close(file) == nil && closed
@@ -52,34 +53,52 @@ main :: proc() {
 		fmt.eprintfln("headless: could not write the sweep to %s", failed)
 		os.exit(1)
 	}
+
+	// The report is what a reader reads, so it takes stdout — which the rows have already
+	// vacated, since asking for one is only accepted alongside an --out that names a file.
+	// It is an instrument and never a verdict: whatever it says, the run has already landed.
+	if req.report {
+		fmt.print(headless_report(tally, req))
+	}
 }
 
 // Run_Request is the run a command line asked for: `runs` voyages from consecutive seeds
 // starting at `seed`, so repeating the pair repeats the whole sweep, with the rows written to
 // `out` — a path, or nil for stdout — and the per-Fight rows to `fights`, a path or nil for
-// none at all. Its zero value is a run of no voyages, which is nothing —
-// headless_request starts from the one-voyage default instead (a deliberate break with the
-// zero-value-is-meaningful rule).
+// none at all. `report` asks for the balance report over the battles fought. Its zero value is
+// a run of no voyages, which is nothing — headless_request starts from the one-voyage default
+// instead (a deliberate break with the zero-value-is-meaningful rule).
 Run_Request :: struct {
 	seed:   u64,
 	runs:   int,
 	out:    Maybe(string),
 	fights: Maybe(string),
+	report: bool,
 }
 
 // headless_request reads the run out of a command line, in either `--flag <value>` or
 // `--flag=<value>` spelling. Absent flags give one voyage from seed 0, written to stdout.
 //
+// `--report` is the one flag that names no value, so it is read ahead of the value-taking
+// path; spelled with one (`--report=x`) it is not this flag, and falls through to be rejected
+// like any other unknown.
+//
 // Anything it cannot read as a runnable request is rejected: an unknown flag, a bare word,
-// a non-number, a run of none, an empty path, a flag whose value is the next flag, or the two
-// paths naming one file. A sweep script that misspells `--seed` gets an error rather than a
-// thousand voyages from the wrong seed. A spaced value that itself begins `--` is refused
-// before any flag's own reading of it, which is the only guard a path can have — it is
+// a non-number, a run of none, an empty path, a flag whose value is the next flag, or two
+// outputs naming one destination. A sweep script that misspells `--seed` gets an error rather
+// than a thousand voyages from the wrong seed. A spaced value that itself begins `--` is
+// refused before any flag's own reading of it, which is the only guard a path can have — it is
 // otherwise any string at all.
 headless_request :: proc(args: []string) -> (req: Run_Request, ok: bool) {
 	req = Run_Request{seed = 0, runs = 1, out = nil, fights = nil}
 
 	for i := 0; i < len(args); {
+		if args[i] == "--report" {
+			req.report = true
+			i += 1
+			continue
+		}
+
 		flag, value := args[i], ""
 		if eq := strings.index_byte(flag, '='); eq >= 0 {
 			flag, value = flag[:eq], flag[eq + 1:]
@@ -113,11 +132,16 @@ headless_request :: proc(args: []string) -> (req: Run_Request, ok: bool) {
 			return req, false
 		}
 	}
-	// An unnamed `--out` reads as "", which no accepted `--fights` path can be, so stdout
-	// never collides with a file here.
+	// Three outputs of three shapes, and none of them may land on top of another. An unnamed
+	// `--out` reads as "", which no accepted `--fights` path can be, so stdout never collides
+	// with a file here; the report takes stdout, so it collides with exactly the rows that
+	// were left there.
 	fights_path, writing_fights := req.fights.?
 	out_path := req.out.? or_else ""
 	if writing_fights && fights_path == out_path {
+		return req, false
+	}
+	if req.report && out_path == "" {
 		return req, false
 	}
 	return req, true
