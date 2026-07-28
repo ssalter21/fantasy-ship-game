@@ -63,6 +63,7 @@ a_battle_the_player_did_not_come_out_of_pays_no_wreck :: proc(t: ^testing.T) {
 	testing.expect_value(t, tally.all.survived, 1)
 	testing.expect_value(t, tally.all.wrecks, 1)
 	testing.expect_value(t, tally.all.payout, 40)
+	testing.expect_value(t, span_text(tally.all.payout_span), "40..40")
 	// The comparison the section is for: what a Reward at those same stakes would have paid,
 	// summed only over the battles that took a wreck.
 	testing.expect_value(t, tally.all.reward, voyage.voyage_reward_cargo(voyage.Scaling_Site{zone = .Deep, depth = 3}))
@@ -99,6 +100,34 @@ the_median_is_the_round_the_middle_battle_resolved_on :: proc(t: ^testing.T) {
 	}
 
 	testing.expect_value(t, report_median_round(tally), 4)
+}
+
+@(test)
+the_escape_gate_is_the_round_after_the_baseline_not_the_baseline :: proc(t: ^testing.T) {
+	// combat_may_break_off refuses while `battle.round < BASELINE_ROUND_COUNT`, and that round
+	// counts what has already resolved — so a battle that ended on the baseline round never had
+	// an escape to reach, and only a longer one did.
+	tally: Balance_Tally
+	for rounds in ([]int{combat.BASELINE_ROUND_COUNT, combat.BASELINE_ROUND_COUNT + 1}) {
+		row := report_test_row(voyage.Zone.Open_Sea, 0)
+		row.rounds = rounds
+		balance_tally_add(&tally, row)
+	}
+
+	text := headless_report(tally, Run_Request{seed = 1, runs = 2})
+
+	testing.expect(t, strings.contains(text, "escape gate (round 6): 1 (50.0%)"))
+}
+
+@(test)
+a_report_over_battles_that_took_no_wreck_prints_no_range_at_all :: proc(t: ^testing.T) {
+	// A payout of 0 is a wreck that held nothing, which is not the same fact as no wreck — so
+	// the low end of the span stays unset rather than reading as a payout of none.
+	tally: Balance_Tally
+	balance_tally_add(&tally, report_test_row(voyage.Zone.Coastal, 0)) // ends in a Break Off
+
+	testing.expect_value(t, span_text(tally.all.payout_span), "")
+	testing.expect(t, strings.contains(headless_report(tally, Run_Request{seed = 1, runs = 1}), "no wreck was taken"))
 }
 
 @(test)

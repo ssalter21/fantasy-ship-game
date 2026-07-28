@@ -14,6 +14,7 @@ main :: proc() {
 		fmt.eprintln(
 			"headless: usage: headless [--seed <n>] [--runs <n>] [--out <path>] [--fights <path>] [--report]",
 		)
+		fmt.eprintln("headless: --report prints to stdout, so it needs an --out for the rows")
 		os.exit(1)
 	}
 

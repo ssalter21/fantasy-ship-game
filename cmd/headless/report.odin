@@ -8,18 +8,8 @@ import voyage "../../core/voyage"
 
 // The balance report (CONTEXT.md: Balance report) — the swept Fight rows read back against
 // the power budget's own anchor, so an authored rate can be checked against what battles
-// actually do.
-//
-// **An instrument, not a gate.** Nothing here decides anything: it prints, it never fails a
-// run, and no test in this package asserts a figure it produces is in any band. The budget's
-// rates are authoring's to set and distinctness is judgement (CONTEXT.md, `roster_check`);
-// what this adds is numbers to argue from.
-
-// REPORT_HULL_PER_POINT is the budget's numeraire read as hull: one point is one magnitude of
-// Fire is five hull of swing over the reference fight (ship.POINT). The reference fight is
-// combat.BASELINE_ROUND_COUNT rounds at ship.STARTING_HULL, so one point is also one hull of
-// swing per round — which is what lets an observed hull/round column be read as points.
-REPORT_HULL_PER_POINT :: 5
+// actually do. **An instrument, not a gate**: nothing here decides anything, and no test
+// asserts a figure it produces is in any band.
 
 // Fight_Tally is the sums a report is printed from, over whatever set of Fight rows was
 // added to it. Sums rather than kept rows: a sweep of any length tallies in constant space,
@@ -46,13 +36,35 @@ Fight_Tally :: struct {
 	// Battles the player came out of alive, and how many of those had taken Commit.
 	survived:        int,
 	commit_survived: int,
-	// The wrecks taken and what they paid, against what a Reward at the same stakes pays —
-	// `reward` sums only over the battles that took a wreck, so the two are comparable.
+	// The wrecks taken and what they paid, against what a Reward at the same stakes pays. The
+	// Reward figures are summed only over the battles that took a wreck, so the two ranges are
+	// quoted over the same set of sites.
 	wrecks:          int,
 	payout:          int,
-	payout_low:      int,
-	payout_high:     int,
+	payout_span:     Span,
 	reward:          int,
+	reward_span:     Span,
+}
+
+// Span is the lowest and highest of something seen, `seen` nil until the first one — 0 is a
+// payout a wreck can genuinely pay, so an unset low cannot be spelled as one.
+Span :: struct {
+	low:  Maybe(int),
+	high: int,
+}
+
+// span_add widens a Span to hold one more reading.
+span_add :: proc(span: ^Span, value: int) {
+	low, seen := span.low.?
+	span.low = seen ? min(low, value) : value
+	span.high = seen ? max(span.high, value) : value
+}
+
+// span_text is a Span as `low..high`, or the empty string for one that saw nothing.
+// Temp_allocator scratch, consumed by the line being built around it.
+span_text :: proc(span: Span) -> string {
+	low, seen := span.low.?
+	return seen ? fmt.tprintf("%d..%d", low, span.high) : ""
 }
 
 // Balance_Tally is a whole sweep's battles: every one of them together, the same bucketed by
@@ -118,11 +130,12 @@ fight_tally_add :: proc(tally: ^Fight_Tally, row: Fight_Row) {
 	// so the wreck count is the battles the player won by sinking its opponent, not the
 	// battles that paid.
 	if row.ending == .Destroyed && survived {
+		reward := voyage.voyage_reward_cargo(voyage.Scaling_Site{zone = row.zone, depth = row.depth})
 		tally.wrecks += 1
 		tally.payout += row.payout
-		tally.payout_low = tally.wrecks == 1 ? row.payout : min(tally.payout_low, row.payout)
-		tally.payout_high = max(tally.payout_high, row.payout)
-		tally.reward += voyage.voyage_reward_cargo(voyage.Scaling_Site{zone = row.zone, depth = row.depth})
+		span_add(&tally.payout_span, row.payout)
+		tally.reward += reward
+		span_add(&tally.reward_span, reward)
 	}
 }
 
@@ -155,13 +168,17 @@ headless_report :: proc(tally: Balance_Tally, req: Run_Request) -> string {
 	return strings.to_string(b)
 }
 
-// report_anchor states the rate every figure below is read against, so the divergences are
+// report_anchor states the rate every figure below is read against, so a divergence from it is
 // readable off the page without arithmetic.
+//
+// A side's swing is the hull that side *lost*, so the Fire behind it is the other ship's — the
+// line says which way round it goes, because the whole point of quoting it in points is that
+// it be read as somebody's Fire.
 report_anchor :: proc(b: ^strings.Builder) {
 	fmt.sbprintfln(
 		b,
-		"\nThe budget's anchor: 1 point = 1 magnitude of Fire = %d hull of swing over the\nreference fight (%s, %d rounds, %d hull). Over those rounds that is one\nhull of swing a round, so the hull/rd columns read off as points of Fire.",
-		REPORT_HULL_PER_POINT,
+		"\nThe budget's anchor: 1 point = 1 magnitude of Fire = %d hull of swing over the\nreference fight (%s, %d rounds, %d hull). Over those rounds that is one\nhull of swing a round, so a hull/rd below reads off as the Fire that landed it.",
+		ship.POINT_HULL_SWING,
 		headless_zone_name(voyage.Zone.Open_Sea),
 		combat.BASELINE_ROUND_COUNT,
 		ship.STARTING_HULL,
@@ -171,11 +188,14 @@ report_anchor :: proc(b: ^strings.Builder) {
 // report_swing is the observed Hull swing per round, per zone and per depth band within it —
 // the two axes a Scaling_Site scales a hostile along, kept apart rather than averaged into
 // one number, since a report that averaged them could not say where a rate diverges.
+//
+// The columns are headed by the hull the swing came off rather than by whose Fire landed it,
+// which are opposite sides: what the player lost is what the hostile fired.
 report_swing :: proc(b: ^strings.Builder, tally: Balance_Tally) {
 	fmt.sbprintln(b, "\nHull swing, by the stakes it was fought at")
 	// The spanner over the two swing pairs is the one line hand-aligned to the widths
 	// report_swing_row holds every other line to.
-	fmt.sbprintln(b, "                                   player swing     hostile swing")
+	fmt.sbprintln(b, "                                    off the player   off the hostile")
 	report_swing_row(b, "zone", "depth", "fights", "rounds", "hull", "hull/rd", "hull", "hull/rd")
 	for zone in voyage.Zone {
 		for depth in 0 ..= voyage.DEPTH_STEPS {
@@ -200,11 +220,11 @@ report_swing_cell :: proc(b: ^strings.Builder, zone: string, depth: string, cell
 		zone,
 		depth,
 		report_count(cell.fights),
-		report_figure(report_mean(cell.rounds, cell.fights)),
-		report_figure(report_mean(cell.player_swing, cell.fights)),
-		report_figure(report_mean(cell.player_swing, cell.rounds)),
-		report_figure(report_mean(cell.hostile_swing, cell.fights)),
-		report_figure(report_mean(cell.hostile_swing, cell.rounds)),
+		report_mean_figure(cell.rounds, cell.fights),
+		report_mean_figure(cell.player_swing, cell.fights),
+		report_mean_figure(cell.player_swing, cell.rounds),
+		report_mean_figure(cell.hostile_swing, cell.fights),
+		report_mean_figure(cell.hostile_swing, cell.rounds),
 	)
 }
 
@@ -228,13 +248,18 @@ report_swing_row :: proc(b: ^strings.Builder, zone, depth, fights, rounds, playe
 }
 
 // report_length is how long battles actually run against the baseline the budget prices
-// against — the same round count that opens the escape gate (combat_may_break_off), so
-// reaching it is both "the reference fight's length" and "the round a straddle can be read".
+// against, and how many of them get far enough to have an escape at all.
+//
+// The gate opens the round *after* the baseline: combat_may_break_off refuses while
+// `battle.round < BASELINE_ROUND_COUNT`, and `battle.round` there counts the rounds already
+// resolved — so a battle that ended on the baseline round never had one, and only a longer
+// one did.
 report_length :: proc(b: ^strings.Builder, tally: Balance_Tally) {
 	all := tally.all
+	gate := combat.BASELINE_ROUND_COUNT + 1
 	reached_gate := 0
 	for count, round in tally.rounds_at {
-		if round >= combat.BASELINE_ROUND_COUNT {
+		if round >= gate {
 			reached_gate += count
 		}
 	}
@@ -242,19 +267,22 @@ report_length :: proc(b: ^strings.Builder, tally: Balance_Tally) {
 	fmt.sbprintfln(b, "\nFight length - the reference fight is %d rounds", combat.BASELINE_ROUND_COUNT)
 	fmt.sbprintfln(
 		b,
-		"  median %d   mean %s   reached the escape gate (round %d): %s",
+		"  median %d   mean %s   lasted into the escape gate (round %d): %s",
 		report_median_round(tally),
-		report_figure(report_mean(all.rounds, all.fights)),
-		combat.BASELINE_ROUND_COUNT,
+		report_mean_figure(all.rounds, all.fights),
+		gate,
 		report_share(reached_gate, all.fights),
 	)
-	fmt.sbprintfln(b, "  ran to the hard cap of %d rounds: %s", combat.HARD_ROUND_CAP, report_share(all.round_cap, all.fights))
 }
 
 // report_break_off is the straddle in practice: how often a battle was left rather than
-// fought out, and by whom. Only the strictly faster ship may break off, and the player's
-// Speed is read off a hold that fills and empties all voyage — so which side reaches the gate
-// is the joint (roster, cargo) property the pinned straddle test can only assert at a point.
+// fought out, and by whom. Only the strictly faster ship may break off, and the player's Speed
+// is read off a hold that fills and empties all voyage — so which side reaches the gate is the
+// joint (roster, cargo) property the pinned straddle test can only assert at a point.
+//
+// The player's column is a reading of the reference player's own rule and not of the roster:
+// it fights its battles out (scripted_battle_order), so the line says so rather than leaving a
+// zero to be read as a hostile nobody can outrun.
 report_break_off :: proc(b: ^strings.Builder, all: Fight_Tally) {
 	fmt.sbprintln(b, "\nBreak Off - the straddle in practice, at every cargo a voyage passes through")
 	fmt.sbprintfln(
@@ -264,7 +292,14 @@ report_break_off :: proc(b: ^strings.Builder, all: Fight_Tally) {
 		all.escaped[.B],
 		all.escaped[.A],
 	)
-	fmt.sbprintfln(b, "  fought to a sinking: %s   stalemated at the cap: %s", report_share(all.destroyed, all.fights), report_share(all.round_cap, all.fights))
+	fmt.sbprintln(b, "  the player's figure is its own rule: it fights every battle out")
+	fmt.sbprintfln(
+		b,
+		"  fought to a sinking: %s   stalemated at the %d-round cap: %s",
+		report_share(all.destroyed, all.fights),
+		combat.HARD_ROUND_CAP,
+		report_share(all.round_cap, all.fights),
+	)
 }
 
 // report_orders is what the captain spent: the Press, rationed one to a battle, and Commit,
@@ -280,7 +315,7 @@ report_orders :: proc(b: ^strings.Builder, all: Fight_Tally) {
 		b,
 		"  Commit taken in %s, for %s rounds where it was taken at all",
 		report_share(all.commit_fights, all.fights),
-		report_figure(report_mean(all.commit_rounds, all.commit_fights)),
+		report_mean_figure(all.commit_rounds, all.commit_fights),
 	)
 	fmt.sbprintfln(b, "  the player survived %s of all battles", report_share(all.survived, all.fights))
 	fmt.sbprintfln(b, "  and %s of the battles that took Commit", report_share(all.commit_survived, all.commit_fights))
@@ -291,15 +326,23 @@ report_orders :: proc(b: ^strings.Builder, all: Fight_Tally) {
 // by a risking stage, and a Fight risks the whole voyage.
 report_wrecks :: proc(b: ^strings.Builder, all: Fight_Tally) {
 	fmt.sbprintln(b, "\nWrecks - against a Reward at the same stakes")
+	if all.wrecks == 0 {
+		fmt.sbprintln(b, "  no battle was won by sinking, so no wreck was taken")
+		return
+	}
 	fmt.sbprintfln(
 		b,
-		"  wrecks taken: %s   mean %s   range %d..%d",
+		"  wrecks taken: %s   mean %s   range %s",
 		report_share(all.wrecks, all.fights),
-		report_figure(report_mean(all.payout, all.wrecks)),
-		all.payout_low,
-		all.payout_high,
+		report_mean_figure(all.payout, all.wrecks),
+		span_text(all.payout_span),
 	)
-	fmt.sbprintfln(b, "  a Reward at those same stakes pays a mean of %s", report_figure(report_mean(all.reward, all.wrecks)))
+	fmt.sbprintfln(
+		b,
+		"  a Reward at those same sites: mean %s   range %s",
+		report_mean_figure(all.reward, all.wrecks),
+		span_text(all.reward_span),
+	)
 }
 
 // report_count_peaks surfaces the two count-peak distortions the glossary records rather than
@@ -309,7 +352,12 @@ report_wrecks :: proc(b: ^strings.Builder, all: Fight_Tally) {
 //
 // Read off the authored content rather than off the sweep, because the ceiling a Count is
 // priced at is a property of the template and the roster: every archetype is drawn with no
-// regard to zone, so every one of them is what any battle may meet.
+// regard to zone, so every one of them is what any battle may meet. The realistic half cannot
+// live beside `ship_count_peaks` where the structural half does — it counts the hostile roster,
+// and `core/ship` cannot import `core/voyage`.
+//
+// The two asserts below are the same invariants the Sim asserts every time it builds a ship
+// (ship_new_ship, voyage_pve_opponent), so a sweep that ran at all has already proved them.
 report_count_peaks :: proc(b: ^strings.Builder) {
 	priced := ship.ship_count_peaks()
 	_, structural := report_peak_tag(priced)
@@ -401,12 +449,12 @@ report_mean :: proc(sum: int, count: int) -> f64 {
 	return count == 0 ? 0 : f64(sum) / f64(count)
 }
 
-// report_figure and report_count are the report's two number formats — a mean to one decimal,
-// and a plain count. Both come back as text, because a column is aligned as a string here:
-// given a width, `fmt` pads a number with zeros and a string with spaces.
+// report_mean_figure and report_count are the report's two number formats — a mean to one
+// decimal, and a plain count. Both come back as text, because a column is aligned as a string
+// here: given a width, `fmt` pads a number with zeros and a string with spaces.
 // The strings are temp_allocator scratch, consumed by the line being built around them.
-report_figure :: proc(value: f64) -> string {
-	return fmt.tprintf("%.1f", value)
+report_mean_figure :: proc(sum: int, count: int) -> string {
+	return fmt.tprintf("%.1f", report_mean(sum, count))
 }
 
 report_count :: proc(value: int) -> string {
