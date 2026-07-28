@@ -11,7 +11,7 @@ import voyage "../../core/voyage"
 // HEADLESS_FIGHT_HEADER names the columns in the order headless_fight_line writes them, the
 // same one-format-stated-twice arrangement as HEADLESS_ROW_HEADER, held in step by the test
 // that reads a row of known fields back against this line.
-HEADLESS_FIGHT_HEADER :: "seed,fight,zone,depth,archetype,rounds,ending,winner,player_hull_start,player_hull_swing,hostile_hull_start,hostile_hull_swing,press,commit_rounds,payout"
+HEADLESS_FIGHT_HEADER :: "seed,fight,zone,depth,archetype,rounds,ending,winner,escaped,player_hull_start,player_hull_swing,hostile_hull_start,hostile_hull_swing,press,commit_rounds,payout"
 
 // Fight_Row is one resolved battle as a sweep records it. Every field is a plain value or an
 // authored static string, so a row outlives the Sim that produced it — nothing here borrows
@@ -38,6 +38,11 @@ Fight_Row :: struct {
 	// winner at the round cap is combat's hull tiebreak rather than a kill, which is why the
 	// two are separate columns: `ending` is what stops a stalemate reading as a win.
 	winner:             Maybe(combat.Side),
+	// The side that broke off, nil for a battle that ended any other way. Break Off ends the
+	// battle for both ships and Event_Battle_Ended names no side, so this is the player's own
+	// order where there was one and the hostile by elimination where there was not — which is
+	// what makes the escape gate readable as a straddle rather than as a count.
+	escaped:            Maybe(combat.Side),
 	player_hull_start:  int,
 	player_hull_end:    int,
 	hostile_hull_start: int,
@@ -57,7 +62,7 @@ Fight_Row :: struct {
 // The string is temp_allocator scratch, consumed by the write that follows it.
 headless_fight_line :: proc(row: Fight_Row) -> string {
 	return fmt.tprintf(
-		"%d,%d,%s,%d,%s,%d,%s,%s,%d,%d,%d,%d,%s,%d,%d",
+		"%d,%d,%s,%d,%s,%d,%s,%s,%s,%d,%d,%d,%d,%s,%d,%d",
 		row.seed,
 		row.fight,
 		headless_zone_name(row.zone),
@@ -65,7 +70,8 @@ headless_fight_line :: proc(row: Fight_Row) -> string {
 		row.archetype,
 		row.rounds,
 		headless_ending_name(row.ending),
-		headless_winner_name(row.winner),
+		headless_side_name(row.winner),
+		headless_side_name(row.escaped),
 		row.player_hull_start,
 		row.player_hull_start - row.player_hull_end,
 		row.hostile_hull_start,
@@ -92,11 +98,11 @@ headless_ending_name :: proc(reason: combat.End_Reason) -> string {
 	unreachable()
 }
 
-// headless_winner_name names the side the battle was awarded to, by which ship it is rather
-// than which slot of the Battle: the player is always Side.A (voyage_start_battle). "none" is
-// a mutual sinking that the speed tiebreak could not separate.
-headless_winner_name :: proc(winner: Maybe(combat.Side)) -> string {
-	side, decided := winner.?
+// headless_side_name names a side by which ship it is rather than which slot of the Battle:
+// the player is always Side.A (voyage_start_battle). "none" is the absent side — a mutual
+// sinking the speed tiebreak could not separate, or a battle nobody broke off from.
+headless_side_name :: proc(side_of: Maybe(combat.Side)) -> string {
+	side, decided := side_of.?
 	if !decided {
 		return "none"
 	}
@@ -191,6 +197,11 @@ fight_log_battle_event :: proc(log: ^Fight_Log, event: combat.Event) {
 		row.rounds = e.round
 		row.ending = e.reason
 		row.winner = e.winner
+		// A Break Off the player did not order is the hostile's: the order goes in before the
+		// round resolves (fight_log_order), so the player's own is already recorded by now.
+		if e.reason == .Broke_Off && row.escaped == nil {
+			row.escaped = combat.Side.B
+		}
 	case combat.Event_Hull_Repaired:
 	case combat.Event_Damage_Dealt:
 	case combat.Event_Ship_Sunk:
@@ -200,7 +211,8 @@ fight_log_battle_event :: proc(log: ^Fight_Log, event: combat.Event) {
 
 // fight_log_order records what the captain ordered this round. Press names the phase it was
 // spent on and lands at most once — the Battle rations it (combat_may_press) — so the field
-// is the phase rather than a count; Commit is unrationed, so it is counted.
+// is the phase rather than a count; Commit is unrationed, so it is counted; Break Off is the
+// one order whose consequence names no side, so the row takes the side from the order itself.
 // The switch is exhaustive: an order with nothing to record says so by an empty arm.
 fight_log_order :: proc(log: ^Fight_Log, order: combat.Command) {
 	row, fighting := &log.open.?
@@ -213,8 +225,9 @@ fight_log_order :: proc(log: ^Fight_Log, order: combat.Command) {
 		row.press = c.phase
 	case combat.Command_Commit:
 		row.commit_rounds += 1
-	case combat.Command_Jettison_Cargo:
 	case combat.Command_Break_Off:
+		row.escaped = combat.Side.A
+	case combat.Command_Jettison_Cargo:
 	case combat.Command_Hold:
 	}
 }

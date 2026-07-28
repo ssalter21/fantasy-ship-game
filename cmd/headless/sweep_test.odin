@@ -49,7 +49,7 @@ a_row_names_the_zone_reached_and_says_so_when_none_was :: proc(t: ^testing.T) {
 
 @(test)
 a_sweep_writes_a_header_and_one_row_per_seed_in_seed_order :: proc(t: ^testing.T) {
-	text, fights, ok := sweep_test_texts(Run_Request{seed = 3, runs = 3}, "sweep-order.csv")
+	text, fights, _, ok := sweep_test_texts(Run_Request{seed = 3, runs = 3}, "sweep-order.csv")
 	if !testing.expect(t, ok, "the sweep could not be written and read back") {
 		return
 	}
@@ -72,8 +72,8 @@ the_same_seed_range_writes_the_same_rows_every_time :: proc(t: ^testing.T) {
 	// which holds only if a seed range is a fixed question.
 	req := Run_Request{seed = 11, runs = 3}
 
-	first, first_fights, first_ok := sweep_test_texts(req, "sweep-repeat-a.csv")
-	second, second_fights, second_ok := sweep_test_texts(req, "sweep-repeat-b.csv")
+	first, first_fights, _, first_ok := sweep_test_texts(req, "sweep-repeat-a.csv")
+	second, second_fights, _, second_ok := sweep_test_texts(req, "sweep-repeat-b.csv")
 	if !testing.expect(t, first_ok && second_ok, "the sweeps could not be written and read back") {
 		return
 	}
@@ -100,17 +100,25 @@ a_destination_that_cannot_be_opened_is_refused_and_none_named_is_stdout :: proc(
 }
 
 // sweep_test_texts runs `req` into two files of its own under the temp directory — the voyage
-// rows and the Fight rows — and reads the whole of both back, removing them behind itself.
-// Both texts are the caller's to delete.
+// rows and the Fight rows — and reads the whole of both back, removing them behind itself,
+// along with the balance tally the same sweep kept. Both texts are the caller's to delete.
 //
 // Every allocation here is on the ordinary allocator: headless_sweep drains
 // context.temp_allocator between voyages, so a path held there would not survive its sweep.
 // `name` is per-test because the test runner is threaded, and two sweeps sharing a file would
 // be one sweep's rows read by the other.
-sweep_test_texts :: proc(req: Run_Request, name: string) -> (rows: string, fights: string, ok: bool) {
+sweep_test_texts :: proc(
+	req: Run_Request,
+	name: string,
+) -> (
+	rows: string,
+	fights: string,
+	tally: Balance_Tally,
+	ok: bool,
+) {
 	dir, dir_err := os.temp_directory(context.allocator)
 	if dir_err != nil {
-		return "", "", false
+		return "", "", tally, false
 	}
 	defer delete(dir)
 
@@ -127,28 +135,28 @@ sweep_test_texts :: proc(req: Run_Request, name: string) -> (rows: string, fight
 
 	out, opened := headless_open_destination(sweep.out)
 	if !opened {
-		return "", "", false
+		return "", "", tally, false
 	}
 	fights_out, fights_opened := headless_open_destination(sweep.fights)
 	if !fights_opened {
 		os.close(out)
-		return "", "", false
+		return "", "", tally, false
 	}
 
-	wrote := headless_sweep(sweep, out, fights_out)
+	swept, wrote := headless_sweep(sweep, out, fights_out)
 	closed := os.close(out) == nil && os.close(fights_out) == nil
 	if !wrote || !closed {
-		return "", "", false
+		return "", "", tally, false
 	}
 
 	rows_data, rows_err := os.read_entire_file_from_path(rows_path, context.allocator)
 	if rows_err != nil {
-		return "", "", false
+		return "", "", tally, false
 	}
 	fights_data, fights_err := os.read_entire_file_from_path(fights_path, context.allocator)
 	if fights_err != nil {
 		delete(rows_data)
-		return "", "", false
+		return "", "", tally, false
 	}
-	return string(rows_data), string(fights_data), true
+	return string(rows_data), string(fights_data), swept, true
 }
