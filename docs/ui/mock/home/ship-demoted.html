@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>At Anchor — the ship demoted</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* The one size the harness does not carry. 48px is Ui_Level.Display, it is baked
+       * (ui_font_display, presentation/ui.odin), and it is measured 0% antialiased like 32
+       * and 16 — so this proposes no new atlas, only a var the harness never needed while
+       * every mockup's biggest thing was a heading. Here the biggest thing is a number. */
+      :root {
+        --display: 48px;
+      }
+
+      .display {
+        font-size: var(--display);
+      }
+
+      /* ---- the world, which is now the margin ------------------------------------ */
+
+      .sky {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 58px;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .horizon {
+        left: 0;
+        top: 58px;
+        width: 1244px;
+        height: 3px;
+        background: var(--foam);
+      }
+
+      .sea {
+        left: 0;
+        top: 61px;
+        width: 1244px;
+        height: 639px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      /* Two hull-down islands, so the strip of world that is left is not a flat wall of
+       * blue (style guide, "the sea is the backdrop"). Blocked in, like shop.html's hull. */
+      .isle-top {
+        background: var(--green);
+      }
+
+      .isle-shore {
+        background: var(--sand);
+      }
+
+      /* ---- the galleon, demoted to a key ----------------------------------------- */
+
+      /* She is 320x87 in the top-right corner: two masts, a deck line, a keel, and her
+       * eight berths as numbered pips in her own geography — exposed above the waterline,
+       * concealed below it. The screen's horizon rule IS her waterline; she floats on the
+       * same line the world does. Nothing here is a picture of a ship. It is a legend for
+       * the ledger below, and it indexes it 1 to 8. */
+      .mast {
+        width: 3px;
+        height: 22px;
+        top: 8px;
+        background: var(--trunk);
+      }
+
+      .sail {
+        width: 24px;
+        height: 10px;
+        top: 12px;
+        background: var(--cream-bright);
+      }
+
+      .deck-line {
+        left: 908px;
+        top: 52px;
+        width: 304px;
+        height: 3px;
+        background: var(--cliff);
+      }
+
+      .hull-side {
+        top: 52px;
+        width: 2px;
+        height: 38px;
+        background: var(--cliff);
+      }
+
+      .keel {
+        left: 940px;
+        top: 90px;
+        width: 250px;
+        height: 5px;
+        background: var(--rock);
+      }
+
+      .pip {
+        width: 40px;
+        height: 22px;
+        padding-top: 3px;
+        text-align: center;
+        background: var(--parchment);
+        border: 1px solid var(--rock);
+      }
+
+      .pip--sel {
+        border: 2px solid var(--sea-deep);
+      }
+
+      /* An empty berth is a hole in the paper wherever it appears — pip or row. */
+      .pip--hole {
+        background: transparent;
+        border: 2px solid var(--cliff);
+        color: var(--cream-bright);
+      }
+
+      .pip--target {
+        background: transparent;
+        border: 2px solid var(--foam);
+        color: var(--cream-bright);
+      }
+
+      /* ---- the numbers, which are now the subject -------------------------------- */
+
+      /* One slab, 1196x116, directly under the heading, and the four values set at Display.
+       * They are the largest thing on the screen — larger than the screen's own name. That
+       * inversion is the whole brief: today they are 16px chrome in a 34px strip under the
+       * hull (BUILD_LEDGER_Y 650, BUILD_LEDGER_H 34). */
+      .numbers {
+        left: 24px;
+        top: 104px;
+        width: 1196px;
+        height: 116px;
+      }
+
+      .col-rule {
+        top: 118px;
+        width: 1px;
+        height: 88px;
+        background: var(--cliff);
+      }
+
+      /* A ratio gets a bar; a scalar does not. Hull and Cargo are the only two terms on the
+       * ship that are "x of y", and the bar is what makes the y readable without arithmetic. */
+      .meter {
+        height: 10px;
+        background: var(--sand);
+      }
+
+      .meter-fill {
+        height: 10px;
+        background: var(--rock);
+      }
+
+      /* ---- the berths ------------------------------------------------------------ */
+
+      /* Two columns of four, and the columns ARE the exposed/concealed split the hull used
+       * to carry by geography. Every row is 400x74 and holds three lines, two terms wide. */
+      .berth {
+        width: 400px;
+        height: 74px;
+      }
+
+      .berth--hole {
+        background: transparent;
+        border: 2px solid var(--cliff);
+        color: var(--cream-bright);
+      }
+
+      .berth--target {
+        background: transparent;
+        border: 2px solid var(--foam);
+        color: var(--cream-bright);
+      }
+
+      .r0 {
+        top: 12px;
+      }
+
+      .r1 {
+        top: 34px;
+      }
+
+      .r2 {
+        top: 56px;
+      }
+
+      .l {
+        position: absolute;
+        left: 30px;
+      }
+
+      .r {
+        position: absolute;
+        right: 14px;
+      }
+
+      /* The caret marks the inspected berth, and every row keeps its 16px left margin free
+       * so the caret has somewhere to be (style guide, the centred stack's left-aligned
+       * labels). A shape, never a codepoint. */
+      .caret {
+        width: 0;
+        height: 0;
+        border-left: 10px solid var(--ink);
+        border-top: 6px solid transparent;
+        border-bottom: 6px solid transparent;
+      }
+
+      /* ---- the inspected berth, docked ------------------------------------------- */
+
+      .rail {
+        left: 868px;
+        top: 256px;
+        width: 352px;
+        height: 320px;
+      }
+
+      .rule {
+        left: 888px;
+        width: 312px;
+        height: 1px;
+        background: var(--cliff);
+      }
+
+      /* ---- the fitting in hand --------------------------------------------------- */
+
+      /* A card lifted OFF the surface: ui_card(rect, .Primary, .Floating), whose shadow is a
+       * second rectangle. Written as its own div rather than .cast-shadow because an
+       * absolutely-placed card's negative-z pseudo-element falls behind the stage's own
+       * ground — and this is what the port is anyway (rl.Fade(COLOUR_SEA_DEEP, 0.45)). */
+      .ghost-shadow {
+        left: 217px;
+        top: 375px;
+        width: 176px;
+        height: 62px;
+        background: var(--sea-deep);
+        opacity: 0.45;
+      }
+
+      .ghost {
+        left: 212px;
+        top: 369px;
+        width: 176px;
+        height: 62px;
+      }
+
+      .ghost .l {
+        left: 14px;
+      }
+
+      .cursor {
+        left: 300px;
+        top: 400px;
+        width: 0;
+        height: 0;
+        border-left: 11px solid var(--foam);
+        border-bottom: 16px solid transparent;
+      }
+
+      /* ---- the two destructive acts ---------------------------------------------- */
+
+      /* Both are armed, because a laden berth is in the air — which is the only condition
+       * under which either exists (BUILD_DANGER, presentation/build_surface.odin: the bin
+       * and the armed ledger are one signal on the only two places it is true).
+       *
+       * They are told apart by HOW MUCH coral each spends. The bin washes the whole card:
+       * the whole fitting goes. The strike colours a bar exactly the width of the cargo:
+       * only the load goes, and the hold stays fitted. */
+      .act {
+        width: 400px;
+        height: 72px;
+        top: 592px;
+        border: 2px solid var(--coral);
+      }
+
+      .act .l {
+        left: 16px;
+      }
+
+      .wash {
+        left: 24px;
+        top: 592px;
+        width: 400px;
+        height: 72px;
+        background: var(--coral);
+        opacity: 0.2;
+      }
+
+      .strike-fill {
+        background: var(--coral);
+      }
+
+      /* ---- the way out ----------------------------------------------------------- */
+
+      .chart {
+        left: 868px;
+        top: 592px;
+        width: 352px;
+        height: 72px;
+      }
+
+      .chart-caret {
+        left: 896px;
+        top: 613px;
+        width: 0;
+        height: 0;
+        border-bottom: 14px solid var(--ink);
+        border-left: 9px solid transparent;
+        border-right: 9px solid transparent;
+      }
+
+      .stamp {
+        right: 24px;
+        top: 676px;
+        color: var(--haze);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at sky"></div>
+      <div class="at isle-top" style="left: 380px; top: 42px; width: 92px; height: 12px"></div>
+      <div class="at isle-shore" style="left: 372px; top: 54px; width: 108px; height: 4px"></div>
+      <div class="at isle-top" style="left: 700px; top: 46px; width: 56px; height: 9px"></div>
+      <div class="at isle-shore" style="left: 694px; top: 55px; width: 68px; height: 3px"></div>
+      <div class="at horizon"></div>
+      <div class="at sea"></div>
+
+      <!-- The galleon. Small, marginal, schematic: a legend, not the subject. -->
+      <div class="at mast" style="left: 1010px"></div>
+      <div class="at sail" style="left: 998px"></div>
+      <div class="at mast" style="left: 1110px"></div>
+      <div class="at sail" style="left: 1098px"></div>
+      <div class="at hull-side" style="left: 906px"></div>
+      <div class="at hull-side" style="left: 1210px"></div>
+      <div class="at deck-line"></div>
+      <div class="at keel"></div>
+
+      <div class="at pip pip--sel body" style="left: 965px; top: 30px">1</div>
+      <div class="at pip pip--target body" style="left: 1015px; top: 30px">2</div>
+      <div class="at pip body" style="left: 1065px; top: 30px">3</div>
+      <div class="at pip body" style="left: 1115px; top: 30px">4</div>
+
+      <div class="at pip pip--hole body" style="left: 965px; top: 64px">5</div>
+      <div class="at pip body" style="left: 1015px; top: 64px">6</div>
+      <div class="at pip body" style="left: 1065px; top: 64px">7</div>
+      <div class="at pip body" style="left: 1115px; top: 64px">8</div>
+
+      <!-- The screen's name, and the schematic's caption, both over water. -->
+      <div class="at title over-water" style="left: 40px; top: 14px">At Anchor</div>
+      <div class="at body over-water" style="left: 40px; top: 62px">
+        8 berths &middot; 6 fitted &middot; 1 bare &middot; 1 in hand
+      </div>
+      <div class="at body over-water" style="left: 560px; top: 62px; width: 330px; text-align: right">
+        berths 1&mdash;8, as they sit aboard
+      </div>
+
+      <!-- THE NUMBERS. Four terms, Display size, always visible. -->
+      <div class="at numbers frame-panel"></div>
+      <div class="at col-rule" style="left: 323px"></div>
+      <div class="at col-rule" style="left: 622px"></div>
+      <div class="at col-rule" style="left: 921px"></div>
+
+      <div class="at body muted" style="left: 44px; top: 120px">Hull</div>
+      <div class="at display" style="left: 44px; top: 142px">100/100</div>
+      <div class="at meter" style="left: 44px; top: 198px; width: 240px">
+        <div class="at meter-fill" style="left: 0; top: 0; width: 240px"></div>
+      </div>
+
+      <div class="at body muted" style="left: 343px; top: 120px">SPD</div>
+      <div class="at display" style="left: 343px; top: 142px">4</div>
+
+      <div class="at body muted" style="left: 642px; top: 120px">Cargo</div>
+      <div class="at display" style="left: 642px; top: 142px">50/90</div>
+      <div class="at meter" style="left: 642px; top: 198px; width: 240px">
+        <div class="at meter-fill" style="left: 0; top: 0; width: 133px"></div>
+      </div>
+
+      <div class="at body muted" style="left: 941px; top: 120px">Weight</div>
+      <div class="at display" style="left: 941px; top: 142px">122</div>
+
+      <!-- The three column heads. Over water, so cream. -->
+      <div class="at body over-water" style="left: 24px; top: 232px">Exposed &middot; her weather decks</div>
+      <div class="at body over-water" style="left: 444px; top: 232px">Concealed &middot; below her waterline</div>
+      <div class="at body over-water" style="left: 868px; top: 232px">Inspecting</div>
+
+      <!-- THE BERTHS. Left column exposed, right column concealed. -->
+
+      <div class="at berth frame-card" style="left: 24px; top: 256px">
+        <div class="at caret" style="left: 12px; top: 31px"></div>
+        <span class="at r0 l body">1 &middot; top deck</span>
+        <span class="at r0 r body muted">Medium &middot; Exposed</span>
+        <span class="at r1 l body">Captain's Quarters</span>
+        <span class="at r1 r body muted">wt 18</span>
+        <span class="at r2 l body muted">+2 Repair</span>
+        <span class="at r2 r body muted">0 / 0</span>
+      </div>
+
+      <div class="at berth berth--target" style="left: 24px; top: 338px">
+        <span class="at r0 l body">2 &middot; top crew</span>
+        <span class="at r0 r body">Medium &middot; Exposed</span>
+        <span class="at r1 l body">&mdash; bare &mdash;</span>
+        <span class="at r2 l body">release here to fit</span>
+      </div>
+
+      <div class="at berth frame-card" style="left: 24px; top: 420px">
+        <span class="at r0 l body">3 &middot; gun deck</span>
+        <span class="at r0 r body muted">Large &middot; Exposed</span>
+        <span class="at r1 l body">Gun Deck</span>
+        <span class="at r1 r body muted">wt 38</span>
+        <span class="at r2 l body muted">+6 Offense</span>
+        <span class="at r2 r body muted">0 / 0</span>
+      </div>
+
+      <div class="at berth frame-card" style="left: 24px; top: 502px">
+        <span class="at r0 l body">4 &middot; forecastle</span>
+        <span class="at r0 r body muted">Large &middot; Exposed</span>
+        <span class="at r1 l body">Cargo</span>
+        <span class="at r1 r body muted">wt 0</span>
+        <span class="at r2 l body muted">carrying</span>
+        <span class="at r2 r body">30 / 40</span>
+      </div>
+
+      <div class="at berth berth--hole" style="left: 444px; top: 256px">
+        <span class="at r0 l body">5 &middot; hold 1</span>
+        <span class="at r0 r body">Medium &middot; Concealed</span>
+        <span class="at r1 l body">&mdash; in hand &mdash;</span>
+        <span class="at r2 l body">release it on a lit berth</span>
+      </div>
+
+      <div class="at berth frame-card" style="left: 444px; top: 338px">
+        <span class="at r0 l body">6 &middot; hold 2</span>
+        <span class="at r0 r body muted">Small &middot; Concealed</span>
+        <span class="at r1 l body">Cargo</span>
+        <span class="at r1 r body muted">wt 0</span>
+        <span class="at r2 l body muted">carrying</span>
+        <span class="at r2 r body">0 / 10</span>
+      </div>
+
+      <div class="at berth frame-card" style="left: 444px; top: 420px">
+        <span class="at r0 l body">7 &middot; hold 3</span>
+        <span class="at r0 r body muted">Small &middot; Concealed</span>
+        <span class="at r1 l body">Cargo</span>
+        <span class="at r1 r body muted">wt 0</span>
+        <span class="at r2 l body muted">carrying</span>
+        <span class="at r2 r body">0 / 10</span>
+      </div>
+
+      <div class="at berth frame-card" style="left: 444px; top: 502px">
+        <span class="at r0 l body">8 &middot; hold 4</span>
+        <span class="at r0 r body muted">Small &middot; Concealed</span>
+        <span class="at r1 l body">Cargo</span>
+        <span class="at r1 r body muted">wt 0</span>
+        <span class="at r2 l body muted">carrying</span>
+        <span class="at r2 r body">0 / 10</span>
+      </div>
+
+      <!-- THE INSPECTED BERTH, docked rather than tethered. -->
+      <div class="at rail frame-panel"></div>
+      <div class="at body muted" style="left: 888px; top: 280px">
+        berth 1 &middot; top deck &middot; Medium &middot; Exposed
+      </div>
+      <div class="at title" style="left: 888px; top: 304px">Captain's Quarters</div>
+      <div class="at rule" style="top: 348px"></div>
+      <div class="at body" style="left: 888px; top: 362px">+2 Repair</div>
+      <div class="at body muted" style="left: 888px; top: 386px">Medium &middot; Brace &middot; Crew</div>
+      <div class="at body muted" style="left: 888px; top: 410px">
+        wt 18 &middot; 0/0 &middot; top deck &middot; Exposed
+      </div>
+      <div class="at rule" style="top: 438px"></div>
+      <div class="at body" style="left: 888px; top: 450px">drag it to a bare berth of its size</div>
+      <div class="at body" style="left: 888px; top: 474px">drag it over the side to be rid of it</div>
+      <div class="at body" style="left: 888px; top: 498px">drag a laden berth to strike its cargo</div>
+      <div class="at body muted" style="left: 888px; top: 548px">click any berth to inspect it</div>
+
+      <!-- THE FITTING IN HAND: hold 1's Cargo, lifted, over the one berth that will take it. -->
+      <div class="at ghost-shadow"></div>
+      <div class="at ghost frame-card">
+        <span class="at r0 l body">Cargo</span>
+        <span class="at r0 r body muted">wt 0</span>
+        <span class="at r1 l body">Medium</span>
+        <span class="at r1 r body">20 / 20</span>
+      </div>
+      <div class="at cursor"></div>
+
+      <!-- THE TWO DESTRUCTIVE ACTS, both armed, told apart by how much coral each spends. -->
+      <div class="at act frame-card" style="left: 24px"></div>
+      <div class="at wash"></div>
+      <div class="at body" style="left: 40px; top: 602px">Over the Side</div>
+      <div class="at body muted" style="left: 40px; top: 622px">
+        the whole fitting goes &mdash; hold, cargo and all
+      </div>
+      <div class="at body muted" style="left: 40px; top: 642px">there is no getting it back</div>
+
+      <div class="at act frame-card" style="left: 444px"></div>
+      <div class="at body" style="left: 460px; top: 602px">Strike the Cargo</div>
+      <div class="at body muted" style="left: 460px; top: 622px">
+        only her load goes &mdash; the hold stays fitted
+      </div>
+      <div class="at meter" style="left: 460px; top: 644px; width: 200px">
+        <div class="at strike-fill" style="left: 0; top: 0; width: 200px; height: 10px"></div>
+      </div>
+      <div class="at body muted" style="left: 676px; top: 642px">20 / 20</div>
+
+      <!-- THE WAY OUT. -->
+      <div class="at chart frame-button"></div>
+      <div class="at chart-caret"></div>
+      <div class="at title" style="left: 928px; top: 604px">Chart</div>
+      <div class="at body muted" style="left: 928px; top: 640px">raise it and sail</div>
+
+      <div class="at stamp body">dev</div>
+    </div>
+
+    <div class="note">
+      <h1>At Anchor — the ship demoted</h1>
+      <dl class="port-cost">
+        <dt>level</dt><dd class="level">house</dd>
+        <dt>forced</dt><dd>Figure/ground: the galleon is demoted to a 320x87 legend in the corner, so she is a label on the screen rather than its subject.</dd>
+      </dl>
+
+      <p>
+        <strong>The galleon is 320&times;87 in the top-right corner and she is a legend, not a
+        picture.</strong> Two masts, a deck line, a keel, and her eight berths as numbered pips
+        in her own geography: 1&ndash;4 above the waterline (exposed), 5&ndash;8 below it
+        (concealed). The screen's horizon rule <em>is</em> her waterline, so she floats on the
+        same line the world does. Everything she says, the ledger says at reading size; her one
+        remaining job is to answer "where is berth 6, actually" — which is exactly the job the
+        full-scale hull was doing for free, and the only one worth keeping.
+      </p>
+
+      <h1>What the constraint forced</h1>
+
+      <p>
+        <strong>The berths had to leave the hull, so the split had to be re-carried.</strong>
+        Today geography is the whole mechanism (ADR-0030): a fitting is exposed because it is
+        drawn on the weather deck and concealed because it is drawn in the belly, and no badge
+        says so. Demote the hull and that mechanism goes with it. It comes back as
+        <em>two headed columns</em> — Exposed / Concealed — with the visibility repeated per
+        row, and the pips keyed 1&ndash;8 so the two readings can be checked against each other.
+        The diagram is subordinate to the ledger, which is the inversion: today the numbers
+        refer to the picture, here the picture refers to the numbers.
+      </p>
+
+      <p>
+        <strong>Inspect stopped being a callout and became a dock.</strong> The shipped inspect
+        is a hover card tethered to a room by a leader line — it exists only while the cursor is
+        on the hull, and it vanishes the moment you look away, which is the definition of chrome
+        rather than matter. With no hull to tether to, and with "readable matter" as the brief,
+        it became a <em>selected</em> berth with a permanent 352px rail: the name at Title, the
+        effect, the tags, the detail line, and the three verbs that berth admits. You can read it
+        while you drag something else, which the tethered version cannot do.
+      </p>
+
+      <p>
+        <strong>The numbers grew two levels.</strong> Hull / SPD / Cargo / Weight are 16px terms
+        in a 34px strip pinned under the hull today (<code>BUILD_LEDGER_Y</code> 650,
+        <code>BUILD_LEDGER_H</code> 34) — thin chrome laid over the subject. Here they are
+        <code>.Display</code> on a 1196&times;116 slab directly under the heading, and they are
+        deliberately <em>larger than the screen's own name</em>. Hull and Cargo are ratios and
+        get a bar; SPD and Weight are scalars and do not. That asymmetry is the point of a bar:
+        it makes the denominator readable without arithmetic.
+      </p>
+
+      <p>
+        <strong>Burning could not stay on the ledger.</strong> The shipped burn is a drop onto
+        the bottom stats strip — good reasoning while the strip is quiet chrome
+        (<code>draw_build_ledger</code>: the ledger is both what the burn costs and where it is
+        paid). Promote the stats to the loudest object on the screen and that target becomes a
+        drop onto the headline. So burning got its own card beside the bin, and the two are told
+        apart by <em>how much coral each spends</em>: <code>Over the Side</code> washes its whole
+        card, because the whole fitting goes; <code>Strike the Cargo</code> colours a bar exactly
+        the width of the load, because only the load goes and the hold stays fitted. Coral
+        appearing twice is <code>BUILD_DANGER</code>'s own carve-out — one signal on the only two
+        places it is true — and both are on screen only because a laden berth is in the air in
+        this frame.
+      </p>
+
+      <p>
+        <strong>An empty berth is a hole in the paper.</strong> Filled berths are cards; berth 2
+        (bare) and berth 5 (in hand) are outlines with the sea showing through, and their pips
+        match. That is the read the shipped screen cannot give at a glance, because an empty room
+        on the cutaway is just a slightly emptier piece of ship.
+      </p>
+
+      <h1>What I would need that does not exist</h1>
+
+      <p>
+        <code>.Display</code> is <em>not</em> on this list: <code>ui_font_display</code> is
+        already baked (<code>ui_fonts_load</code>) and <code>ui_font_for(.Display)</code> already
+        resolves, so the 48px values port through <code>ui_text</code> unchanged. Only the
+        harness lacked the size, and this file declares <code>--display: 48px</code> locally, as
+        the mock README asks.
+      </p>
+
+      <ul>
+        <li>
+          <strong><code>ui_meter(rect, value, of, ground)</code></strong> — a ratio bar. Nothing
+          in <code>ui_widgets.odin</code> draws one, and
+          <code>no_screen_strokes_its_own_chrome</code> forbids a screen reaching for the two
+          rectangles itself. Wanted three times on this screen alone (Hull, Cargo, and the
+          strike target's load).
+        </li>
+        <li>
+          <strong>A surface with no ground.</strong> Every <code>Ui_Frame</code> carries
+          parchment, so there is no way to draw an empty berth as a framed hole over the water.
+          Either a fourth frame or <code>ui_outline(rect, weight, tone)</code>.
+        </li>
+        <li>
+          <strong>A "lit" direction on <code>Ui_Emphasis</code>.</strong> The axis only runs
+          Primary &rarr; Unavailable, i.e. one way, into the ground. A legal drop target has to
+          come <em>forward</em>. <code>ui_alarm</code> is the only widget that does, and it is
+          coral by law and therefore unusable for a target that is not destructive. Wanted:
+          <code>ui_target(rect, live)</code>, its non-destructive twin, painting a roster ground.
+        </li>
+        <li>
+          <strong><code>ui_stat(rect, label, value, level)</code></strong> — label muted above,
+          value at <code>level</code> below, measured. <code>draw_build_ledger</code> packs this
+          by hand today with its own measure-and-gutter loop; a four-column Display version wants
+          the same logic again, and that is the second copy.
+        </li>
+        <li>
+          <strong>A per-berth index that is presentation's to name.</strong> The pips key to the
+          rows by <code>ship.Slot_Index</code>, which exists — but nothing in the presentation
+          package agrees on rendering it, and a diagram-plus-ledger design lives or dies on the
+          two agreeing.
+        </li>
+      </ul>
+
+      <p>
+        Everything else ports off the README's table: absolute rects, roster fills, one-axis
+        gradients, <code>frame-panel</code>/<code>frame-card</code>/<code>frame-button</code> as
+        <code>ui_panel</code>/<code>ui_card</code>/<code>ui_button</code>, the carets as
+        <code>rl.DrawTriangle</code>, and the ghost's shadow as the second rectangle
+        <code>ui_card(&hellip;, .Floating)</code> already draws.
+      </p>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Home — everything held</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* Every rect below is a stage coordinate, because every rect below is the
+       * rl.Rectangle a draw proc would be handed. The only relative numbers are
+       * the rows *inside* a repeated block (a berth, a stat well, a drop
+       * target) — one proc taking a rect, called per item. */
+
+      /* ------------------------------------------------------------------ *
+       * The world behind the board. It is still the ground — but on this
+       * screen it shows through the gutters and through one framed window,
+       * never as the page itself.
+       * ------------------------------------------------------------------ */
+      /* One layer holding the whole composition, so the paint order below is
+       * the paint order the screen gets. In Odin this is not a layer at all —
+       * it is the sequence of calls in draw_home, world first. In CSS a
+       * .cast-shadow's second rectangle sits one step back, and without a layer
+       * of its own to sit in it falls behind the stage's ground and every
+       * shadow on the screen disappears. */
+      .layer {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 700px;
+        z-index: 0;
+      }
+
+      /* z-index -2 is "the world is painted first" — before the shadows at -1,
+       * which are before the chrome. */
+      .sky {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 400px;
+        z-index: -2;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .water {
+        left: 0;
+        top: 400px;
+        width: 1244px;
+        height: 300px;
+        z-index: -2;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      /* ------------------------------------------------------------------ *
+       * The board: the screen's name and the four stats, on one held plate.
+       * Inset 16px on every side, so nothing is welded to an edge.
+       * ------------------------------------------------------------------ */
+      .board {
+        left: 16px;
+        top: 16px;
+        width: 1212px;
+        height: 76px;
+      }
+
+      /* A stat is a well sunk into the board — its own ground, its own border,
+       * its own bounded rectangle. In Odin: ui_card(rect, .Primary, .Inset). */
+      .cell {
+        top: 32px;
+        width: 156px;
+        height: 44px;
+        background: #dfce9d; /* parchment shaded 0.95 — colour_shade in Odin */
+        border: 2px solid var(--cliff);
+      }
+
+      .cell .k {
+        position: absolute;
+        left: 10px;
+        top: 6px;
+      }
+
+      .cell .v {
+        position: absolute;
+        left: 10px;
+        top: 24px;
+      }
+
+      /* ------------------------------------------------------------------ *
+       * The ship's region. She is not the screen; she is inside this panel,
+       * in two framed windows split by her own waterline.
+       * ------------------------------------------------------------------ */
+      .shipbay {
+        left: 16px;
+        top: 108px;
+        width: 880px;
+        height: 576px;
+      }
+
+      .rule {
+        left: 32px;
+        top: 148px;
+        width: 848px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      .waterline {
+        left: 32px;
+        top: 480px;
+        width: 848px;
+        height: 2px;
+        background: var(--sea-deep);
+      }
+
+      /* Window A — above the waterline. Sky for a ground, the sea at its foot,
+       * and the galleon's weather deck standing in it. */
+      .deckwindow {
+        left: 32px;
+        top: 184px;
+        width: 848px;
+        height: 284px;
+        border: 2px solid var(--sea-deep);
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      /* Window B — below it. The belly is dimmer timber, and a berth being in
+       * this box is the whole of what "Concealed" means here. */
+      .holdwindow {
+        left: 32px;
+        top: 518px;
+        width: 848px;
+        height: 116px;
+        border: 2px solid var(--sea-deep);
+        background: #4c3723; /* rock shaded 0.603 — colour_shade in Odin */
+      }
+
+      /* The galleon, blocked in. She already exists and already looks right;
+       * what this mockup asks is what happens when she is put in a frame, not
+       * what she should look like. */
+      .hull {
+        left: 36px;
+        top: 328px;
+        width: 840px;
+        height: 138px;
+        background: var(--rock);
+        border-top: 24px solid var(--cliff);
+      }
+
+      /* The sea washes over her strakes rather than being hidden by them: a fill
+       * at an alpha, which is rl.Fade, drawn after the hull. */
+      .seaband {
+        left: 34px;
+        top: 436px;
+        width: 844px;
+        height: 30px;
+        opacity: 0.72;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      .castle {
+        height: 28px;
+        background: var(--cliff);
+      }
+
+      .mast {
+        top: 180px;
+        width: 8px;
+        height: 148px;
+        background: var(--trunk);
+      }
+
+      .yard {
+        height: 4px;
+        background: var(--trunk);
+      }
+
+      .sail {
+        height: 20px;
+        background: var(--cream-bright);
+      }
+
+      /* ------------------------------------------------------------------ *
+       * A berth. Every one of the eight is one of these: a bounded box that is
+       * either paper (something is in it) or a socket (nothing is).
+       * ------------------------------------------------------------------ */
+      .berth {
+        height: 84px;
+      }
+
+      .berth .r0 {
+        position: absolute;
+        left: 8px;
+        top: 8px;
+      }
+
+      .berth .r1 {
+        position: absolute;
+        left: 8px;
+        top: 32px;
+      }
+
+      .berth .r2 {
+        position: absolute;
+        left: 8px;
+        top: 56px;
+      }
+
+      /* Empty, or vacated by the fitting now in hand: a hole cut in the deck.
+       * Timber ground, cliff border, cream over it — the ink rule reversed
+       * because the ground is. */
+      .berth--socket {
+        background: var(--rock);
+        border: 2px solid var(--cliff);
+        color: var(--cream-bright);
+      }
+
+      .berth--socket .r2 {
+        color: #afa68d; /* cream-bright shaded 0.72 — the muted tone on timber */
+      }
+
+      /* Dimmed by TONE, never by alpha: over a bright ground translucency costs
+       * a card its own ground (ADR-0032). These are the berths the fitting in
+       * hand cannot go in. */
+      .berth--dim {
+        background: #dfce9d; /* parchment shaded 0.95 */
+        border-color: var(--cliff);
+        color: var(--ink-muted);
+      }
+
+      /* The berth the Berth panel is describing. Weight is the signal — no
+       * colour, no leader line. */
+      .berth--held {
+        border-width: 4px;
+      }
+
+      .caret-down {
+        top: 336px;
+        width: 0;
+        height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-top: 10px solid var(--cream-bright);
+      }
+
+      /* The chip that says a berth will take what is in hand. */
+      .chip {
+        position: absolute;
+        right: 6px;
+        top: 6px;
+        height: 18px;
+        padding: 0 6px;
+        line-height: 18px;
+        background: var(--sand);
+        color: var(--ink);
+      }
+
+      /* Labels inside the ship's region, and their right-hand counts. */
+      .lbl {
+        left: 32px;
+      }
+
+      .lbl-r {
+        left: 32px;
+        width: 848px;
+        text-align: right;
+      }
+
+      /* ------------------------------------------------------------------ *
+       * The right column: what is under the cursor, what is in the hand, what
+       * destroys, and the way out. Four held regions, stacked.
+       * ------------------------------------------------------------------ */
+      .col {
+        left: 912px;
+        width: 316px;
+      }
+
+      .berthpanel {
+        top: 108px;
+        height: 156px;
+      }
+
+      .handpanel {
+        top: 280px;
+        height: 148px;
+      }
+
+      .doompanel {
+        top: 444px;
+        height: 160px;
+      }
+
+      .chartway {
+        top: 620px;
+        height: 64px;
+      }
+
+      .colrow {
+        left: 928px;
+        width: 284px;
+      }
+
+      .colrow-r {
+        left: 928px;
+        width: 284px;
+        text-align: right;
+      }
+
+      .colrule {
+        left: 928px;
+        top: 172px;
+        width: 284px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      .handcard {
+        left: 928px;
+        top: 320px;
+        width: 284px;
+        height: 60px;
+      }
+
+      .handcard .r0 {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+      }
+
+      .handcard .r1 {
+        position: absolute;
+        left: 10px;
+        top: 34px;
+      }
+
+      /* The two destructive acts, and they must not look like each other. Over
+       * the Side is outlined in coral all the way round: the whole object goes.
+       * Burn the Cargo keeps an inert cliff frame and takes coral only on its
+       * edge and its crate: the berth stays, its contents do not. */
+      .doom {
+        left: 928px;
+        width: 284px;
+        height: 48px;
+        background: var(--parchment);
+      }
+
+      .doom .r0 {
+        position: absolute;
+        left: 10px;
+        top: 8px;
+      }
+
+      .doom .r1 {
+        position: absolute;
+        left: 10px;
+        top: 28px;
+      }
+
+      .doom--overboard {
+        top: 484px;
+        border: 2px solid var(--coral);
+      }
+
+      .doom--burn {
+        top: 540px;
+        border: 2px solid var(--cliff);
+        border-left: 10px solid var(--coral);
+      }
+
+      .crate {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--coral);
+        margin-right: 6px;
+        vertical-align: -2px;
+      }
+
+      .wayrow {
+        left: 912px;
+        width: 316px;
+        text-align: center;
+      }
+
+      .caret-up {
+        display: inline-block;
+        width: 0;
+        height: 0;
+        margin-right: 10px;
+        vertical-align: -1px;
+        border-left: 7px solid transparent;
+        border-right: 7px solid transparent;
+        border-bottom: 10px solid var(--ink);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at layer">
+      <div class="at sky"></div>
+      <div class="at water"></div>
+
+      <!-- ================= the board: the name and the four stats ================= -->
+      <div class="at board frame-panel cast-shadow"></div>
+      <div class="at title" style="left: 48px; top: 38px">At Anchor</div>
+      <div class="at body muted" style="left: 224px; top: 46px">
+        moored &middot; 8 berths &middot; 4 above, 4 below
+      </div>
+
+      <div class="at cell" style="left: 552px">
+        <span class="k body muted">Hull</span><span class="v body">100/100</span>
+      </div>
+      <div class="at cell" style="left: 720px">
+        <span class="k body muted">SPD</span><span class="v body">4</span>
+      </div>
+      <div class="at cell" style="left: 888px">
+        <span class="k body muted">Cargo</span><span class="v body">50/90</span>
+      </div>
+      <div class="at cell" style="left: 1056px">
+        <span class="k body muted">Weight</span><span class="v body">122</span>
+      </div>
+
+      <!-- ================= the ship's region ================= -->
+      <div class="at shipbay frame-panel cast-shadow"></div>
+      <div class="at lbl body" style="top: 124px">The Galleon</div>
+      <div class="at lbl-r body muted" style="top: 124px">8 berths</div>
+      <div class="at rule"></div>
+
+      <div class="at lbl body muted" style="top: 160px">Weather deck &middot; Exposed</div>
+      <div class="at lbl-r body muted" style="top: 160px">4 berths</div>
+
+      <!-- Window A: above the waterline. Sky for a ground, the sea at its foot. -->
+      <div class="at deckwindow"></div>
+
+      <div class="at mast" style="left: 200px"></div>
+      <div class="at mast" style="left: 456px"></div>
+      <div class="at mast" style="left: 700px"></div>
+
+      <div class="at yard" style="left: 144px; top: 202px; width: 120px"></div>
+      <div class="at sail" style="left: 152px; top: 206px; width: 104px; height: 38px"></div>
+      <div class="at yard" style="left: 134px; top: 248px; width: 140px"></div>
+      <div class="at sail" style="left: 142px; top: 252px; width: 124px; height: 46px"></div>
+
+      <div class="at yard" style="left: 400px; top: 214px; width: 120px"></div>
+      <div class="at sail" style="left: 408px; top: 218px; width: 104px; height: 34px"></div>
+      <div class="at yard" style="left: 390px; top: 256px; width: 140px"></div>
+      <div class="at sail" style="left: 398px; top: 260px; width: 124px; height: 40px"></div>
+
+      <div class="at yard" style="left: 644px; top: 202px; width: 120px"></div>
+      <div class="at sail" style="left: 652px; top: 206px; width: 104px; height: 38px"></div>
+      <div class="at yard" style="left: 634px; top: 248px; width: 140px"></div>
+      <div class="at sail" style="left: 642px; top: 252px; width: 124px; height: 46px"></div>
+
+      <div class="at castle" style="left: 36px; top: 300px; width: 132px"></div>
+      <div class="at castle" style="left: 748px; top: 292px; width: 128px; height: 36px"></div>
+      <div class="at hull"></div>
+      <div class="at seaband"></div>
+
+      <!-- The four exposed berths, standing on her deck. Width is size. -->
+      <div class="at berth frame-card berth--dim" style="left: 44px; top: 352px; width: 212px">
+        <span class="r0">forecastle</span>
+        <span class="r1">Cargo Hold</span>
+        <span class="r2">Large &middot; 40/40</span>
+      </div>
+
+      <div class="at berth frame-card berth--dim" style="left: 280px; top: 352px; width: 212px">
+        <span class="r0">gun deck</span>
+        <span class="r1">Gun Deck</span>
+        <span class="r2">Large &middot; 0/0</span>
+      </div>
+
+      <div class="at caret-down" style="left: 590px"></div>
+      <div class="at berth frame-card berth--held" style="left: 516px; top: 352px; width: 164px">
+        <span class="r0">top deck</span>
+        <span class="r1">Captain's Quarters</span>
+        <span class="r2 muted">Medium &middot; 0/0</span>
+        <span class="chip">fits</span>
+      </div>
+
+      <div class="at berth berth--socket" style="left: 704px; top: 352px; width: 164px">
+        <span class="r0">top crew</span>
+        <span class="r1">empty</span>
+        <span class="r2">Medium</span>
+        <span class="chip">fits</span>
+      </div>
+
+      <div class="at waterline"></div>
+      <div class="at lbl body muted" style="top: 494px">Below the waterline &middot; Concealed</div>
+      <div class="at lbl-r body muted" style="top: 494px">4 berths</div>
+
+      <!-- Window B: the belly. Being in this box is what Concealed means. -->
+      <div class="at holdwindow"></div>
+
+      <div class="at berth berth--socket" style="left: 146px; top: 536px; width: 164px">
+        <span class="r0">hold 1</span>
+        <span class="r1">lifted</span>
+        <span class="r2">Medium</span>
+      </div>
+
+      <div class="at berth frame-card berth--dim" style="left: 334px; top: 536px; width: 128px">
+        <span class="r0">hold 2</span>
+        <span class="r1">Cargo Hold</span>
+        <span class="r2">Small &middot; 10/10</span>
+      </div>
+
+      <div class="at berth frame-card berth--dim" style="left: 486px; top: 536px; width: 128px">
+        <span class="r0">hold 3</span>
+        <span class="r1">Cargo Hold</span>
+        <span class="r2">Small &middot; 10/10</span>
+      </div>
+
+      <div class="at berth frame-card berth--dim" style="left: 638px; top: 536px; width: 128px">
+        <span class="r0">hold 4</span>
+        <span class="r1">Cargo Hold</span>
+        <span class="r2">Small &middot; 0/10</span>
+      </div>
+
+      <div class="at lbl body muted" style="top: 652px">
+        lift a fitting from its berth and set it down on another
+      </div>
+      <!-- The version stamp, which on the shipped screen is the one mark with no
+           region at all. Held means it gets one: the foot of the ship's panel. -->
+      <div class="at lbl-r body muted" style="top: 652px">dev</div>
+
+      <!-- ================= what is under the cursor ================= -->
+      <div class="at col berthpanel frame-panel cast-shadow"></div>
+      <div class="at colrow body muted" style="top: 124px">Berth &middot; top deck</div>
+      <div class="at colrow body" style="top: 148px">Captain's Quarters</div>
+      <div class="at colrule"></div>
+      <div class="at colrow body" style="top: 182px">+2 Repair</div>
+      <div class="at colrow body muted" style="top: 206px">Medium &middot; Brace &middot; Crew</div>
+      <div class="at colrow body muted" style="top: 230px">wt 18 &middot; 0/0 &middot; top deck &middot; Exposed</div>
+
+      <!-- ================= what is in the hand ================= -->
+      <div class="at col handpanel frame-panel cast-shadow"></div>
+      <div class="at colrow body muted" style="top: 296px">In Hand</div>
+      <div class="at colrow-r body muted" style="top: 296px">from hold 1</div>
+      <div class="at handcard frame-card">
+        <span class="r0">Cargo Hold</span>
+        <span class="r1 muted">Medium &middot; 20/20</span>
+      </div>
+      <div class="at colrow body muted" style="top: 396px">put it on a berth marked fits</div>
+
+      <!-- ================= the two destructive acts ================= -->
+      <div class="at col doompanel frame-panel cast-shadow"></div>
+      <div class="at colrow body muted" style="top: 460px">Overboard &middot; neither comes back</div>
+
+      <div class="at doom doom--overboard">
+        <span class="r0">Over the Side</span>
+        <span class="r1 muted">the fitting leaves the ship</span>
+      </div>
+
+      <div class="at doom doom--burn">
+        <span class="r0"><i class="crate"></i>Burn the Cargo</span>
+        <span class="r1 muted">20 cargo, gone for good</span>
+      </div>
+
+      <!-- ================= the way out ================= -->
+      <div class="at col chartway frame-button cast-shadow"></div>
+      <div class="at wayrow body" style="top: 634px"><i class="caret-up"></i>Raise the Chart</div>
+      <div class="at wayrow body muted" style="top: 656px">and sail for the next island</div>
+      </div>
+    </div>
+
+    <div class="note">
+      <h1>Home — everything held</h1>
+      <dl class="port-cost">
+        <dt>level</dt><dd class="level">house</dd>
+        <dt>forced</dt><dd>Containment: every piece of content sits inside a bounded, visibly framed container. Nothing bleeds off an edge and nothing floats unbacked over the water.</dd>
+      </dl>
+      <p>
+        <strong>The constraint:</strong> every piece of content sits inside a bounded, visibly framed
+        container. Nothing bleeds off an edge; nothing floats unbacked over the water. The screen is
+        six held regions with a gutter of sea between them.
+      </p>
+
+      <h1>What the constraint forced</h1>
+      <p>
+        <strong>The stats stopped being a strip.</strong> Today they are a full-bleed bar welded to
+        <code>y = 700</code> — an element with three of its edges off-screen, which is the opposite
+        of held. Here they are four wells sunk into a board that also carries the screen's name, and
+        the board stops <code>16px</code> short on all four sides. Each stat has a rectangle of its
+        own, so "Cargo 50/90" is a thing in a box rather than a phrase in a run of text. The board
+        being <em>one</em> plate is what buys it: a title and four numbers do not each deserve their
+        own panel, and they do not need one when a single region can hold them both.
+      </p>
+      <p>
+        <strong>The inspect card lost its leader line.</strong> The line exists because the card
+        floats — an unanchored card over open water has no way to say which berth it is about except
+        by drawing a wire to it. Held in a column, it says so in words
+        (<code>Berth &middot; top deck</code>) and the berth answers with a caret and a heavier
+        frame. Two signals instead of one wire, and the screen loses its only diagonal. The detail
+        line is unchanged — <code>wt 18 &middot; 0/0 &middot; top deck &middot; Exposed</code> —
+        because holding a card changes where it sits, not what it says.
+      </p>
+      <p>
+        <strong>The ship became a window instead of the screen.</strong> This is the move the whole
+        exercise turns on. She is drawn into an <code>848&times;284</code> framed viewport with sky
+        for a ground and the sea at its foot; her belly is a second, dimmer window below it, and the
+        <em>waterline is the divider between the two frames</em> rather than a line drawn on the
+        world. Exposed and Concealed are then carried by <em>which container a berth sits in</em> —
+        ADR-0030's geography, kept, but geography made out of frames. She reads smaller than she does
+        today, and that cost is not hidden: a galleon in a box is a model of a galleon, and the
+        screen gives up some of the pleasure of standing in front of the real one.
+      </p>
+      <p>
+        <strong>A card in hand is the one thing "hold everything" cannot hold</strong>, so it was
+        given a container: the <em>In Hand</em> region. The gesture still begins as a lift from a
+        berth — <code>hold 1</code> is drawn as the socket it became — but the fitting's home while
+        lifted is a named slot rather than the cursor, and every berth that will take it wears a
+        <em>fits</em> chip. The gain is that the drop is legible with the mouse nowhere near it,
+        which a cursor-borne ghost never is; the price is that press-drag-release now has a second
+        reading (lift, then place) that <code>build_surface_loop</code> would have to accept
+        alongside it.
+      </p>
+      <p>
+        <strong>Empty had to become a socket, not a faint card.</strong> A held layout must answer
+        "is anything in this box" without alpha, because a translucent card over a bright ground
+        reads as a stain (ADR-0032). So a filled berth is paper and an empty one is a hole cut in the
+        deck — timber ground, cliff border, cream over it, the ink rule reversed because the ground
+        is. <code>top crew</code> is empty and <code>hold 1</code> is vacated, and the two are the
+        same object saying different words.
+      </p>
+      <p>
+        <strong>The two destructive acts are shaped differently, not merely worded differently.</strong>
+        <em>Over the Side</em> is outlined in coral all the way round: the whole object goes.
+        <em>Burn the Cargo</em> keeps an inert cliff frame and takes coral only on its edge and its
+        crate: the berth stays, its contents do not. Coral therefore appears twice, which
+        <code>BUILD_DANGER</code> in <code>presentation/build_surface.odin</code> already reasons
+        about — one signal, on the only two places it is true, and neither on screen unless something
+        is in hand.
+      </p>
+      <p>
+        <strong>What it cost: the water.</strong> Hold everything and the sea becomes a
+        <code>16px</code> gutter, one strip at the foot of the deck window, and a horizon glimpsed
+        between the columns. The style guide says a screen whose body <em>is</em> the world draws no
+        vignette; this screen's body is no longer the world. There is still no vignette here — but
+        now for the opposite reason.
+      </p>
+      <p>
+        <strong>The version stamp had to be given a home.</strong> It is the one mark on the shipped
+        screen that belongs to no region — it hangs in the top-right corner over open water, which
+        under this rule is exactly what nothing is allowed to do. It sits at the foot of the ship's
+        panel here. That is the constraint at its most pedantic, and it is worth showing rather than
+        quietly exempting: a rule that holds everything holds the version stamp too, or it is a rule
+        about the interesting things only.
+      </p>
+      <p>
+        No third type size: <code>32px</code> for the screen's name (which is what
+        <code>draw_build_heading</code> already draws at <code>.Title</code>), <code>16px</code> for
+        every other string. Three literal hexes, each a uniform shade one <code>colour_shade</code>
+        call reproduces: <code>#dfce9d</code> (parchment 0.95 — the inset wells and the dimmed
+        berths), <code>#4c3723</code> (rock 0.603 — the belly's timber), <code>#afa68d</code>
+        (cream-bright 0.72 — the muted tone <em>on</em> that timber).
+      </p>
+
+      <h1>What this needs from <code>presentation/ui.odin</code> that does not exist</h1>
+      <p>
+        <strong>1. A viewport — the only thing here with no draw call behind it.</strong>
+        <code>ui_panel</code> gives a bounded <em>surface</em>; nothing gives a bounded
+        <em>world</em>. <code>draw_ship_cutaway</code> and the backdrop draw at
+        <code>WINDOW_WIDTH</code>/<code>WINDOW_HEIGHT</code>, and <code>cutaway.View</code> is built
+        at the logical frame size precisely so picking stays in the mouse's coordinate system. To put
+        the galleon in a frame I need something like
+        <code>ui_viewport(rect) -&gt; Ship_Framing</code>: a scissor push/pop around the draw
+        (<code>rl.BeginScissorMode</code>) <em>and</em> a <code>View</code> built at the rect's origin
+        and size, so <code>galleon_room_at</code> still resolves against the rooms the eye is looking
+        at (issue 476). Without the second half the frame is decoration and every click is off by the
+        frame's offset.
+      </p>
+      <p>
+        <strong>2. A ground that is neither parchment nor water.</strong> <code>ui_ink</code> knows
+        <code>.Parchment</code> and <code>.Water</code>. An empty berth's ground is timber, and its
+        secondary row had to be hand-written here as
+        <code>colour_shade(COLOUR_CREAM_BRIGHT, 0.72)</code> — exactly the hand-picked tone
+        <code>Ui_Emphasis</code> exists to abolish. Want a <code>Ui_Ground.Timber</code> with the
+        whole Primary&rarr;Unavailable ramp defined against it.
+      </p>
+      <p>
+        <strong>3. A recessed frame.</strong> <code>Ui_Elevation</code> is
+        <code>Inset / Flush / Raised / Floating</code>, and all four describe something sitting
+        <em>on</em> a surface. An empty berth has to read as a hole <em>in</em> one, and so do the
+        stat wells. That is a <code>UI_FRAME_SOCKET</code> 9-slice in
+        <code>presentation/ui_frame.odin</code> — one whose light runs the other way round — plus an
+        elevation that reaches it.
+      </p>
+      <p>
+        <strong>4. A chip.</strong> <em>fits</em> is one word in its own bounded box in a card's
+        corner. <code>ui_button</code> is a control and <code>ui_card</code> is a surface; a chip is
+        neither, and without one every screen that wants it draws a raw rectangle and trips
+        <code>no_screen_strokes_its_own_chrome</code>.
+      </p>
+      <p>
+        <strong>5. A caret with a direction.</strong> <code>ui_icon</code>'s caret points right,
+        because it is a menu row's margin marker. <code>draw_home_chart_caret</code> already had to
+        hand-wind a rotated one; this mockup needs a second, pointing down at a berth. Two hand-wound
+        carets is the point at which the icon should take a direction instead of each call site
+        re-deriving the winding raylib's cull demands.
+      </p>
+      <p>
+        <strong>6. Sub-rect arithmetic — not a layout system.</strong> The guide declines a layout
+        system deliberately and this is not a request for one. But holding everything turned one
+        screen into roughly twenty nested rectangles, and <code>ui_inset(rect, Ui_Space)</code>,
+        <code>ui_rows(rect, n, gap)</code> and <code>ui_cols(rect, widths, gap)</code> returning rects
+        would let a <code>Home_Layout</code> hold four numbers instead of forty — which is what keeps
+        the screen steerable under <code>--workbench</code> rather than a rebuild per nudge.
+      </p>
+    </div>
+  </body>
+</html>

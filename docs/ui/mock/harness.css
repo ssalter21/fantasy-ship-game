@@ -11,6 +11,9 @@
  * it is stopped from doing here — with `!important` inside the stage, which beats an author's
  * own rule. What CSS cannot enforce is listed in the README and checked by
  * `python scripts/check-mock.py`.
+ *
+ * A mockup declares how much of that it is playing by — `house`, `off-style` or `free` — in
+ * its own note block, and the checker reads it there. See "THE THREE LEVELS" below.
  */
 
 @import url("pixel-operator.css");
@@ -85,6 +88,13 @@ body {
   background: var(--sea);
 }
 
+.stage,
+.stage *,
+.stage *::before,
+.stage *::after {
+  box-sizing: border-box;
+}
+
 /* Everything the game cannot draw, refused. `!important` so an author's own rule loses:
  * a harness that merely documents its constraints is a harness that does not have any.
  *
@@ -95,12 +105,13 @@ body {
  *   transition      a mockup is one frame, and animation is judged in the game
  *   box-shadow      raylib's shadow is a second rectangle — .cast-shadow below draws one
  *   antialiasing    a pixel face resampled is the whole thing this game is avoiding
+ *
+ * `:not(.free)` is the one door out, and it is narrow on purpose — see the block below.
  */
-.stage,
-.stage *,
-.stage *::before,
-.stage *::after {
-  box-sizing: border-box;
+.stage:not(.free),
+.stage:not(.free) *,
+.stage:not(.free) *::before,
+.stage:not(.free) *::after {
   border-radius: 0 !important;
   filter: none !important;
   backdrop-filter: none !important;
@@ -113,6 +124,28 @@ body {
   -webkit-font-smoothing: none;
   font-smooth: never;
   text-rendering: geometricPrecision;
+}
+
+/* THE THREE LEVELS, and where each one is enforced.
+ *
+ *   house      the roster, the type scale, and every refusal above. Ports.
+ *   off-style  the refusals above, and nothing else — any palette, any type size, coral
+ *              unreserved. Still ports: a colour is a colour to a draw call.
+ *   free       neither. Blur, round a corner, rotate. Does NOT port, and the note block
+ *              says what the engine work is.
+ *
+ * Only `free` is a CSS matter, because the style layer was never enforced here — a roster
+ * name is a variable, not a rule, and `check-mock.py` is what makes it binding. So this
+ * stylesheet has exactly one door out (`.stage.free`, via the `:not(.free)` above) and the
+ * checker has the other two.
+ *
+ * What `free` does NOT get is a different stage. 1244x700 is the window, not a style, and a
+ * mockup measured at any other size cannot be set beside the others and judged.
+ */
+.stage.free {
+  image-rendering: auto;
+  -webkit-font-smoothing: auto;
+  text-rendering: auto;
 }
 
 /* A cast shadow is a second rectangle offset behind the first, which is exactly what
@@ -272,4 +305,38 @@ body {
 
 .note code {
   color: #ffd479;
+}
+
+/* The port cost, in fields, at the top of the note. Every mockup carries one and the checker
+ * fails without it — it is where the declared level lives, and it is what somebody standing
+ * in front of nine options reads to see which of them is a widget and which is a month. A
+ * field with nothing to say is left out rather than filled with "n/a". */
+.note .port-cost {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 16px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  background: #111;
+  border-left: 3px solid #444;
+}
+
+.note .port-cost dt {
+  color: #8c8c8c;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+  padding-top: 2px;
+}
+
+.note .port-cost dd {
+  margin: 0;
+  color: #e0e0e0;
+}
+
+/* The declared level, loud, because it is the first thing to know about an option: what it
+ * was allowed to do decides what its picture is evidence of. */
+.note .port-cost dd.level {
+  color: #ffffff;
+  font-weight: 600;
 }

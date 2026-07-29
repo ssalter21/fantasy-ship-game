@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>At Anchor — paper ground</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* ================================================================== *
+       * THE WORLD, which is the guest here.
+       *
+       * Sky and sea are drawn edge to edge because they are what the sheet
+       * is held up against — but almost none of them reaches the eye. What
+       * shows is a 32px rim around the paper, a 4px sliver under it, and one
+       * aperture cut through the sheet at lower right. Everything else on
+       * this screen is paper.
+       * ================================================================== */
+      .sky {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 300px;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .water {
+        left: 0;
+        top: 300px;
+        width: 1244px;
+        height: 400px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      /* ================================================================== *
+       * THE CHART, which is a second sheet under the first.
+       *
+       * The shipped Home slides the chart up over the world from below. Here
+       * the world is not the ground, so it rises over *paper* — which makes
+       * it a sheet on the table under the manifest, its foot showing along
+       * the bottom edge. Raising it is one sheet sliding over another.
+       * ================================================================== */
+      .chart-sheet {
+        left: 40px;
+        top: 636px;
+        width: 1164px;
+        height: 64px;
+        background: #ddcc9c; /* parchment shaded 0.940 — in the top sheet's shade */
+        border-top: 2px solid var(--cliff);
+      }
+
+      /* The caret is three stacked bars rather than a glyph: the style guide
+       * holds that a mark above Latin-1 cannot be depended on. It ports to
+       * the one rl.DrawTriangle draw_home_chart_caret already makes. */
+      .caret-row {
+        height: 4px;
+        background: var(--ink);
+      }
+
+      /* ================================================================== *
+       * THE SHEET. This is the screen.
+       *
+       * Opaque paper over a bright sea, with the shadow drawn as a second
+       * rectangle at the offset ui_shadow uses. frame-panel is the game's own
+       * blitted panel; see the note for why its straight edge is the one
+       * thing on this mockup that is wrong on purpose.
+       * ================================================================== */
+      .sheet-shadow {
+        left: 37px;
+        top: 26px;
+        width: 1180px;
+        height: 612px;
+        background: var(--sea-deep);
+        opacity: 0.45;
+      }
+
+      .sheet {
+        left: 32px;
+        top: 20px;
+        width: 1180px;
+        height: 612px;
+      }
+
+      .headline {
+        left: 56px;
+        top: 36px;
+      }
+
+      .subhead {
+        left: 700px;
+        top: 52px;
+        width: 488px;
+        text-align: right;
+      }
+
+      .rule-head {
+        left: 56px;
+        top: 92px;
+        width: 1132px;
+        height: 2px;
+        background: var(--cliff);
+      }
+
+      /* ================================================================== *
+       * THE PLAN — the galleon as a sheer draught, ranked about her own
+       * waterline. Exposed berths above it, concealed below, and a berth's
+       * length is her size, exactly as the cutaway's compartments are.
+       * ================================================================== */
+      .waterline {
+        left: 56px;
+        top: 232px;
+        width: 1132px;
+        height: 2px;
+        background: var(--cliff);
+      }
+
+      /* Below the waterline the paper itself is washed a shade deeper — the
+       * belly is a darker, concealed place at a glance, which is the same
+       * signal draw_build_hull draws with a fade over the sea. */
+      .belly {
+        left: 56px;
+        top: 234px;
+        width: 1132px;
+        height: 138px;
+        background: #e0cf9e; /* parchment shaded 0.953 */
+      }
+
+      .berth {
+        position: absolute;
+        height: 84px;
+      }
+
+      /* A filled berth is a well PRESSED INTO the sheet: shaded face, dark
+       * rule leading, light rule trailing. A card cannot work here —
+       * parchment laid on parchment is invisible — so containment is carved
+       * rather than stacked. */
+      .berth--filled {
+        background: #ddcc9c; /* parchment shaded 0.940 */
+        border-top: 1px solid var(--cliff);
+        border-left: 1px solid var(--cliff);
+        border-right: 1px solid var(--sand);
+        border-bottom: 1px solid var(--sand);
+      }
+
+      /* A well below the waterline is pressed DEEPER. The belly is a darker
+       * place on the paper as well as in the ship, so the concealed berths
+       * are cut into it harder than the weather deck's are into bare sheet. */
+      .berth--deep {
+        background: #d3c395; /* parchment shaded 0.898 */
+      }
+
+      /* An empty berth is the absence of the well: a ruled outline on bare
+       * paper. Filled and empty are then different in MATERIAL, not in how
+       * much writing they carry. */
+      .berth--empty {
+        border: 1px solid var(--sand);
+      }
+
+      /* A legal landing for the fitting in hand, marked in the roster's own
+       * interactive border on parchment. Promoted, not surrounded by demoted
+       * neighbours — see the note. */
+      .berth--legal {
+        border: 2px solid var(--sea-deep);
+      }
+
+      /* The berth the fitting was lifted out of. Its well is gone with it. */
+      .berth--source {
+        border: 1px solid var(--cliff);
+      }
+
+      .berth .r1 {
+        position: absolute;
+        left: 16px;
+        top: 10px;
+      }
+
+      .berth .r2 {
+        position: absolute;
+        left: 16px;
+        top: 32px;
+      }
+
+      .berth .r3 {
+        position: absolute;
+        left: 16px;
+        top: 54px;
+      }
+
+      .lbl-exposed {
+        left: 56px;
+        top: 110px;
+      }
+
+      .lbl-exposed-right {
+        left: 700px;
+        top: 110px;
+        width: 488px;
+        text-align: right;
+      }
+
+      .lbl-hold {
+        left: 56px;
+        top: 244px;
+      }
+
+      .lbl-hand {
+        left: 900px;
+        top: 288px;
+        width: 288px;
+        text-align: right;
+      }
+
+      /* ================================================================== *
+       * THE FITTING IN HAND. Every printed thing on this screen is a shade
+       * DARKER than the sheet, because every one of them is cut into it. The
+       * one thing in your hand is the sheet's own brightness, lifted off —
+       * bare parchment, a raised edge and a cast shadow — and it straddles
+       * the waterline rule so nothing can mistake it for a ninth berth.
+       *
+       * Deliberately NOT ui_card's face: see the note.
+       * ================================================================== */
+      .ghost {
+        left: 900px;
+        top: 200px;
+        width: 288px;
+        height: 80px;
+        background: var(--parchment);
+        border: 2px solid var(--cliff);
+      }
+
+      .ghost .g1 {
+        position: absolute;
+        left: 16px;
+        top: 10px;
+      }
+
+      .ghost .g2 {
+        position: absolute;
+        left: 16px;
+        top: 34px;
+      }
+
+      .ghost .g3 {
+        position: absolute;
+        left: 16px;
+        top: 58px;
+      }
+
+      .divider {
+        left: 56px;
+        top: 386px;
+        width: 1132px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      /* ================================================================== *
+       * THE BERTH IN QUESTION — one printed slot for a berth's particulars,
+       * keyed to the plan by a leader run out into the sheet's margin. It is
+       * a well like the berths are, for the same reason.
+       * ================================================================== */
+      .entry {
+        left: 56px;
+        top: 400px;
+        width: 410px;
+        height: 128px;
+        background: #ddcc9c; /* parchment shaded 0.940 */
+        border-top: 1px solid var(--cliff);
+        border-left: 1px solid var(--cliff);
+        border-right: 1px solid var(--sand);
+        border-bottom: 1px solid var(--sand);
+      }
+
+      .entry-name {
+        left: 76px;
+        top: 412px;
+      }
+
+      .entry-rule {
+        left: 76px;
+        top: 438px;
+        width: 370px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      .entry-effect {
+        left: 76px;
+        top: 448px;
+      }
+
+      .entry-tags {
+        left: 76px;
+        top: 472px;
+      }
+
+      .entry-detail {
+        left: 76px;
+        top: 496px;
+      }
+
+      .entry-hint {
+        left: 56px;
+        top: 544px;
+      }
+
+      /* The leader: down the margin the sheet's own gutter leaves, because
+       * every straight run between the berth and its entry crosses the hold. */
+      .leader-stem {
+        left: 44px;
+        top: 218px;
+        width: 1px;
+        height: 182px;
+        background: var(--ink-muted);
+      }
+
+      .leader-foot {
+        left: 44px;
+        width: 12px;
+        height: 1px;
+        background: var(--ink-muted);
+      }
+
+      /* ================================================================== *
+       * THE PARTICULARS — the four stats, always up. Two of them are ratios,
+       * and on paper a ratio is a ruled gauge under its own figure. The two
+       * that are not get a plain hairline, so the row's rule says which kind
+       * of number it is carrying.
+       * ================================================================== */
+      .part-head {
+        left: 486px;
+        top: 400px;
+      }
+
+      .part-rule {
+        left: 486px;
+        top: 424px;
+        width: 394px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      .stat-label {
+        left: 486px;
+      }
+
+      .stat-value {
+        left: 486px;
+        width: 394px;
+        text-align: right;
+      }
+
+      .gauge-track {
+        left: 486px;
+        width: 394px;
+        height: 4px;
+        background: #d3c395; /* parchment shaded 0.898 */
+      }
+
+      .gauge-fill {
+        left: 486px;
+        height: 4px;
+        background: var(--cliff);
+      }
+
+      .stat-hair {
+        left: 486px;
+        width: 394px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      /* ================================================================== *
+       * DESTRUCTIVE ACT ONE — BURN. The cargo line in the books, armed. The
+       * figure does NOT give way to the instruction: the instruction sits
+       * under the number it would change, and the number stays up.
+       * ================================================================== */
+      /* Both targets are drawn at ui_alarm's REST wash, not its lit one: the
+       * cursor is up by the hold with the fitting in hand, over neither of
+       * them, and only the one under the cursor may light. */
+      .burn-wash {
+        left: 482px;
+        top: 506px;
+        width: 402px;
+        height: 60px;
+        background: var(--coral);
+        opacity: 0.2;
+      }
+
+      .burn-edge {
+        left: 482px;
+        top: 506px;
+        width: 402px;
+        height: 60px;
+        border: 2px solid var(--coral);
+      }
+
+      .burn-word {
+        left: 486px;
+        top: 546px;
+      }
+
+      /* ================================================================== *
+       * THE APERTURE — a hole cut in the sheet, and the only real water on
+       * the screen. She rides at anchor in it, cropped at the paper's edge.
+       *
+       * DESTRUCTIVE ACT TWO — OVERBOARD is this same hole, armed. There is
+       * one piece of sea on this screen and dropping a fitting into it needs
+       * no label to be understood.
+       * ================================================================== */
+      .window {
+        left: 900px;
+        top: 400px;
+        width: 288px;
+        height: 186px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+        border: 2px solid var(--cliff);
+      }
+
+      .mast {
+        top: 402px;
+        width: 8px;
+        height: 62px;
+        background: var(--trunk);
+      }
+
+      .hull {
+        left: 930px;
+        top: 460px;
+        width: 210px;
+        height: 68px;
+        background: var(--rock);
+        border-top: 14px solid var(--cliff);
+      }
+
+      .wake {
+        left: 920px;
+        top: 524px;
+        width: 230px;
+        height: 4px;
+        background: var(--foam);
+      }
+
+      .window-wash {
+        left: 900px;
+        top: 400px;
+        width: 288px;
+        height: 186px;
+        background: var(--coral);
+        opacity: 0.2;
+      }
+
+      .window-edge {
+        left: 900px;
+        top: 400px;
+        width: 288px;
+        height: 186px;
+        border: 2px solid var(--coral);
+      }
+
+      .window-word {
+        left: 900px;
+        top: 548px;
+        width: 288px;
+        text-align: center;
+      }
+
+      .window-caption {
+        left: 900px;
+        top: 596px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <!-- The world, almost all of it about to be covered by paper. -->
+      <div class="at sky"></div>
+      <div class="at water"></div>
+
+      <!-- The chart, waiting under the manifest. -->
+      <div class="at chart-sheet"></div>
+
+      <!-- No vignette. The framing signal on a paper screen is the paper's
+           own edge (style guide, Framing); a 150px dark ramp would eat the
+           whole margin and bruise the only world left. -->
+
+      <div class="at sheet-shadow"></div>
+      <div class="at sheet frame-panel"></div>
+
+      <div class="at headline title">At Anchor</div>
+      <div class="at subhead body muted">her berth roll and her particulars</div>
+      <div class="at rule-head"></div>
+
+      <!-- ---------------- the plan ---------------- -->
+      <div class="at lbl-exposed body muted">Weather deck &middot; Exposed</div>
+      <div class="at lbl-exposed-right body muted">four berths in the open</div>
+
+      <div class="berth berth--filled" style="left: 56px; top: 134px; width: 239px">
+        <span class="r1 body muted">top deck &middot; Medium</span>
+        <span class="r2 body">Captain's Quarters</span>
+        <span class="r3 body muted">+2 Repair</span>
+      </div>
+
+      <div class="berth berth--empty berth--legal" style="left: 311px; top: 134px; width: 239px">
+        <span class="r1 body muted">top crew &middot; Medium</span>
+        <span class="r2 body muted">empty</span>
+        <span class="r3 body">drop her here</span>
+      </div>
+
+      <div class="berth berth--filled" style="left: 566px; top: 134px; width: 303px">
+        <span class="r1 body muted">gun deck &middot; Large</span>
+        <span class="r2 body">Gun Deck</span>
+        <span class="r3 body muted">+5 Offense</span>
+      </div>
+
+      <div class="berth berth--empty" style="left: 885px; top: 134px; width: 303px">
+        <span class="r1 body muted">forecastle &middot; Large</span>
+        <span class="r2 body muted">empty</span>
+      </div>
+
+      <div class="at waterline"></div>
+      <div class="at belly"></div>
+
+      <div class="at lbl-hold body muted">The hold &middot; Concealed</div>
+      <div class="at lbl-hand body muted">in hand</div>
+
+      <div class="berth berth--source" style="left: 56px; top: 264px; width: 239px">
+        <span class="r1 body muted">hold 1 &middot; Medium</span>
+        <span class="r2 body muted">lifted</span>
+      </div>
+
+      <div class="berth berth--filled berth--deep" style="left: 311px; top: 264px; width: 175px">
+        <span class="r1 body muted">hold 2 &middot; Small</span>
+        <span class="r2 body">Cargo</span>
+        <span class="r3 body muted">10 stowed</span>
+      </div>
+
+      <div class="berth berth--filled berth--deep" style="left: 502px; top: 264px; width: 175px">
+        <span class="r1 body muted">hold 3 &middot; Small</span>
+        <span class="r2 body">Cargo</span>
+        <span class="r3 body muted">10 stowed</span>
+      </div>
+
+      <div class="berth berth--empty" style="left: 693px; top: 264px; width: 175px">
+        <span class="r1 body muted">hold 4 &middot; Small</span>
+        <span class="r2 body muted">empty</span>
+      </div>
+
+      <!-- The fitting in hand, lifted off the page. -->
+      <div class="at ghost cast-shadow">
+        <span class="g1 body">Cargo</span>
+        <span class="g2 body muted">Medium &middot; from hold 1</span>
+        <span class="g3 body muted">30 stowed</span>
+      </div>
+
+      <div class="at divider"></div>
+
+      <!-- ---------------- the berth in question ---------------- -->
+      <div class="at leader-stem"></div>
+      <div class="at leader-foot" style="top: 218px"></div>
+      <div class="at leader-foot" style="top: 400px"></div>
+
+      <div class="at entry"></div>
+      <div class="at entry-name body">Captain's Quarters</div>
+      <div class="at entry-rule"></div>
+      <div class="at entry-effect body">+2 Repair</div>
+      <div class="at entry-tags body muted">Medium &middot; Brace &middot; Crew</div>
+      <div class="at entry-detail body muted">wt 18 &middot; 0/0 &middot; top deck &middot; Exposed</div>
+      <div class="at entry-hint body muted">lift from one berth, set down in another</div>
+
+      <!-- ---------------- the particulars ---------------- -->
+      <div class="at part-head body">Particulars</div>
+      <div class="at part-rule"></div>
+
+      <div class="at stat-label body muted" style="top: 434px">Hull</div>
+      <div class="at stat-value body" style="top: 434px">100/100</div>
+      <div class="at gauge-track" style="top: 458px"></div>
+      <div class="at gauge-fill" style="top: 458px; width: 394px"></div>
+
+      <div class="at stat-label body muted" style="top: 474px">SPD</div>
+      <div class="at stat-value body" style="top: 474px">4</div>
+      <div class="at stat-hair" style="top: 498px"></div>
+
+      <!-- The cargo line, armed as the burn target. -->
+      <div class="at burn-wash"></div>
+      <div class="at burn-edge"></div>
+      <div class="at stat-label body muted" style="top: 514px">Cargo</div>
+      <div class="at stat-value body" style="top: 514px">50/90</div>
+      <div class="at gauge-track" style="top: 538px"></div>
+      <div class="at gauge-fill" style="top: 538px; width: 219px"></div>
+      <div class="at burn-word body">drop to strike 30 from the manifest</div>
+
+      <div class="at stat-label body muted" style="top: 578px">Weight</div>
+      <div class="at stat-value body" style="top: 578px">122</div>
+      <div class="at stat-hair" style="top: 602px"></div>
+
+      <!-- ---------------- the aperture ---------------- -->
+      <div class="at window"></div>
+      <div class="at mast" style="left: 980px"></div>
+      <div class="at mast" style="left: 1060px"></div>
+      <div class="at hull"></div>
+      <div class="at wake"></div>
+      <div class="at window-wash"></div>
+      <div class="at window-edge"></div>
+      <div class="at window-word body over-water">Over the side</div>
+      <div class="at window-caption body muted">she does not come back</div>
+
+      <!-- ---------------- the way out ---------------- -->
+      <div class="at caret-row" style="left: 504px; top: 662px; width: 4px"></div>
+      <div class="at caret-row" style="left: 501px; top: 666px; width: 10px"></div>
+      <div class="at caret-row" style="left: 498px; top: 670px; width: 16px"></div>
+      <div class="at body" style="left: 524px; top: 662px">Chart</div>
+      <div class="at body muted" style="left: 585px; top: 662px">raise her and sail</div>
+    </div>
+
+    <div class="note">
+      <h1>At Anchor — the paper is the ground</h1>
+      <dl class="port-cost">
+        <dt>level</dt><dd class="level">house</dd>
+        <dt>forced</dt><dd>Ground: the paper is the ground. Sea and sky are a 32px rim around the sheet and one aperture cut through it.</dd>
+      </dl>
+      <p>
+        <strong>The constraint:</strong> this screen is mostly parchment. The sea and sky are a
+        32px rim around the sheet, a 4px sliver under it, and <em>one aperture cut through the
+        paper</em> at lower right. Today the world fills the frame edge to edge and the chrome is
+        laid over it; here a 1180&times;612 sheet is the frame and the world is what shows around
+        and through it.
+      </p>
+
+      <h1>What the constraint forced, and none of it was "a bigger panel"</h1>
+      <ul>
+        <li>
+          <strong>The galleon had to stop being the thing you inspect.</strong> The shipped screen
+          is a lit three-quarter cutaway and her berths <em>are</em> her rooms — that only works
+          when she is the field. Demote her to a margin and you cannot pick a room off her. So the
+          berths became a <strong>sheer draught</strong> ruled on the paper, and the one thing that
+          made the move survivable is that a draught has a waterline too: exposed above it,
+          concealed below, a berth's length still her size. Geography carries the split
+          (ADR-0030) in ink exactly as it carried it in geometry.
+        </li>
+        <li>
+          <strong>Containment had to be carved, not stacked.</strong> Parchment laid on parchment is
+          invisible. A filled berth is a well <em>pressed into</em> the sheet — face shaded
+          <code>0.940</code>, dark rule leading, light rule trailing — and an empty berth is a
+          hairline outline on bare paper. Filled and empty differ in <em>material</em>, not in how
+          much writing they carry, which is what makes eight berths legible at a glance with no
+          badge on any of them. Below the waterline the wells are cut <em>deeper</em>
+          (<code>0.898</code>) into an already-washed belly (<code>0.953</code>), so the
+          concealed rank is a darker place on the paper as well as in the ship.
+        </li>
+        <li>
+          <strong>The card in hand could not be a <code>ui_card</code>.</strong> Its face is
+          parchment inside a 2px <code>--sea-deep</code> border — which over water is a card, and on
+          a parchment field is indistinguishable from the one thing the roster lets me mark a legal
+          berth with. So the two had to split: sea-deep stays the "act here" border and goes to the
+          legal berth, and the fitting in hand became <em>raised paper</em> — bare parchment, a
+          cliff edge, a cast shadow. It falls out nicely: every printed thing on this screen is a
+          shade <em>darker</em> than the sheet because every one is cut into it, so the one thing
+          that is the sheet's own full brightness is the one thing lifted off it. It also had to be
+          moved to straddle the waterline rule, because a floating card sitting level with a rank of
+          berths reads as a ninth berth.
+        </li>
+        <li>
+          <strong>The legal berth is promoted; the illegal ones are not demoted.</strong> The
+          shipped drag lights the legal berths and dims the rest. Dimming seven of eight cells on an
+          all-parchment field is ruinous — there is no bright ground under the paper to borrow
+          contrast from, so a demoted cell just goes quiet and the page goes with it. Only
+          <em>top crew</em> is marked, with a 2px <code>--sea-deep</code> rule: the roster's own
+          "interactive border on parchment", already spoken for, and not a new signal.
+        </li>
+        <li>
+          <strong>Overboard became the aperture, and that is an improvement the constraint paid
+          for.</strong> The shipped bin is a coral box at bottom left, and it reads because the
+          whole screen is sea and a box is the odd object on it. Invert the grounds and a coral box
+          on paper is just another box. But there is exactly <em>one</em> piece of real water on
+          this screen — so the drop target is the water. Nothing has to be explained.
+        </li>
+        <li>
+          <strong>The two destructive acts stopped needing their labels to be told apart.</strong>
+          Shipped, they are two coral rectangles distinguished by wording. Here one is
+          <em>water</em> and the other is a <em>line in the books</em>: different material,
+          different half of the screen, different consequence. Coral is up twice, and for the same
+          reason <code>BUILD_DANGER</code> already argues — one signal on the only two places it is
+          true, neither of them on screen unless something is already in hand.
+        </li>
+        <li>
+          <strong>The stats stopped hiding.</strong> <code>draw_build_ledger</code> replaces all
+          four figures with the burn instruction when it arms, which is the one moment the brief's
+          "always visible" is broken. A ledger row has room <em>under</em> it, so the instruction
+          sits beneath the figure it would change and <code>Cargo 50/90</code> stays up while you
+          decide.
+        </li>
+        <li>
+          <strong>The hover card became a printed slot.</strong> A description card that follows the
+          cursor is right over a world and wrong over a page — it occludes the very thing it
+          describes. So the sheet carries one printed slot for a berth's particulars, keyed to the
+          plan by a leader run out into the margin, and it <em>holds still while your hands are
+          busy</em>: it can describe the Captain's Quarters while a hold is in the air, which the
+          shipped surface cannot do at all.
+        </li>
+        <li>
+          <strong>Two of the four stats turned out to be ratios.</strong> On a page, "100/100" wants
+          a ruled gauge under it and "SPD 4" wants a plain hairline — so the rule under a row now
+          says what kind of number the row is carrying. That distinction did not exist when the
+          four sat in one sentence along the bottom of the sea.
+        </li>
+        <li>
+          <strong>The chart stopped being a tab over water and became the sheet underneath.</strong>
+          <code>chart_offset</code> already slides it up a full window height from below; when the
+          ground is paper, the thing that rises from below is another sheet. Its foot shows along
+          the bottom edge with the caret and the words, and raising it is one sheet sliding over
+          another. No re-timing, no new gesture.
+        </li>
+        <li>
+          <strong><code>.over-water</code> is spent exactly once</strong>, on
+          <code>Over the side</code> inside the aperture. Every other word on the screen is ink on
+          paper. The inverse of the shipped screen, where the heading, the tab and the whole stat
+          line are cream over the sea.
+        </li>
+        <li>
+          <strong>No vignette</strong>, and she is <strong>blocked in</strong>. The framing signal on
+          a paper screen is the paper's edge (style guide, <em>Framing</em>); a 150px dark ramp would
+          eat the entire margin. And the galleon in the aperture is five rectangles — hull, two
+          masts, a rail, a wake — because she already exists and already looks right, and a worse
+          CSS copy of a solved thing would cost the half of the screen that is the actual question.
+          What the constraint changes is <em>how much of her you get</em>: her hull and two mast
+          feet, cropped by the cut.
+        </li>
+      </ul>
+
+      <h1>What I would need from <code>presentation/ui.odin</code> that does not exist yet</h1>
+      <p>
+        The widget set has moved a long way — <code>ui_card</code>, <code>ui_alarm</code>,
+        <code>ui_divider</code>, <code>Ui_Emphasis.Unavailable</code> and the named spacing scale all
+        landed, and this mockup leans on every one of them. Six things it had to fake with bare
+        rectangles, each a <em>component with an axis</em> rather than a one-off:
+      </p>
+      <ul>
+        <li>
+          <strong><code>Ui_Elevation.Inset</code> is a uniform darkening, and a well is a
+          bevel.</strong> <code>ui_surface</code> tints the whole nine-slice by
+          <code>0.92</code>, which reads as <em>dimmed</em> — the same thing
+          <code>Ui_Emphasis.Muted</code> says. Twelve surfaces on this page are wells, and every one
+          of them needs a <em>dark leading edge and a light trailing edge</em>: that is what says
+          "pressed in" rather than "turned down". One tint cannot produce it. This is the single
+          component the design lives or dies on, and it is the one the earlier Shop mockup asked
+          for and got the name of but not the shape.
+        </li>
+        <li>
+          <strong>A second axis on <code>ui_alarm</code>: which destructive act.</strong> It takes
+          <code>(rect, lit)</code> and paints one coral wash, so the two destructive targets are
+          identical objects separated only by their words. This screen needs them to differ before
+          you read anything — <code>ui_alarm(rect, lit, .Overboard)</code> washing a
+          <em>world</em> rect, <code>.Strike</code> ruling a <em>ledger row</em> and leaving its
+          figure legible under the wash. Coral is legal in exactly one proc, so the distinction has
+          nowhere else it can live.
+        </li>
+        <li>
+          <strong>A gauge: <code>ui_meter(rect, filled, total, ground)</code>.</strong> A track and
+          a fill, both roster tones, whole pixels, one axis. Nothing draws one today —
+          <code>ui_divider</code> is a line at a weight with no fraction in it. Two of the four
+          stats are ratios and every screen that shows Hull or Cargo wants this.
+        </li>
+        <li>
+          <strong>An aperture: chrome with a hole in it.</strong> <code>ui_panel</code> and
+          <code>ui_card</code> only ever lay paper <em>on</em> the world. This design needs the
+          inverse — the world showing through a cut, with the cut's own sill — and there is no
+          widget that composes world-inside-chrome in either direction. Faked here by painting the
+          water back inside the rect, which is a lie the moment anything behind the sheet moves.
+        </li>
+        <li>
+          <strong>A deckled sheet edge.</strong> The guide's own framing rule is "the torn parchment
+          edge, not a dark vignette", and <code>UI_FRAME_PANEL</code>'s border runs are straight —
+          fine for a panel inside a screen, wrong when the sheet <em>is</em> the screen, where a
+          ruled rectangle reads as a dialog box. A 9-slice cannot carry it (the edge has to vary
+          along its run), so this is an edge-strip blit: <strong>a new draw capability, not a new
+          constant</strong>, and worth deciding deliberately rather than discovering.
+        </li>
+        <li>
+          <strong>A leader, and a vertical anchor.</strong> An annotated draught is held together by
+          leaders — <code>ui_leader(from, to)</code>, whose elbow routing (which side, how far into
+          the margin) is exactly what should not be typed at a call site. And
+          <code>Ui_Anchor</code> is horizontal only: <code>ui_text</code> always centres vertically
+          in its rect, so every one of the ~30 strings on this page is placed by handing it a 16px
+          rect at a hand-computed <code>y</code>. A vertical anchor, or a
+          <code>ui_row(rect, index)</code>, is what turns a ruled page into a rhythm instead of
+          thirty numbers.
+        </li>
+      </ul>
+      <p>
+        Two things I did <em>not</em> need. <strong>No third type size</strong> — a 32px heading and
+        16px everywhere else carries a sheet this large, with colour ranking within each block, and
+        the constraint never pushed against it. And <strong>no new swatch</strong>: three literals
+        appear here and all three are <code>colour_shade</code> of parchment —
+        <code>0.953</code> the belly wash, <code>0.940</code> a well on bare sheet,
+        <code>0.898</code> a well below the waterline and a gauge track. Three factors are the
+        whole of this screen's depth, which is the argument for <code>colour_shade</code> rather
+        than for three more names on the roster.
+      </p>
+      <p>
+        <strong>Both destructive targets are drawn at <code>UI_ALARM_WASH</code>, not
+        <code>UI_ALARM_LIT</code></strong>, because the cursor is up by the hold with the fitting in
+        hand and is over neither of them. Only the one under the cursor may light — that difference
+        is the entire "a release <em>here</em> is the one that acts" signal, and a mockup that
+        spends it on both at once has thrown it away to look busier.
+      </p>
+    </div>
+  </body>
+</html>
