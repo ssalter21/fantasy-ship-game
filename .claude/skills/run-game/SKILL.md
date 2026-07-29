@@ -14,10 +14,17 @@ have not looked at, and don't ask the maintainer what it looks like — take a s
 
 ## Read the style guide before you draw
 
-`docs/ui/style-guide.md` is the fixed target for "good": exact palette values, the 40/20 type scale, the
-saturation rule, Pixelify Sans via `#load`, and the rules for raylib. **Read it before writing draw calls, not
-after.**
-It answers what the palette is, why there is no bold, and why a size is a font rather than a parameter.
+`docs/ui/style-guide.md` is the fixed target for "good": exact palette values, the 48/32/16 type scale, the
+saturation rule, the component table, and the rules for raylib. **Read it before writing draw calls, not
+after.** It is the *rules* only — [`docs/ui/style-rationale.md`](../../../docs/ui/style-rationale.md) holds
+the reasoning, the reference readings and the measurements, and you never need it to follow a rule. Read the
+rationale when you are about to **change** one.
+
+**Most rules are in code now.** The widgets (`presentation/ui_widgets.odin`) carry every rule a procedure can:
+a call site names a role — an Emphasis, an Elevation, a named space, a type level — and cannot reach a colour,
+a size or a spacing outside the roster through them. **Reach for `ui_panel` / `ui_card` / `ui_button` /
+`ui_heading` / `ui_divider` / `ui_icon` / `ui_text`, never a raw `DrawRectangleRec`.** A test
+(`no_screen_strokes_its_own_chrome`) fails the build if a screen strokes its own chrome.
 
 Two rules from it that decide the *shape* of your code, so you want them before you start rather than in review:
 
