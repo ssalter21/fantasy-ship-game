@@ -1,0 +1,233 @@
+/* The mockup harness: a browser stage that can only draw what raylib can draw.
+ *
+ * The divergent, exploratory half of UI design does not belong in a compiled game. Trying a
+ * layout should cost a file save and a refresh, not a rebuild, a capture and a PNG in
+ * someone's context. This is where that half happens; docs/ui/mock/README.md is the rules
+ * and the porting note.
+ *
+ * The harness's job is to be HONEST, and that is the whole of its difficulty. CSS can draw a
+ * great many things this game cannot, and a loop that ends with someone in love with a mockup
+ * that cannot ship has cost more than it saved. So everything CSS can be stopped from doing,
+ * it is stopped from doing here — with `!important` inside the stage, which beats an author's
+ * own rule. What CSS cannot enforce is listed in the README and checked by
+ * `python scripts/check-mock.py`.
+ */
+
+@import url("pixel-operator.css");
+
+:root {
+  /* The roster, from docs/ui/style-guide.md. A mockup uses these names and never a literal:
+   * a hex typed by hand is how a mockup drifts off the palette the game is locked to, and
+   * check-mock.py fails on one. */
+  --sea: #1fa9d0;
+  --sea-bright: #2cc3de;
+  --sea-shallow: #63e2ec;
+  --sea-deep: #1786bc;
+  --foam: #f2fbfb;
+
+  --sky-high: #3f79c0;
+  --sky: #5a93d2;
+  --haze: #8fbce8;
+  --cloud: #eef1f8;
+  --cloud-shadow: #92b7e0;
+
+  --parchment: #ebd9a6;
+  --sand: #d2a968;
+  --cliff: #b98a50;
+  --rock: #7e5c3a;
+  --trunk: #875f38;
+
+  --green-highlight: #9bde57;
+  --green-light: #57c94d;
+  --green: #2fa23e;
+  --green-deep: #1b6a2b;
+
+  --coral: #e1552b; /* scarce by law: danger and damage, nothing else */
+
+  --ink: #12333f;
+  --ink-muted: #4c7385;
+  --cream-bright: #f3e6c4;
+
+  /* The navy ramp the unre-coloured screens still draw from. */
+  --deep: #081127;
+  --mid: #0a1c30;
+  --shallow: #0e2e3f;
+  --vignette: #050b18;
+  --steel: #8aa9d6;
+  --cream: #e7d2a3;
+  --cyan: #6fe0ec;
+
+  /* The type scale, whole. Pixel Operator is a native-16px face; these are the sizes it is
+   * measured 0% antialiased at, and a mockup that invents a third is proposing a new atlas. */
+  --title: 32px;
+  --body: 16px;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #202020; /* the desk the stage sits on — outside the stage, so not roster-bound */
+}
+
+/* The stage is the window, exactly. Not a percentage and not a max-width: a mockup measured
+ * at any other size is measuring a layout the game will never show. */
+.stage {
+  position: relative;
+  width: 1244px;
+  height: 700px;
+  overflow: hidden;
+  margin: 24px auto;
+  font-family: "Pixel Operator", monospace;
+  font-size: var(--body);
+  line-height: 1;
+  color: var(--ink);
+  background: var(--sea);
+}
+
+/* Everything the game cannot draw, refused. `!important` so an author's own rule loses:
+ * a harness that merely documents its constraints is a harness that does not have any.
+ *
+ *   border-radius   nothing rounds a rectangle's corner; a rounded frame is a 9-slice sprite
+ *   filter/blur     there is no blur pass; a soft edge is painted into a sprite or absent
+ *   text-shadow     glyphs blit from an atlas
+ *   transform       every draw call takes absolute coordinates
+ *   transition      a mockup is one frame, and animation is judged in the game
+ *   box-shadow      raylib's shadow is a second rectangle — .cast-shadow below draws one
+ *   antialiasing    a pixel face resampled is the whole thing this game is avoiding
+ */
+.stage,
+.stage *,
+.stage *::before,
+.stage *::after {
+  box-sizing: border-box;
+  border-radius: 0 !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  text-shadow: none !important;
+  transform: none !important;
+  transition: none !important;
+  animation: none !important;
+  box-shadow: none !important;
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  text-rendering: geometricPrecision;
+}
+
+/* A cast shadow is a second rectangle offset behind the first, which is exactly what
+ * draw_offer_shop_card does. Offsets are whole pixels and the ground is a roster tone at an
+ * alpha the game can pass to rl.Fade. */
+.cast-shadow {
+  position: relative;
+}
+
+.cast-shadow::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 6px;
+  right: -5px;
+  bottom: -6px;
+  background: var(--sea-deep);
+  opacity: 0.45;
+  z-index: -1;
+}
+
+/* Absolute placement is the default posture, because every raylib draw call takes an
+ * absolute rect. Flow layout is allowed inside a box whose own rect is placed — that is
+ * what a stack of cards is — but a mockup whose whole composition depends on the browser's
+ * flow has not said where anything is. */
+.at {
+  position: absolute;
+}
+
+/* The chrome frames, as the game blits them (presentation/ui_frame.odin). Borders here are
+ * the frames' own border runs at their native thickness, so a mockup that uses these is
+ * proposing chrome that already exists rather than chrome someone would have to draw. */
+.frame-panel {
+  background: var(--parchment);
+  border: 1px solid var(--rock);
+  outline: 1px solid var(--sand);
+  outline-offset: -3px;
+  box-shadow: none;
+}
+
+.frame-panel::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border: 1px solid var(--cliff);
+  pointer-events: none;
+}
+
+.frame-card {
+  background: var(--parchment);
+  border: 2px solid var(--sea-deep);
+}
+
+.frame-button {
+  background: var(--parchment);
+  border: 1px solid var(--sea-deep);
+  border-top-color: var(--sea-deep);
+}
+
+.frame-button--hover {
+  border-width: 2px;
+}
+
+.frame-button--press {
+  background: var(--sand);
+}
+
+/* Type. Two sizes, and a mockup proposing a third is proposing a new atlas — say so in the
+ * mockup's own note rather than typing a number. */
+.title {
+  font-size: var(--title);
+}
+
+.body {
+  font-size: var(--body);
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+/* Text over the sea, never on parchment (style guide, the roster's two ink rules). */
+.over-water {
+  color: var(--cream-bright);
+}
+
+/* The vignette every screen closes with — four one-axis gradients, which is exactly the
+ * DrawRectangleGradientV/H pair the game draws. One-axis gradients are the only kind that
+ * port; a radial or an angled one has no draw call behind it. */
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, var(--vignette), transparent 150px),
+    linear-gradient(to top, var(--vignette), transparent 150px),
+    linear-gradient(to right, var(--vignette), transparent 150px),
+    linear-gradient(to left, var(--vignette), transparent 150px);
+}
+
+/* A caption under a mockup, outside the stage — notes, the constraint the mockup was given,
+ * whatever the author needs to say. Not roster-bound, because it never ships. */
+.note {
+  width: 1244px;
+  margin: 0 auto 40px;
+  color: #c8c8c8;
+  font: 14px/1.5 system-ui, sans-serif;
+}
+
+.note h1 {
+  font-size: 18px;
+  margin: 0 0 6px;
+  color: #ffffff;
+}
+
+.note code {
+  color: #ffd479;
+}
