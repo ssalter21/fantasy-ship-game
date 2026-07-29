@@ -98,42 +98,64 @@ every_ink_a_widget_can_reach_is_on_the_roster :: proc(t: ^testing.T) {
 	}
 }
 
-// Ink has to separate from what it is on, or the widget is drawing invisible text. The two
-// grounds are opposite in value, which is why the axis exists at all.
+// The guide's two ink rules, which are the whole reason Ui_Ground is an axis: dark ink on
+// parchment, light over water, and never the other way round. Every rank has to be on the
+// correct side of its own ground — a rank that crossed it would be invisible text.
 @(test)
 ink_reads_against_the_ground_it_names :: proc(t: ^testing.T) {
 	luminance :: proc(c: rl.Color) -> f32 {
 		return 0.299 * f32(c.r) + 0.587 * f32(c.g) + 0.114 * f32(c.b)
 	}
 	for emphasis in Ui_Emphasis {
-		on_paper := luminance(ui_ink(.Parchment, emphasis))
-		on_water := luminance(ui_ink(.Water, emphasis))
 		testing.expectf(
 			t,
-			on_paper < luminance(COLOUR_PARCHMENT),
-			"%v on parchment is lighter than the parchment under it",
+			luminance(ui_ink(.Parchment, emphasis)) < luminance(COLOUR_PARCHMENT),
+			"%v on parchment is no darker than the parchment under it",
 			emphasis,
 		)
-		testing.expectf(t, on_water > on_paper, "%v over water should be the lighter of the two", emphasis)
+		testing.expectf(
+			t,
+			luminance(ui_ink(.Water, emphasis)) > luminance(COLOUR_SEA),
+			"%v over water is no lighter than the sea under it",
+			emphasis,
+		)
 	}
 }
 
-// Emphasis is a rank, so it has to actually rank: each step reads less loudly than the one
-// before it. A pair that resolved to the same tone would be an axis with a value that does
-// nothing.
+// Emphasis is a rank, so it has to actually rank: every step recedes further into its ground
+// than the one before it. Two values resolving to the same tone would be an axis with a value
+// that does nothing — and a block demoting each of its rows by one step would find its last
+// row unchanged, which is the bug this caught on the Shop's spec line.
 @(test)
 emphasis_ranks_rather_than_merely_differing :: proc(t: ^testing.T) {
+	// Distance from the ground the ink is on: a higher rank stands further off it.
+	contrast :: proc(ground: Ui_Ground, emphasis: Ui_Emphasis) -> f32 {
+		luminance :: proc(c: rl.Color) -> f32 {
+			return 0.299 * f32(c.r) + 0.587 * f32(c.g) + 0.114 * f32(c.b)
+		}
+		behind := ground == .Parchment ? COLOUR_PARCHMENT : COLOUR_SEA
+		return abs(luminance(ui_ink(ground, emphasis)) - luminance(behind))
+	}
+
 	for ground in Ui_Ground {
 		seen := make([dynamic]rl.Color, 0, len(Ui_Emphasis))
 		defer delete(seen)
+		previous := max(f32)
 		for emphasis in Ui_Emphasis {
 			ink := ui_ink(ground, emphasis)
-			// Unavailable is allowed to share with Secondary: a thing you cannot take is not a
-			// fourth loudness, it is a state, and its dimming is carried by the surface tint.
-			if emphasis != .Unavailable {
-				testing.expectf(t, !slice.contains(seen[:], ink), "%v on %v is not its own tone", emphasis, ground)
-			}
+			testing.expectf(t, !slice.contains(seen[:], ink), "%v on %v is not its own tone", emphasis, ground)
 			append(&seen, ink)
+
+			stands_off := contrast(ground, emphasis)
+			testing.expectf(
+				t,
+				stands_off < previous,
+				"%v on %v stands %.0f off its ground, no less than the rank above it",
+				emphasis,
+				ground,
+				stands_off,
+			)
+			previous = stands_off
 		}
 	}
 }

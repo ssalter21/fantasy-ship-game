@@ -156,15 +156,13 @@ workbench_offer_shop_knobs_into :: proc(w: ^Workbench, l: ^Offer_Shop_Layout) {
 	workbench_add(w, "leave gap", &l.leave_gap, 0, 60, "leave_gap")
 	workbench_add(w, "leave height", &l.leave_h, 24, 72, "leave_h")
 
+	// The border weight, the shadow's throw and the type sizes are not here any more: since
+	// this screen draws with widgets they belong to a frame, an Elevation and a Ui_Level. The
+	// workbench steers geometry; a size is a design decision, not a number to drag.
 	workbench_add(w, "inset", &l.card_inset, 4, 40, "card_inset", "card")
-	workbench_add(w, "border", &l.card_border, 1, 6, "card_border")
-	workbench_add(w, "shadow x", &l.shadow_dx, 0, 16, "shadow_dx")
-	workbench_add(w, "shadow y", &l.shadow_dy, 0, 16, "shadow_dy")
 	workbench_add(w, "name y", &l.name_y, 2, 40, "name_y")
 	workbench_add(w, "intent y", &l.intent_y, 12, 70, "intent_y")
 	workbench_add(w, "spec y", &l.spec_y, 24, 100, "spec_y")
-	workbench_add(w, "name size", &l.name_size, 12, 48, "name_size")
-	workbench_add(w, "body size", &l.body_size, 12, 32, "body_size")
 	workbench_add(w, "price box", &l.price_box, 8, 24, "price_box")
 	workbench_add(w, "price gap", &l.price_gap, 8, 48, "price_gap")
 }

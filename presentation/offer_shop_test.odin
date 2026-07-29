@@ -309,3 +309,55 @@ build_shelf_bridge_is_dormant_without_a_pending_drop :: proc(t: ^testing.T) {
 	_, bridging := build_shelf_bridge_command(&state)
 	testing.expect(t, !bridging) // a Home refit is driven by hand, not the bridge
 }
+
+// What drawing with widgets changed about this screen: a card's three rows now share one
+// derivation, and its availability is one axis rather than three coordinated tone choices.
+
+// The failure the Emphasis axis exists to prevent: a card that dims its name and leaves its
+// other two rows at full strength, which is what three independent tone choices allow.
+@(test)
+an_unaffordable_card_dims_every_row_not_just_its_name :: proc(t: ^testing.T) {
+	ROWS :: 3
+	for row in 0 ..< ROWS {
+		afford := offer_shop_row_emphasis(row, true)
+		cannot := offer_shop_row_emphasis(row, false)
+		testing.expectf(t, afford != cannot, "row %d reads the same whether or not it can be bought", row)
+	}
+}
+
+// Affordable, the three rows are a rank: the name leads, the intent follows, the spec
+// recedes. Colour carries hierarchy in this game, so this is the hierarchy.
+@(test)
+a_cards_three_rows_rank_from_name_to_spec :: proc(t: ^testing.T) {
+	testing.expect_value(t, offer_shop_row_emphasis(0, true), Ui_Emphasis.Primary)
+	testing.expect_value(t, offer_shop_row_emphasis(1, true), Ui_Emphasis.Secondary)
+	testing.expect_value(t, offer_shop_row_emphasis(2, true), Ui_Emphasis.Muted)
+}
+
+// One derivation for all three rows, so the name, the intent and the price cannot disagree
+// about where the card's margins are — which is what happened when each computed its own.
+@(test)
+a_cards_rows_share_one_pair_of_margins :: proc(t: ^testing.T) {
+	card := rl.Rectangle{x = 820, y = 72, width = 392, height = 92}
+	first := offer_shop_card_row(card, 0)
+
+	previous := first.y
+	for row in 0 ..< 3 {
+		line := offer_shop_card_row(card, row)
+		testing.expectf(t, line.x == first.x, "row %d starts at a different margin", row)
+		testing.expectf(t, line.width == first.width, "row %d is a different width", row)
+		testing.expectf(t, line.y >= previous, "row %d runs above the one before it", row)
+		testing.expectf(
+			t,
+			line.x >= card.x && line.x + line.width <= card.x + card.width,
+			"row %d runs outside the card",
+			row,
+		)
+		testing.expectf(t, line.y + line.height <= card.y + card.height, "row %d runs off the card's foot", row)
+		previous = line.y
+	}
+
+	// The margins are the inset, taken off both sides.
+	testing.expect_value(t, first.x, card.x + offer_shop_layout.card_inset)
+	testing.expect_value(t, first.width, card.width - 2 * offer_shop_layout.card_inset)
+}

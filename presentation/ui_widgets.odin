@@ -45,9 +45,12 @@ Ui_Emphasis :: enum {
 	Secondary,
 	Muted,
 	// Unavailable is a thing that is present and cannot be taken — an unaffordable card, a
-	// control that is not offered. It dims **by tone, never by alpha**: over a bright sea,
-	// translucency costs a surface its own ground and the water reads through it as a stain
-	// (ADR-0032).
+	// control that is not offered. It is the faintest rank rather than a fifth kind of thing,
+	// which is what lets a block demote every one of its rows by one step and have the last
+	// row still have somewhere to go.
+	//
+	// It dims **by tone, never by alpha**: over a bright sea, translucency costs a surface its
+	// own ground and the water reads through it as a stain (ADR-0032).
 	Unavailable,
 }
 
@@ -178,7 +181,7 @@ ui_ink :: proc(ground: Ui_Ground, emphasis: Ui_Emphasis) -> rl.Color {
 		case .Muted:
 			return colour_shade(COLOUR_INK_MUTED, 1.35)
 		case .Unavailable:
-			return COLOUR_INK_MUTED
+			return colour_shade(COLOUR_INK_MUTED, 1.6)
 		}
 	case .Water:
 		switch emphasis {
