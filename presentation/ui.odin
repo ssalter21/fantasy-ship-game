@@ -84,10 +84,20 @@ colour_shade :: proc(colour: rl.Color, factor: f32) -> rl.Color {
 }
 
 // The size scale, whole. Pixel Operator is a native-16px pixel face: measured 0.0%
-// antialiased at 16 and 32 (both integer multiples of its pixel em) and mush off that
-// grid — 86% at 20px, 40% at 40px. The scale is therefore 32/16, the two crisp sizes
-// nearest the old 40/20. Hierarchy is still carried by colour, not size: that is the
-// house style, no longer a workaround for a face with no clean small size.
+// antialiased at 16, 32 and 48 (integer multiples of its pixel em) and mush off that
+// grid — 99% at 12px, 86% at 20px, 58% at 24px, 40% at 40px. 48 is therefore exactly as
+// crisp as 32 and 16, by the same measurement that produced the pair.
+//
+// **Hierarchy is carried by colour *and* by size.** The scale was two sizes for a while
+// and the claim beside it was that colour carried rank as house style — but two sizes is
+// not enough to carry hierarchy, and the Shop was the proof: four cards at one size, one
+// border weight and one pitch, with three text tones and nothing leading the eye. Colour
+// ranks *within* a block; size is what says which block to read first.
+//
+// A screen cannot reach these directly. They are levels of Ui_Level, and the widgets
+// (ui_widgets.odin) are the only way to a font — a size a screen can name is a size a
+// screen can invent, and an invented size is an atlas nobody baked.
+UI_DISPLAY_SIZE :: 48
 UI_TITLE_SIZE :: 32
 UI_BODY_SIZE :: 16
 
@@ -97,21 +107,23 @@ UI_BODY_SIZE :: 16
 // CC0 1.0 (public domain) — see assets/fonts/PixelOperator-LICENSE.txt.
 PIXEL_OPERATOR_TTF :: #load("../assets/fonts/PixelOperator.ttf")
 
-// ui_font_title and ui_font_body are the same face baked at the scale's two sizes.
-// One rl.Font is one glyph atlas rasterized at one size, so a size is a font here:
-// drawing 20px text from the 40px atlas resamples it and gives up the pixel-exactness
-// that picking a pixel face was for.
+// The same face baked at each of the scale's sizes. One rl.Font is one glyph atlas
+// rasterized at one size, so a size is a font here: drawing 32px text from the 48px atlas
+// resamples it and gives up the pixel-exactness that picking a pixel face was for.
+ui_font_display: rl.Font
 ui_font_title: rl.Font
 ui_font_body: rl.Font
 
-// ui_fonts_load bakes both atlases. Must run after InitWindow (the atlas is a GPU
+// ui_fonts_load bakes every atlas. Must run after InitWindow (the atlas is a GPU
 // texture) and before any draw; ui_fonts_unload pairs with it.
 ui_fonts_load :: proc() {
+	ui_font_display = ui_font_bake(UI_DISPLAY_SIZE)
 	ui_font_title = ui_font_bake(UI_TITLE_SIZE)
 	ui_font_body = ui_font_bake(UI_BODY_SIZE)
 }
 
 ui_fonts_unload :: proc() {
+	rl.UnloadFont(ui_font_display)
 	rl.UnloadFont(ui_font_title)
 	rl.UnloadFont(ui_font_body)
 }

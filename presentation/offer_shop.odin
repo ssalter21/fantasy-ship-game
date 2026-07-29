@@ -85,13 +85,49 @@ offer_shop_alongside :: proc() -> Offer_Shop_Travel {
 // the block on the same two edges it opened on. Prices scan down one straight line.
 // ---------------------------------------------------------------------------
 
-OFFER_SHOP_COL_X :: f32(820)
-OFFER_SHOP_COL_W :: f32(392)
-OFFER_SHOP_COL_Y0 :: f32(72) // clear of the shared stat line in the top-right corner
-OFFER_SHOP_CARD_H :: f32(92)
-OFFER_SHOP_PITCH :: f32(104) // sized so a Shop's full five-card shelf still clears the chart tab
-OFFER_SHOP_LEAVE_GAP :: f32(16)
-OFFER_SHOP_LEAVE_H :: f32(40)
+// Offer_Shop_Layout is every number that decides where this screen's column and its cards
+// sit — one block rather than a scatter of constants, so the whole geometry can be steered
+// at once and handed back as a literal (`game.exe --workbench shop`).
+//
+// What is *not* here is what the widgets own: the border weight, the cast shadow's throw and
+// the type sizes were fields until this screen drew with widgets, and are now a frame, an
+// Elevation and a Ui_Level respectively. A size that a screen could drag is a size a screen
+// could invent, and an invented size is an atlas nobody baked.
+Offer_Shop_Layout :: struct {
+	col_x:      f32,
+	col_w:      f32,
+	col_y0:     f32,
+	card_h:     f32,
+	pitch:      f32,
+	leave_gap:  f32,
+	leave_h:    f32,
+	card_inset: f32,
+	name_y:     f32,
+	intent_y:   f32,
+	spec_y:     f32,
+	price_box:  f32,
+	price_gap:  f32,
+}
+
+OFFER_SHOP_LAYOUT :: Offer_Shop_Layout {
+	col_x      = 820,
+	col_w      = 392,
+	col_y0     = 72, // clear of the shared stat line in the top-right corner
+	card_h     = 92,
+	pitch      = 104, // sized so a Shop's full five-card shelf still clears the chart tab
+	leave_gap  = 16,
+	leave_h    = 40,
+	card_inset = 14,
+	name_y     = 10,
+	intent_y   = 36,
+	spec_y     = 62,
+	price_box  = 14,
+	price_gap  = 20,
+}
+
+// offer_shop_layout is the geometry the screen actually draws from. It is OFFER_SHOP_LAYOUT
+// in every session; only the workbench moves it, and it puts it back on the way out.
+offer_shop_layout := OFFER_SHOP_LAYOUT
 
 // Shelf_Drag is a shelf card in flight — the same press-drag-release primitive the Build
 // surface uses, but lifted from an option rather than a slot. It carries the option's index
@@ -146,14 +182,15 @@ offer_shop_legal_berth :: proc(fitting: ship.Fitting, layout_slot: ship.Layout_S
 // These are the *resting* rects. The column slides in from the right over the back half of the
 // travel, and the draw offsets by that — nothing is clickable until it has landed.
 offer_shop_shelf_rects :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Option)) -> [sim.STAGE_OPTION_MAX]rl.Rectangle {
+	l := offer_shop_layout
 	rects: [sim.STAGE_OPTION_MAX]rl.Rectangle
-	y := OFFER_SHOP_COL_Y0
+	y := l.col_y0
 	for slot, i in options {
 		if _, filled := slot.?; !filled {
 			continue
 		}
-		rects[i] = rl.Rectangle{x = OFFER_SHOP_COL_X, y = y, width = OFFER_SHOP_COL_W, height = OFFER_SHOP_CARD_H}
-		y += OFFER_SHOP_PITCH
+		rects[i] = rl.Rectangle{x = l.col_x, y = y, width = l.col_w, height = l.card_h}
+		y += l.pitch
 	}
 	return rects
 }
@@ -169,11 +206,12 @@ offer_shop_leave_rect :: proc(options: [sim.STAGE_OPTION_MAX]Maybe(sim.Stage_Opt
 			filled += 1
 		}
 	}
+	l := offer_shop_layout
 	return rl.Rectangle {
-		x = OFFER_SHOP_COL_X,
-		y = OFFER_SHOP_COL_Y0 + f32(filled) * OFFER_SHOP_PITCH + OFFER_SHOP_LEAVE_GAP,
-		width = OFFER_SHOP_COL_W,
-		height = OFFER_SHOP_LEAVE_H,
+		x = l.col_x,
+		y = l.col_y0 + f32(filled) * l.pitch + l.leave_gap,
+		width = l.col_w,
+		height = l.leave_h,
 	}
 }
 
@@ -403,64 +441,81 @@ draw_offer_shop_column :: proc(state: ^Game_State, kind: voyage.Stage_Kind, drag
 	draw_offer_shop_control(leave, kind == .Shop ? "Leave" : "Skip", hovered)
 }
 
-// draw_offer_shop_card renders one option on opaque parchment: its name, what it is for, its
-// spec, and — a Shop card — its price scanning down the same right-hand line as every other.
+// draw_offer_shop_card renders one option: its name, what it is for, its spec, and — a Shop
+// card — its price scanning down the same right-hand line as every other.
 //
-// Unaffordable dims **by tone, never by alpha**: over a bright sea, translucency costs a panel
-// its own ground and the hull-down islands read through the card as stains (ADR-0032).
+// A ui_card at Floating carries the paper, its border and its cast shadow, so what is left
+// here is the three rows and where they sit. Unaffordable is an Emphasis rather than three
+// coordinated tone choices, which is what stops a card dimming two of its rows and shipping.
 draw_offer_shop_card :: proc(rect: rl.Rectangle, option: sim.Stage_Option, affordable: bool) {
-	// A cast shadow, not a glow: the sea is bright, so the only way paper sits above it is to
-	// darken what is under the paper.
-	rl.DrawRectangleRec({rect.x + 5, rect.y + 6, rect.width, rect.height}, rl.Fade(COLOUR_SEA_DEEP, 0.45))
-	rl.DrawRectangleRec(rect, affordable ? COLOUR_PARCHMENT : colour_shade(COLOUR_PARCHMENT, 0.90))
-	rl.DrawRectangleLinesEx(rect, 2, affordable ? COLOUR_SEA_DEEP : COLOUR_CLIFF)
+	ui_card(rect, affordable ? .Primary : .Unavailable, .Floating)
 
-	name_tone := affordable ? COLOUR_INK_PRIMARY : COLOUR_INK_MUTED
 	spec, intent := fitting_summary_lines(option.fitting)
-	x := rect.x + 14
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", option.fitting.name), {x, rect.y + 10}, UI_BODY_SIZE, 1, name_tone)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), {x, rect.y + 36}, UI_BODY_SIZE, 1, COLOUR_INK_MUTED)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", spec), {x, rect.y + 62}, UI_BODY_SIZE, 1, rl.Fade(COLOUR_INK_MUTED, 0.7))
+	for text, row in ([?]string{option.fitting.name, intent, spec}) {
+		ui_text(
+			offer_shop_card_row(rect, row),
+			text,
+			.Body,
+			.Parchment,
+			offer_shop_row_emphasis(row, affordable),
+		)
+	}
 
 	// An Offer's items are free and carry no price at all — the one thing that differs between
 	// the two stages, and the whole of it.
 	if cost, priced := option.cost.?; priced {
-		draw_offer_shop_price(rect.x + rect.width - 14, rect.y + 10, cost, name_tone)
+		draw_offer_shop_price(offer_shop_card_row(rect, 0), cost, offer_shop_row_emphasis(0, affordable))
 	}
 }
 
-// draw_offer_shop_price lays a crate-and-number price flush to `right`, measured rather than
-// guessed so a three-digit price does not walk off the edge a two-digit one fitted. The crate is
-// drawn as shapes rather than as a glyph — the style guide will not let a codepoint above
-// Latin-1 be depended on, and "cargo" is a picture here, not a word.
-draw_offer_shop_price :: proc(right, y: f32, cost: int, tone: rl.Color) {
-	text := fmt.ctprintf("%d", cost)
-	w := rl.MeasureTextEx(ui_font_body, text, UI_BODY_SIZE, 1).x
-	rl.DrawTextEx(ui_font_body, text, {right - w, y}, UI_BODY_SIZE, 1, tone)
+// offer_shop_card_row is where one of a card's three lines runs: the full inset width, at that
+// row's baseline. One place, so the name, the intent and the price all agree on the same two
+// margins rather than each deriving them.
+offer_shop_card_row :: proc(rect: rl.Rectangle, row: int) -> rl.Rectangle {
+	l := offer_shop_layout
+	tops := [?]f32{l.name_y, l.intent_y, l.spec_y}
+	return rl.Rectangle {
+		x = rect.x + l.card_inset,
+		y = rect.y + tops[row],
+		width = rect.width - 2 * l.card_inset,
+		height = UI_BODY_SIZE,
+	}
+}
 
-	// A bound bale: a crate with a cross through it, so it reads as goods rather than an empty
-	// square.
-	S :: f32(14)
-	box := rl.Rectangle{right - w - 20, y + 1, S, S}
-	rl.DrawRectangleLinesEx(box, 1, tone)
-	rl.DrawLineEx({box.x + S / 2, box.y}, {box.x + S / 2, box.y + S}, 1, tone)
-	rl.DrawLineEx({box.x, box.y + S / 2}, {box.x + S, box.y + S / 2}, 1, tone)
+// offer_shop_row_emphasis ranks a card's three lines, and drops the whole card a step when its
+// item cannot be afforded. The rank is decided here rather than at each row, so an
+// unaffordable card cannot dim two of its three lines and ship.
+offer_shop_row_emphasis :: proc(row: int, affordable: bool) -> Ui_Emphasis {
+	ranked := [?]Ui_Emphasis{.Primary, .Secondary, .Muted}
+	return affordable ? ranked[row] : ui_emphasis_down(ranked[row])
+}
+
+// draw_offer_shop_price lays a crate-and-number price flush to the right of `row`, measured
+// rather than guessed so a three-digit price does not walk the bale off the edge a two-digit
+// one fitted. The crate is a shape rather than a glyph — the style guide will not let a
+// codepoint above Latin-1 be depended on, and "cargo" is a picture here, not a word.
+draw_offer_shop_price :: proc(row: rl.Rectangle, cost: int, emphasis: Ui_Emphasis) {
+	l := offer_shop_layout
+	text := fmt.tprintf("%d", cost)
+	ui_text(row, text, .Body, .Parchment, emphasis, .Right)
+
+	number := ui_text_size(text, .Body).x
+	ui_icon(
+		{
+			x = row.x + row.width - number - l.price_gap,
+			y = row.y + (row.height - l.price_box) / 2,
+			width = l.price_box,
+			height = l.price_box,
+		},
+		.Crate,
+		.Parchment,
+		emphasis,
+	)
 }
 
 // draw_offer_shop_control is the column's one control: a ground, a 2px border in the tone that
 // states its role, and a label in the same tone. No fill marks it as the default action — the
 // guide holds that controls do not have a signal colour, and leaving is not the default anyway.
 draw_offer_shop_control :: proc(rect: rl.Rectangle, label: string, hovered: bool) {
-	text := fmt.ctprintf("%s", label)
-	rl.DrawRectangleRec(rect, hovered ? colour_shade(COLOUR_PARCHMENT, 1.06) : COLOUR_PARCHMENT)
-	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
-	size := rl.MeasureTextEx(ui_font_body, text, UI_BODY_SIZE, 1)
-	rl.DrawTextEx(
-		ui_font_body,
-		text,
-		{rect.x + (rect.width - size.x) / 2, rect.y + (rect.height - size.y) / 2},
-		UI_BODY_SIZE,
-		1,
-		COLOUR_SEA_DEEP,
-	)
+	ui_button(rect, label, hovered ? .Hover : .Rest)
 }

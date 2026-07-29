@@ -7,8 +7,8 @@ import presentation "../../presentation"
 // loop, capture mode and the hull workbench live in the presentation package (#433),
 // and this main only picks which of its entries the process runs — one named screen
 // behind --shot, the scripted capture walk behind --capture, the hull contact sheet
-// behind --hull-sheet, the hull workbench behind --workbench, or the player-facing
-// session.
+// behind --hull-sheet, the hull or a named 2D screen behind --workbench, or the
+// player-facing session.
 //
 // This package deliberately carries no tests (the standards' every-package rule):
 // there is nothing here but the dispatch below, and everything it calls is tested
@@ -43,7 +43,11 @@ main :: proc() {
 		return
 	}
 	if presentation.workbench_requested() {
-		presentation.workbench_main()
+		// A screen the workbench does not know is a failure like an unknown --shot: exit
+		// non-zero rather than silently opening the hull instead of what was asked for.
+		if !presentation.workbench_main() {
+			os.exit(1)
+		}
 		return
 	}
 	presentation.run()

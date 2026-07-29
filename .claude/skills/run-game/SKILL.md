@@ -14,10 +14,17 @@ have not looked at, and don't ask the maintainer what it looks like — take a s
 
 ## Read the style guide before you draw
 
-`docs/ui/style-guide.md` is the fixed target for "good": exact palette values, the 40/20 type scale, the
-saturation rule, Pixelify Sans via `#load`, and the rules for raylib. **Read it before writing draw calls, not
-after.**
-It answers what the palette is, why there is no bold, and why a size is a font rather than a parameter.
+`docs/ui/style-guide.md` is the fixed target for "good": exact palette values, the 48/32/16 type scale, the
+saturation rule, the component table, and the rules for raylib. **Read it before writing draw calls, not
+after.** It is the *rules* only — [`docs/ui/style-rationale.md`](../../../docs/ui/style-rationale.md) holds
+the reasoning, the reference readings and the measurements, and you never need it to follow a rule. Read the
+rationale when you are about to **change** one.
+
+**Most rules are in code now.** The widgets (`presentation/ui_widgets.odin`) carry every rule a procedure can:
+a call site names a role — an Emphasis, an Elevation, a named space, a type level — and cannot reach a colour,
+a size or a spacing outside the roster through them. **Reach for `ui_panel` / `ui_card` / `ui_button` /
+`ui_heading` / `ui_divider` / `ui_icon` / `ui_text`, never a raw `DrawRectangleRec`.** A test
+(`no_screen_strokes_its_own_chrome`) fails the build if a screen strokes its own chrome.
 
 Two rules from it that decide the *shape* of your code, so you want them before you start rather than in review:
 
@@ -65,7 +72,7 @@ odin run cmd/game -- --shot battle         # a voyage screen: walks only as far 
 ```
 
 One PNG, then the process exits — a second for a screen capture can stage, a few for one it has to sail to.
-**Every screen is nameable**, and the shot lands in `docs/ui/shots/` at the same number and filename a full run
+**Every screen is nameable**, and the shot lands in `docs/ui/shots/<branch>/` at the same number and filename a full run
 gives it (`05-build.png`, `24-battle.png`), so a shot taken this way is interchangeable with one from the walk.
 `--shot` beats `--capture` when both are passed.
 
@@ -100,8 +107,8 @@ could not be arranged — a missing roster item, a berth with nowhere to put a h
 Adding a state means adding a line and its `frame`; a test checks the names are unique and that each shot
 carries its walk-order number.
 
-A targeted run that writes nothing — a screen that bailed out, or a shot that couldn't be moved into
-`docs/ui/shots/` — says so and exits 1. It never reports a file that isn't there.
+A targeted run that writes nothing — a screen that bailed out, or a shot that couldn't be moved into the
+branch's shots directory — says so and exits 1. It never reports a file that isn't there.
 
 ```bash
 odin run cmd/game -- --shots
@@ -117,7 +124,7 @@ odin run cmd/game -- --capture
 ```
 
 The whole gallery: takes every `capture_shots` entry, then walks a scripted voyage for the rest — 38 PNGs to
-`docs/ui/shots/` (gitignored, regenerable) in about 40s. Both halves are the ones `--shot` reads and walks, so
+`docs/ui/shots/<branch>/` (gitignored, regenerable) in about 40s. Both halves are the ones `--shot` reads and walks, so
 there is no second list or second route to drift; it reuses `draw_scene` and the real `dispatch` untouched, so
 what the game draws is what gets shot. **Reach for it when you want the gallery or the route** — the whole set
 side by side, or the order the voyage visits its screens in. For one screen, reach for `--shot`.
@@ -145,7 +152,7 @@ odin run cmd/game -- --hull-sheet
 ```
 
 **Reach for this before reasoning about the hull's geometry by text.** One PNG, a few seconds, no mouse and no
-keyboard: `docs/ui/shots/hull-sheet.png`, eighteen tiles of the galleon — six named eyes (**bow, stern, beam,
+keyboard: `docs/ui/shots/<branch>/hull-sheet.png`, eighteen tiles of the galleon — six named eyes (**bow, stern, beam,
 quarter, above, below**) across each of three rows, one row per paint mode (**shaded, normal paint,
 wireframe**). Every tile is captioned with both. Two runs write byte-identical pixels, so it diffs like any
 other shot. A run that cannot write it says so and exits 1 without naming a file it didn't write — the previous
@@ -192,8 +199,10 @@ clean gradient, corners exactly `#050B18`, centre `#081429`.
 
 ```bash
 python -c "
+import sys; sys.path.insert(0, 'scripts')
 from PIL import Image
-im = Image.open('docs/ui/shots/00-chart-table.png').convert('RGB')
+from shot import resolve_shot
+im = Image.open(resolve_shot('00-chart-table')).convert('RGB')
 w, h = im.size
 for name, (x, y) in {'top-left': (2, 2), 'centre': (w//2, h//2), 'bottom-right': (w-3, h-3)}.items():
     print(name, '#%02X%02X%02X' % im.getpixel((x, y)))
@@ -217,17 +226,32 @@ python scripts/shot.py zoom 00-chart-table top-left --factor 3
 python scripts/shot.py diff 05-build 06-build-hover
 ```
 
-Both take a bare shot name (resolved against `docs/ui/shots/`, `.png` optional) or a path, and write under
-`docs/ui/shots/zoom/` and `docs/ui/shots/diff/` — gitignored and regenerable, like the shots themselves.
+Both take a bare shot name (`.png` optional) or a path, and write under `docs/ui/shots/zoom/` and
+`docs/ui/shots/diff/` — gitignored and regenerable, like the shots themselves.
 
-**Park your "before" outside `docs/ui/shots/` first.** Shots are written under fixed filenames, so the next
-`--capture` — or the next `--shot` of the same screen — overwrites the very frame you meant to diff against.
-Copy the before-shot somewhere else, or send output there with `--out` (zoom) and `--out-dir` (diff):
+**A capture cannot destroy the frame you were comparing against.** Shots are scoped by branch, and inside a
+scope each shot's previous version is kept — so a bare name is this branch's latest and `prev:<name>` is the
+frame the last capture replaced. Before-and-after across a change is two names, with nothing to park:
 
 ```bash
-cp docs/ui/shots/05-build.png /tmp/before.png     # survives the next capture
-python scripts/shot.py diff /tmp/before.png 05-build --out-dir /tmp/diff
+python scripts/shot.py diff prev:05-build 05-build      # before the last capture, vs after it
+python scripts/shot.py diff main:05-build 05-build      # what this branch did to that screen
 ```
+
+The layout that makes those work:
+
+```
+docs/ui/shots/
+  effort-design-loop/          the current branch's capture — a bare name resolves here first
+    05-build.png
+    prev/05-build.png          what the last capture on this branch replaced
+  main/                        another branch's, untouched by a capture here
+  zoom/  diff/                 derived output
+```
+
+A bare name falls through to `prev/` and then to the other scopes, so a shot that exists in only one place
+still resolves and one that exists in several resolves to this branch's. `--out` (zoom) and `--out-dir`
+(diff) still send derived output anywhere you like.
 
 **Zoom** crops a region and magnifies it by an integer factor (default 3), **nearest-neighbour**, so a pixel
 stays a hard-edged square and you are looking at the real pixels rather than at an interpolation of them.
@@ -284,12 +308,17 @@ manifest diff it produces is then the list of screens the change was allowed to 
 the PR beside the code that moved them.
 
 **Look before you accept.** The check says *which* screens moved, not whether they moved for the
-better, and it holds hashes rather than images so it cannot show you the change. Park the before-shot
-and `diff` it (above), then accept. The check aims the look; it does not stand in for it.
+better, and it holds hashes rather than images so it cannot show you the change. `check` re-renders, so
+the frame it names as moved is the frame it just replaced — and the one it replaced is in `prev/`, which
+is what makes the report actionable without any preparation:
 
-**`check` re-renders, so it overwrites `docs/ui/shots/`** — like any capture, and including the very
-frame you meant to diff against. Park the before-shot outside that directory *first*; the check names
-the screens that moved but cannot show you a frame it has already replaced.
+```bash
+python scripts/shot.py check                        # says: build moved
+python scripts/shot.py diff prev:05-build 05-build  # shows how
+python scripts/shot.py accept                       # then, deliberately
+```
+
+The check aims the look; it does not stand in for it.
 
 Two limits worth knowing before you trust a result:
 
@@ -317,7 +346,7 @@ something. What it covers, and what it still cannot say:
   but noticing there is one to find no longer takes someone thinking to run `--hull-sheet` at all.
 - **It says the hull moved. It never says it moved for the better.** True of every entry, but worth
   saying twice here — a hull is a shape, and "moved" covers the fix and the regression equally. The
-  sheet is a PNG sitting in `docs/ui/shots/` after the check; **open it before you accept.**
+  sheet is a PNG sitting in the branch's shots directory after the check; **open it before you accept.**
 - **It does not aim you at the surface.** A moved hash names the sheet, not the tile. Read the sheet
   in pairs across a row and down its columns (above), then take the workbench to whatever that
   points at — magnifying a correctly-drawn but wrong-facing surface still tells you nothing.
@@ -381,20 +410,50 @@ Capture is the fast path, not the whole picture. Three blind spots, all real:
   `--capture` draws at logical size with no texture in the path. A whole class of bug lives only in the real
   window — see the style guide's "A render texture loses alpha". Measure translucency there, never in a shot.
 
-## The hull workbench: stop iterating on the ship screen by text
+## The workbench: stop iterating on a screen by text
 
 ```bash
-odin run cmd/game -- --workbench
+odin run cmd/game -- --workbench          # the hull
+odin run cmd/game -- --workbench shop     # a 2D screen
 ```
 
-An interactive entry beside `--capture`, `--hull-sheet` and the session, and **use it before editing any number
-in `cutaway/galleon.odin`**. Where the sheet is one look at six fixed eyes, this is the one you steer — reach
+An interactive entry beside `--capture`, `--hull-sheet` and the session. **Reach for it before editing any
+geometry constant.** Two modes over one instrument: a named 2D screen, or — with no name — the hull.
+
+Both give the same panel. Every number that decides the layout is a slider, what it decides redraws under the
+mouse, `C` copies the tuned block to the clipboard as an Odin literal that pastes back over the constant it
+came from, `R` returns every knob to what it ships at, and `Tab` hides the panel. The tool never writes to the
+repo and the game never links a control from it — a test asserts the live layouts and the frame overlay are
+untouched in a player session.
+
+### A 2D screen
+
+The point is not convenience. It moves tuning out of the model's context entirely: a human tunes by eye at zero
+token cost, and the model only ever writes structure. So when a screen's spacing, weights or type sizes are the
+question, hand it over rather than guessing a number, rebuilding and shooting it.
+
+A steerable screen is **a capture shot plus a knob list** (`presentation/screen_workbench.odin`). Staging and
+composing come from the `capture_shots` entry of the same name, so what is under the panel is the screen a
+capture would photograph — there is no second staging path to drift. Adding one is therefore two edits:
+
+1. Give the screen's constants a layout struct and a live var beside the shipped literal — `Offer_Shop_Layout`
+   / `OFFER_SHOP_LAYOUT` / `offer_shop_layout` in `presentation/offer_shop.odin` is the worked example.
+2. Add a `workbench_screens` row naming the capture shot, a knob proc, and the constant `C` replaces.
+
+A knob names the struct field it edits, and the emit is composed off the knob table — so a field with a knob is
+a field that gets emitted, with no second list to fall out of step. A test asserts every field of the layout
+has exactly one knob, that each knob's range contains its shipped value, and that the emit names them all.
+
+An unknown screen name lists what can be asked for and exits 1 without opening a window.
+
+### The hull
+
+With no screen named. **Use it before editing any number in `cutaway/galleon.odin`**. Where the sheet is one look at six fixed eyes, this is the one you steer — reach
 for it once the sheet has said *which* surface is wrong. It draws the real `draw_ship_cutaway` into the real
 logical frame with a control panel over it:
 
-- **Every curve in the loft is a slider** — keel camber, sheer, the entry, the run, the wale, tumblehome. The
-  ship redraws under the mouse. `C` copies the tuned `GALLEON_LOFT` to the clipboard as Odin to paste back;
-  the tool never writes to the repo. `R` returns to the shipped hull and the shipped framing.
+- **Every curve in the loft is a slider** — keel camber, sheer, the entry, the run, the wale, tumblehome. `C`
+  copies the tuned `GALLEON_LOFT`. What this mode adds beyond the shared panel is a camera and two paints:
 - **`N` paints by normal** — +x red, +y green, +z blue, negatives dark. Turn this on *first* when a surface
   looks merely dull. Every hard bug on this screen has been a face pointing the wrong way, and shaded that is
   a slightly-off shade at best and nothing at all at worst; here it is the wrong colour outright.
@@ -467,7 +526,8 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
 ## Odds and ends
 
 - `rl.TakeScreenshot` runs its filename through `GetFileName()` and writes to the process's **cwd**, so a path
-  prefix is silently dropped. `capture_write` moves each shot into `docs/ui/shots/` afterwards.
+  prefix is silently dropped. `capture_write` moves each shot into the branch's scope directory afterwards,
+  keeping whatever was there under `prev/` (`presentation/capture_scope.odin`).
 - Capture draws every frame **twice** before shooting. `TakeScreenshot` reads back the framebuffer
   `EndDrawing` just presented, so a single draw screenshots the *previous* frame. Keep the double draw.
 - **Capture pins the chart's idle clock** (`juice_clock_pin`, at `CAPTURE_CLOCK`), so the moored

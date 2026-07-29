@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop — no container</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* ------------------------------------------------------------------
+       * THE WORLD. Sky, sea, and the galleon blocked in — she already exists
+       * and already looks right, so she is rectangles here and nothing more.
+       * The chop and the clouds are NOT decoration: without a card there is
+       * nothing between the type and the water, so the water under the type
+       * has to be as busy as it really is or this mockup is not a test.
+       * ------------------------------------------------------------------ */
+      .sky {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 300px;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .sea {
+        left: 0;
+        top: 300px;
+        width: 1244px;
+        height: 400px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      .cloud {
+        background: var(--cloud);
+      }
+
+      .cloud-base {
+        background: var(--cloud-shadow);
+      }
+
+      /* Whitecaps, on the backdrop's 4px lattice. The foam bars are placed
+       * deliberately *under* text runs — foam is the brightest thing the
+       * roster allows, so cream-on-foam is the worst case this screen has. */
+      .chop-foam {
+        height: 8px;
+        background: var(--foam);
+      }
+
+      .chop-shallow {
+        height: 8px;
+        background: var(--sea-shallow);
+      }
+
+      .hull {
+        left: 96px;
+        top: 300px;
+        width: 620px;
+        height: 210px;
+        background: var(--rock);
+        border-top: 26px solid var(--cliff);
+      }
+
+      .mast {
+        top: 130px;
+        width: 8px;
+        height: 190px;
+        background: var(--trunk);
+      }
+
+      .sail {
+        height: 18px;
+        background: var(--cream-bright);
+      }
+
+      /* ------------------------------------------------------------------
+       * THE TYPE, WHICH IS THE WHOLE SCREEN.
+       *
+       * There is no card, so a glyph's only ground is the sea. Two things
+       * carry it, and neither is a rectangle behind anything:
+       *
+       *   1. HUE. The warm neutrals are the one family the cool sea cannot
+       *      absorb, so the hierarchy runs cream -> parchment -> sand ->
+       *      cliff, all of them warm, all of them clashing with the water.
+       *   2. AN EDGE. Every run is drawn three times: in ink at (-1,-1), in
+       *      ink at (+1,+1), then in its own tone on top. Three DrawTextEx
+       *      calls, exactly as .cast-shadow is two DrawRectangleRec calls —
+       *      the harness refuses the free effect (text-shadow is banned) and
+       *      allows the honest extra draw. Two opposed corners rather than
+       *      one, because one is not enough over a whitecap: foam is the
+       *      brightest tone the roster has, and a cream glyph on it survives
+       *      only if its shape is bracketed on both diagonals.
+       *
+       * Ink is never the colour of the text. It is the colour of its EDGE.
+       * The fill stays warm-over-water, which is the rule.
+       * ------------------------------------------------------------------ */
+      .t {
+        position: absolute;
+        z-index: 0; /* its own stacking context, so the edge cannot fall behind the sea */
+        white-space: pre;
+        color: var(--cream-bright);
+      }
+
+      .t::before,
+      .t::after {
+        content: attr(data-t);
+        position: absolute;
+        color: var(--ink);
+        z-index: -1;
+      }
+
+      .t::before {
+        left: 1px;
+        top: 1px;
+      }
+
+      .t::after {
+        left: -1px;
+        top: -1px;
+      }
+
+      /* A run set to the right rail. Its box hugs its text, so the edges are
+       * anchored from the right instead — same two corners, mirrored anchor. */
+      .t-right::before {
+        left: auto;
+        right: -1px;
+      }
+
+      .t-right::after {
+        left: auto;
+        right: 1px;
+      }
+
+      .tone-name {
+        color: var(--cream-bright);
+      }
+
+      .tone-intent {
+        color: var(--parchment);
+      }
+
+      .tone-spec {
+        color: var(--sand);
+      }
+
+      .tone-dear {
+        color: var(--cliff);
+      }
+
+      /* ------------------------------------------------------------------
+       * THE RULES, WHICH ARE THE ONLY STRUCTURE.
+       *
+       * A rule separates; it does not contain. There are no verticals and no
+       * corners anywhere on this screen, so nothing closes into a box.
+       * The grammar is exactly two weights and it is the whole of the
+       * screen's syntax:
+       *
+       *   1px  — a separator between two stock entries.
+       *   2px  — a control, and the rule's LENGTH states the control's hit
+       *          extent, which a label alone cannot say once its button face
+       *          is gone.
+       *
+       * Rules take the same ink edge as the type, for the same reason: a 1px
+       * foam hair over a foam whitecap would otherwise vanish.
+       * ------------------------------------------------------------------ */
+      .rule {
+        position: absolute;
+        z-index: 0;
+        left: 748px;
+        width: 464px;
+        height: 1px;
+        background: var(--foam);
+      }
+
+      .rule::before {
+        content: "";
+        position: absolute;
+        left: 1px;
+        top: 1px;
+        width: 100%;
+        height: 100%;
+        background: var(--ink);
+        z-index: -1;
+      }
+
+      .rule-dim {
+        background: var(--sea-deep);
+      }
+
+      .rule-control {
+        width: 96px;
+        height: 2px;
+      }
+
+      /* The price rail's crate mark. A 14px outline with a filled core; the
+       * unaffordable one keeps the outline and loses the core, so an empty
+       * crate is the mark of stock you cannot take. */
+      .crate {
+        position: absolute;
+        z-index: 0;
+        left: 1168px;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--cream-bright);
+      }
+
+      .crate::before {
+        content: "";
+        position: absolute;
+        left: 1px;
+        top: 1px;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--ink);
+        z-index: -1;
+      }
+
+      .crate::after {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 4px;
+        width: 6px;
+        height: 6px;
+        background: var(--cream-bright);
+      }
+
+      .crate-dear {
+        border-color: var(--cliff);
+      }
+
+      .crate-dear::after {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at sky"></div>
+      <div class="at sea"></div>
+
+      <div class="at cloud" style="left: 856px; top: 56px; width: 160px; height: 28px"></div>
+      <div class="at cloud" style="left: 896px; top: 40px; width: 80px; height: 16px"></div>
+      <div class="at cloud-base" style="left: 856px; top: 84px; width: 160px; height: 8px"></div>
+      <div class="at cloud" style="left: 1072px; top: 136px; width: 96px; height: 20px"></div>
+      <div class="at cloud-base" style="left: 1072px; top: 156px; width: 96px; height: 8px"></div>
+
+      <div class="at hull"></div>
+      <div class="at mast" style="left: 260px"></div>
+      <div class="at mast" style="left: 430px"></div>
+      <div class="at sail" style="left: 214px; top: 170px; width: 100px"></div>
+      <div class="at sail" style="left: 384px; top: 190px; width: 100px"></div>
+
+      <!-- Chop under the column, on purpose. Three of these run straight
+           through a text line: 456 through "Small · Fire · Artifact",
+           524 through "Leave", 664 through "Chart". -->
+      <div class="at chop-shallow" style="left: 764px; top: 336px; width: 180px"></div>
+      <div class="at chop-foam" style="left: 900px; top: 392px; width: 96px"></div>
+      <div class="at chop-shallow" style="left: 1016px; top: 428px; width: 140px"></div>
+      <div class="at chop-foam" style="left: 776px; top: 456px; width: 220px"></div>
+      <div class="at chop-shallow" style="left: 1080px; top: 492px; width: 100px"></div>
+      <div class="at chop-foam" style="left: 760px; top: 524px; width: 96px"></div>
+      <div class="at chop-shallow" style="left: 992px; top: 600px; width: 200px"></div>
+      <div class="at chop-foam" style="left: 820px; top: 640px; width: 160px"></div>
+      <div class="at chop-foam" style="left: 560px; top: 664px; width: 240px"></div>
+
+      <!-- The vignette, exactly as draw_offer_shop composes it: under the
+           chrome, unchanged, and not shaped to the content. It is the world's
+           own framing, not a scrim placed to make the type work. -->
+      <div class="vignette"></div>
+
+      <div
+        class="t t-right body"
+        style="right: 32px; top: 24px"
+        data-t="Hull 100/100 · SPD 4 · Cargo 50/90"
+      >Hull 100/100 · SPD 4 · Cargo 50/90</div>
+
+      <!-- Long Nines — 18 -->
+      <div class="t body tone-name" style="left: 748px; top: 96px" data-t="Long Nines">Long Nines</div>
+      <div class="t body tone-intent" style="left: 748px; top: 120px" data-t="+8 Offense">+8 Offense</div>
+      <div class="t body tone-spec" style="left: 748px; top: 142px" data-t="Large · Fire · Weapon">Large · Fire · Weapon</div>
+      <div class="at crate" style="top: 97px"></div>
+      <div class="t t-right body tone-name" style="right: 32px; top: 96px" data-t="18">18</div>
+      <div class="rule" style="top: 168px"></div>
+
+      <!-- Chain & Bar Shot — 34 -->
+      <div class="t body tone-name" style="left: 748px; top: 200px" data-t="Chain &amp; Bar Shot">Chain &amp; Bar Shot</div>
+      <div class="t body tone-intent" style="left: 748px; top: 224px" data-t="+7 Offense when its condition holds">+7 Offense when its condition holds</div>
+      <div class="t body tone-spec" style="left: 748px; top: 246px" data-t="Medium · Fire · Weapon">Medium · Fire · Weapon</div>
+      <div class="at crate" style="top: 201px"></div>
+      <div class="t t-right body tone-name" style="right: 32px; top: 200px" data-t="34">34</div>
+      <div class="rule" style="top: 272px"></div>
+
+      <!-- Titan's Heart — 120. Unaffordable: the whole entry drops two steps
+           down the warm ramp and its rule drops out of foam into the water.
+           Dimmed by TONE, never by alpha — alpha over a bright sea does not
+           dim anything, it just lets the world in (style guide, Framing). -->
+      <div class="t body tone-spec" style="left: 748px; top: 304px" data-t="Titan's Heart">Titan's Heart</div>
+      <div class="t body tone-dear" style="left: 748px; top: 328px" data-t="+5 Repair">+5 Repair</div>
+      <div class="t body tone-dear" style="left: 748px; top: 350px" data-t="Large · Brace · Artifact">Large · Brace · Artifact</div>
+      <div class="at crate crate-dear" style="top: 305px"></div>
+      <div class="t t-right body tone-dear" style="right: 32px; top: 304px" data-t="120">120</div>
+      <div class="rule rule-dim" style="top: 376px"></div>
+
+      <!-- Outriggers — 26 -->
+      <div class="t body tone-name" style="left: 748px; top: 408px" data-t="Outriggers">Outriggers</div>
+      <div class="t body tone-intent" style="left: 748px; top: 432px" data-t="+1 Speed, +1 Offense">+1 Speed, +1 Offense</div>
+      <div class="t body tone-spec" style="left: 748px; top: 454px" data-t="Small · Fire · Artifact">Small · Fire · Artifact</div>
+      <div class="at crate" style="top: 409px"></div>
+      <div class="t t-right body tone-name" style="right: 32px; top: 408px" data-t="26">26</div>
+      <div class="rule" style="top: 480px"></div>
+
+      <!-- Leave. No face, no border: a label and a 2px rule whose length is
+           the control's hit extent. -->
+      <div class="t body tone-name" style="left: 748px; top: 520px" data-t="Leave">Leave</div>
+      <div class="rule rule-control" style="left: 748px; top: 544px"></div>
+
+      <!-- Chart, on the bottom edge. The same control grammar, mirrored: the
+           2px rule sits above the label because the screen edge is below it. -->
+      <div class="rule rule-control" style="left: 574px; top: 656px"></div>
+      <div class="t body tone-name" style="left: 604px; top: 664px" data-t="Chart">Chart</div>
+    </div>
+
+    <div class="note">
+      <h1>Shop — no container</h1>
+      <p>
+        <strong>The constraint:</strong> there is no panel and no card. Nothing on this screen has a
+        container — no parchment ground behind any text, no border around any group, no rectangle
+        whose job is to hold something else. The sea shows through everywhere between the marks.
+      </p>
+
+      <h1>What the constraint forced</h1>
+      <p>
+        <strong>1. Legibility moved from the ground into the glyph.</strong> The shipped screen
+        solves this by putting solid <code>--parchment</code> under every word and darkening the
+        water beneath it with a cast shadow. With the parchment gone, two things carry the type and
+        neither of them is a rectangle. The first is <em>hue</em>: the warm neutrals are the one
+        family a saturated cyan cannot absorb, so the hierarchy runs
+        <code>--cream-bright</code> → <code>--parchment</code> → <code>--sand</code> →
+        <code>--cliff</code>, four warm steps all clashing with the same cool ground — the style
+        guide's own contrast engine, used as a text ramp rather than as a world palette. The second
+        is an <em>edge</em>: every run is drawn three times — <code>--ink</code> at
+        <code>(-1,&nbsp;-1)</code>, <code>--ink</code> at <code>(+1,&nbsp;+1)</code>, then its own
+        tone on top. That is three <code>DrawTextEx</code> calls, and it is the same bargain the
+        harness already strikes for <code>box-shadow</code> — refuse the free effect
+        (<code>text-shadow</code> is banned), allow the honest extra draw. One corner was measured
+        and was <em>not</em> enough: a cream glyph sitting on a foam whitecap disappeared into it,
+        and only bracketing the shape on both diagonals brought it back.
+        <strong>Ink is never the colour of the text here; it is the colour of its edge.</strong>
+        The fill stays warm-over-water, which is the rule.
+      </p>
+      <p>
+        <strong>2. The mockup had to make the sea genuinely hostile, or it proves nothing.</strong>
+        Three whitecaps are placed to run <em>through</em> text — <code>y 456</code> through
+        "Small&nbsp;·&nbsp;Fire&nbsp;·&nbsp;Artifact", <code>y 524</code> through "Leave",
+        <code>y 664</code> through "Chart". Foam is the brightest thing the roster allows, so
+        cream-on-foam is this screen's worst case and it is the case to look at first. It survives
+        because the ink edge is doing the work: on foam the glyph reads as a dark outline, on open
+        sea as a light letter with a dark edge. A flat cyan ground would have let me dodge it.
+      </p>
+      <p>
+        The same test is built into the column's placement: the first two entries sit on
+        <em>sky</em>, the third straddles the horizon at <code>y&nbsp;300</code>, and the fourth
+        sits on <em>sea</em>. A card would have made that irrelevant — it brings its own ground.
+        Here one run of type has to hold on a mid-blue sky, on a saturated cyan, and across the
+        hard line between them, which is the actual thing a container-less Shop has to survive.
+      </p>
+      <p>
+        <strong>3. Structure became rules, and the grammar is exactly two weights.</strong> A rule
+        separates; it does not contain. There is not one vertical and not one corner anywhere on
+        the screen, so nothing can close into a box. <strong>1px</strong> is a separator between
+        stock entries. <strong>2px</strong> is a control — and the rule's <em>length</em> states
+        the control's hit extent, which is information a bare label cannot carry once its button
+        face is gone. "Leave" and "Chart" are the same object, mirrored: the rule sits above
+        "Chart" only because the screen edge is below it.
+      </p>
+      <p>
+        <strong>4. Unaffordable had to be said without a sheet to shade.</strong> The shipped card
+        states it with <code>colour_shade(PARCHMENT, 0.95)</code>, which needs a card.
+        "Titan's&nbsp;Heart" instead drops the <em>whole entry</em> two steps down the warm ramp
+        (name to <code>--sand</code>, everything else to <code>--cliff</code>), its separator drops
+        out of <code>--foam</code> into <code>--sea-deep</code> so it sinks toward the water, and
+        its crate mark keeps the outline but loses its filled core. Still tone, never alpha: alpha
+        over a bright sea does not dim anything, it just lets the world in.
+      </p>
+      <p>
+        <strong>5. The column got wider and the pitch got longer.</strong> Freed of a card edge, a
+        line can come within 32px of the hull without colliding with anything, so the measure grew
+        from the shipped 392px to 464px and the pitch from 104 to 104-with-32px-of-air below each
+        rule. Air is the only thing left doing what padding used to do.
+      </p>
+      <p>
+        <strong>What I did not do.</strong> The vignette is present and unchanged — it composes
+        under the chrome exactly as <code>draw_offer_shop</code> orders it, it is inset equally on
+        all four edges, and it is not shaped to the content. Widening it, or sliding a band of
+        darker sea under the column, would have been a panel with a soft edge, and that is the one
+        move this brief exists to forbid.
+      </p>
+
+      <h1>What I would need from <code>ui.odin</code> that does not exist yet</h1>
+      <p>
+        <code>presentation/ui.odin</code> today is a colour roster, <code>colour_shade</code>, and
+        two baked fonts. <code>ui_frame.odin</code> adds <code>ui_nine_slice</code>,
+        <code>ui_pixel_rect</code>, <code>ui_frame_min</code>. <strong>Every widget it has assumes
+        a container</strong>, which is precisely why this screen has nothing to build on. Five
+        components, each with the axes it needs:
+      </p>
+      <ul>
+        <li>
+          <strong>A text style that carries its own legibility over water.</strong>
+          <code>ui_text_over_water(font, text, pos, tone)</code> — the two-draw edge above, so no
+          call site re-decides the offset or the edge tone.
+          <em>Axes:</em> <code>tone</code> (the fill), <code>edge</code> (off / one corner / two
+          corners / full 8-way outline), <code>edge_tone</code>, and <code>offset</code> in whole
+          pixels. <code>edge_tone</code> is a real axis and not a constant: an ink edge does
+          nothing at all along the bottom of this screen, where the vignette has already taken the
+          water down to near-ink, and that band wants a foam edge instead. The 8-way case is 9
+          <code>DrawTextEx</code> calls and should exist as a named cost rather than as something
+          someone writes out by hand at 2am; if it turns out to be the common case, it is an
+          argument for baking an outlined atlas instead, and that is a decision this component
+          would make visible.
+        </li>
+        <li>
+          <strong>A text ramp for the water ground.</strong> Parchment has a real hierarchy —
+          <code>COLOUR_INK_PRIMARY</code> / <code>COLOUR_INK_MUTED</code> / faded ink. Water has
+          exactly one tone, <code>COLOUR_CREAM_BRIGHT</code>, and its comment says "never on
+          parchment" without saying what the level below it is. This screen needed four levels over
+          water and had to borrow <code>PARCHMENT</code>, <code>SAND</code> and <code>CLIFF</code>
+          — swatches the roster names as <em>surfaces</em>, not as ink. That borrowing works
+          (they are warm against a cool ground, which is the guide's own contrast engine), but it
+          should be a named ramp — <code>COLOUR_SEA_INK_PRIMARY</code> …
+          <code>_SECONDARY</code> … <code>_MUTED</code> … <code>_DIM</code> — not four call sites
+          each deciding that sand is a text colour.
+          <em>Axis:</em> one, rank, four stops.
+        </li>
+        <li>
+          <strong>A rule / divider with weight.</strong> <code>ui_rule(rect, weight, tone)</code>,
+          drawn with its own ink edge so a 1px hair survives a whitecap.
+          <em>Axes:</em> <code>weight</code> (1px separator vs 2px control), <code>tone</code>,
+          <code>edge</code> on/off, and <code>extent</code> — because the length is load-bearing
+          here rather than decorative. Without a button face this is the only thing that says how
+          wide a control is.
+        </li>
+        <li>
+          <strong>A control that is not a frame.</strong> Everything clickable in this game today
+          goes through <code>ui_nine_slice(UI_FRAME_BUTTON, …)</code>, which is a face. A
+          <code>ui_control_bare(rect, label, state)</code> would take the same
+          <code>Ui_Button_State</code> and express idle / hover / press with the caret and a rule
+          weight instead of a fill.
+          <em>Axes:</em> <code>state</code>, <code>rule_edge</code> (which side the rule sits on —
+          "Chart" needs it above because it is on the screen edge), <code>align</code>.
+          <strong>Hover is the open question this mockup does not answer:</strong> the style guide
+          says hover lifts a translucent ground, and there is no ground here to lift, so hover has
+          to fall entirely to the caret plus a rule-weight change — worth settling deliberately
+          rather than discovering.
+        </li>
+        <li>
+          <strong>A measure-and-place text helper, finally.</strong> The style guide's "what this
+          guide does not cover" already names this as the one missing helper, and a
+          container-less layout is where its absence actually bites: the price rail is
+          right-aligned to <code>x&nbsp;1212</code> and "Chart" is centred on
+          <code>x&nbsp;622</code>, and with no box to align inside, both are
+          <code>MeasureTextEx</code> at the call site or they are wrong.
+          <em>Axes:</em> <code>anchor</code> (left / centre / right), against a rect or against a
+          single coordinate.
+        </li>
+      </ul>
+      <p>
+        One thing this screen does <em>not</em> need, and it is worth recording: <strong>no new
+        draw capability.</strong> Every mark above is a <code>DrawRectangleRec</code>, a
+        <code>DrawRectangleGradientV</code>, or a <code>DrawTextEx</code> — the port table in
+        <code>docs/ui/mock/README.md</code> covers all of it. What is missing is not the renderer.
+        It is that the widget layer only knows how to draw <em>onto paper</em>, and this screen has
+        no paper.
+      </p>
+    </div>
+  </body>
+</html>

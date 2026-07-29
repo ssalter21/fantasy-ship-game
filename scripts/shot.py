@@ -2,8 +2,14 @@
 
     python scripts/shot.py zoom 00-chart-table top-left --factor 3
     python scripts/shot.py diff 05-build 06-build-hover
+    python scripts/shot.py diff prev:05-build 05-build
     python scripts/shot.py check
     python scripts/shot.py accept
+
+A bare shot name is this branch's, because captures are scoped by branch and each shot's
+previous version is kept beside it -- `prev:<name>` is the frame the last capture replaced,
+and `<scope>:<name>` another branch's. Nothing needs copying out of the shots directory to
+survive a capture run.
 
 When to reach for which, and what the check does and does not cover, are in
 `.claude/skills/run-game/SKILL.md` -- kept there rather than restated here, so the two
@@ -25,7 +31,21 @@ SHOTS = REPO / "docs" / "ui" / "shots"
 MANIFEST = REPO / "docs" / "ui" / "shot-manifest.txt"
 GAME = REPO / ("game.exe" if os.name == "nt" else "game")
 
-# `capture: wrote docs/ui/shots/05-build.png` -- one line per shot capture landed, in
+# Inside a scope: the version each shot had before the current run replaced it. The game
+# writes it (presentation/capture_scope.odin); this is the name to look under.
+PREV = "prev"
+
+# Directories under SHOTS that hold derived output rather than a capture scope, so the
+# search for a shot in another scope does not descend into them.
+DERIVED = {"zoom", "diff"}
+
+HEAD_REF_PREFIX = "ref: refs/heads/"
+OBJECT_NAME_MIN = 40
+OBJECT_NAME_SHORT = 7
+SCOPE_UNSCOPED = "no-git"
+SCOPE_KEEP = re.compile(r"[^A-Za-z0-9._-]")
+
+# `capture: wrote docs/ui/shots/main/05-build.png` -- one line per shot capture landed, in
 # every capture mode. The check reads the set it compares off these rather than off the
 # directory, so a stale PNG left there by an older walk is not mistaken for this run's.
 WROTE = re.compile(r"^capture: wrote (\S+\.png)$")
@@ -50,8 +70,73 @@ UNCHANGED_DIM = 4  # divisor on the base image, so the highlight is the only bri
 GUTTER_COLOUR = (128, 128, 128)  # the side-by-side divider, deliberately not CHANGED_COLOUR
 
 
+def git_head():
+    """The text of this working tree's HEAD, or None when there is none to read.
+
+    `.git` is a directory in an ordinary checkout and a file naming the real git
+    directory in a linked worktree; both are followed, so a capture taken in a worktree
+    scopes by that worktree's branch.
+    """
+    git_dir = REPO / ".git"
+    if git_dir.is_file():
+        pointer = git_dir.read_text().strip()
+        if not pointer.startswith("gitdir: "):
+            return None
+        git_dir = Path(pointer[len("gitdir: "):].strip())
+    head = git_dir / "HEAD"
+    return head.read_text() if head.is_file() else None
+
+
+def scope_from_head(head):
+    """The directory name a HEAD scopes its captures under.
+
+    The same rule as `capture_scope_from_head` in presentation/capture_scope.odin, over
+    the same file: a symbolic ref scopes by its branch with every byte a path segment
+    cannot carry replaced, a bare object name by its short form, and anything else is
+    unreadable and scopes by SCOPE_UNSCOPED. The game writes where this says to look, so
+    the two implementations agreeing is the whole contract.
+    """
+    if head is None:
+        return SCOPE_UNSCOPED
+    trimmed = head.strip()
+    if trimmed.startswith(HEAD_REF_PREFIX):
+        branch = trimmed[len(HEAD_REF_PREFIX):]
+        if branch:
+            return SCOPE_KEEP.sub("-", branch)
+    if len(trimmed) >= OBJECT_NAME_MIN and all(c in "0123456789abcdef" for c in trimmed):
+        return f"detached-{trimmed[:OBJECT_NAME_SHORT]}"
+    return SCOPE_UNSCOPED
+
+
+def scope_dir():
+    """The directory the current branch's captures land in."""
+    return SHOTS / scope_from_head(git_head())
+
+
+def shot_candidates(name):
+    """Where a bare or qualified shot name could be, in the order it is looked for.
+
+    `<where>:<name>` asks for one place: `prev` is the version the last capture replaced,
+    and anything else names another scope. A bare name is the current scope's, then that
+    scope's `prev`, then the other scopes — so a name that exists in more than one place
+    resolves to this branch's, and a name that exists in only one still resolves.
+    """
+    where, marked, rest = name.partition(":")
+    if marked:
+        root = scope_dir() / PREV if where == PREV else SHOTS / where
+        return [root / f"{rest}.png", root / rest]
+
+    current = scope_dir()
+    roots = [current, current / PREV]
+    roots += sorted(
+        d for d in SHOTS.glob("*")
+        if d.is_dir() and d.name not in DERIVED and d != current
+    )
+    return [root / part for root in roots for part in (f"{name}.png", name)]
+
+
 def resolve_shot(name):
-    """Accept a path, or a bare shot name resolved against docs/ui/shots.
+    """Accept a path, or a shot name resolved against the capture scopes.
 
     Naming a directory means you meant that file; naming neither directory nor
     extension means the shots directory, and *only* it. A capture killed mid-walk
@@ -59,13 +144,25 @@ def resolve_shot(name):
     there must not quietly shadow the real shot of the same name.
     """
     if "/" in name or "\\" in name:
-        candidates = (Path(name),)
+        candidates = [Path(name)]
     else:
-        candidates = (SHOTS / f"{name}.png", SHOTS / name)
+        candidates = shot_candidates(name)
     for candidate in candidates:
         if candidate.is_file():
             return candidate
     sys.exit(f"no such shot: {name} (tried {', '.join(str(c) for c in candidates)})")
+
+
+def shot_label(path):
+    """A shot's name in derived output and in a report.
+
+    Qualified by the directory it came from unless that is the current scope, so
+    `prev:05-build` and `05-build` — the before and after of one capture run, and the
+    comparison this tool is mostly reached for — do not both answer to `05-build`.
+    """
+    if path.parent == scope_dir():
+        return path.stem
+    return f"{path.parent.name}-{path.stem}"
 
 
 def load(path):
@@ -125,11 +222,11 @@ def zoom(args):
 
     region_slug = args.region.replace(",", "-")
     destination = Path(args.out) if args.out else (
-        SHOTS / "zoom" / f"{path.stem}-{region_slug}-{args.factor}x.png"
+        SHOTS / "zoom" / f"{shot_label(path)}-{region_slug}-{args.factor}x.png"
     )
     write(out, destination)
     print(
-        f"{path.name} {box[0]},{box[1]} {crop.width}x{crop.height} "
+        f"{shot_label(path)} {box[0]},{box[1]} {crop.width}x{crop.height} "
         f"at {args.factor}x -> {destination} ({out.width}x{out.height})"
     )
 
@@ -148,11 +245,12 @@ def changed_mask(before, after):
 
 def diff(args):
     before_path, after_path = resolve_shot(args.before), resolve_shot(args.after)
+    before_label, after_label = shot_label(before_path), shot_label(after_path)
     before, after = load(before_path), load(after_path)
     if before.size != after.size:
         sys.exit(
-            f"cannot diff different sizes: {before_path.name} is "
-            f"{before.width}x{before.height}, {after_path.name} is "
+            f"cannot diff different sizes: {before_label} is "
+            f"{before.width}x{before.height}, {after_label} is "
             f"{after.width}x{after.height}"
         )
 
@@ -160,10 +258,10 @@ def diff(args):
     pixels = sum(delta.histogram()[1:])
     if pixels == 0:
         # ASCII only: this console is cp1252 and mangles anything else.
-        print(f"{before_path.name} and {after_path.name} are identical - nothing written")
+        print(f"{before_label} and {after_label} are identical - nothing written")
         return
 
-    stem = f"{before_path.stem}-vs-{after_path.stem}"
+    stem = f"{before_label}-vs-{after_label}"
     out_dir = Path(args.out_dir) if args.out_dir else SHOTS / "diff"
 
     gap = 8
@@ -188,7 +286,7 @@ def diff(args):
     )
     # Printed in the region grammar, so it pastes straight back into `zoom`.
     print(f"changed region: {left},{top},{right - left},{bottom - top}")
-    print(f"side by side ({before_path.name} left, {after_path.name} right): {side_path}")
+    print(f"side by side ({before_label} left, {after_label} right): {side_path}")
     print(f"mask: {mask_path}")
 
 
@@ -361,15 +459,15 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     zoom_parser = sub.add_parser("zoom", help="crop a region and magnify it")
-    zoom_parser.add_argument("shot", help="shot name (e.g. 00-chart-table) or path")
+    zoom_parser.add_argument("shot", help="shot name (e.g. 00-chart-table, prev:00-chart-table) or path")
     zoom_parser.add_argument("region", help="a named region, or x,y,w,h in pixels")
     zoom_parser.add_argument("--factor", type=int, default=3, help="integer magnification (default 3)")
     zoom_parser.add_argument("--out", help="output path (default docs/ui/shots/zoom/)")
     zoom_parser.set_defaults(func=zoom)
 
     diff_parser = sub.add_parser("diff", help="side-by-side plus a mask of what changed")
-    diff_parser.add_argument("before", help="shot name or path")
-    diff_parser.add_argument("after", help="shot name or path")
+    diff_parser.add_argument("before", help="shot name, prev:<name>, <scope>:<name>, or a path")
+    diff_parser.add_argument("after", help="shot name, prev:<name>, <scope>:<name>, or a path")
     diff_parser.add_argument("--out-dir", help="output directory (default docs/ui/shots/diff/)")
     diff_parser.set_defaults(func=diff)
 

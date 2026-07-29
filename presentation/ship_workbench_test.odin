@@ -11,20 +11,25 @@ import cutaway "./cutaway"
 // that is missing loses a curve to text editing; a field missing from the emit loses an
 // afternoon's dragging silently, which is worse.
 
+@(private = "file")
+hull_bench :: proc() -> Hull_Workbench {
+	return Hull_Workbench {
+		eye = cutaway.GALLEON_EYE,
+		loft = cutaway.GALLEON_LOFT,
+		bench = Workbench{held = -1, emit = {name = "GALLEON_LOFT", type = "Loft"}},
+	}
+}
+
 @(test)
 every_loft_curve_has_a_knob :: proc(t: ^testing.T) {
-	w := Workbench {
-		eye  = cutaway.GALLEON_EYE,
-		loft = cutaway.GALLEON_LOFT,
-		held = -1,
-	}
-	defer delete(w.knobs)
-	workbench_knobs(&w)
+	h := hull_bench()
+	defer delete(h.bench.knobs)
+	hull_workbench_knobs(&h)
 
-	// The camera knobs are not part of the loft and are not emitted; the rest are one per field.
+	// The camera knobs are not part of the loft and so name no field; the rest are one per field.
 	curves := 0
-	for knob in w.knobs {
-		if knob.emitted {
+	for knob in h.bench.knobs {
+		if knob.field != "" {
 			curves += 1
 		}
 	}
@@ -32,7 +37,7 @@ every_loft_curve_has_a_knob :: proc(t: ^testing.T) {
 
 	// And every knob's range actually contains the value it ships at, or the slider opens with
 	// its handle pinned to an end and the shipped hull is unreachable by dragging.
-	for knob in w.knobs {
+	for knob in h.bench.knobs {
 		testing.expectf(
 			t,
 			knob.value^ >= knob.lo && knob.value^ <= knob.hi,
@@ -47,16 +52,12 @@ every_loft_curve_has_a_knob :: proc(t: ^testing.T) {
 
 @(test)
 the_emitted_loft_carries_every_field_and_the_dragged_value :: proc(t: ^testing.T) {
-	w := Workbench {
-		eye  = cutaway.GALLEON_EYE,
-		loft = cutaway.GALLEON_LOFT,
-		held = -1,
-	}
-	defer delete(w.knobs)
-	workbench_knobs(&w)
+	h := hull_bench()
+	defer delete(h.bench.knobs)
+	hull_workbench_knobs(&h)
 
-	w.loft.tumblehome = 0.4242
-	source := workbench_emit(&w)
+	h.loft.tumblehome = 0.4242
+	source := workbench_emit(&h.bench)
 
 	for field in reflect.struct_field_names(cutaway.Loft) {
 		testing.expectf(t, strings.contains(source, field), "the emitted source names %s", field)
@@ -65,11 +66,35 @@ the_emitted_loft_carries_every_field_and_the_dragged_value :: proc(t: ^testing.T
 	testing.expect(t, strings.contains(source, "GALLEON_LOFT :: Loft {"), "the emit is a drop-in replacement")
 }
 
+// A knob remembers what it shipped at, which is what R puts back and what the panel's
+// moved-from mark compares against. Without it a session that wandered has no way home.
+@(test)
+reset_puts_every_knob_back_to_what_it_ships_at :: proc(t: ^testing.T) {
+	h := hull_bench()
+	defer delete(h.bench.knobs)
+	hull_workbench_knobs(&h)
+
+	for knob in h.bench.knobs {
+		testing.expectf(t, knob.shipped == knob.value^, "%s remembers what it ships at", knob.label)
+	}
+
+	h.loft.tumblehome = 0.4242
+	h.eye.yaw = 137
+	for &knob in h.bench.knobs {
+		knob.value^ = knob.shipped
+	}
+	testing.expect_value(t, h.loft, cutaway.GALLEON_LOFT)
+	testing.expect_value(t, h.eye, cutaway.GALLEON_EYE)
+}
+
 @(test)
 the_workbench_hooks_are_inert_in_the_game :: proc(t: ^testing.T) {
 	// The game must draw the same frame whether or not this tool exists. That is one fact about
-	// each hook: the loft in force is the shipped one, and nothing is overriding the paint.
+	// each hook: the loft in force is the shipped one, nothing is overriding the paint, no
+	// screen's layout has been steered, and nothing is drawn over a presented frame.
 	testing.expect_value(t, cutaway.galleon_loft, cutaway.GALLEON_LOFT)
+	testing.expect_value(t, offer_shop_layout, OFFER_SHOP_LAYOUT)
+	testing.expect(t, frame_overlay == nil, "no overlay draws into a player session's frame")
 
 	// Nothing in the game sets the paint mode, so what the game paints by is the mode's zero value
 	// — which has to be the shipped shading and not a diagnosis. That the live mode is still that
@@ -83,7 +108,7 @@ the_workbench_hooks_are_inert_in_the_game :: proc(t: ^testing.T) {
 	testing.expect_value(t, ship_framing_moored().view, cutaway.galleon_view(WINDOW_WIDTH, WINDOW_HEIGHT))
 }
 
-// The two view keys, as the keyboard half of workbench_keys drives them. A key that could only
+// The two view keys, as the keyboard half of the hull mode drives them. A key that could only
 // turn a mode *on* would leave the tool stuck in a diagnosis, and one that cycled would make
 // getting back to the ship a matter of pressing until it looks right.
 @(test)

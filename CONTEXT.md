@@ -4,6 +4,15 @@ Single-context repo. This glossary states what each term **is**; the why behind 
 
 ## Glossary
 
+**What a term means, and the ADR that says why.** Every entry is meant to be operational — what the
+thing *is*, what it does, what the code calls it — with its ADRs named at the end. When you need the
+argument that produced a decision, follow the citation; this file is not where a decision is
+re-argued, and an entry that starts explaining itself has grown past its job.
+
+An `_Avoid_:` line is a live guardrail, not history: it names something a session would plausibly
+try to add back today. Keep those.
+
+
 ### Engine core (headless/UI boundary)
 
 - **Sim** — the single mutable core simulation state for a voyage: ships, crew, combat, RNG. No dependency on rendering or input devices; runs identically headless or under a UI.

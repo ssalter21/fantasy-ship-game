@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop — mostly parchment</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* ------------------------------------------------------------------ *
+       * The world. It is the MARGIN here, not the field: a wide strip down
+       * the left where the galleon rides, and a hand's width of sea and sky
+       * around the other three edges of the sheet.
+       * ------------------------------------------------------------------ */
+      .sky {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 300px;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .water {
+        left: 0;
+        top: 300px;
+        width: 1244px;
+        height: 400px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      /* The galleon, blocked in — same blocks as shop.html, moved into the
+       * left margin and cropped by the sheet's edge. She already exists and
+       * already looks right; redrawing her in CSS would be a worse copy of a
+       * solved thing. What the constraint changes is how much of her you see,
+       * and that is the point rather than an accident. */
+      .hull {
+        left: 24px;
+        top: 344px;
+        width: 470px;
+        height: 112px;
+        background: var(--rock);
+        border-top: 16px solid var(--cliff);
+      }
+
+      .mast {
+        top: 224px;
+        width: 8px;
+        height: 132px;
+        background: var(--trunk);
+      }
+
+      .sail {
+        height: 14px;
+        background: var(--cream-bright);
+      }
+
+      /* ------------------------------------------------------------------ *
+       * The sheet. This is the screen. Over a bright sea paper is opaque and
+       * casts a shadow — the shadow is a second rectangle, drawn before the
+       * sheet so nothing in the stacking order can swallow it.
+       * ------------------------------------------------------------------ */
+      .sheet-shadow {
+        left: 294px;
+        top: 27px;
+        width: 936px;
+        height: 624px;
+        background: var(--sea-deep);
+        opacity: 0.45;
+      }
+
+      .sheet {
+        left: 288px;
+        top: 20px;
+        width: 936px;
+        height: 624px;
+      }
+
+      /* The letterhead: the stop names itself, and the ship's particulars are
+       * printed against it on the same line, the way a bill carries the
+       * bearer's name. Both are ON paper now, so both take ink tones. */
+      .headline {
+        left: 320px;
+        top: 52px;
+      }
+
+      .particulars {
+        left: 700px;
+        top: 60px;
+        width: 492px;
+        text-align: right;
+      }
+
+      /* Rules. A page is held together by rules, not by boxes — one heavy one
+       * under the letterhead, hairlines everywhere else. Each is one
+       * DrawRectangleRec and nothing more. */
+      .rule-head {
+        left: 320px;
+        top: 100px;
+        width: 872px;
+        height: 2px;
+        background: var(--cliff);
+      }
+
+      .rule-table-top {
+        left: 320px;
+        top: 146px;
+        width: 872px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      .rule-table-foot {
+        left: 320px;
+        top: 552px;
+        width: 872px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      .rule-price {
+        left: 1096px;
+        top: 146px;
+        width: 1px;
+        height: 406px;
+        background: var(--sand);
+      }
+
+      /* The column heads. They exist because the entries below are a ruled
+       * table and a table without heads is a stack of bars. */
+      .head-stock {
+        left: 338px;
+        top: 120px;
+      }
+
+      .head-effect {
+        left: 620px;
+        top: 120px;
+      }
+
+      .head-price {
+        left: 1096px;
+        top: 120px;
+        width: 78px;
+        text-align: right;
+      }
+
+      /* ------------------------------------------------------------------ *
+       * The stock, as entries pressed INTO the page rather than cards laid
+       * over the sea. A card cannot survive here: parchment on parchment is
+       * invisible, so containment has to be carved instead of stacked — a
+       * shaded well with a dark rule above it and a lighter one below, which
+       * is what an impression in paper looks like.
+       * ------------------------------------------------------------------ */
+      .entry {
+        position: absolute;
+        left: 320px;
+        width: 872px;
+        height: 76px;
+        background: #ddcc9c; /* parchment shaded 0.94 — colour_shade's job in Odin */
+      }
+
+      .entry::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 872px;
+        height: 1px;
+        background: var(--cliff);
+      }
+
+      .entry::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 872px;
+        height: 1px;
+        background: var(--sand);
+      }
+
+      .entry .name {
+        position: absolute;
+        left: 18px;
+        top: 16px;
+      }
+
+      .entry .spec {
+        position: absolute;
+        left: 18px;
+        top: 42px;
+      }
+
+      .entry .intent {
+        position: absolute;
+        left: 300px;
+        top: 16px;
+      }
+
+      .entry .price {
+        position: absolute;
+        right: 18px;
+        top: 16px;
+      }
+
+      /* Unaffordable dims by TONE, never by alpha. On an all-parchment field
+       * alpha would be worse than useless: there is no world under the entry
+       * to show through, only more paper, so a translucent row would simply
+       * vanish. Stale paper and duller ink is the whole signal. */
+      .entry--dear {
+        background: #cabb8f; /* parchment shaded 0.86 */
+        color: var(--ink-muted);
+      }
+
+      .entry--dear::before,
+      .entry--dear::after {
+        background: var(--cliff);
+      }
+
+      .entry--dear .crate {
+        border-color: var(--ink-muted);
+      }
+
+      .crate {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--ink);
+        margin-right: 6px;
+        vertical-align: -2px;
+      }
+
+      /* The way out, printed at the foot of the bill where a signature goes. */
+      .leave {
+        left: 992px;
+        top: 572px;
+        width: 200px;
+        height: 40px;
+        text-align: center;
+        line-height: 38px;
+      }
+
+      /* The Chart tab is now a tab in the literal sense: an index tab growing
+       * out of the sheet's bottom edge into the water, with no top rule
+       * because the sheet's own edge is its top rule. */
+      .tab-shadow {
+        left: 637px;
+        top: 651px;
+        width: 250px;
+        height: 36px;
+        background: var(--sea-deep);
+        opacity: 0.45;
+      }
+
+      .tab {
+        left: 631px;
+        top: 644px;
+        width: 250px;
+        height: 36px;
+        background: var(--parchment);
+        border: 1px solid var(--sea-deep);
+        border-top: 0;
+        text-align: center;
+        line-height: 34px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at sky"></div>
+      <div class="at water"></div>
+
+      <div class="at hull"></div>
+      <div class="at mast" style="left: 142px"></div>
+      <div class="at mast" style="left: 256px"></div>
+      <div class="at sail" style="left: 107px; top: 250px; width: 78px"></div>
+      <div class="at sail" style="left: 221px; top: 266px; width: 78px"></div>
+
+      <!-- No vignette. The framing signal on this screen is the paper edge
+           itself (style guide, "Framing"): a 150px dark ramp would eat the
+           entire margin and turn the one strip of world left into a bruise. -->
+
+      <div class="at sheet-shadow"></div>
+      <div class="at sheet frame-panel"></div>
+
+      <div class="at headline title">Market</div>
+      <div class="at particulars body muted">Hull 100/100 &middot; SPD 4 &middot; Cargo 50/90</div>
+
+      <div class="at rule-head"></div>
+
+      <div class="at head-stock body muted">Stock</div>
+      <div class="at head-effect body muted">Effect</div>
+      <div class="at head-price body muted">Price</div>
+
+      <div class="at rule-table-top"></div>
+
+      <div class="entry" style="top: 166px">
+        <span class="name body">Long Nines</span>
+        <span class="spec body muted">Large &middot; Fire &middot; Weapon</span>
+        <span class="intent body">+8 Offense</span>
+        <span class="price body"><i class="crate"></i>18</span>
+      </div>
+
+      <div class="entry" style="top: 262px">
+        <span class="name body">Chain &amp; Bar Shot</span>
+        <span class="spec body muted">Medium &middot; Fire &middot; Weapon</span>
+        <span class="intent body">+7 Offense when its condition holds</span>
+        <span class="price body"><i class="crate"></i>34</span>
+      </div>
+
+      <div class="entry entry--dear" style="top: 358px">
+        <span class="name body">Titan's Heart</span>
+        <span class="spec body">Large &middot; Brace &middot; Artifact</span>
+        <span class="intent body">+5 Repair</span>
+        <span class="price body"><i class="crate"></i>120</span>
+      </div>
+
+      <div class="entry" style="top: 454px">
+        <span class="name body">Outriggers</span>
+        <span class="spec body muted">Small &middot; Fire &middot; Artifact</span>
+        <span class="intent body">+1 Speed, +1 Offense</span>
+        <span class="price body"><i class="crate"></i>26</span>
+      </div>
+
+      <div class="at rule-price"></div>
+      <div class="at rule-table-foot"></div>
+
+      <div class="at leave frame-button body">Leave</div>
+
+      <div class="at tab-shadow"></div>
+      <div class="at tab body">Chart</div>
+    </div>
+
+    <div class="note">
+      <h1>Shop — mostly parchment</h1>
+      <p>
+        <strong>The constraint:</strong> this screen is mostly parchment. The world — sea, sky,
+        the galleon — is a margin, not the field. A 936&times;624 sheet takes about
+        <strong>two thirds of the frame</strong> and the sea is what shows around it: a wide strip
+        down the left where the galleon rides, and twenty pixels of it along the top and right.
+      </p>
+      <p>
+        <strong>What that forced, and it was not "a wider column".</strong> Widening the shipped
+        column would have kept every relationship the screen already has. Making the stop a
+        <em>page</em> broke four of them:
+      </p>
+      <ul>
+        <li>
+          <strong>The cards had to stop being cards.</strong> A parchment card over the sea is
+          legible because the sea is under it. On an all-parchment field there is nothing to
+          separate from, so the same card is invisible. The entries are <em>pressed into</em> the
+          sheet instead — a shaded well with a dark rule above and a lighter one below — and the
+          page is held together by <strong>rules</strong> rather than by boxes.
+        </li>
+        <li>
+          <strong>The stack became a ruled table.</strong> Once four entries share one sheet, name
+          / effect / price want to be columns that line up down the page against a heading row, not
+          three lines stacked inside each card. That is a different reading motion: the shipped
+          screen is read card by card, this one is read <em>down the price column</em>.
+        </li>
+        <li>
+          <strong>Nothing on this screen is text over water.</strong> The stat line was cream over
+          the sea; it is now the bill's letterhead, printed against the stop's name, so it takes
+          <code>--ink-muted</code>. <code>.over-water</code> goes unused for the first time.
+          <em>Text tone follows its ground</em>, and the constraint changed the ground under every
+          word on the screen.
+        </li>
+        <li>
+          <strong>Dimming got harder, not easier.</strong> Tone-not-alpha was already the rule over
+          a bright sea. Here alpha is not merely wrong, it is inert: there is only more paper
+          underneath, so a translucent row would disappear rather than dim. Titan's Heart is
+          <code>parchment</code> shaded <code>0.86</code> against the other entries'
+          <code>0.94</code>, with muted ink and both of its rules dropped to <code>--cliff</code> —
+          stale paper, not faint paper. The gap between the two shades has to be
+          <em>bigger</em> than the shipped screen's 0.95, because a shade competing against a whole
+          parchment field has less contrast to borrow.
+        </li>
+        <li>
+          <strong>The Chart tab became a tab.</strong> It was a translucent bar over the sea. There
+          is no sea left along the bottom edge to lay a bar on, so it is an index tab growing out of
+          the sheet with no top rule — the sheet's own edge is its top rule. Same for the vignette:
+          omitted, because the framing signal here is the paper edge (style guide,
+          <em>Framing</em>), and a 150px dark ramp would consume the entire margin.
+        </li>
+        <li>
+          <strong>The galleon is cropped, on purpose.</strong> She is blocked in with shop.html's
+          own five rectangles — hull, two masts, two sails — scaled to the margin, and the sheet
+          cuts across her waist so her forward sail runs on behind the paper. Not redrawn in CSS:
+          she already exists and already looks right, and a worse copy of a solved thing would only
+          have cost the half of the screen that is actually the question. If the world is a margin,
+          she is in the margin, and what changes is how much of her you get rather than what she is.
+        </li>
+      </ul>
+
+      <h1>What I would need from <code>ui.odin</code> that does not exist</h1>
+      <p>
+        Every one of these is something this mockup faked with a bare rectangle, and every one is a
+        <em>component with an axis</em> rather than a one-off:
+      </p>
+      <ul>
+        <li>
+          <strong>A panel with a surface axis: <code>raised | flush | inset</code>.</strong> The
+          single component this design lives or dies on. <code>ui_nine_slice(UI_FRAME_PANEL, …)</code>
+          only knows how to make a thing sit <em>above</em> its ground. An <code>inset</code> variant —
+          shaded face, dark rule leading, light rule trailing — is what turns a card into a well, and
+          it is the only way containment survives a screen where figure and ground are the same
+          material.
+        </li>
+        <li>
+          <strong>A rule primitive: <code>ui_rule(rect, weight, tone)</code>, axes
+          <code>weight (hair | head)</code> and <code>orientation (h | v)</code>.</strong> There are
+          five rules on this page doing the structural work boxes do elsewhere. Today each is a hand-placed
+          <code>DrawRectangleRec</code> whose 1px-vs-2px decision lives at the call site. The weight
+          <em>is</em> the hierarchy signal on a page, so it belongs in the component.
+        </li>
+        <li>
+          <strong>A ruled table: <code>ui_table(rect, columns)</code> where a column is
+          <code>{ x_offset, align }</code>, axes <code>column count</code> and
+          <code>align (left | right)</code>.</strong> The heading row and all four entries must agree on
+          three x-offsets; here they agree because I typed 338 / 620 / 1174 five times. One column
+          spec handed to a heading proc and a row proc is the difference between a table and five
+          coincidences.
+        </li>
+        <li>
+          <strong>Right-aligned text placement: <code>ui_text_right(rect, text)</code>.</strong> The
+          style guide already records the missing measure-then-centre helper. A price column needs the
+          right-aligned twin, and the letterhead needs it too. Digits that do not right-align are the
+          reason a bill stops reading as a bill.
+        </li>
+        <li>
+          <strong>An availability axis on the row proc:
+          <code>affordable | unaffordable</code>.</strong> Dimming is currently three coordinated
+          edits — face shade, ink tone, rule tone. It should be one enum that resolves to a
+          <code>colour_shade</code> factor and an ink pair, so no future screen can dim two of the three
+          and ship it.
+        </li>
+        <li>
+          <strong>A button with a face axis: <code>outlined | raised | tab</code>.</strong> "Controls are
+          outlined over a translucent ground" was written for controls over the <em>world</em>. On a full
+          parchment field an outlined parchment button has no ground to separate from, and Leave is the
+          weakest thing on this mockup as a direct result. <code>tab</code> is the same component with
+          its leading edge suppressed, because it grows out of a panel edge — which is exactly what the
+          Chart tab is now.
+        </li>
+        <li>
+          <strong>The crate mark as a shape: <code>ui_glyph_crate(rect)</code>.</strong> Drawn here as a
+          bordered box, and it must stay a primitive — the style guide's <em>Glyphs are shapes, not
+          text</em> rule. It appears four times on this screen and will appear on every screen that
+          shows a price.
+        </li>
+      </ul>
+      <p>
+        One thing I did <em>not</em> ask for: a third type size. The page is large enough that a
+        32px letterhead and 16px everywhere else carries it, with colour doing the rest — which is
+        the house rule, and the constraint did not break it.
+      </p>
+    </div>
+  </body>
+</html>

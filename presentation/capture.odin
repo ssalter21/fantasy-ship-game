@@ -19,9 +19,6 @@ import rl "vendor:raylib"
 // draws. Capture renders, so ADR-0003's reason for splitting headless out (never
 // link the renderer) does not argue for a capture executable of its own.
 
-@(private)
-CAPTURE_DIR :: "docs/ui/shots"
-
 // The instant every shot's chart is frozen at (juice_clock_pin). Chosen off zero, where the
 // moored ship's bob sits at a zero crossing and its heel at a peak: a shot should catch the hull
 // mid-rock, the way a player sees it, rather than at the one instant of the cycle that flatters
@@ -42,7 +39,7 @@ CAPTURE_CLOCK :: 0.3
 Capture_State :: struct {
 	game:    Game_State,
 	shots:   int, // decision screens the walk has passed, shot or skipped
-	written: int, // shots that reached CAPTURE_DIR, not shots attempted
+	written: int, // shots that reached the capture directory, not shots attempted
 	// target is the one voyage screen a targeted walk came for, "" for the full gallery.
 	// The walk numbers every screen it passes either way and shoots only this one, so a
 	// targeted shot lands on the file the gallery would have given it.
@@ -181,13 +178,9 @@ capture_open :: proc(title: cstring) {
 	// live clock is what the idle motion exists for.
 	juice_clock_pin(CAPTURE_CLOCK)
 
-	if !os.exists(CAPTURE_DIR) {
-		if err := os.make_directory(CAPTURE_DIR); err != nil {
-			// Not fatal: raylib reports its own failure per shot, and a capture run that
-			// writes nothing is still worth watching walk the route.
-			fmt.eprintfln("capture: could not create %s (%v)", CAPTURE_DIR, err)
-		}
-	}
+	// Not fatal: raylib reports its own failure per shot, and a capture run that writes
+	// nothing is still worth watching walk the route.
+	capture_dir_prepare()
 }
 
 @(private)
@@ -195,10 +188,11 @@ capture_close :: proc() {
 	art_unload()
 	ui_fonts_unload()
 	rl.CloseWindow()
+	capture_dir_release()
 }
 
 // capture_take shoots one registry entry: stages the scene, composes the frame twice and
-// writes the PNG. Reports whether the shot reached CAPTURE_DIR.
+// writes the PNG. Reports whether the shot reached the capture directory.
 @(private)
 capture_take :: proc(state: ^Capture_State, shot: Capture_Shot, number: int) -> bool {
 	if !rl.IsWindowReady() {
@@ -266,7 +260,7 @@ capture_shots_main :: proc() -> bool {
 			"capture: %d of %d shot(s) landed in %s",
 			state.written,
 			len(capture_shots),
-			CAPTURE_DIR,
+			capture_dir(),
 		)
 		return false
 	}
@@ -275,7 +269,7 @@ capture_shots_main :: proc() -> bool {
 
 // capture_shot_main renders one named screen, writes its PNG and returns — the targeted
 // counterpart to capture_main's whole gallery, entered from main when --shot is passed.
-// Reports whether the shot reached CAPTURE_DIR.
+// Reports whether the shot reached the capture directory.
 //
 // The name decides how much has to run: a standalone screen stages itself, so the cost is
 // the window and one frame; one of the walk's own screens has to be sailed to, so the
@@ -317,8 +311,8 @@ capture_shot_by_staging :: proc(shot: Capture_Shot, number: int) -> bool {
 	if !capture_take(&state, shot, number) {
 		// Either the frame reported it could not be arranged, or the shot was composed and
 		// could not be moved out of the working directory. capture_take has already said
-		// which. Both are failures: nothing is in CAPTURE_DIR to look at.
-		fmt.eprintfln("capture: %s did not land in %s", shot.name, CAPTURE_DIR)
+		// which. Both are failures: nothing is in the capture directory to look at.
+		fmt.eprintfln("capture: %s did not land in %s", shot.name, capture_dir())
 		return false
 	}
 	return true
@@ -343,9 +337,9 @@ capture_shot_by_sailing :: proc(name: string) -> bool {
 		return false
 	}
 	if state.written == 0 {
-		// Reached and composed, but the file could not be moved into CAPTURE_DIR —
-		// capture_write has already said why.
-		fmt.eprintfln("capture: %s did not land in %s", name, CAPTURE_DIR)
+		// Reached and composed, but the file could not be moved into the capture
+		// directory — capture_write has already said why.
+		fmt.eprintfln("capture: %s did not land in %s", name, capture_dir())
 		return false
 	}
 	return true
@@ -363,7 +357,7 @@ capture_main :: proc() {
 	capture_take_all(&state)
 	capture_walk(&state)
 
-	fmt.printfln("capture: wrote %d shot(s) to %s", state.written, CAPTURE_DIR)
+	fmt.printfln("capture: wrote %d shot(s) to %s", state.written, capture_dir())
 }
 
 // capture_walk sails the scripted voyage, photographing the decision screens it passes:
@@ -831,10 +825,13 @@ capture_frame_fight_jettison :: proc(scene: ^Capture_Scene) -> bool {
 	return true
 }
 
-// capture_write writes the presented frame to CAPTURE_DIR under `number`, so the shots
-// carry the walk order a session reading them back follows. Reports whether the file
+// capture_write writes the presented frame to the capture directory under `number`, so the
+// shots carry the walk order a session reading them back follows. Reports whether the file
 // landed there, and names it on stdout — one `capture: wrote <path>` line per shot, which is
 // how a caller learns the set a run produced.
+//
+// The shot already at that name is moved aside rather than overwritten (capture_keep_previous),
+// so the frame this one is about to be compared against survives being replaced.
 //
 // Callers draw their frame twice before calling: rl.TakeScreenshot reads back the
 // framebuffer that EndDrawing just presented, so a single draw would screenshot
@@ -844,19 +841,21 @@ capture_frame_fight_jettison :: proc(scene: ^Capture_Scene) -> bool {
 capture_write :: proc(state: ^Capture_State, number: int, label: string) -> bool {
 	// rl.TakeScreenshot runs the filename through GetFileName() and writes into the
 	// process's working directory, so a path prefix here is silently dropped — the shot
-	// always lands beside the exe's cwd. Each one is moved into CAPTURE_DIR immediately
-	// rather than left to litter the repo root; capture does not get to choose where
-	// raylib writes, only where the file ends up.
+	// always lands beside the exe's cwd. Each one is moved into the capture directory
+	// immediately rather than left to litter the repo root; capture does not get to choose
+	// where raylib writes, only where the file ends up.
 	name := fmt.tprintf("%02d-%s.png", number, label)
 	rl.TakeScreenshot(strings.clone_to_cstring(name, context.temp_allocator))
+
+	dest := fmt.tprintf("%s/%s", capture_dir(), name)
+	capture_keep_previous(dest)
 
 	// A shot that cannot be moved is removed rather than left behind: the repo root is not
 	// a capture directory, `*.png` there is not gitignored, and a stranded shot is one
 	// `git add .` away from being committed. It is reported unwritten either way, so a
 	// targeted run fails rather than reporting a file that is not there.
-	dest := fmt.tprintf("%s/%s", CAPTURE_DIR, name)
 	if err := os.rename(name, dest); err != nil {
-		fmt.eprintfln("capture: could not move %s into %s (%v)", name, CAPTURE_DIR, err)
+		fmt.eprintfln("capture: could not move %s into %s (%v)", name, capture_dir(), err)
 		if err := os.remove(name); err != nil {
 			fmt.eprintfln("capture: %s is stranded in the working directory (%v)", name, err)
 		}
@@ -948,19 +947,5 @@ capture_shots_arg :: proc(args: []string) -> bool {
 // listing what can be asked for.
 @(private)
 capture_shot_arg :: proc(args: []string) -> (name: string, requested: bool) {
-	FLAG :: "--shot"
-	for arg, i in args {
-		if strings.has_prefix(arg, FLAG + "=") {
-			return arg[len(FLAG) + 1:], true
-		}
-		if arg == FLAG {
-			// A following flag is the next request, not this one's name — `--shot --capture`
-			// names nothing rather than asking for a screen called "--capture".
-			if i + 1 < len(args) && !strings.has_prefix(args[i + 1], "--") {
-				return args[i + 1], true
-			}
-			return "", true
-		}
-	}
-	return "", false
+	return arg_value(args, "--shot")
 }

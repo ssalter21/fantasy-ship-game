@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop — the ship is the ground</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* ---------------------------------------------------------------------------------
+       * The constraint: she IS the screen. Not a subject beside a column of stock — the
+       * whole frame is her side, and the stock lies on top of her, anchored to the part of
+       * her it would be fitted to. So everything below is drawn edge to edge, and the only
+       * clear water left is the strip in front of her bow-wave.
+       *
+       * She is blocked in with plain rectangles, exactly as shop.html blocks her in. A hull
+       * already exists and already looks right; the question this mockup asks is where the
+       * cards go, and a CSS hull would answer a different one badly.
+       * ------------------------------------------------------------------------------- */
+
+      .sky {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 268px;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .sea {
+        left: 0;
+        top: 268px;
+        width: 1244px;
+        height: 432px;
+        background: linear-gradient(to bottom, var(--sea), var(--sea-shallow));
+      }
+
+      /* Rig. Blocked in: three sticks, six yards, six squares of canvas. */
+      .mast {
+        width: 16px;
+        background: var(--trunk);
+      }
+
+      .yard {
+        height: 10px;
+        background: var(--trunk);
+      }
+
+      .canvas {
+        background: var(--cream-bright);
+      }
+
+      /* Her side, as one swatch under colour_shade rather than six swatches kept in step by
+       * hand: trunk at 1.15 for the sunlit topside, 0.86 for the gun strake, 0.78 for the
+       * boot-top, 0.62 for the wales and the planking seams, 0.35 for anything you can see
+       * into. The ramp matters — a hull this size drawn in one flat brown is a wall, and the
+       * style guide's "never a flat field edge to edge" reads on timber exactly as it reads
+       * on water. */
+      .castle {
+        background: var(--cliff);
+      }
+
+      .rail {
+        left: 0;
+        top: 236px;
+        width: 1244px;
+        height: 32px;
+        background: var(--cliff);
+      }
+
+      .rail-shade {
+        left: 0;
+        top: 262px;
+        width: 1244px;
+        height: 6px;
+        background: #543b23;
+      }
+
+      .topside {
+        left: 0;
+        top: 268px;
+        width: 1244px;
+        height: 140px;
+        background: #9b6d40;
+      }
+
+      .side {
+        left: 0;
+        top: 490px;
+        width: 1244px;
+        height: 114px;
+        background: var(--trunk);
+      }
+
+      .seam {
+        left: 0;
+        width: 1244px;
+        height: 2px;
+        background: #543b23;
+      }
+
+      .strake {
+        left: 0;
+        top: 418px;
+        width: 1244px;
+        height: 62px;
+        background: #745230;
+      }
+
+      .wale {
+        left: 0;
+        width: 1244px;
+        height: 10px;
+        background: #543b23;
+      }
+
+      .port {
+        top: 436px;
+        width: 28px;
+        height: 26px;
+        background: #2f2113;
+      }
+
+      /* The hold's loading port, amidships and low. This is what a Brace fitting is fitted
+       * into, and it is the anchor the artifact card is pinned beside. */
+      .hold {
+        left: 500px;
+        top: 496px;
+        width: 160px;
+        height: 68px;
+        background: #2f2113;
+        border: 4px solid var(--cliff);
+      }
+
+      .boot {
+        left: 0;
+        top: 564px;
+        width: 1244px;
+        height: 40px;
+        background: #694a2c;
+      }
+
+      .waterline {
+        left: 0;
+        top: 600px;
+        width: 1244px;
+        height: 8px;
+        background: var(--foam);
+      }
+
+      .chop {
+        height: 6px;
+        background: var(--foam);
+      }
+
+      /* ---------------------------------------------------------------------------------
+       * Chrome. Every card is pinned by its own rect — there is no column, no pitch and no
+       * col_x. A pin carries z-index so the harness's .cast-shadow (a negative-z second
+       * rectangle) lands over her planking instead of under it.
+       * ------------------------------------------------------------------------------- */
+      .pin {
+        position: absolute;
+        z-index: 1;
+      }
+
+      .card {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 300px;
+        height: 92px;
+        padding: 10px 14px;
+      }
+
+      .card .name {
+        position: absolute;
+        left: 14px;
+        top: 10px;
+      }
+
+      .card .intent {
+        position: absolute;
+        left: 14px;
+        top: 36px;
+      }
+
+      .card .spec {
+        position: absolute;
+        left: 14px;
+        top: 62px;
+        opacity: 0.7;
+      }
+
+      .card .price {
+        position: absolute;
+        right: 14px;
+        top: 10px;
+      }
+
+      .crate {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--ink);
+        margin-right: 6px;
+        vertical-align: -2px;
+      }
+
+      /* Unaffordable dims by TONE, never by alpha — and the rule bites harder here than it
+       * does in the shipped column, because what is behind this card is her planking rather
+       * than open water. Parchment shaded 0.95, an inert cliff border instead of the
+       * interactive sea-deep one, muted ink, and a leader that goes quiet with it.
+       *
+       * The factor is 0.88, not the column's 0.95. 0.95 is measured against bright water; on
+       * her shadowed underbody it is invisible, and an under-dimmed card there reads as the
+       * BRIGHTEST thing on screen — the exact opposite of what it has to say. */
+      .card--dear {
+        background: #cfbf92;
+        border-color: var(--cliff);
+        color: var(--ink-muted);
+      }
+
+      /* A leader line and the ring at its far end: the card says which part of her it is
+       * talking about. Neither exists in ui.odin — see the note. */
+      .leader {
+        background: var(--parchment);
+      }
+
+      .ring {
+        border: 3px solid var(--parchment);
+      }
+
+      .leader--dear {
+        background: var(--cliff);
+      }
+
+      .ring--dear {
+        border-color: var(--cliff);
+      }
+
+      .leave {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 208px;
+        height: 40px;
+        text-align: center;
+        line-height: 38px;
+        color: var(--sea-deep);
+      }
+
+      .stat-line {
+        left: 24px;
+        top: 24px;
+      }
+
+      .chart-tab {
+        left: 497px;
+        top: 672px;
+        width: 250px;
+        height: 28px;
+        background: var(--sea-deep);
+        opacity: 0.75;
+        text-align: center;
+        line-height: 28px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at sky"></div>
+      <div class="at sea"></div>
+
+      <!-- Rig, drawn before her side so the masts step through the deck rather than sit on it. -->
+      <div class="at mast" style="left: 170px; top: 24px; height: 244px"></div>
+      <div class="at mast" style="left: 588px; top: 8px; height: 260px"></div>
+      <div class="at mast" style="left: 992px; top: 40px; height: 228px"></div>
+
+      <div class="at yard" style="left: 78px; top: 84px; width: 200px"></div>
+      <div class="at yard" style="left: 88px; top: 176px; width: 180px"></div>
+      <div class="at yard" style="left: 466px; top: 60px; width: 244px"></div>
+      <div class="at yard" style="left: 486px; top: 156px; width: 204px"></div>
+      <div class="at yard" style="left: 900px; top: 96px; width: 184px"></div>
+      <div class="at yard" style="left: 910px; top: 188px; width: 164px"></div>
+
+      <div class="at canvas" style="left: 92px; top: 94px; width: 172px; height: 66px"></div>
+      <div class="at canvas" style="left: 102px; top: 186px; width: 152px; height: 44px"></div>
+      <div class="at canvas" style="left: 480px; top: 70px; width: 216px; height: 74px"></div>
+      <div class="at canvas" style="left: 500px; top: 166px; width: 176px; height: 58px"></div>
+      <div class="at canvas" style="left: 912px; top: 106px; width: 160px; height: 68px"></div>
+      <div class="at canvas" style="left: 922px; top: 198px; width: 140px; height: 38px"></div>
+
+      <!-- Forecastle, poop, quarterdeck: the sheer, blocked in as three steps. -->
+      <div class="at castle" style="left: 0; top: 178px; width: 200px; height: 58px"></div>
+      <div class="at castle" style="left: 1000px; top: 150px; width: 244px; height: 86px"></div>
+      <div class="at castle" style="left: 1088px; top: 118px; width: 156px; height: 32px"></div>
+
+      <div class="at rail"></div>
+      <div class="at rail-shade"></div>
+      <div class="at topside"></div>
+      <div class="at side"></div>
+
+      <div class="at seam" style="top: 300px"></div>
+      <div class="at seam" style="top: 336px"></div>
+      <div class="at seam" style="top: 372px"></div>
+
+      <div class="at wale" style="top: 408px"></div>
+      <div class="at strake"></div>
+      <div class="at wale" style="top: 480px"></div>
+
+      <div class="at seam" style="top: 516px"></div>
+      <div class="at seam" style="top: 542px"></div>
+
+      <div class="at port" style="left: 36px"></div>
+      <div class="at port" style="left: 128px"></div>
+      <div class="at port" style="left: 220px"></div>
+      <div class="at port" style="left: 312px"></div>
+      <div class="at port" style="left: 404px"></div>
+      <div class="at port" style="left: 496px"></div>
+      <div class="at port" style="left: 588px"></div>
+      <div class="at port" style="left: 680px"></div>
+      <div class="at port" style="left: 772px"></div>
+      <div class="at port" style="left: 864px"></div>
+      <div class="at port" style="left: 956px"></div>
+      <div class="at port" style="left: 1048px"></div>
+      <div class="at port" style="left: 1140px"></div>
+
+      <div class="at boot"></div>
+      <div class="at hold"></div>
+      <div class="at waterline"></div>
+
+      <div class="at chop" style="left: 120px; top: 648px; width: 96px"></div>
+      <div class="at chop" style="left: 300px; top: 672px; width: 72px"></div>
+      <div class="at chop" style="left: 760px; top: 640px; width: 84px"></div>
+      <div class="at chop" style="left: 980px; top: 676px; width: 64px"></div>
+
+      <!-- The vignette frames the world; the chrome sits on top of it, the order
+           draw_offer_shop composes in. It matters more here than it does in the shipped
+           screen: a card 24px off the left edge is inside the vignette's 150px reach, and
+           under it that card would be the dimmest thing on screen. -->
+      <div class="vignette"></div>
+
+      <div class="at stat-line body over-water">Hull 100/100 &middot; SPD 4 &middot; Cargo 50/90</div>
+
+      <!-- Leaders and rings first, so a card always covers its own leader's root and never
+           the feature at its far end. -->
+      <div class="at leader" style="left: 141px; top: 324px; width: 2px; height: 112px"></div>
+      <div class="at ring" style="left: 132px; top: 440px; width: 20px; height: 18px"></div>
+
+      <div class="at leader" style="left: 509px; top: 360px; width: 2px; height: 76px"></div>
+      <div class="at ring" style="left: 500px; top: 440px; width: 20px; height: 18px"></div>
+
+      <div class="at leader leader--dear" style="left: 656px; top: 511px; width: 30px; height: 2px"></div>
+      <div class="at ring ring--dear" style="left: 636px; top: 503px; width: 20px; height: 18px"></div>
+
+      <div class="at leader" style="left: 1153px; top: 336px; width: 2px; height: 100px"></div>
+      <div class="at ring" style="left: 1144px; top: 440px; width: 20px; height: 18px"></div>
+
+      <!-- Bow to stern, and each card beside the fitting's own berth. The forward chase,
+           the waist battery, the hold, the quarter gun. -->
+      <div class="pin" style="left: 24px; top: 232px">
+        <div class="card frame-card cast-shadow">
+          <span class="name body">Long Nines</span>
+          <span class="intent body">+8 Offense</span>
+          <span class="spec body muted">Large &middot; Fire &middot; Weapon</span>
+          <span class="price body"><i class="crate"></i>18</span>
+        </div>
+      </div>
+
+      <div class="pin" style="left: 356px; top: 268px">
+        <div class="card frame-card cast-shadow">
+          <span class="name body">Chain &amp; Bar Shot</span>
+          <span class="intent body">+7 Offense when its condition holds</span>
+          <span class="spec body muted">Medium &middot; Fire &middot; Weapon</span>
+          <span class="price body"><i class="crate"></i>34</span>
+        </div>
+      </div>
+
+      <div class="pin" style="left: 686px; top: 466px">
+        <div class="card frame-card card--dear cast-shadow">
+          <span class="name body">Titan's Heart</span>
+          <span class="intent body">+5 Repair</span>
+          <span class="spec body muted">Large &middot; Brace &middot; Artifact</span>
+          <span class="price body"><i class="crate"></i>120</span>
+        </div>
+      </div>
+
+      <div class="pin" style="left: 920px; top: 244px">
+        <div class="card frame-card cast-shadow">
+          <span class="name body">Outriggers</span>
+          <span class="intent body">+1 Speed, +1 Offense</span>
+          <span class="spec body muted">Small &middot; Fire &middot; Artifact</span>
+          <span class="price body"><i class="crate"></i>26</span>
+        </div>
+      </div>
+
+      <!-- The reading runs bow to stern; the way out is past her stern, in clear water. -->
+      <div class="pin" style="left: 1012px; top: 620px">
+        <div class="leave frame-button body cast-shadow">Leave</div>
+      </div>
+
+      <div class="at chart-tab body over-water">Chart</div>
+    </div>
+
+    <div class="note">
+      <h1>Shop — the ship is the ground, the stock lies on her</h1>
+      <p>
+        <strong>The constraint.</strong> She is the background and she fills the frame: her side
+        runs edge to edge from the rail at y&nbsp;236 to the waterline at y&nbsp;604, which is 53%
+        of the window's height, and the only clear water left is the strip her bow-wave stands in.
+        The four cards are laid <em>on</em> her, and each one is pinned beside the berth its
+        fitting would occupy — the two <code>Fire</code> weapons beside gunports (the forward
+        chase and the waist battery), the small <code>Fire</code> artifact beside the quarter gun,
+        and the <code>Brace</code> artifact beside the hold's loading port amidships. A leader
+        line and a ring say which. Nothing sits in a reserved strip; the reading runs bow to
+        stern and the way out is past her stern in open water.
+      </p>
+      <p>
+        <strong>What that forced, against the shipped screen.</strong>
+      </p>
+      <ul>
+        <li>
+          <code>OFFER_SHOP_LAYOUT</code> is gone in its entirety. There is no
+          <code>col_x</code>, no <code>col_w</code>, no <code>pitch</code>: a card's rect is
+          <em>derived from an anchor on the ship</em>, not from an index times a pitch. That is
+          the single largest cost of the constraint and the source of most of the list below.
+        </li>
+        <li>
+          Card width fell 392&nbsp;→&nbsp;300. Four cards have to coexist across one frame
+          instead of stacking down one edge. 300 is close to the floor: the longest intent
+          string, <em>"+7 Offense when its condition holds"</em>, measures ~256px at 16px, and
+          the card's inner width at 300 is 268.
+        </li>
+        <li>
+          The cards now sit on planking, not on water. That is better for contrast — dark
+          <code>trunk</code> under parchment beats bright sea under parchment — but it makes the
+          "dim by tone, never by alpha" rule (ADR-0032) load-bearing rather than merely correct:
+          an alpha-dimmed unaffordable card here would have her strakes reading straight through
+          it. And the shipped shade factor is no longer strong enough: 0.95 is measured against
+          bright water, and against her <em>shadowed underbody</em> it is invisible — the
+          unaffordable card came back as the brightest thing on screen. It takes parchment
+          shaded <strong>0.88</strong>, an inert <code>cliff</code> border instead of the
+          interactive <code>sea-deep</code> one, muted ink — <em>and its leader and ring go to
+          cliff too</em>, so the quieting reaches all the way to the part of the ship it points
+          at. The general rule that falls out: <strong>a dim factor is relative to the ground
+          the card is on</strong>, and once cards are scattered over a ship the ground is no
+          longer one constant.
+        </li>
+        <li>
+          <code>Leave</code> came off the bottom of the column and went to the water astern.
+          It is no longer "the last row"; it is where the reading ends.
+        </li>
+        <li>
+          Draw order is now load-bearing in two new places: the cast shadows have to land over
+          her planking rather than under it, and every leader must be drawn before its card so a
+          card covers its own leader's root and never the feature at the leader's far end.
+        </li>
+        <li>
+          The stat line moved to the top left, because the reading now starts at the bow.
+        </li>
+      </ul>
+      <p>
+        <strong>What this needs from <code>ui.odin</code> that does not exist.</strong> Six
+        things, and the first two are the ones without which this design is not portable at all.
+      </p>
+      <ul>
+        <li>
+          <strong>A screen-space anchor on the ship.</strong>
+          <code>ship_feature_point(ship, feature) -&gt; rl.Vector2</code>. She is lit 3D geometry
+          drawn through a camera; the Shop's chrome today knows nothing about where any part of
+          her lands in the logical frame. Axes: the feature (<code>.Gunport_Forward</code>,
+          <code>.Gunport_Waist</code>, <code>.Gunport_Quarter</code>, <code>.Hold_Port</code>,
+          <code>.Rail</code>…), and the camera. Every number in this mockup is hand-placed
+          against a CSS hull, which is exactly the thing that cannot survive the port.
+        </li>
+        <li>
+          <strong>A leader line from a card edge to a point.</strong>
+          <code>ui_leader(card: rl.Rectangle, edge: Edge, to: rl.Vector2, thickness: f32, tone: rl.Color)</code>.
+          Axes: which edge it leaves (so a card left of its anchor leaves right, one above leaves
+          down), the anchor, thickness, tone. Today it would be a bare
+          <code>DrawRectangleRec</code> per segment with the elbow computed at the call site —
+          i.e. re-decided four times.
+        </li>
+        <li>
+          <strong>An anchor ring.</strong> <code>ui_anchor_ring(rect, thickness, tone)</code> — a
+          hollow rectangle laid on a world feature. <code>DrawRectangleLinesEx</code> already
+          draws it; what is missing is that it is a <em>named chrome mark</em> with a live and an
+          inert tone, so "unaffordable" can reach it without a fourth call site re-deriving the
+          rule.
+        </li>
+        <li>
+          <strong>A placement solver.</strong>
+          <code>ui_place_beside(anchor: rl.Vector2, size: rl.Vector2, prefer: []Side, keep_out: []rl.Rectangle, bounds: rl.Rectangle) -&gt; (rl.Rectangle, Side)</code>.
+          With the pitch gone, something has to choose a card's rect: beside its anchor, inside
+          the frame, not over another card, and not over any feature another card is pointing at.
+          Axes: anchor, card size, preferred sides in order, the keep-out set, the stage. This is
+          the piece that replaces <code>OFFER_SHOP_LAYOUT</code>, and it is genuinely new work —
+          it is a solver, not a layout struct.
+        </li>
+        <li>
+          <strong>A card with a tail.</strong> The leader above is the cheap answer; the better
+          one is <code>UI_FRAME_CARD_TAIL</code> — a card frame whose border carries a pointer.
+          A 9-slice cannot express it (the tail is not on a slice boundary and moves), so this is
+          a new sprite plus a <code>DrawTriangle</code>, with axes: which edge the tail leaves
+          and how far along that edge. Worth naming even if the leader ships first, because the
+          two are alternatives and picking one is a decision.
+        </li>
+        <li>
+          <strong>Hit-testing and traversal over a scattered rect set.</strong>
+          <code>ui_pick(rects: []rl.Rectangle, mouse) -&gt; int</code> plus an explicit traversal
+          order. <code>option_screen_boxes</code>' idiom — a stack, so index order <em>is</em>
+          reading order — does not survive scattering. The caret has to move bow-to-stern, which
+          means the order is data now, not the array index.
+        </li>
+      </ul>
+      <p>
+        <strong>Type.</strong> Nothing here proposes a third size; every string is 16px, and the
+        hierarchy is carried by colour exactly as the style guide has it.
+      </p>
+      <p>
+        <strong>One note on the gate, not on the design.</strong> Every value rule
+        <code>check-mock.py</code> expresses passes on this file — colours (nine literals, every
+        one a <code>colour_shade</code> of <code>trunk</code> or <code>parchment</code>, which
+        the checker names), one-axis gradients, whole pixels, the 1244&times;700 stage. It still
+        exits 1, because the script assumes a mockup is a <em>sibling</em> of the harness in
+        three places: it reads <code>path.parent / "harness.css"</code> (which throws for a
+        mockup in a subdirectory), it greps for the literal <code>href="harness.css"</code>
+        (this file correctly links <code>../harness.css</code>), and its no-argument default
+        globs <code>docs/ui/mock/*.html</code> non-recursively, so a subdirectory is never swept
+        at all. Three one-line fixes, in a file this mockup was told not to touch — recorded
+        here so the next author does not spend the afternoon looking for a colour that is off
+        the roster.
+      </p>
+    </div>
+  </body>
+</html>

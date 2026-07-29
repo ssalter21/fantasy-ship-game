@@ -6,6 +6,16 @@ Its job is to make "good" a **fixed target** rather than a per-session guess. Wh
 that number. Where it gives a principle, apply the principle. Where it is silent, it is silent on purpose —
 see [What this guide does not cover](#what-this-guide-does-not-cover).
 
+**This file is the rules. [`style-rationale.md`](style-rationale.md) is the why** — the reference readings, the
+superseded navy direction, the measurements the scale rests on, the typefaces that were rejected. Read the
+rationale when you are about to **change** a rule or when one looks arbitrary; you never need it to follow one.
+Nothing was shortened in the split, and the pointer beside a rule says where its argument went.
+
+**And most rules are now in code.** The widgets (`presentation/ui_widgets.odin`) carry every rule a procedure
+can carry — a call site names a role and cannot reach a colour, a size or a spacing outside the roster through
+them. Where that is true this file *points at the procedure* rather than restating what it does; see
+[The components are code, and the code is the spec](#the-components-are-code-and-the-code-is-the-spec).
+
 Written for [Write the style guide](https://github.com/ssalter21/fantasy-ship-game/issues/280), on the
 `effort:ui-capability` map ([#275](https://github.com/ssalter21/fantasy-ship-game/issues/275)).
 
@@ -20,34 +30,26 @@ Written for [Write the style guide](https://github.com/ssalter21/fantasy-ship-ga
 
 "Good" here means **shapes, a real typeface, a deliberate palette, spacing, hierarchy, and framing**. It does
 not mean illustration. The UI reads as programmer art today because of raylib's stock font, raylib's stock
-named colours (`LIGHTGRAY` / `BEIGE` / `MAROON`), and no hierarchy — not because art is missing. Every rule
-below is reachable with raylib primitives (`DrawRectangleRec`, `DrawRectangleLinesEx`, `DrawTextEx`,
-`DrawTriangle`, `DrawPoly`) and no new renderer.
+named colours (`LIGHTGRAY` / `BEIGE` / `MAROON`), and no hierarchy — not because art is missing.
 
-## Where this came from
+**Chrome may be blitted art, not only stroked primitives.** This guide used to close that sentence with "and no
+new renderer", meaning every rule had to be reachable with `DrawRectangleRec` / `DrawRectangleLinesEx` /
+`DrawTextEx` / `DrawTriangle` / `DrawPoly`. That was the right constraint when the problem was programmer art
+and the risk was a sourced panel clashing with a measured palette. It became the binding constraint on getting
+*past* programmer art: the best-looking thing in the game is a generated asset, and the worst-looking thing sat
+directly on top of it — a translucent scrim with a hairline border, which is what a renderer can draw rather
+than what the world looks like.
 
-`docs/ui/references/` holds eight scenes gathered in
-[#276](https://github.com/ssalter21/fantasy-ship-game/issues/276). They are not equal, and which
-one leads is the whole difference between this guide and its predecessor. Read
-`docs/ui/references/README.md` before them — it also records two images that fed this guide and have since
-been **removed** from the repo (a navy UI mock and a parchment treasure-map), whose decisions are captured
-below so the guide stands on its own without them.
+So the rule is now about the **palette**, not the technique. A frame may be a 9-sliced sprite
+(`ui_nine_slice`, `presentation/ui_frame.odin`) provided:
 
-- **`style/island-tropical.jpg` is the keystone.** It is the clearest statement of the target: a saturated
-  turquoise sea, warm tan cliffs, vivid layered greens, purple-white clouds. Every colour is turned *up*. The
-  palette below is sampled from it, with **`style/menu-port-tropical.jpg`** as a supporting witness for its
-  bright daylight sea. The parchment-and-sand world had a second witness, a `treasure-map` reference now
-  **removed** from the repo (recorded in the references README).
-- **The layout came from a `menu-ui-mock.png`, since removed** — the one reference image that *was* a UI. It
-  fixed **hierarchy and proportion** only; being a *navy* mock, it never set colour. Its stack, its centred
-  title, and its caret-and-scrim hover are taken forward; its proportions are measured out under
-  [Proportions](#proportions) below, so the guide no longer needs the image itself.
-- **`style/ship-night.jpg` and `style/ship-battle.jpg` are retired.** They witnessed one thing — a small warm
-  point punching against a large cold field — and that relationship was the amber accent, which this guide no
-  longer carries. They are night scenes on a navy ground the palette has moved off; do not read colour of any
-  kind out of them.
-- **`style/colour-palette.webp` stays demoted.** A dusk mountain valley, not a sea. Do not derive palette from
-  it.
+- **every pixel of it is a roster swatch** — which is why the frames are authored a pixel at a time by
+  `scripts/make-ui-frames.py` rather than sourced and then dragged back onto the roster;
+- **it is embedded, not shipped beside the exe** (ADR-0009), like the font and the background;
+- **it blits on integer pixel boundaries under a `POINT` filter**, so nothing softens the grid.
+
+Text, carets and the chart's own marks are still primitives — see *Glyphs are shapes, not text*. The change is
+that a **border, a panel and a button face are art**.
 
 ## The palette
 
@@ -150,43 +152,8 @@ Two rules fall out of the roster:
 - **Never `RAYWHITE`, `LIGHTGRAY`, `BEIGE`, `MAROON`, `SKYBLUE`, `GRAY`, or `WHITE` again.** Every stock raylib
   named colour has a replacement above. The stock palette is the single largest programmer-art signal in the
   current build.
-- **Text colour is hierarchy.** Rank by colour first, size second — there are only two type sizes (below).
-
-### Never mix a warm into a cool to get a neutral
-
-**`colour_mix` between opposite hues passes through grey. If a tone needs to be softer, take the alpha down
-or the value down — do not walk it across the wheel.**
-
-This is the roster's one booby trap, and it has now produced three separate bugs from three different
-call sites, every one of them written as "warm it up a bit" or "haze it back a bit":
-
-- The horizon glare was `mix(horizon haze, parchment, 0.5)` — blue into yellow, meant to read as tropical
-  heat. It measured **6% saturation**: a neutral grey band straight across the middle of the frame, and the
-  largest flat area on the screen.
-- The submerged hull was lerped from lit copper toward the sea's turquoise. Every strake at mid-depth landed
-  near the midpoint of that line and came out the same dead sage.
-- The island strand was `mix(sand, glare, 0.5)`, to set the beach back into the distance. Same two hues, same
-  grey.
-
-The mix is not wrong because the ratio is wrong; it is wrong because the *path* runs through the middle of
-the wheel. Halfway between two opposite hues is neutral by construction, and no ratio avoids it — moving the
-ratio only moves where the grey lands.
-
-What to reach for instead:
-
-- **Softer, more distant, hazier → `rl.Fade`.** Let what is already behind it do the mixing optically. The
-  tone keeps its own hue all the way down. This is the right answer for atmospheric perspective.
-- **Darker or lighter → `colour_shade`.** It scales the channels and cannot cross the axis.
-- **A genuine hue shift → go the short way round.** Mix from a neighbour rather than from the opposite: the
-  glare warms a *cool* (`mix(shallow, parchment, 0.24)`), so it travels a quarter-turn instead of a half and
-  keeps 41% saturation.
-- **Light passing through something → absorb and scatter, not lerp.** Attenuate each channel by its own
-  coefficient and add the medium's own lit colour back on top. Absorption only takes a channel down and
-  scatter only puts a saturated tone in, so neither step can land on neutral. `hull_water` is the worked
-  example.
-
-**Scan it before you believe it.** All three of these looked plausible in source and read as "a bit flat" on
-screen. What identified them was a saturation scan; nothing in the code says "grey".
+- **Text colour ranks within a block; size says which block to read first.** The scale is three sizes and
+  closed (below).
 
 ### Controls do not have a signal colour
 
@@ -346,44 +313,42 @@ decision.
   commits to a "native, self-contained Windows `game.exe`"; a font shipped as a sidecar file breaks that. Load
   with `rl.LoadFontFromMemory`. (Note: two ADRs share the number 0009 — the relevant one is *playtest
   distribution*, not *node graph*.)
-- **Why this face and not the first one.** The UI shipped on Pixelify Sans first; it was replaced because its
-  digits share the letters' skeletons — `0`/`O`, `1`/`l`/`I`, `5`/`S` collide — and in a UI where almost
-  everything the player weighs is a number, a numeral that does not announce itself as a numeral is the wrong
-  face. Pixel Operator's digits are distinct (flagged `1`, narrow `0`), it is static, and it is CC0. See the
-  rejected-typefaces table for the full record.
+- **Why this face and not the first one**, and every candidate that was rejected:
+  [style-rationale.md](style-rationale.md#why-pixel-operator-and-not-the-first-face).
 
 ### The size scale
 
-**Two sizes. That is the whole scale.**
+**Three sizes. That is the whole scale**, and they are reachable only as levels of `Ui_Level` —
+`ui_heading(rect, text, .Display, ground)`, never a number.
 
-| Size | Role |
-| --- | --- |
-| **32px** | The Chart Table title. Display only. |
-| **16px** | Everything else. |
-
-This is measured, not minimalist. Pixel Operator is a **native-16px** pixel font: it is pixel-perfect only on
-integer multiples of its 16px em, and mush off that grid.
-
-| Size | Antialiased pixels | Verdict |
+| Size | `Ui_Level` | Role |
 | --- | --- | --- |
-| 12px | **99%** | mush — unusable |
-| **16px** | **0%** | pixel-perfect |
-| 20px | **86%** | mush — the old scale's body size |
-| 24px | 58% | bad |
-| **32px** | **0%** | pixel-perfect |
-| 40px | 40% | soft — the old scale's title size |
-| **48px** | **0%** | pixel-perfect, if a screen ever needs a bigger title |
+| **48px** | `.Display` | The one thing on a screen that says what screen this is. At most one per screen. |
+| **32px** | `.Title` | A title over a block. |
+| **16px** | `.Body` | Everything else. |
+
+Pixel Operator is a **native-16px** pixel font: pixel-perfect only on integer multiples of its 16px em,
+and mush off that grid. 16, 32 and 48 measure 0% antialiased; everything between measures 40–99%. The
+measurements are in [style-rationale.md](style-rationale.md#how-the-size-scale-was-measured).
 
 **The clean sizes are 16, 32, 48 — nothing between.** The old 40/20 scale (measured for Pixelify Sans) landed
 on two of Pixel Operator's *worst* sizes, so the swap moved the scale to 32/16, the two crisp sizes nearest the
-old pair, preserving the exact 2:1 title:body ratio. Body dropped 20→16, which also eases the width budgets a
-tight face fights (see Press Start 2P below). Hierarchy is still carried by **colour**, not size — but that is
-now the house style, not, as it was under Pixelify, a workaround for a face with no clean size below 20px. 16px
-*is* clean; colour still carries the levels because two sizes is the whole scale and always was.
+old pair. Body dropped 20→16, which also eases the width budgets a tight face fights (see Press Start 2P below).
+
+**Hierarchy is carried by colour *and* by size, and it used to say otherwise.** For a while this guide held
+that colour alone carried rank — "house style, no longer a workaround". That was half true and it was the
+binding half: two sizes is not enough to lead an eye, and the Shop was the proof. Four cards at one size, one
+border weight and one pitch, three text tones, and nothing telling you where to start reading. 48px is exactly
+as crisp as 32 and 16 by the same measurement that produced the pair, so the constraint was never the face —
+it was the claim.
+
+The division of labour now: **size says which block to read first, colour ranks within a block.** A screen
+that wants a new level inside a block still reaches for a tone (`Ui_Emphasis`), not a fourth size — the scale
+is closed, and `48/32/16` is all of it.
 
 ### A size is a font, not a parameter
 
-The scale is **two `rl.Font`s, not one font drawn at two sizes.** One `rl.Font` is one glyph atlas rasterized
+The scale is **one `rl.Font` per size, not one font drawn at three sizes.** One `rl.Font` is one glyph atlas rasterized
 at one size: ask `DrawTextEx` for 16px from an atlas baked at 32 and it resamples, giving up exactly the
 pixel-exactness the table was measured to buy. Bake each size once and keep both (`presentation/ui.odin`'s
 `ui_font_title` / `ui_font_body`).
@@ -396,38 +361,6 @@ Two things that go with it, both mandatory and neither obvious:
 - **The default codepoint set is ASCII 32–126.** `LoadFontFromMemory` with a nil codepoint list bakes that and
   no more, so `·` (U+00B7) and `—` (U+2014) are **not** in the atlas by default despite the face carrying them.
   Retiring the em-dash workaround needs an explicit codepoint list, not just the font.
-
-### No bold — but now by choice, not by constraint
-
-Under Pixelify Sans a bold was *unreachable*: it is a variable font (`wght` 400–700) with no static instances,
-and raylib's stb_truetype ignores variable axes, rendering only the 400 default. Pixel Operator removes that
-constraint — it ships a real **static** `PixelOperator-Bold.ttf`, which stb_truetype would rasterize fine as a
-third embedded blob.
-
-So the rule is now a design choice, not a technical one: **still no bold.** The mock used no weight contrast,
-only size and colour, and adding a weight would be a new hierarchy signal this guide deliberately does without.
-If one is ever genuinely wanted the path is now trivial (embed the Bold blob, bake a third `rl.Font`) — but
-reach for a tone from the ramp first.
-
-### Rejected typefaces, and why
-
-Recorded so they are not rediscovered and re-litigated:
-
-| Face | Rejected because |
-| --- | --- |
-| **Pixelify Sans** | **Adopted, then replaced — ambiguous digits.** It carried the whole first styling pass, but its numerals share the letterforms' skeletons (`0`/`O`, `1`/`l`/`I`, `5`/`S`), and this UI is almost entirely numbers. A rounded pixel face on a 20px grid; crisp there but soft above it. Replaced by Pixel Operator. Its removal is the reason the size scale moved 20/40 → 16/32. |
-| **Pixel Pirate** | **Licence.** At least three distinct fonts share the name (one free on dafont, one *sold commercially* by FontBros); the "100% Free" tag is author-typed, not a licence file; it is described as derived from the *Pirates of the Caribbean* logo type; and this game has a public itch.io page, so redistribution rights are real. A saved capture meant to settle this caught only a Google redirect notice — no font data — and has since been deleted; the fontmeme page blocks automated fetches. **Do not adopt without a licence document.** |
-| **Press Start 2P** | **Measured overflow.** At 16px it is ~16px/char: `Hull 20/20  DUR 3  SPD 2` renders 384px into a 348px ship panel, and `Reallocate a fitting` renders 320px into a 220px button. It does not fit this game. |
-| **VT323** | **Never crisp** — 46–98% antialiased at every size 8–34. A curvy face; reads as a DOS terminal rather than 16-bit. |
-| **Micro5**, **Jersey10** | Illegible mush at body sizes; 12 printable Latin-1 gaps each (`±`, `²`, `³`, `µ`). |
-| **Silkscreen** | **The Pixelify runner-up.** Crisper than Pixelify (10% AA at 32px), static, complete Latin-1, 31KB. Rejected because it reads **all-caps**, and this game has prose — `battle_event_text`, `fitting_summary_lines`, `condition_intent`. Caps cannot carry prose. When Pixelify's soft digits later forced a second search, Pixel Operator — mixed-case *and* crisp — won over Silkscreen for the same all-caps reason. |
-| **Pixel Operator Mono / Departure Mono** | **The digit-fix runners-up.** Both give unambiguous, tabular numerals (Departure has a dotted zero — the strongest `0≠O` signal of any candidate). Rejected for prose: monospace runs wide and clips the game's battle text, and Departure reads sci-fi terminal rather than 16-bit fantasy. Pixel Operator (proportional, same family as the Mono) fixes the digits without the width cost. |
-
-### One thing the font fixes for free
-
-raylib's built-in font carries only codepoints 32–255, so an em-dash renders as `?` — which is why some code
-says `"none"` instead. **Pixel Operator carries U+2014** (and the game draws U+2014 ×261 and U+00B7 ×29, both
-in the atlas). Once it is embedded, that workaround can go.
 
 ### What Pixel Operator does *not* carry
 
@@ -456,19 +389,56 @@ Above U+00FF, assume a shape.
 
 ## Spacing, hierarchy, framing
 
+### The components are code, and the code is the spec
+
+Everything in this section used to be prose a screen author had to read, remember and re-implement.
+Five screens each grew their own "rectangle with text in it" from it, and the cost was not the
+duplication — it was that a look change had to be made five times and therefore never was.
+
+The components now exist, in `presentation/ui_widgets.odin`, and **the rules below that a widget can
+enforce are enforced by the widget**. Reach for these rather than for a rectangle:
+
+| Want | Call | The rule it carries for you |
+| --- | --- | --- |
+| A surface that holds things | `ui_panel(rect, elevation)` | blitted frame, never a stroked rect |
+| A thing in a panel, or on the world | `ui_card(rect, emphasis, elevation)` | opaque over water, cast shadow, dims by tone |
+| A control | `ui_button(rect, label, state)` | no signal colour; hover is the frame's own face |
+| A title or heading | `ui_heading(rect, text, level, ground)` | only the three baked sizes exist |
+| A divider | `ui_divider(rect, weight, ground)` | weight is the signal |
+| The crate, the caret | `ui_icon(rect, icon, ground)` | shapes, never a codepoint |
+| A destructive target | `ui_alarm(rect, lit)` | **the only place coral is drawn as chrome** |
+| A string placed in a box | `ui_text(rect, text, level, ground, emphasis, anchor)` | whole pixels, measured not guessed |
+
+Three axes run through all of them, and a call site names a role rather than a value:
+**Emphasis** (`Primary` → `Secondary` → `Muted` → `Unavailable`, each receding further into its
+ground than the one above), **Elevation** (`Inset`, `Flush`, `Raised`, `Floating`) and a named
+**spacing scale** (`ui_space(.Base)` and friends). **Nothing takes a colour, a font size, or a raw
+spacing** — that is what makes the rules unbreakable through these procs rather than merely written
+down here.
+
+**No screen strokes its own chrome.** That is a rule, not a coincidence:
+`no_screen_strokes_its_own_chrome` in `presentation/ui_contract_test.odin` fails the build on a raw
+`DrawRectangleRec` or `DrawRectangleLinesEx` in any file outside an explicit, reasoned exemption
+list — world painters, tools, and the voyage screens this guide has not re-coloured yet.
+
+What follows is the **rationale**: why the components carry the rules they do. Read it when you are
+changing a rule, not when you are following one.
+
 ### Hierarchy
 
 Words live on parchment, so the primary hierarchy is **dark ink on a warm ground**, ranked by colour:
 
-1. **Title / heading** — `#12333F` ink at 32px on parchment (or `#F3E6C4` cream if placed over the sea).
-   Biggest thing on screen.
-2. **Controls** — `#1786BC` border and label over a translucent ground. Present, clearly clickable. All of
+1. **The screen's name** — `.Display` (48px), cream over the sea or ink on parchment. At most one per screen,
+   and it is what the eye should land on first.
+2. **Title / heading** — `.Title` (32px) ink on parchment, or cream over the sea.
+3. **Controls** — `ui_button`; on the unre-coloured screens, a `#1786BC` border and label over a translucent ground. Present, clearly clickable. All of
    them look alike: [no colour marks the default action](#controls-do-not-have-a-signal-colour).
-3. **Body and hints** — muted ink `#4C7385`, 16px.
-4. **The version stamp** — faded ink `#9C8A63`. Findable, never read first.
+4. **Body and hints** — muted ink `#4C7385`, 16px.
+5. **The version stamp** — faded ink `#9C8A63`. Findable, never read first.
 
-There is no bold, no second font, and only two sizes. **Colour carries the hierarchy.** If a screen needs a new
-level, reach for a tone from the roster, not a new size.
+There is no bold and no second font. **Size says which block to read first; colour ranks within a block.** A
+screen that needs a new level *inside* a block reaches for a tone from the roster — the size scale is closed at
+three (see [The size scale](#the-size-scale)).
 
 **The version stamp is shared chrome, and it forks.** A styled screen draws its own stamp; the unstyled voyage
 screens still draw the stock-`GRAY`, 12px one. The two converge when the restyle lands. Expect the same fork for
@@ -480,21 +450,25 @@ The framing signal is **the torn parchment edge**, not a dark vignette. The old 
 to near-black at its edges; that reintroduces exactly the cold, clinical frame this rewrite is removing. Frame
 with paper: a sand-and-cliff torn border — the framing device of a treasure map.
 
-For panels, framing is a **2px border in the tone that states the panel's role** — `#1786BC` for interactive,
-`#B98A50` cliff for inert — over a translucent ground, not a filled box. Let the world read through unselected
-panels; that translucency is what makes chrome sit *on* a world rather than cover it. Starting alpha for a
-scrim: `rl.Fade(ground, 0.55)`, tuned by eye.
+For panels, framing is now **a blitted frame** — `ui_panel` and `ui_card`, over the 9-slice sprites in
+`assets/art/ui-frame-*.png`. A frame is art with its own border runs and corner marks, not a stroked
+outline; see [Craft, not art](#craft-not-art) for why that clause changed and what it still requires.
+On the voyage screens this guide has not re-coloured, framing is still a **2px border in the tone that
+states the panel's role** — `#1786BC` for interactive, `#B98A50` cliff for inert — over a translucent
+ground, not a filled box, starting at `rl.Fade(ground, 0.55)`.
 
-**Over the sea, paper is opaque and casts a shadow.** The rule above assumes a dark ground: a translucent
-panel over `COLOUR_DEEP` still reads as a panel, because there is nothing behind it with any structure. Over
-the ship screen's own water there is — sun glitter, chop, a hull-down island — and a translucent card lets
-that read straight *through* the paper as a stain, which costs the panel its own ground. So a card laid over
-the sea takes solid `#EBD9A6` parchment and a cast shadow (`rl.Fade(COLOUR_SEA_DEEP, 0.45)`, offset a few
-pixels down and right). The shadow, not a glow: the water is bright, so the only way paper sits above it is by
-darkening what is under the paper.
+**Over the sea, paper is opaque and casts a shadow.** The translucent rule assumes a dark ground: a
+translucent panel over `COLOUR_DEEP` still reads as a panel, because there is nothing behind it with any
+structure. Over the ship screen's own water there is — sun glitter, chop, a hull-down island — and a
+translucent card lets that read straight *through* the paper as a stain, which costs the panel its own
+ground. So a card laid over the sea takes solid parchment and a cast shadow. **`ui_card(rect, emphasis,
+.Floating)` is that rule**; the shadow, not a glow, because the water is bright and the only way paper
+sits above it is by darkening what is under the paper.
 
 The same reversal governs **dimming**: state that a card is unavailable with a `colour_shade`d sheet and
-duller ink, never with alpha. Alpha over a dark ground dims; alpha over a bright one just lets the world in.
+duller ink, never with alpha. Alpha over a dark ground dims; alpha over a bright one just lets the world
+in. **`Ui_Emphasis.Unavailable` is that rule** — one axis, so a card cannot dim two of its three rows and
+ship, which is exactly what happened when the three tones were chosen independently.
 
 And a screen whose body **is** the world — the ship screen and the stages that reframe it (ADR-0032) — draws
 **no vignette at all**, per the rule above. Its headings take cream over the sea rather than a tint or a steel
@@ -502,9 +476,8 @@ picked for `COLOUR_DEEP`.
 
 ### Proportions
 
-These proportions were **measured from the now-removed `menu-ui-mock.png`** (recorded in the references README)
-and scaled to 1024×700 — a **starting point** for the Chart Table, not a spec. The mock's own layout could not
-be copied regardless: its aspect was 1.806 against the window's 1.463, so only its proportions transfer.
+Starting points for the Chart Table, not a spec — their provenance is in
+[style-rationale.md](style-rationale.md#where-the-proportions-came-from).
 
 | Element | In the mock | At 1024×700 |
 | --- | --- | --- |

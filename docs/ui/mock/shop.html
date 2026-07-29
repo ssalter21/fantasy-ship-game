@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop — mockup</title>
+    <link rel="stylesheet" href="harness.css" />
+    <style>
+      /* The galleon, blocked in. A mockup is not the place to redraw a hull that already
+       * exists and already looks right — the block stands where she stands so the column
+       * has the right amount of screen left over, and nothing more is claimed for it. */
+      .hull {
+        left: 96px;
+        top: 300px;
+        width: 620px;
+        height: 210px;
+        background: var(--rock);
+        border-top: 26px solid var(--cliff);
+      }
+
+      .mast {
+        top: 130px;
+        width: 8px;
+        height: 190px;
+        background: var(--trunk);
+      }
+
+      .sail {
+        height: 18px;
+        background: var(--cream-bright);
+      }
+
+      .horizon {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 300px;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .water {
+        left: 0;
+        top: 300px;
+        width: 1244px;
+        height: 400px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      /* The column, at the geometry OFFER_SHOP_LAYOUT actually ships:
+       * col_x 820, col_w 392, col_y0 72, card_h 92, pitch 104, leave_gap 16, leave_h 40. */
+      .column {
+        left: 820px;
+        top: 72px;
+        width: 392px;
+      }
+
+      .card {
+        position: relative;
+        height: 92px;
+        margin-bottom: 12px; /* pitch 104 - card_h 92 */
+        padding: 10px 14px;
+      }
+
+      .card .name {
+        position: absolute;
+        left: 14px;
+        top: 10px;
+      }
+
+      .card .intent {
+        position: absolute;
+        left: 14px;
+        top: 36px;
+      }
+
+      .card .spec {
+        position: absolute;
+        left: 14px;
+        top: 62px;
+        opacity: 0.7;
+      }
+
+      .card .price {
+        position: absolute;
+        right: 14px;
+        top: 10px;
+      }
+
+      .crate {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--ink);
+        margin-right: 6px;
+        vertical-align: -2px;
+      }
+
+      /* Unaffordable dims by TONE, never by alpha: over a bright sea, translucency costs a
+       * panel its own ground and the water reads through the card as a stain (ADR-0032). */
+      .card--dear {
+        background: #dfce9d; /* parchment shaded 0.95, which is colour_shade's job in Odin */
+        border-color: var(--cliff);
+        color: var(--ink-muted);
+      }
+
+      .leave {
+        height: 40px;
+        margin-top: 4px; /* leave_gap 16 - the 12px the last card already carries */
+        text-align: center;
+        line-height: 38px;
+        color: var(--sea-deep);
+      }
+
+      .stat-line {
+        right: 16px;
+        top: 20px;
+      }
+
+      .chart-tab {
+        left: 497px;
+        bottom: 0;
+        width: 250px;
+        height: 28px;
+        background: var(--sea-deep);
+        opacity: 0.75;
+        text-align: center;
+        line-height: 28px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at horizon"></div>
+      <div class="at water"></div>
+
+      <div class="at hull"></div>
+      <div class="at mast" style="left: 260px"></div>
+      <div class="at mast" style="left: 430px"></div>
+      <div class="at sail" style="left: 214px; top: 170px; width: 100px"></div>
+      <div class="at sail" style="left: 384px; top: 190px; width: 100px"></div>
+
+      <!-- The vignette frames the world, and the chrome sits on top of it — the order
+           draw_offer_shop composes in. Over the chrome instead, it would dim the one thing
+           on the screen that has to stay legible. -->
+      <div class="vignette"></div>
+
+      <div class="at stat-line body over-water">Hull 100/100 &middot; SPD 4 &middot; Cargo 50/90</div>
+
+      <div class="at column">
+        <div class="card frame-card cast-shadow">
+          <span class="name body">Long Nines</span>
+          <span class="intent body">+8 Offense</span>
+          <span class="spec body muted">Large &middot; Fire &middot; Weapon</span>
+          <span class="price body"><i class="crate"></i>18</span>
+        </div>
+
+        <div class="card frame-card cast-shadow">
+          <span class="name body">Chain &amp; Bar Shot</span>
+          <span class="intent body">+7 Offense when its condition holds</span>
+          <span class="spec body muted">Medium &middot; Fire &middot; Weapon</span>
+          <span class="price body"><i class="crate"></i>34</span>
+        </div>
+
+        <div class="card frame-card card--dear cast-shadow">
+          <span class="name body">Titan's Heart</span>
+          <span class="intent body">+5 Repair</span>
+          <span class="spec body muted">Large &middot; Brace &middot; Artifact</span>
+          <span class="price body"><i class="crate"></i>120</span>
+        </div>
+
+        <div class="card frame-card cast-shadow">
+          <span class="name body">Outriggers</span>
+          <span class="intent body">+1 Speed, +1 Offense</span>
+          <span class="spec body muted">Small &middot; Fire &middot; Artifact</span>
+          <span class="price body"><i class="crate"></i>26</span>
+        </div>
+
+        <div class="leave frame-button body">Leave</div>
+      </div>
+
+      <div class="at chart-tab body over-water">Chart</div>
+    </div>
+
+    <div class="note">
+      <h1>Shop — the screen as it ships</h1>
+      <p>
+        The worked example, and the harness's own proof: the column is at
+        <code>OFFER_SHOP_LAYOUT</code>'s shipped numbers (<code>col_x 820</code>,
+        <code>col_w 392</code>, <code>col_y0 72</code>, <code>card_h 92</code>,
+        <code>pitch 104</code>), so opening this beside
+        <code>docs/ui/shots/&lt;branch&gt;/13-shop.png</code> should read as the same screen. If it
+        does not, the harness is lying and that is the bug — not the mockup.
+      </p>
+      <p>
+        The galleon is <strong>blocked in, deliberately</strong>. She already exists and already
+        looks right; redrawing her in CSS would be a worse copy of a solved thing, and every
+        minute spent on it is a minute not spent on the half of the screen that is the question.
+        A block that stands where she stands leaves the column the right amount of screen.
+      </p>
+      <p>
+        <strong>The one literal hex here is the interesting case.</strong>
+        <code>.card--dear</code> is <code>#dfce9d</code>, which is parchment with every channel
+        multiplied by <code>0.95</code> — what <code>colour_shade</code> does in Odin, and what CSS
+        has no operator for. <code>check-mock.py</code> allows it for exactly that reason and names
+        the swatch and factor it resolved to, so the port is a <code>colour_shade</code> call
+        rather than a new swatch. A hex that is <em>not</em> a shade of anything on the roster
+        fails, which is the whole point.
+      </p>
+    </div>
+  </body>
+</html>

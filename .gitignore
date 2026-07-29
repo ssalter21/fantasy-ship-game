@@ -28,3 +28,6 @@ __pycache__/
 docs/ui/shots/
 *.log
 *.exe
+
+# Mockup renders — regenerable with `python scripts/mock-divergence.py <screen>`
+docs/ui/mock/*/render/
