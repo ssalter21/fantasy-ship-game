@@ -182,7 +182,8 @@ hull_sheet_arg :: proc(args: []string) -> bool {
 // hull_sheet_main renders every tile into one PNG and returns — no mouse, no keyboard, one
 // process that draws and exits, the same sense in which the rest of capture is headless.
 //
-// Reports whether the sheet landed in CAPTURE_DIR, and never names a file it did not write. The
+// Reports whether the sheet landed in the capture directory, and never names a file it did not
+// write. The
 // sheet an earlier run left is still on disk after a failure, so the report is what says whether
 // the one there is this run's.
 hull_sheet_main :: proc() -> bool {
@@ -228,7 +229,8 @@ hull_sheet_main :: proc() -> bool {
 
 	// rl.ExportImage takes the path it is given, unlike rl.TakeScreenshot — so the sheet is
 	// written where it belongs and there is nothing to move afterwards.
-	path := fmt.tprintf("%s/%s", CAPTURE_DIR, HULL_SHEET_FILE)
+	path := fmt.tprintf("%s/%s", capture_dir(), HULL_SHEET_FILE)
+	capture_keep_previous(path)
 	if !rl.ExportImage(sheet, strings.clone_to_cstring(path, context.temp_allocator)) {
 		fmt.eprintfln("capture: could not write %s", path)
 		return false
