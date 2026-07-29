@@ -136,7 +136,7 @@ draw_chart_table :: proc(hovered: int) {
 	origin := rl.Vector2{(WINDOW_WIDTH - size.x) / 2, CHART_TABLE_TITLE_CENTRE_Y - size.y / 2}
 	rl.DrawTextEx(ui_font_title, title, origin, UI_TITLE_SIZE, CHART_TABLE_TITLE_SPACING, COLOUR_CREAM)
 
-	ui_nine_slice(UI_FRAME_PANEL, chart_table_panel_rect())
+	ui_panel(chart_table_panel_rect(), .Raised)
 	for b, i in buttons {
 		draw_chart_table_button(b, i == hovered)
 	}
@@ -187,20 +187,26 @@ draw_menu_title_scrim :: proc() {
 // Hover is carried by the frame's own hover face — the outline lights — and by the caret in
 // the label's margin. No row is claimed in advance, so either can take them.
 draw_chart_table_button :: proc(button: Chart_Table_Button, hovered: bool) {
-	label := fmt.ctprint(button.label)
-	text_pos := rl.Vector2 {
-		button.rect.x + CHART_TABLE_LABEL_INSET,
-		button.rect.y + (CHART_TABLE_BUTTON_H - UI_BODY_SIZE) / 2,
-	}
+	// The label sits left of centre inside a centred box, so the row is a ui_button drawn
+	// without its own label and the label placed against the margin the caret needs. A centred
+	// label in a centred box gives the eye no edge to run down.
+	ui_button(button.rect, "", hovered ? .Hover : .Rest)
 
-	state := hovered ? Ui_Button_State.Hover : Ui_Button_State.Rest
-	ui_nine_slice(UI_FRAME_BUTTON, button.rect, int(state))
-	rl.DrawTextEx(ui_font_body, label, text_pos, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
+	label := button.rect
+	label.x += CHART_TABLE_LABEL_INSET
+	label.width -= CHART_TABLE_LABEL_INSET
+	ui_text(label, button.label, .Body, .Parchment)
 
 	if hovered {
-		draw_caret(
-			rl.Vector2{button.rect.x + CHART_TABLE_LABEL_INSET / 2, button.rect.y + CHART_TABLE_BUTTON_H / 2},
-			COLOUR_INK_PRIMARY,
+		ui_icon(
+			{
+				x = button.rect.x + (CHART_TABLE_LABEL_INSET - CARET_W) / 2,
+				y = button.rect.y + (button.rect.height - CARET_H) / 2,
+				width = CARET_W,
+				height = CARET_H,
+			},
+			.Caret,
+			.Parchment,
 		)
 	}
 }

@@ -473,6 +473,41 @@ Above U+00FF, assume a shape.
 
 ## Spacing, hierarchy, framing
 
+### The components are code, and the code is the spec
+
+Everything in this section used to be prose a screen author had to read, remember and re-implement.
+Five screens each grew their own "rectangle with text in it" from it, and the cost was not the
+duplication — it was that a look change had to be made five times and therefore never was.
+
+The components now exist, in `presentation/ui_widgets.odin`, and **the rules below that a widget can
+enforce are enforced by the widget**. Reach for these rather than for a rectangle:
+
+| Want | Call | The rule it carries for you |
+| --- | --- | --- |
+| A surface that holds things | `ui_panel(rect, elevation)` | blitted frame, never a stroked rect |
+| A thing in a panel, or on the world | `ui_card(rect, emphasis, elevation)` | opaque over water, cast shadow, dims by tone |
+| A control | `ui_button(rect, label, state)` | no signal colour; hover is the frame's own face |
+| A title or heading | `ui_heading(rect, text, level, ground)` | only the two baked sizes exist |
+| A divider | `ui_divider(rect, weight, ground)` | weight is the signal |
+| The crate, the caret | `ui_icon(rect, icon, ground)` | shapes, never a codepoint |
+| A destructive target | `ui_alarm(rect, lit)` | **the only place coral is drawn as chrome** |
+| A string placed in a box | `ui_text(rect, text, level, ground, emphasis, anchor)` | whole pixels, measured not guessed |
+
+Three axes run through all of them, and a call site names a role rather than a value:
+**Emphasis** (`Primary` → `Secondary` → `Muted` → `Unavailable`, each receding further into its
+ground than the one above), **Elevation** (`Inset`, `Flush`, `Raised`, `Floating`) and a named
+**spacing scale** (`ui_space(.Base)` and friends). **Nothing takes a colour, a font size, or a raw
+spacing** — that is what makes the rules unbreakable through these procs rather than merely written
+down here.
+
+**No screen strokes its own chrome.** That is a rule, not a coincidence:
+`no_screen_strokes_its_own_chrome` in `presentation/ui_contract_test.odin` fails the build on a raw
+`DrawRectangleRec` or `DrawRectangleLinesEx` in any file outside an explicit, reasoned exemption
+list — world painters, tools, and the voyage screens this guide has not re-coloured yet.
+
+What follows is the **rationale**: why the components carry the rules they do. Read it when you are
+changing a rule, not when you are following one.
+
 ### Hierarchy
 
 Words live on parchment, so the primary hierarchy is **dark ink on a warm ground**, ranked by colour:
@@ -497,21 +532,25 @@ The framing signal is **the torn parchment edge**, not a dark vignette. The old 
 to near-black at its edges; that reintroduces exactly the cold, clinical frame this rewrite is removing. Frame
 with paper: a sand-and-cliff torn border — the framing device of a treasure map.
 
-For panels, framing is a **2px border in the tone that states the panel's role** — `#1786BC` for interactive,
-`#B98A50` cliff for inert — over a translucent ground, not a filled box. Let the world read through unselected
-panels; that translucency is what makes chrome sit *on* a world rather than cover it. Starting alpha for a
-scrim: `rl.Fade(ground, 0.55)`, tuned by eye.
+For panels, framing is now **a blitted frame** — `ui_panel` and `ui_card`, over the 9-slice sprites in
+`assets/art/ui-frame-*.png`. A frame is art with its own border runs and corner marks, not a stroked
+outline; see [Craft, not art](#craft-not-art) for why that clause changed and what it still requires.
+On the voyage screens this guide has not re-coloured, framing is still a **2px border in the tone that
+states the panel's role** — `#1786BC` for interactive, `#B98A50` cliff for inert — over a translucent
+ground, not a filled box, starting at `rl.Fade(ground, 0.55)`.
 
-**Over the sea, paper is opaque and casts a shadow.** The rule above assumes a dark ground: a translucent
-panel over `COLOUR_DEEP` still reads as a panel, because there is nothing behind it with any structure. Over
-the ship screen's own water there is — sun glitter, chop, a hull-down island — and a translucent card lets
-that read straight *through* the paper as a stain, which costs the panel its own ground. So a card laid over
-the sea takes solid `#EBD9A6` parchment and a cast shadow (`rl.Fade(COLOUR_SEA_DEEP, 0.45)`, offset a few
-pixels down and right). The shadow, not a glow: the water is bright, so the only way paper sits above it is by
-darkening what is under the paper.
+**Over the sea, paper is opaque and casts a shadow.** The translucent rule assumes a dark ground: a
+translucent panel over `COLOUR_DEEP` still reads as a panel, because there is nothing behind it with any
+structure. Over the ship screen's own water there is — sun glitter, chop, a hull-down island — and a
+translucent card lets that read straight *through* the paper as a stain, which costs the panel its own
+ground. So a card laid over the sea takes solid parchment and a cast shadow. **`ui_card(rect, emphasis,
+.Floating)` is that rule**; the shadow, not a glow, because the water is bright and the only way paper
+sits above it is by darkening what is under the paper.
 
 The same reversal governs **dimming**: state that a card is unavailable with a `colour_shade`d sheet and
-duller ink, never with alpha. Alpha over a dark ground dims; alpha over a bright one just lets the world in.
+duller ink, never with alpha. Alpha over a dark ground dims; alpha over a bright one just lets the world
+in. **`Ui_Emphasis.Unavailable` is that rule** — one axis, so a card cannot dim two of its three rows and
+ship, which is exactly what happened when the three tones were chosen independently.
 
 And a screen whose body **is** the world — the ship screen and the stages that reframe it (ADR-0032) — draws
 **no vignette at all**, per the rule above. Its headings take cream over the sea rather than a tint or a steel

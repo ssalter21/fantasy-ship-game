@@ -449,22 +449,26 @@ ship_card_rect :: proc() -> rl.Rectangle {
 draw_ship_slot_card :: proc(layout_slot: ship.Layout_Slot, room: cutaway.Room, view: cutaway.View) {
 	card := ship_card_rect()
 	anchor := cutaway.galleon_face_centre(cutaway.galleon_room_face(room, view))
-	tie := rl.Vector2{card.x + 12, card.y + 10}
+	tie := rl.Vector2{card.x + ui_space(.Base), card.y + ui_space(.Snug) + ui_space(.Hair)}
 
-	rl.DrawLineEx(anchor, tie, 2, rl.Fade(COLOUR_INK_PRIMARY, 0.7))
+	rl.DrawLineEx(anchor, tie, UI_WEIGHT_PX[.Rule], rl.Fade(COLOUR_INK_PRIMARY, 0.7))
 	rl.DrawCircleV(anchor, 5, rl.Fade(COLOUR_FOAM, 0.9))
 	rl.DrawCircleLinesV(anchor, 5, COLOUR_SEA_DEEP)
 
-	rl.DrawRectangleRec(card, COLOUR_PARCHMENT)
-	rl.DrawRectangleLinesEx(card, 2, COLOUR_SEA_DEEP)
+	// The same object as the shelf card and the card in hand, drawn the same way - one
+	// ui_card, so a look change reaches all three at once rather than two of three.
+	ui_card(card, .Primary, .Floating)
 
 	title, spec, intent, material := ship_slot_description(layout_slot)
-	x := card.x + 14
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", title), rl.Vector2{x, card.y + 12}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
-	rl.DrawRectangleRec(rl.Rectangle{x = x, y = card.y + 34, width = card.width - 28, height = 2}, COLOUR_SAND)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), rl.Vector2{x, card.y + 46}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", spec), rl.Vector2{x, card.y + 74}, UI_BODY_SIZE, 1, COLOUR_INK_MUTED)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", material), rl.Vector2{x, card.y + 102}, UI_BODY_SIZE, 1, COLOUR_INK_MUTED)
+	ui_text(build_card_row(card, 0), title, .Body, .Parchment)
+	ui_divider(
+		{card.x + ui_space(BUILD_CARD_INSET), card.y + ui_space(.Loose) + ui_space(.Snug) + ui_space(.Hair), card.width - 2 * ui_space(BUILD_CARD_INSET), UI_WEIGHT_PX[.Rule]},
+		.Rule,
+		.Parchment,
+	)
+	for text, row in ([?]string{intent, spec, material}) {
+		ui_text(build_card_row(card, row + 2), text, .Body, .Parchment, row == 0 ? .Primary : .Secondary)
+	}
 }
 
 // ship_slot_description is what a berth's card says: its name, the effect it is there for, the
