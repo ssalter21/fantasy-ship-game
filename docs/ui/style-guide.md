@@ -371,12 +371,14 @@ decision.
 
 ### The size scale
 
-**Two sizes. That is the whole scale.**
+**Three sizes. That is the whole scale**, and they are reachable only as levels of `Ui_Level` —
+`ui_heading(rect, text, .Display, ground)`, never a number.
 
-| Size | Role |
-| --- | --- |
-| **32px** | The Chart Table title. Display only. |
-| **16px** | Everything else. |
+| Size | `Ui_Level` | Role |
+| --- | --- | --- |
+| **48px** | `.Display` | The one thing on a screen that says what screen this is. At most one per screen. |
+| **32px** | `.Title` | A title over a block. |
+| **16px** | `.Body` | Everything else. |
 
 This is measured, not minimalist. Pixel Operator is a **native-16px** pixel font: it is pixel-perfect only on
 integer multiples of its 16px em, and mush off that grid.
@@ -393,10 +395,18 @@ integer multiples of its 16px em, and mush off that grid.
 
 **The clean sizes are 16, 32, 48 — nothing between.** The old 40/20 scale (measured for Pixelify Sans) landed
 on two of Pixel Operator's *worst* sizes, so the swap moved the scale to 32/16, the two crisp sizes nearest the
-old pair, preserving the exact 2:1 title:body ratio. Body dropped 20→16, which also eases the width budgets a
-tight face fights (see Press Start 2P below). Hierarchy is still carried by **colour**, not size — but that is
-now the house style, not, as it was under Pixelify, a workaround for a face with no clean size below 20px. 16px
-*is* clean; colour still carries the levels because two sizes is the whole scale and always was.
+old pair. Body dropped 20→16, which also eases the width budgets a tight face fights (see Press Start 2P below).
+
+**Hierarchy is carried by colour *and* by size, and it used to say otherwise.** For a while this guide held
+that colour alone carried rank — "house style, no longer a workaround". That was half true and it was the
+binding half: two sizes is not enough to lead an eye, and the Shop was the proof. Four cards at one size, one
+border weight and one pitch, three text tones, and nothing telling you where to start reading. 48px is exactly
+as crisp as 32 and 16 by the same measurement that produced the pair, so the constraint was never the face —
+it was the claim.
+
+The division of labour now: **size says which block to read first, colour ranks within a block.** A screen
+that wants a new level inside a block still reaches for a tone (`Ui_Emphasis`), not a fourth size — the scale
+is closed, and `48/32/16` is all of it.
 
 ### A size is a font, not a parameter
 
@@ -512,15 +522,17 @@ changing a rule, not when you are following one.
 
 Words live on parchment, so the primary hierarchy is **dark ink on a warm ground**, ranked by colour:
 
-1. **Title / heading** — `#12333F` ink at 32px on parchment (or `#F3E6C4` cream if placed over the sea).
-   Biggest thing on screen.
-2. **Controls** — `#1786BC` border and label over a translucent ground. Present, clearly clickable. All of
+1. **The screen's name** — `.Display` (48px), cream over the sea or ink on parchment. At most one per screen,
+   and it is what the eye should land on first.
+2. **Title / heading** — `.Title` (32px) ink on parchment, or cream over the sea.
+3. **Controls** — `ui_button`; on the unre-coloured screens, a `#1786BC` border and label over a translucent ground. Present, clearly clickable. All of
    them look alike: [no colour marks the default action](#controls-do-not-have-a-signal-colour).
-3. **Body and hints** — muted ink `#4C7385`, 16px.
-4. **The version stamp** — faded ink `#9C8A63`. Findable, never read first.
+4. **Body and hints** — muted ink `#4C7385`, 16px.
+5. **The version stamp** — faded ink `#9C8A63`. Findable, never read first.
 
-There is no bold, no second font, and only two sizes. **Colour carries the hierarchy.** If a screen needs a new
-level, reach for a tone from the roster, not a new size.
+There is no bold and no second font. **Size says which block to read first; colour ranks within a block.** A
+screen that needs a new level *inside* a block reaches for a tone from the roster — the size scale is closed at
+three (see [The size scale](#the-size-scale)).
 
 **The version stamp is shared chrome, and it forks.** A styled screen draws its own stamp; the unstyled voyage
 screens still draw the stock-`GRAY`, 12px one. The two converge when the restyle lands. Expect the same fork for

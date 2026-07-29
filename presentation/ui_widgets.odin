@@ -99,14 +99,19 @@ UI_SPACE := [Ui_Space]f32 {
 
 // Ui_Level is the type scale, whole, and it is reachable only through here. A screen that can
 // name a size can invent one, and an invented size is an atlas nobody baked (ui.odin).
+//
+// Ordered largest first, so a level is a rank: Display leads a screen, Title leads a block,
+// Body is everything else.
 Ui_Level :: enum {
+	Display,
 	Title,
 	Body,
 }
 
 UI_LEVEL_SIZE := [Ui_Level]f32 {
-	.Title = UI_TITLE_SIZE,
-	.Body  = UI_BODY_SIZE,
+	.Display = UI_DISPLAY_SIZE,
+	.Title   = UI_TITLE_SIZE,
+	.Body    = UI_BODY_SIZE,
 }
 
 // Ui_Anchor is where a string sits in the rect it is given. Named by three of the four
@@ -390,6 +395,34 @@ ui_text :: proc(
 	)
 }
 
+// ui_text_tinted places a string at an explicit tone, and it is the one procedure here that
+// takes a colour. It exists for the voyage screens the guide has not re-coloured
+// (ui_contract_test.odin's exemption list), whose stage headers carry a category hue no
+// Ui_Emphasis names — and it takes a **level**, not a size, so the one rule that is absolute
+// stays absolute: no screen can name a size, and there is no atlas nobody baked.
+//
+// A re-coloured screen has no business calling this. Reach for ui_text.
+ui_text_tinted :: proc(
+	rect: rl.Rectangle,
+	text: string,
+	level: Ui_Level,
+	tone: rl.Color,
+	anchor := Ui_Anchor.Left,
+) {
+	font := ui_font_for(level)
+	if !ui_drawable() || font.texture.id == 0 {
+		return
+	}
+	rl.DrawTextEx(
+		font,
+		fmt.ctprintf("%s", text),
+		ui_text_origin(rect, ui_text_size(text, level), anchor),
+		UI_LEVEL_SIZE[level],
+		1,
+		tone,
+	)
+}
+
 // ui_text_origin is where a measured string starts, given its box and its anchor. Pure, so
 // the placement is testable without a window — which is the half of text drawing that goes
 // wrong.
@@ -411,6 +444,8 @@ ui_text_origin :: proc(rect: rl.Rectangle, size: rl.Vector2, anchor: Ui_Anchor) 
 
 ui_font_for :: proc(level: Ui_Level) -> rl.Font {
 	switch level {
+	case .Display:
+		return ui_font_display
 	case .Title:
 		return ui_font_title
 	case .Body:

@@ -29,14 +29,30 @@ ENCOUNTER_STAT_MARGIN :: 24
 // sea: every stage_tint is a muted hue picked to sit on COLOUR_DEEP, and the Shop's muted sky
 // over an actual sky is a word you cannot read. The category read survives in the word and on the
 // map marker the captain sailed in on.
+// The stage's name is the one word that says what screen this is, and it is the first thing
+// that should be read on it. At body size it was the same size as every card's spec line and
+// led nothing; at Display it is the only thing on the screen at that size, so the eye starts
+// there and then falls to the column. That is the hierarchy the scale opening above 32 buys,
+// and this is the screen it is demonstrated on.
 draw_encounter_header :: proc(kind: voyage.Stage_Kind, over_water: bool) {
-	rl.DrawTextEx(
-		ui_font_body,
-		fmt.ctprintf("%s", stage_kind_label(kind)),
-		ENCOUNTER_HEADING,
-		UI_BODY_SIZE,
-		1,
-		over_water ? COLOUR_CREAM_BRIGHT : stage_tint(kind),
+	if over_water {
+		ui_heading(
+			{ENCOUNTER_HEADING.x, ENCOUNTER_HEADING.y, WINDOW_WIDTH, UI_DISPLAY_SIZE},
+			stage_kind_label(kind),
+			.Display,
+			.Water,
+		)
+		return
+	}
+	// The unre-coloured stages keep their category tint, which is a hue no Ui_Emphasis names —
+	// they are on the navy ramp the guide has not re-coloured (ui_contract_test.odin's
+	// exemption list), so the header follows them rather than leading the re-colour. Still a
+	// level rather than a size: the tone is deferred, the scale is not.
+	ui_text_tinted(
+		{ENCOUNTER_HEADING.x, ENCOUNTER_HEADING.y, WINDOW_WIDTH, UI_DISPLAY_SIZE},
+		stage_kind_label(kind),
+		.Display,
+		stage_tint(kind),
 	)
 }
 

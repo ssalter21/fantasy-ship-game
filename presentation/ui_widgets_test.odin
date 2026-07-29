@@ -206,12 +206,27 @@ an_inset_takes_the_space_off_every_side :: proc(t: ^testing.T) {
 // nobody baked (ui.odin bakes exactly these sizes).
 @(test)
 every_level_is_a_size_that_was_actually_baked :: proc(t: ^testing.T) {
-	baked := [?]f32{UI_TITLE_SIZE, UI_BODY_SIZE}
+	baked := [?]f32{UI_DISPLAY_SIZE, UI_TITLE_SIZE, UI_BODY_SIZE}
+	previous := max(f32)
 	for level in Ui_Level {
 		testing.expectf(
 			t,
 			slice.contains(baked[:], UI_LEVEL_SIZE[level]),
 			"%v is %.0fpx, which no atlas was baked at",
+			level,
+			UI_LEVEL_SIZE[level],
+		)
+		// The levels are a rank, so each is smaller than the one above it - a level that did
+		// not step down would be a name for a size that leads nothing.
+		testing.expectf(t, UI_LEVEL_SIZE[level] < previous, "%v does not step down from the level above it", level)
+		previous = UI_LEVEL_SIZE[level]
+
+		// Pixel Operator is a native-16px face and is 0% antialiased only on integer multiples
+		// of its em. A level off that grid is mush, whatever it is called.
+		testing.expectf(
+			t,
+			int(UI_LEVEL_SIZE[level]) % 16 == 0,
+			"%v is %.0fpx, which is off Pixel Operator's 16px em and will render soft",
 			level,
 			UI_LEVEL_SIZE[level],
 		)
