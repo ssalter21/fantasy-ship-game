@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>At Anchor — the berth register</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* ==================================================================== the world
+
+         Sky and sea, blocked in exactly as shop.html blocks them. No vignette: a screen
+         whose body IS the world draws none (style guide, Framing; ADR-0032), and the
+         shipped 02-home.png has none either. */
+      .sky {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 300px;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .water {
+        left: 0;
+        top: 300px;
+        width: 1244px;
+        height: 400px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      /* Chop: flat bars on the lattice, never a flat wall of sea edge to edge. */
+      .chop {
+        height: 4px;
+        background: var(--sea-shallow);
+        opacity: 0.4;
+      }
+
+      /* The galleon, blocked in — she already exists and already looks right, and
+         redrawing her in CSS would be a worse copy of a solved thing. She is small here
+         on purpose: on this screen she is the SUBJECT of the register, not its index. */
+      .hull {
+        left: 40px;
+        top: 292px;
+        width: 224px;
+        height: 72px;
+        background: var(--rock);
+        border-top: 12px solid var(--cliff);
+      }
+
+      .mast {
+        width: 8px;
+        background: var(--trunk);
+      }
+
+      .sail {
+        width: 48px;
+        background: var(--cream-bright);
+      }
+
+      /* ============================================================ the register panel
+
+         One ui_panel at 300,76 920x604. Everything below is placed against its content
+         box, 314..1206 — the columns are the whole design, so they are declared once. */
+      .register {
+        left: 300px;
+        top: 76px;
+        width: 920px;
+        height: 604px;
+      }
+
+      /* A band spans the panel's content width. Rows, header, group labels, totals and
+         the two destructive acts are all this same rect at different heights, which is
+         what makes them read as one sequence rather than five kinds of furniture. */
+      .band {
+        position: absolute;
+        left: 314px;
+        width: 892px;
+      }
+
+      .band > span,
+      .band > .caret,
+      .band > .socket,
+      .band > .held {
+        position: absolute;
+      }
+
+      /* The columns, as offsets inside a band. This is the reading order, written down:
+         berth, what it is, what is in it, what that does, what it is, what it weighs,
+         what it carries. Every row is measured off exactly these, so the eye runs down a
+         column as easily as it runs along a row. */
+      .k-berth {
+        left: 22px;
+        width: 118px;
+      }
+
+      .k-spec {
+        left: 140px;
+        width: 152px;
+      }
+
+      .k-fit {
+        left: 292px;
+        width: 176px;
+      }
+
+      .k-eff {
+        left: 468px;
+        width: 120px;
+      }
+
+      .k-tags {
+        left: 588px;
+        width: 184px;
+      }
+
+      .k-wt {
+        left: 772px;
+        width: 54px;
+        text-align: right;
+      }
+
+      /* Stops 4px short of the band, so a right-anchored number never runs into a frame's
+       * own border run. */
+      .k-cg {
+        left: 826px;
+        width: 62px;
+        text-align: right;
+      }
+
+      /* A berth row: 38px tall, 16px of text sat 11px down it. Eight of these, in a fixed
+         order, and nothing about where a berth sits on the hull decides where it sits
+         here. */
+      .row {
+        height: 38px;
+      }
+
+      .row > span {
+        top: 11px;
+      }
+
+      /* The zebra is the register's own rhythm — parchment, then parchment shaded 0.95,
+         which is colour_shade's job in Odin. It is NOT a state: every row keeps primary
+         ink whatever the surface is doing, because the one thing this design may not do
+         is make a berth harder to read. */
+      .stripe {
+        background: #dfce9d; /* parchment shaded 0.949 */
+      }
+
+      /* A legal berth for the fitting in hand: the ground LIFTS (same tone, brighter),
+         which is the guide's hover rule carried onto parchment. Emphasis added to
+         something already legible — never legibility taken away from the rest. */
+      .lit {
+        background: #fbe8b2; /* parchment shaded 1.068 */
+      }
+
+      /* The berth the fitting was lifted out of. Sand, so it reads as a different KIND of
+         mark rather than a brighter or duller one. */
+      .source {
+        background: var(--sand);
+      }
+
+      /* The marks in the left margin — the only column that carries drag state, so the
+         seven data columns never have to give any of theirs up. Both are shapes, not
+         codepoints (style guide, "Glyphs are shapes, not text"). */
+      .caret {
+        left: 6px;
+        top: 13px;
+        width: 0;
+        height: 0;
+        border-top: 6px solid transparent;
+        border-bottom: 6px solid transparent;
+        border-left: 10px solid var(--ink);
+      }
+
+      .socket {
+        left: 5px;
+        top: 13px;
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--ink-muted);
+      }
+
+      .held {
+        left: 5px;
+        top: 11px;
+        width: 12px;
+        height: 12px;
+        background: var(--ink);
+      }
+
+      /* The fitting in hand is a ROW of the same table, raised off it — same columns,
+         same order, one elevation higher. That is the whole rearrangement gesture: a row
+         is lifted out of the list and is looking for another row to land in.
+
+         Two pixels wider than a band on each side, so the frame's own 2px border run sits
+         OUTSIDE the columns and the card's cells fall in the same eight files as every
+         berth row's. A card that is a row has to line up with the rows, or it is a card. */
+      .hand {
+        left: 312px;
+        top: 90px;
+        width: 896px;
+        height: 52px;
+      }
+
+      .hand .line1 {
+        top: 10px;
+      }
+
+      .hand .line2 {
+        top: 30px;
+      }
+
+      .hdr {
+        top: 152px;
+        height: 20px;
+      }
+
+      .hdr > span {
+        top: 2px;
+      }
+
+      .grp {
+        height: 18px;
+      }
+
+      .grp > span {
+        top: 1px;
+      }
+
+      .rule {
+        position: absolute;
+        left: 314px;
+        width: 892px;
+        background: var(--sand);
+      }
+
+      /* The ship's own row, at the foot of her berths' rows: four terms in four measured
+         cells with a hairline between, which is draw_build_ledger's layout kept verbatim
+         so the numbers read where they always have. */
+      .totals {
+        top: 540px;
+        height: 30px;
+        background: #dfce9d; /* parchment shaded 0.949 */
+      }
+
+      .totals > span {
+        top: 7px;
+      }
+
+      .t1 {
+        left: 16px;
+        width: 207px;
+      }
+
+      .t2 {
+        left: 239px;
+        width: 207px;
+      }
+
+      .t3 {
+        left: 462px;
+        width: 207px;
+      }
+
+      .t4 {
+        left: 685px;
+        width: 191px;
+      }
+
+      .tick {
+        position: absolute;
+        top: 546px;
+        width: 1px;
+        height: 18px;
+        background: var(--sand);
+      }
+
+      /* The two destructive acts. Both are ui_alarm: the reserved coral washed over a
+         surface already laid down, with a border in the same tone. Both are up at once
+         only because a laden fitting is in hand — which is exactly the case BUILD_DANGER
+         already reasons about in build_surface.odin. */
+      .alarm {
+        position: absolute;
+        background: var(--parchment);
+        border: 2px solid var(--coral);
+      }
+
+      .wash {
+        position: absolute;
+        inset: 0;
+        background: var(--coral);
+        opacity: 0.2;
+      }
+
+      .alarm > span {
+        position: absolute;
+      }
+
+      /* Over the Side takes the whole width of the register, because it takes the whole
+         fitting. */
+      .act-overboard {
+        left: 314px;
+        top: 582px;
+        width: 892px;
+        height: 42px;
+      }
+
+      .act-overboard .line1 {
+        left: 14px;
+        top: 5px;
+      }
+
+      .act-overboard .line2 {
+        left: 14px;
+        top: 21px;
+      }
+
+      /* Burn takes the two number columns and nothing else, because that is all it
+         destroys. The extent of the target is the extent of the damage — which is how
+         these two stay told apart without a second colour. */
+      .act-burn {
+        left: 1088px;
+        top: 630px;
+        width: 118px;
+        height: 34px;
+      }
+
+      .act-burn .label {
+        left: 0;
+        top: 9px;
+        width: 118px;
+        text-align: center;
+      }
+
+      .burn-gloss {
+        left: 336px;
+        top: 639px;
+        width: 740px;
+      }
+
+      /* =================================================================== the left band
+
+         Heading, the ship herself, and the way out. */
+      .heading {
+        left: 45px;
+        top: 28px;
+      }
+
+      .ship-note {
+        left: 40px;
+        width: 250px;
+      }
+
+      .chart {
+        left: 36px;
+        top: 592px;
+        width: 244px;
+        height: 44px;
+      }
+
+      .caret-up {
+        position: absolute;
+        left: 56px;
+        top: 17px;
+        width: 0;
+        height: 0;
+        border-left: 7px solid transparent;
+        border-right: 7px solid transparent;
+        border-bottom: 10px solid var(--ink);
+      }
+
+      .chart .label {
+        position: absolute;
+        left: 78px;
+        top: 14px;
+      }
+
+      .chart-note {
+        left: 36px;
+        top: 648px;
+        width: 250px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at sky"></div>
+      <div class="at water"></div>
+
+      <div class="at chop" style="left: 48px; top: 460px; width: 180px"></div>
+      <div class="at chop" style="left: 30px; top: 496px; width: 210px"></div>
+      <div class="at chop" style="left: 70px; top: 530px; width: 150px"></div>
+      <div class="at chop" style="left: 36px; top: 564px; width: 190px"></div>
+      <div class="at chop" style="left: 330px; top: 688px; width: 260px"></div>
+      <div class="at chop" style="left: 720px; top: 690px; width: 196px"></div>
+
+      <div class="at hull"></div>
+      <div class="at mast" style="left: 100px; top: 156px; height: 136px"></div>
+      <div class="at mast" style="left: 172px; top: 176px; height: 116px"></div>
+      <div class="at sail" style="left: 80px; top: 172px; height: 34px"></div>
+      <div class="at sail" style="left: 80px; top: 214px; height: 34px"></div>
+      <div class="at sail" style="left: 152px; top: 192px; height: 30px"></div>
+      <div class="at sail" style="left: 152px; top: 230px; height: 30px"></div>
+
+      <div class="at heading title over-water">At Anchor</div>
+      <div class="at ship-note body over-water" style="top: 384px">her eight berths,</div>
+      <div class="at ship-note body over-water" style="top: 404px">read at right, in order</div>
+
+      <!-- ================================================================ the register -->
+      <div class="at register frame-panel"></div>
+
+      <!-- The fitting in hand: a row of the same table, lifted off it. Same columns, one
+           elevation higher, and a cast shadow because a card in hand is one that has been
+           lifted OFF the surface (ADR-0032) rather than faded on it. -->
+      <div class="band hand frame-card cast-shadow">
+        <i class="held"></i>
+        <span class="line1 k-berth body">in hand</span>
+        <span class="line1 k-spec body">needs Medium</span>
+        <span class="line1 k-fit body">Cargo</span>
+        <span class="line1 k-eff body">+40 Cargo</span>
+        <span class="line1 k-tags body">Medium &middot; Hold &middot; Cargo</span>
+        <span class="line1 k-wt body">16</span>
+        <span class="line1 k-cg body">24/40</span>
+        <span class="line2 k-berth body muted" style="width: 856px"
+          >lifted from hold 1 &mdash; set it down on the berth marked with the caret, or on one of
+          the two acts at the foot</span
+        >
+      </div>
+
+      <!-- The column headings. This is the index the ship's geometry used to be. -->
+      <div class="band hdr">
+        <span class="k-berth body muted">berth</span>
+        <span class="k-spec body muted">size &middot; cover</span>
+        <span class="k-fit body muted">fitting</span>
+        <span class="k-eff body muted">effect</span>
+        <span class="k-tags body muted">tags</span>
+        <span class="k-wt body muted">weight</span>
+        <span class="k-cg body muted">cargo</span>
+      </div>
+      <div class="rule" style="top: 176px; height: 2px"></div>
+
+      <!-- Four Exposed berths, then four Concealed. The split is a break in the reading
+           order rather than a place on the hull, and each row repeats its own cover so a
+           row is legible without its group heading. -->
+      <div class="band grp" style="top: 182px">
+        <span class="k-berth body muted">Exposed</span>
+        <span class="k-spec body muted" style="width: 600px">her weather decks &mdash; four berths</span>
+      </div>
+
+      <div class="band row" style="top: 202px">
+        <span class="k-berth body">top deck</span>
+        <span class="k-spec body">Medium &middot; Exposed</span>
+        <span class="k-fit body">Captain's Quarters</span>
+        <span class="k-eff body">+2 Repair</span>
+        <span class="k-tags body">Medium &middot; Brace &middot; Crew</span>
+        <span class="k-wt body">18</span>
+        <span class="k-cg body">0/0</span>
+      </div>
+
+      <!-- The one berth the fitting in hand may land in: the ground lifts and the caret
+           appears. Nothing it already said has been taken away to make room. -->
+      <div class="band row lit" style="top: 240px">
+        <i class="caret"></i>
+        <span class="k-berth body">top crew</span>
+        <span class="k-spec body">Medium &middot; Exposed</span>
+        <span class="k-fit body">put it down here</span>
+        <span class="k-eff body muted">&mdash;</span>
+        <span class="k-tags body muted">empty berth</span>
+        <span class="k-wt body muted">&mdash;</span>
+        <span class="k-cg body muted">&mdash;</span>
+      </div>
+
+      <div class="band row" style="top: 278px">
+        <span class="k-berth body">gun deck</span>
+        <span class="k-spec body">Large &middot; Exposed</span>
+        <span class="k-fit body">Long Nines</span>
+        <span class="k-eff body">+8 Offense</span>
+        <span class="k-tags body">Large &middot; Fire &middot; Weapon</span>
+        <span class="k-wt body">34</span>
+        <span class="k-cg body">0/0</span>
+      </div>
+
+      <div class="band row stripe" style="top: 316px">
+        <span class="k-berth body">forecastle</span>
+        <span class="k-spec body">Large &middot; Exposed</span>
+        <span class="k-fit body">Bow Chasers</span>
+        <span class="k-eff body">+4 Offense</span>
+        <span class="k-tags body">Large &middot; Fire &middot; Weapon</span>
+        <span class="k-wt body">28</span>
+        <span class="k-cg body">0/0</span>
+      </div>
+
+      <div class="band grp" style="top: 358px">
+        <span class="k-berth body muted">Concealed</span>
+        <span class="k-spec body muted" style="width: 600px">her belly &mdash; four holds</span>
+      </div>
+
+      <!-- The berth the fitting came out of: sand, and a socket where the caret goes.
+           Its numbers stay on the books, because the fitting is still aboard until it is
+           put down somewhere. -->
+      <div class="band row source" style="top: 378px">
+        <i class="socket"></i>
+        <span class="k-berth body">hold 1</span>
+        <span class="k-spec body">Medium &middot; Concealed</span>
+        <span class="k-fit body">Cargo</span>
+        <span class="k-eff body">+40 Cargo</span>
+        <span class="k-tags body">Medium &middot; Hold &middot; Cargo</span>
+        <span class="k-wt body">16</span>
+        <span class="k-cg body">24/40</span>
+      </div>
+
+      <div class="band row stripe" style="top: 416px">
+        <span class="k-berth body">hold 2</span>
+        <span class="k-spec body">Small &middot; Concealed</span>
+        <span class="k-fit body">Cargo</span>
+        <span class="k-eff body">+25 Cargo</span>
+        <span class="k-tags body">Small &middot; Hold &middot; Cargo</span>
+        <span class="k-wt body">12</span>
+        <span class="k-cg body">20/25</span>
+      </div>
+
+      <div class="band row" style="top: 454px">
+        <span class="k-berth body">hold 3</span>
+        <span class="k-spec body">Small &middot; Concealed</span>
+        <span class="k-fit body">Cargo</span>
+        <span class="k-eff body">+25 Cargo</span>
+        <span class="k-tags body">Small &middot; Hold &middot; Cargo</span>
+        <span class="k-wt body">14</span>
+        <span class="k-cg body">6/25</span>
+      </div>
+
+      <div class="band row stripe" style="top: 492px">
+        <span class="k-berth body">hold 4</span>
+        <span class="k-spec body">Small &middot; Concealed</span>
+        <span class="k-fit body muted">&mdash; empty &mdash;</span>
+        <span class="k-eff body muted">&mdash;</span>
+        <span class="k-tags body muted">empty berth</span>
+        <span class="k-wt body muted">&mdash;</span>
+        <span class="k-cg body muted">&mdash;</span>
+      </div>
+
+      <div class="rule" style="top: 534px; height: 2px"></div>
+
+      <!-- The ship's own row, at the foot of her berths': four terms in four measured
+           cells, draw_build_ledger's layout kept verbatim. The weight column above sums
+           to 122 and the cargo column to 50/90, which is what makes this the table's foot
+           rather than a strip that happens to sit under it. -->
+      <div class="band totals">
+        <span class="t1 body"><span class="muted">Hull</span> 100/100</span>
+        <span class="t2 body"><span class="muted">SPD</span> 4</span>
+        <span class="t3 body"><span class="muted">Cargo</span> 50/90</span>
+        <span class="t4 body"><span class="muted">Weight</span> 122</span>
+      </div>
+      <div class="tick" style="left: 543px"></div>
+      <div class="tick" style="left: 766px"></div>
+      <div class="tick" style="left: 989px"></div>
+
+      <div class="rule" style="top: 576px; height: 2px"></div>
+
+      <!-- The two destructive acts, armed because a laden fitting is in hand. They are
+           told apart by EXTENT, not by a second colour: overboard takes the whole row
+           because it takes the whole fitting; burn takes the two number columns because
+           the crates are all it destroys. -->
+      <div class="act-overboard alarm">
+        <div class="wash"></div>
+        <span class="line1 body">Over the Side</span>
+        <span class="line2 body muted"
+          >the fitting leaves the ship, load and all &mdash; there is no getting it back</span
+        >
+      </div>
+
+      <span class="at burn-gloss body muted"
+        >burn what hold 1 carries &mdash; the 24 crates go, the hold stays aboard</span
+      >
+      <div class="act-burn alarm">
+        <div class="wash"></div>
+        <span class="label body">burn 24</span>
+      </div>
+
+      <!-- ================================================================= the way out -->
+      <div class="at chart frame-button">
+        <i class="caret-up"></i>
+        <span class="label body">Raise the Chart</span>
+      </div>
+      <div class="at chart-note body over-water">then click a node to sail</div>
+    </div>
+
+    <div class="note">
+      <h1>At Anchor — the berth register</h1>
+      <dl class="port-cost">
+        <dt>level</dt><dd class="level">house</dd>
+        <dt>forced</dt><dd>Order: the content is ordered by an explicit reading order rather than by where a thing happens to sit in the world.</dd>
+      </dl>
+      <p>
+        <strong
+          >The constraint: the content is ordered by an explicit reading order, not by where a
+          thing sits on the hull.</strong
+        >
+        So the screen's index is a <strong>register</strong> — eight rows in a fixed sequence
+        (four Exposed, then four Concealed), each row cut into seven columns:
+        <code>berth &middot; size&nbsp;&middot;&nbsp;cover &middot; fitting &middot; effect
+        &middot; tags &middot; weight &middot; cargo</code>. The galleon is still on screen,
+        blocked in at the left, but she is the <em>subject</em> of the register rather than its
+        index. Nothing on this screen requires you to point at anything.
+      </p>
+
+      <h1>What the constraint forced</h1>
+      <p>
+        <strong>The hover card had to be dissolved into columns.</strong> Today
+        <code>draw_ship_slot_card</code> writes one berth up on parchment and ties it back to a
+        room with a leader line, and its last line is a run-on:
+        <code>wt 18 &middot; 0/0 &middot; top deck &middot; Exposed</code>. A register cannot keep
+        that string — a run-on detail line is exactly the thing a table exists to take apart. So
+        the four facts became four cells, and every one of them is now <em>comparable down a
+        column</em>: you can see at a glance that the gun deck's Long Nines is the heaviest thing
+        aboard and that hold 3 is the one running two-thirds empty. That comparison did not exist
+        on the shipped screen at any cost, because only one berth's card can be up at a time.
+      </p>
+      <p>
+        <strong>The size rule stopped needing to be explained.</strong> While something is in
+        hand, the shipped surface lights the berths it may land in and dims the rest. A dim over
+        six of eight rows is exactly what this constraint forbids, so drag state was moved out of
+        the seven data columns entirely and into a <strong>22px mark column</strong> that exists
+        for nothing else: a caret on the berth that can take it, a socket on the berth it came
+        out of, and nothing anywhere else. The <em>reason</em> the other six are unavailable needs
+        no treatment at all — it is already printed in the
+        <code>size&nbsp;&middot;&nbsp;cover</code> column, one cell away. A hull cannot say
+        &ldquo;Large&rdquo;; a table already did.
+      </p>
+      <p>
+        <strong>Hover became the only thing it is allowed to be.</strong> The cursor is on
+        <code>top&nbsp;crew</code>. Its ground lifts one shade
+        (<code>#fbe8b2</code>, parchment&nbsp;&times;&nbsp;1.068) and it takes the caret — and
+        <em>that is all</em>, because the row already said everything it has to say before the
+        mouse arrived. The guide's hover rule (&ldquo;the caret moves, the ground lifts&rdquo;)
+        turns out to port onto parchment unchanged, which was not obvious going in.
+      </p>
+      <p>
+        <strong>The card in hand became a row.</strong> Drag-and-drop over a hull needs a ghost
+        that follows the cursor, because the target is a place. Over a list the target is a
+        <em>row</em>, and a ghost sliding over rows obscures the rows it is asking you to choose
+        between. So the fitting in hand is drawn as a row of the same table, in the same columns,
+        raised off the surface with a cast shadow (ADR-0032 — a card in hand is one that has been
+        lifted <em>off</em>, never one faded on the spot), parked at the head of the register where
+        the reading order starts. That makes rearranging a <strong>two-step lift-and-place</strong>
+        rather than a press-drag-release. It is a real change to the gesture and it should be
+        argued on its merits: a drag across a vertical list is a click with a wrist movement
+        attached.
+      </p>
+      <p>
+        <strong>The two destructive acts are told apart by extent, not by a second colour.</strong>
+        Both are <code>ui_alarm</code> — the roster has exactly one danger tone and it is not
+        negotiable, and <code>BUILD_DANGER</code> already reasons about the two being up together
+        while a laden fitting is in the air. What the register adds is that a target can be
+        <em>the width of what it destroys</em>: <strong>Over the Side</strong> spans the whole row
+        because it takes the whole fitting, and <strong>burn 24</strong> spans only the
+        <code>weight</code> and <code>cargo</code> columns because the crates are all it takes. The
+        cost is honest and worth stating: the burn target is a 118&times;34 click box where the
+        shipped ledger gives it 1164&times;34. Both still open
+        <code>build_confirm_yes_rect</code>'s gate before anything is destroyed — that frame is not
+        drawn here.
+      </p>
+      <p>
+        <strong>The stats became the table's foot.</strong> Hull, SPD, Cargo and Weight are
+        <code>draw_build_ledger</code>'s four measured cells kept verbatim, but they now sit
+        <em>under the columns they total</em>: the weight column adds to 122 and the cargo column
+        to 50/90. A strip along the bottom of the window was a readout beside the ship; the same
+        four terms at the foot of a register are the last line of a sum you can check.
+      </p>
+      <p>
+        <strong>What it cost.</strong> The world is nearly gone. ADR-0032 says this screen's body
+        <em>is</em> the world, and a 920&times;604 sheet of parchment leaves it a 268px margin —
+        the galleon is a thumbnail, the sun and the islands do not fit, and the pleasure of the
+        shipped 02-home.png is mostly not here. That is the trade the constraint demands and it
+        should not be softened: a screen that can be read at rest is not the same screen as one
+        that can be looked at. (No vignette, per the same ADR.)
+      </p>
+
+      <h1>What I would need from <code>presentation/ui.odin</code> that does not exist yet</h1>
+      <ul>
+        <li>
+          <strong>A column model</strong> —
+          <code>ui_columns(rect, widths: []f32) -&gt; []rl.Rectangle</code>, and a
+          <code>Ui_Table</code> that holds one so a header, eight rows, a totals row and two
+          act targets all measure off the <em>same</em> array. This is the component the whole
+          design stands on. Everything on this screen is <code>x0 + i*pitch</code> today, and
+          there is no vocabulary at all for &ldquo;the fourth cell of this band&rdquo;. Written by
+          hand it is eight literals per row, wrong the first time a column moves.
+        </li>
+        <li>
+          <strong>A row band with a ground axis</strong> —
+          <code>ui_row(rect, Ui_Row_Ground)</code> over
+          <code>enum { Plain, Stripe, Lifted, Source }</code>, resolving to one
+          <code>colour_shade</code> factor or one roster swatch. The zebra, the hover lift and the
+          source mark are three coordinated fills today and a screen could ship having got two of
+          three; one axis is what stops that, the same way <code>Ui_Emphasis.Unavailable</code>
+          does for dimming.
+        </li>
+        <li>
+          <strong>A ground <em>above</em> parchment.</strong>
+          <code>Ui_Emphasis</code> only goes down (<code>Primary</code> &rarr;
+          <code>Unavailable</code>), and <code>UI_SURFACE_TINT</code> tops out at 1.0. Hover on a
+          parchment row needs a shade <em>brighter</em> than the panel it sits on
+          (<code>colour_shade(COLOUR_PARCHMENT, 1.068)</code>), which nothing in the widget layer
+          can currently ask for. Either the tint table gains a value above 1 or there is a
+          <code>Ui_Elevation.Lifted</code> that means it.
+        </li>
+        <li>
+          <strong>Right-anchored numeric cells.</strong>
+          <code>ui_text</code> now takes <code>Ui_Anchor</code>, which is most of it — but a
+          numeric column wants <em>digit</em> alignment (<code>6/25</code> under
+          <code>24/40</code>), and Pixel Operator is proportional. Either a
+          <code>ui_text_numeric</code> that pads to the widest value in the column, or the honest
+          answer that a register wants the mono cut of the face and that is a second atlas.
+        </li>
+        <li>
+          <strong>A held-fitting state that is not a cursor ghost.</strong>
+          <code>Build_Drag</code> is press-drag-release: <code>build_drop_command</code> is only
+          ever called from <code>IsMouseButtonReleased</code>, and <code>draw_build_ghost</code>
+          centres a card on the mouse. Lift-and-place needs <code>Build_Held</code> — a fitting and
+          its origin slot that survive between two separate clicks — plus a
+          <code>build_place_command</code> that takes a target row instead of a release point. The
+          mapping from source + target to <code>Command_Refit</code> is unchanged; only what ends
+          the gesture is different, which is why this is a small change wearing a large hat.
+        </li>
+        <li>
+          <strong><code>ui_alarm</code> on a sub-rect of the thing it is arming.</strong> Today it
+          washes and borders a whole rect, so a target is always the whole surface. &ldquo;This
+          act destroys <em>these two columns</em>&rdquo; needs the alarm to take a rect derived
+          from the column model above &mdash; which is fine, but it means the hit-test and the
+          wash must come from one derivation or the coral will end up sitting somewhere the click
+          does not.
+        </li>
+        <li>
+          <strong>The bands have to be returned, not drawn.</strong> The loop hit-tests eight
+          berth rows, two act rects and a chart tab that it also draws. With a table this regular
+          the two cannot be written twice: whatever computes the register returns the rects, and
+          both the draw and the poll consume them (the guide's &ldquo;split composition from
+          polling&rdquo;, applied to layout). <code>build_slot_at</code> currently asks
+          <code>cutaway.galleon_room_at</code> — a register needs the equivalent, and it is a
+          division rather than a hit-test against geometry.
+        </li>
+      </ul>
+      <p>
+        <strong>What I did not need:</strong> a third type size. The whole screen is 32/16 with
+        colour, ground and column position carrying every rank on it.
+      </p>
+    </div>
+  </body>
+</html>

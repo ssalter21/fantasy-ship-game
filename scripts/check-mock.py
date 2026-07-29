@@ -20,6 +20,26 @@ What is checked, and why each one is a real trap:
   fractions   Whole-pixel positions. A half-pixel edge is resampled by the browser and simply
               cannot be asked for in a draw call.
 
+## The three levels
+
+Not every mockup is trying to ship. `direct-a-screen` briefs some directions deliberately off
+the house style, and some off the renderer entirely, because "what would this look like if we
+threw the palette out" is a question worth a picture. A mockup therefore declares what it is
+playing by, in its own note block, and this checker applies the rules that level asked for:
+
+  house      everything above. Ports as drawn.
+  off-style  the renderer rules only. Any palette, any type size, coral unreserved. Still
+             ports — a colour is a colour to a draw call — so its off-roster colours are
+             *reported* as what the port would have to add to the roster, not failed.
+  free       neither. Every finding is reported rather than failed, because a free mockup is
+             concept art and the findings ARE its port cost. It does not go to
+             `/port-a-mockup`; it goes back through another round at a portable level.
+
+Three things hold at EVERY level and fail at every level: the 1244x700 stage, the harness
+link, and the note block itself. The stage is the window rather than a style — a mockup
+measured at another size cannot be set beside the others and judged — and a mockup with no
+note block is an option whose cost nobody can read.
+
 Exit 1 on any finding, so this is usable as a gate.
 """
 
@@ -31,8 +51,8 @@ REPO = Path(__file__).resolve().parent.parent
 MOCK = REPO / "docs" / "ui" / "mock"
 HARNESS = MOCK / "harness.css"
 
-# A screen's options are assembled into an index page (scripts/mock-divergence.py), which is
-# a contact sheet of iframes rather than a mockup and has no stage of its own.
+# A screen's options are assembled into an index page (scripts/mock-contact-sheet.py), which
+# is a contact sheet of iframes rather than a mockup and has no stage of its own.
 NOT_A_MOCKUP = {"index.html"}
 
 # docs/ui/style-guide.md, "The roster", plus the navy ramp the unre-coloured screens still
@@ -80,11 +100,33 @@ ONE_AXIS = re.compile(r"^\s*to\s+(top|bottom|left|right)\b")
 FRACTIONAL_PX = re.compile(r"\b\d+\.\d+px\b")
 STAGE_SIZE = re.compile(r"\.stage\s*\{[^}]*?width:\s*(\d+)px[^}]*?height:\s*(\d+)px", re.S)
 
+# The note block: the port cost, in fields, and the one place a level is declared.
+PORT_COST = re.compile(r'<dl class="port-cost">(.*?)</dl>', re.S)
+FIELD = re.compile(r"<dt>\s*([a-z-]+)\s*</dt>\s*<dd[^>]*>(.*?)</dd>", re.S)
+TAG = re.compile(r"<[^>]+>")
+
+STAGE = re.compile(r'class="stage\b([^"]*)"')
+
 STAGE_W, STAGE_H = 1244, 700
 
 # A shade is a uniform multiply, so a rounded channel can sit one off. Two would let a colour
 # drift far enough to be a different swatch.
 SHADE_TOLERANCE = 1
+
+HOUSE, OFF_STYLE, FREE = "house", "off-style", "free"
+LEVELS = (HOUSE, OFF_STYLE, FREE)
+
+# What each level asked to be held to. A rule a level did not ask for is still *run* — the
+# finding is simply reported as port cost instead of failing the gate, because an option
+# nobody can price is an option nobody can choose between.
+ROSTER_BINDS = {HOUSE}
+RENDERER_BINDS = {HOUSE, OFF_STYLE}
+
+# The fields, and which of them a mockup cannot leave out. `forced` is required because a
+# mockup that cannot say what its brief made it do differently has not been briefed — it has
+# been decorated. The rest collapse when empty rather than being filled with "n/a".
+REQUIRED_FIELDS = ("level", "forced")
+KNOWN_FIELDS = ("level", "forced", "missing", "invented", "broke")
 
 
 def parse_hex(text):
@@ -128,48 +170,126 @@ def stage_only(css):
     return "".join(kept)
 
 
-def check(path):
-    text = path.read_text(encoding="utf-8")
-    findings = []
+def read_note(text):
+    """The port-cost fields, and whatever is wrong with the block itself.
 
+    The block is the mockup's own account of what it would cost to build, and the level it
+    declares is what decides which rules below bind. Both live here so there is one place to
+    read and one place to keep honest.
+    """
+    block = PORT_COST.search(text)
+    if not block:
+        return {}, [
+            "no port-cost block in the note, so this option declares no level and states no "
+            "cost — see docs/ui/mock/README.md for the fields"
+        ]
+
+    fields = {
+        match.group(1): " ".join(TAG.sub("", match.group(2)).split())
+        for match in FIELD.finditer(block.group(1))
+    }
+    problems = []
+
+    for name in REQUIRED_FIELDS:
+        if not fields.get(name):
+            problems.append(f"the port-cost block has no `{name}`")
+
+    for name in fields:
+        if name not in KNOWN_FIELDS:
+            problems.append(f"`{name}` is not a port-cost field ({', '.join(KNOWN_FIELDS)})")
+
+    level = fields.get("level")
+    if level and level not in LEVELS:
+        problems.append(f"`{level}` is not a level ({', '.join(LEVELS)})")
+
+    return fields, problems
+
+
+def check_level_class(text, level):
+    """The declared level and the stage's class have to agree.
+
+    The note block is the single source — it is what a human reads and what this checker
+    reads — but `free` is the one level the stylesheet also has to know about, because
+    dropping the refusals is a CSS matter. So the class is the mechanism and this is what
+    keeps it in step with the declaration, rather than letting a mockup claim `house` while
+    drawing with a blur.
+    """
+    stage = STAGE.search(text)
+    if not stage:
+        return []
+    is_free_class = "free" in stage.group(1).split()
+    if level == FREE and not is_free_class:
+        return ['declares `free` but its stage is not `class="stage free"`, so the harness is '
+                "still refusing everything the level was meant to allow"]
+    if level != FREE and is_free_class:
+        return [f'declares `{level}` but its stage is `class="stage free"`, which switches the '
+                "renderer refusals off"]
+    return []
+
+
+def check(path):
+    """Findings that fail the gate, and notes that only price the port."""
+    text = path.read_text(encoding="utf-8")
+    fields, findings = read_note(text)
+    notes = []
+    level = fields.get("level") if fields.get("level") in LEVELS else HOUSE
+
+    findings += check_level_class(text, level)
+
+    off_roster = []
     for match in HEX.finditer(stage_only(text)):
         colour = parse_hex(match.group(1))
         resolved = resolve(colour)
         if resolved is None:
-            findings.append(f"#{match.group(1)} is not a roster swatch or a shade of one")
+            off_roster.append(f"#{match.group(1)}")
         elif resolved[1] != 1.0:
             name, factor = resolved
-            print(f"  note: #{match.group(1)} is {name} shaded {factor:.3f} — port as colour_shade")
+            notes.append(f"#{match.group(1)} is {name} shaded {factor:.3f} — port as colour_shade")
 
+    for colour in off_roster:
+        finding = f"{colour} is not a roster swatch or a shade of one"
+        if level in ROSTER_BINDS:
+            findings.append(finding)
+        else:
+            notes.append(f"{colour} is off the roster — the port adds a swatch for it")
+
+    renderer = []
     for match in GRADIENT.finditer(text):
         kind, args = match.group(1), match.group(2)
         if kind != "linear-gradient":
-            findings.append(f"{kind}() has no draw call behind it; only one-axis linear-gradient ports")
+            renderer.append(f"{kind}() has no draw call behind it; only one-axis linear-gradient ports")
         elif not ONE_AXIS.match(args):
-            findings.append(
+            renderer.append(
                 f"linear-gradient({args.strip()[:40]}...) is not one axis; "
                 f"DrawRectangleGradientV/H take `to top|bottom|left|right` only"
             )
 
     for match in FRACTIONAL_PX.finditer(text):
-        findings.append(f"{match.group(0)} is not a whole pixel; a draw call cannot ask for one")
+        renderer.append(f"{match.group(0)} is not a whole pixel; a draw call cannot ask for one")
+
+    if level in RENDERER_BINDS:
+        findings += renderer
+    else:
+        notes += [f"{r} — engine work, not a port" for r in renderer]
 
     if path.suffix == ".html":
         # One harness, wherever the mockup sits. A screen's options live in
-        # docs/ui/mock/<screen>/ and link ../harness.css, so this cannot resolve relative to
-        # the mockup — and a per-directory copy of the harness would be a second set of
-        # constraints to drift.
+        # docs/ui/mock/<screen>/r<N>/ and link ../../harness.css, so this cannot resolve
+        # relative to the mockup — and a per-directory copy of the harness would be a second
+        # set of constraints to drift.
         size = STAGE_SIZE.search(HARNESS.read_text(encoding="utf-8"))
         if not size:
             findings.append("harness.css does not fix the stage size")
         elif (int(size.group(1)), int(size.group(2))) != (STAGE_W, STAGE_H):
             findings.append(f"the stage is {size.group(1)}x{size.group(2)}, not {STAGE_W}x{STAGE_H}")
+        # These three bind at every level, `free` included: they are what makes an option an
+        # option rather than a picture in a folder.
         if 'harness.css"' not in text:
             findings.append("the mockup does not link harness.css, so none of its constraints apply")
-        if 'class="stage"' not in text:
+        if not STAGE.search(text):
             findings.append("the mockup has no .stage, so it is not drawn at the window's size")
 
-    return findings
+    return level, findings, notes
 
 
 def label(path):
@@ -182,8 +302,9 @@ def label(path):
 
 
 def main():
-    # Recursive: a screen's options live one level down, and a sweep that only saw the top
-    # level would pass while every option under it went unchecked.
+    # Recursive: a screen's options live one or two levels down (docs/ui/mock/<screen>/r<N>/),
+    # and a sweep that only saw the top level would pass while every option under it went
+    # unchecked.
     targets = [Path(a) for a in sys.argv[1:]] or sorted(
         p for p in MOCK.glob("**/*.html") if p.name not in NOT_A_MOCKUP
     )
@@ -192,8 +313,10 @@ def main():
 
     failed = 0
     for path in targets:
-        print(f"{label(path)}:")
-        findings = check(path)
+        level, findings, notes = check(path)
+        print(f"{label(path)} [{level}]:")
+        for note in notes:
+            print(f"  note: {note}")
         for finding in findings:
             print(f"  {finding}")
         if findings:

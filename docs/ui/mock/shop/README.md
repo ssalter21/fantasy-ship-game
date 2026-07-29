@@ -1,7 +1,13 @@
 # Shop — four options, and what they asked for
 
-The first run of `design-a-screen` (`.claude/skills/design-a-screen/SKILL.md`), against a screen
-that exists. Four sub-agents in parallel, no shared context, one governing constraint each.
+The first run of `design-a-screen`, against a screen that exists. Four sub-agents in parallel, no
+shared context, one governing constraint each.
+
+> **The skill that made these is gone**, and this page is kept as the record of what it produced.
+> It chose its own briefs off a fixed four-axis table; against the Shop that worked, and against a
+> screen that is not a list it produced five options making the same move. `direct-a-screen`
+> replaces it and takes the briefs from a human instead. These four options stand — a direction
+> nobody chose is still a data point about what this game looks like.
 
 Open [`index.html`](index.html) to judge them side by side at full resolution. **Nothing here has
 been chosen yet** — that is a human's call, and this file records what was produced so the
@@ -29,8 +35,9 @@ One agent per axis, each fixed to a different value — never two on the same ax
 
 ## Did they actually diverge
 
-The failure this skill exists to fix was measured at **82% pixel-identical**. This run
-(`python scripts/mock-divergence.py shop`):
+The failure that skill existed to fix was measured at **82% pixel-identical**. This run, measured
+by the then-`scripts/mock-divergence.py` — retired with the skill, since briefs written by a human
+are checked by the human who wrote them:
 
 | Pair | Identical |
 | --- | --- |

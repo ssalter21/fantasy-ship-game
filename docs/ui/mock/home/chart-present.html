@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>At Anchor — one sheet: the voyage above, her plan below</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* ==================================================================== the ground
+
+         The chart got the room, and it got it by becoming the SCREEN rather than an
+         overlay on one. The whole of Home is a single sheet of parchment floating on the
+         sea: the voyage inked across its top two-thirds, her own plan ruled along its
+         foot, one waterline rule dividing her weather deck from her hold. Nothing rises
+         and nothing is raised — there is no second state to be in.
+
+         The sea survives as a margin and as the water under the bottom-left corner,
+         which is where a fitting goes when it goes over the side. That margin is doing
+         real work: the roster's contrast engine is warm-versus-cool, and a screen that
+         is parchment edge to edge has no cool on it at all. */
+      .sea {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 700px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      /* Every shadow on this screen is an explicit second rectangle at the offset the
+         harness's .cast-shadow draws — the game's own idiom (a DrawRectangleRec under
+         rl.Fade(COLOUR_SEA_DEEP, 0.45)), spelled out because the sheet is the ground for
+         everything else and its shadow must not be able to sort behind the water. */
+      .shade {
+        background: var(--sea-deep);
+        opacity: 0.45;
+      }
+
+      .sheet {
+        left: 20px;
+        top: 20px;
+        width: 1204px;
+        height: 612px;
+      }
+
+      /* ==================================================================== the voyage
+
+         x 44..1200, y 96..368. Layers run left to right — Start behind her, the Haven at
+         the right edge — exactly as compute_node_positions lays them out, at half the
+         height the raised chart gets today. */
+      .node {
+        border: 2px solid var(--rock);
+        background: var(--sand);
+      }
+
+      /* Reachable: the interactive tone, a heavier run, and the only marks on the sheet a
+         click does anything to. */
+      .node--reach {
+        width: 24px;
+        height: 24px;
+        border: 3px solid var(--sea-deep);
+        background: var(--parchment);
+      }
+
+      /* Hover is the caret plus the ground lifting — never a change of colour. The lift
+         is parchment shaded 1.060, which is colour_shade with a factor above 1; over a
+         warm ground "lighter" is the only direction "lifted" can mean. */
+      .lift {
+        background: #f9e6b0;
+      }
+
+      .caret {
+        width: 0;
+        height: 0;
+        border-top: 7px solid transparent;
+        border-bottom: 7px solid transparent;
+        border-left: 10px solid var(--sea-deep);
+      }
+
+      /* Fog ahead: the recessive register. The style guide's faded-ink swatch is not in
+         the harness roster (nor in check-mock.py's), so sand stands in for it here — see
+         the note. */
+      .node--fog {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--sand);
+        background: none;
+        text-align: center;
+        line-height: 14px;
+        color: var(--sand);
+      }
+
+      /* A route the game draws with DrawLineEx. The harness has no diagonal, so the two
+         slanting legs of the fan are blocked in as runs of 4px marks and the level ones
+         as dashed border runs. Both port to the same call. */
+      .dot {
+        width: 4px;
+        height: 4px;
+        background: var(--sea-deep);
+      }
+
+      .link {
+        height: 2px;
+        border-top: 2px dashed var(--sand);
+      }
+
+      .link--behind {
+        border-top-color: var(--rock);
+      }
+
+      .link--ahead {
+        border-top-color: var(--sea-deep);
+      }
+
+      /* The scale break. Above it you are a mile up looking at the sea; below it you are
+         alongside looking into her. One rule is the whole announcement. */
+      .rule {
+        left: 44px;
+        width: 1156px;
+        height: 2px;
+        background: var(--cliff);
+      }
+
+      /* The leader that ties the two halves together: from the mark on the chart where she
+         lies, straight down through the scale break, into her own plan. Without it the
+         screen is two drawings; with it, it is one ship in one place. */
+      .leader {
+        left: 299px;
+        top: 214px;
+        width: 2px;
+        height: 186px;
+        background: var(--rock);
+      }
+
+      /* ==================================================================== her plan
+
+         The cutaway, flattened. Her berths keep the geography they carry in three
+         dimensions (cutaway/galleon.odin): the four Exposed berths are the weather-deck
+         structures in a row above the waterline, the four Concealed ones are one
+         below-deck floor cut into compartments under it — and each compartment's LENGTH
+         is its slot size, at galleon_size_weight's own shares (Small 1.0, Medium 1.55,
+         Large 2.3). Size is read off the drawing, never off a word. */
+      .waterline {
+        left: 44px;
+        top: 481px;
+        width: 756px;
+        height: 2px;
+        background: var(--sea-deep);
+        opacity: 0.6;
+      }
+
+      .band {
+        left: 44px;
+        width: 88px;
+        color: var(--ink-muted);
+      }
+
+      .comp {
+        height: 74px;
+      }
+
+      .comp span {
+        position: absolute;
+        left: 10px;
+      }
+
+      .comp .r0 {
+        top: 8px;
+      }
+
+      .comp .r1 {
+        top: 30px;
+      }
+
+      .comp .r2 {
+        top: 52px;
+      }
+
+      /* Paper in a berth means something is fitted; bare timber means it is empty. That is
+         the whole filled/empty signal, and it needs no badge. */
+      .comp--filled {
+        background: var(--parchment);
+        border: 1px solid var(--cliff);
+      }
+
+      .comp--empty {
+        background: var(--sand);
+        border: 1px solid var(--cliff);
+      }
+
+      /* Unavailable dims by TONE, never by alpha: over a bright ground translucency costs
+         a surface its own paper (ADR-0032). Parchment shaded 0.898, plus duller ink —
+         one axis, so a berth cannot dim two of its three rows and ship. */
+      .comp--dim {
+        background: #d3c395;
+        color: var(--ink-muted);
+      }
+
+      /* A berth the fitting in hand may land in. Same rule the Build surface already
+         applies (build_is_legal_berth): light where it fits, dim the rest. */
+      .comp--legal {
+        border: 3px solid var(--sea-deep);
+      }
+
+      /* Where the card in hand came from. Dashed, because it is not empty — it is waiting
+         for her back. */
+      .comp--source {
+        background: var(--sand);
+        border: 2px dashed var(--sea-deep);
+      }
+
+      /* The card in hand, mid-flight over the chart. It follows the cursor; that is what
+         says "in hand", so it needs no tone of its own — only a shadow, because a card in
+         hand is one that has been lifted off the sheet. */
+      .ghost {
+        left: 440px;
+        top: 336px;
+        width: 200px;
+        height: 60px;
+      }
+
+      .ghost span {
+        position: absolute;
+        left: 12px;
+      }
+
+      /* ==================================================================== the reading
+
+         The berth under the cursor, or — as here — the berth in your hand. A fixed berth
+         on the sheet rather than a card that chases the mouse: the chart is under the
+         cursor at all times now, and a description that followed it would be a card
+         thrown across the voyage on every move. */
+      .reading {
+        left: 820px;
+        top: 400px;
+        width: 380px;
+        height: 164px;
+      }
+
+      .reading span {
+        position: absolute;
+        left: 16px;
+      }
+
+      /* ==================================================================== the books
+
+         Always visible, always on paper, and its right-hand cell is the second of the two
+         destructive acts. */
+      .ledger {
+        left: 44px;
+        top: 572px;
+        width: 1156px;
+        height: 36px;
+      }
+
+      .tick {
+        width: 1px;
+        height: 24px;
+        top: 578px;
+        background: var(--sand);
+      }
+
+      /* ==================================================================== over the side
+
+         The first destructive act, and it is OFF THE PAPER — down in the water past the
+         sheet's bottom edge. The distinction from the ledger's jettison is carried by
+         ground and place before it is carried by any word: one drop takes the fitting out
+         of the ship, the other strikes a number off her books. Coral is drawn here only
+         while something is actually in the air (ui_alarm) — see the note on the lease. */
+      .bin {
+        left: 20px;
+        top: 640px;
+        width: 268px;
+        height: 52px;
+        background: var(--parchment);
+        border: 2px solid var(--coral);
+      }
+
+      .bin span {
+        position: absolute;
+        left: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at sea"></div>
+
+      <!-- Paper over water is opaque and casts a shadow (style guide, Framing). -->
+      <div class="at shade" style="left: 25px; top: 26px; width: 1204px; height: 612px"></div>
+      <div class="at sheet frame-panel"></div>
+
+      <div class="at title" style="left: 44px; top: 44px">At Anchor</div>
+
+      <!-- ------------------------------------------------------------- the voyage -->
+
+      <!-- The road behind her, in the strong sepia register. -->
+      <div class="at link link--behind" style="left: 136px; top: 199px; width: 148px"></div>
+      <div class="at node" style="left: 110px; top: 190px; width: 20px; height: 20px"></div>
+      <div class="at body muted" style="left: 80px; top: 216px; width: 80px; text-align: center">Start</div>
+
+      <!-- Where she lies now — her own mark on the chart, blocked in as the sprite that
+           already exists rather than redrawn. -->
+      <div class="at body muted" style="left: 232px; top: 194px; width: 48px; text-align: right">here</div>
+      <div class="at" style="left: 286px; top: 198px; width: 28px; height: 9px; background: var(--rock)"></div>
+      <div class="at" style="left: 299px; top: 180px; width: 2px; height: 18px; background: var(--trunk)"></div>
+      <div class="at" style="left: 301px; top: 182px; width: 11px; height: 12px; background: var(--rock)"></div>
+
+      <!-- The fan: the three landfalls she can reach from here. This is the way out of the
+           screen, and it is never more than one click away because it is never hidden. -->
+      <div class="at dot" style="left: 330px; top: 186px"></div>
+      <div class="at dot" style="left: 350px; top: 179px"></div>
+      <div class="at dot" style="left: 370px; top: 172px"></div>
+      <div class="at dot" style="left: 390px; top: 165px"></div>
+      <div class="at dot" style="left: 410px; top: 158px"></div>
+      <div class="at dot" style="left: 429px; top: 151px"></div>
+      <div class="at dot" style="left: 449px; top: 144px"></div>
+
+      <div class="at link link--ahead" style="left: 318px; top: 199px; width: 144px"></div>
+
+      <div class="at dot" style="left: 330px; top: 210px"></div>
+      <div class="at dot" style="left: 350px; top: 217px"></div>
+      <div class="at dot" style="left: 370px; top: 224px"></div>
+      <div class="at dot" style="left: 390px; top: 231px"></div>
+      <div class="at dot" style="left: 410px; top: 238px"></div>
+      <div class="at dot" style="left: 429px; top: 245px"></div>
+      <div class="at dot" style="left: 449px; top: 252px"></div>
+
+      <div class="at node--reach" style="left: 468px; top: 124px"></div>
+      <div class="at body" style="left: 430px; top: 154px; width: 100px; text-align: center">Port</div>
+
+      <div class="at node--reach" style="left: 468px; top: 188px"></div>
+      <div class="at lift" style="left: 471px; top: 191px; width: 18px; height: 18px"></div>
+      <div class="at caret" style="left: 448px; top: 193px"></div>
+      <div class="at body" style="left: 430px; top: 218px; width: 100px; text-align: center">Battle</div>
+
+      <div class="at node--reach" style="left: 468px; top: 252px"></div>
+      <div class="at body" style="left: 430px; top: 282px; width: 100px; text-align: center">Items</div>
+
+      <div class="at body muted" style="left: 44px; top: 348px">click a landfall to sail</div>
+
+      <!-- The fog ahead. -->
+      <div class="at link" style="left: 500px; top: 135px; width: 144px"></div>
+      <div class="at link" style="left: 500px; top: 199px; width: 144px"></div>
+      <div class="at link" style="left: 500px; top: 263px; width: 144px"></div>
+      <div class="at node--fog body" style="left: 651px; top: 127px">?</div>
+      <div class="at node--fog body" style="left: 651px; top: 191px">?</div>
+      <div class="at node--fog body" style="left: 651px; top: 255px">?</div>
+      <div class="at node--fog body" style="left: 651px; top: 319px">?</div>
+
+      <div class="at link" style="left: 677px; top: 135px; width: 146px"></div>
+      <div class="at link" style="left: 677px; top: 199px; width: 146px"></div>
+      <div class="at link" style="left: 677px; top: 263px; width: 146px"></div>
+      <div class="at node--fog body" style="left: 831px; top: 127px">?</div>
+      <div class="at node--fog body" style="left: 831px; top: 191px">?</div>
+      <div class="at node--fog body" style="left: 831px; top: 255px">?</div>
+
+      <div class="at link" style="left: 857px; top: 135px; width: 146px"></div>
+      <div class="at link" style="left: 857px; top: 199px; width: 146px"></div>
+      <div class="at link" style="left: 857px; top: 263px; width: 146px"></div>
+      <div class="at node--fog body" style="left: 1011px; top: 127px">?</div>
+      <div class="at node--fog body" style="left: 1011px; top: 191px">?</div>
+      <div class="at node--fog body" style="left: 1011px; top: 255px">?</div>
+
+      <div class="at link" style="left: 1037px; top: 199px; width: 93px"></div>
+
+      <!-- The Haven. Its mark is the coral X everywhere else; here it is inked in sepia,
+           because a fitting is in the air and coral is spoken for. See the note. -->
+      <div class="at node" style="left: 1138px; top: 188px; width: 24px; height: 24px"></div>
+      <div class="at" style="left: 1144px; top: 199px; width: 12px; height: 2px; background: var(--rock)"></div>
+      <div class="at" style="left: 1149px; top: 194px; width: 2px; height: 12px; background: var(--rock)"></div>
+      <div class="at body" style="left: 1110px; top: 218px; width: 80px; text-align: center">Haven</div>
+
+      <!-- ------------------------------------------------------------ the scale break -->
+
+      <div class="at rule" style="top: 384px"></div>
+      <div class="at leader"></div>
+
+      <!-- ------------------------------------------------------------- her plan -->
+
+      <div class="at band body" style="top: 429px">Exposed</div>
+      <div class="at band body" style="top: 519px">Concealed</div>
+      <div class="at waterline"></div>
+
+      <!-- Weather deck, stern to bow, widths at galleon_size_weight's shares. -->
+      <div class="at comp comp--source" style="left: 140px; top: 400px; width: 128px">
+        <span class="r0 body muted">top deck</span>
+        <span class="r1 body">(in hand)</span>
+        <span class="r2 body muted">Medium</span>
+      </div>
+
+      <div class="at comp comp--empty comp--legal" style="left: 276px; top: 400px; width: 128px">
+        <span class="r0 body muted">top crew</span>
+        <span class="r1 body">empty</span>
+        <span class="r2 body muted">Medium</span>
+      </div>
+
+      <div class="at comp comp--filled comp--dim" style="left: 412px; top: 400px; width: 190px">
+        <span class="r0 body">gun deck</span>
+        <span class="r1 body">Gun Deck</span>
+        <span class="r2 body">Large &middot; wt 30</span>
+      </div>
+
+      <div class="at comp comp--filled comp--dim" style="left: 610px; top: 400px; width: 190px">
+        <span class="r0 body">forecastle</span>
+        <span class="r1 body">Cargo</span>
+        <span class="r2 body">Large &middot; 20/40</span>
+      </div>
+
+      <!-- The hold: one floor, four compartments, lengths by size. -->
+      <div class="at comp comp--filled comp--legal" style="left: 140px; top: 490px; width: 217px">
+        <span class="r0 body muted">hold 1</span>
+        <span class="r1 body">Cargo</span>
+        <span class="r2 body muted">Medium &middot; 12/20</span>
+      </div>
+
+      <div class="at comp comp--filled comp--dim" style="left: 365px; top: 490px; width: 139px">
+        <span class="r0 body">hold 2</span>
+        <span class="r1 body">Cargo</span>
+        <span class="r2 body">Small &middot; 10/10</span>
+      </div>
+
+      <div class="at comp comp--filled comp--dim" style="left: 512px; top: 490px; width: 140px">
+        <span class="r0 body">hold 3</span>
+        <span class="r1 body">Cargo</span>
+        <span class="r2 body">Small &middot; 8/10</span>
+      </div>
+
+      <div class="at comp comp--filled comp--dim" style="left: 660px; top: 490px; width: 140px">
+        <span class="r0 body">hold 4</span>
+        <span class="r1 body">Cargo</span>
+        <span class="r2 body">Small &middot; 0/10</span>
+      </div>
+
+      <!-- The card in hand, carried across the chart on its way down to a berth. -->
+      <div class="at shade" style="left: 445px; top: 342px; width: 200px; height: 60px"></div>
+      <div class="at ghost frame-card">
+        <span class="body" style="top: 14px">Captain's Quarters</span>
+        <span class="body muted" style="top: 36px">Medium</span>
+      </div>
+
+      <!-- ------------------------------------------------------------- the reading -->
+
+      <div class="at shade" style="left: 825px; top: 406px; width: 380px; height: 164px"></div>
+      <div class="at reading frame-card">
+        <span class="body muted" style="top: 16px">in hand &mdash; drop it on a berth</span>
+        <span class="body" style="top: 42px">Captain's Quarters</span>
+        <span class="body" style="top: 80px">+2 Repair</span>
+        <span class="body muted" style="top: 106px">Medium &middot; Brace &middot; Crew</span>
+        <span class="body muted" style="top: 132px">wt 18 &middot; 0/0 &middot; top deck &middot; Exposed</span>
+      </div>
+      <div class="at" style="left: 836px; top: 468px; width: 348px; height: 1px; background: var(--sand)"></div>
+
+      <!-- ------------------------------------------------------------- the books -->
+
+      <div class="at ledger frame-panel"></div>
+
+      <div class="at body muted" style="left: 68px; top: 582px">Hull</div>
+      <div class="at body" style="left: 116px; top: 582px">100/100</div>
+      <div class="at tick" style="left: 253px"></div>
+
+      <div class="at body muted" style="left: 277px; top: 582px">SPD</div>
+      <div class="at body" style="left: 316px; top: 582px">4</div>
+      <div class="at tick" style="left: 462px"></div>
+
+      <div class="at body muted" style="left: 486px; top: 582px">Cargo</div>
+      <div class="at body" style="left: 543px; top: 582px">50/90</div>
+      <div class="at tick" style="left: 671px"></div>
+
+      <div class="at body muted" style="left: 695px; top: 582px">Weight</div>
+      <div class="at body" style="left: 761px; top: 582px">122</div>
+      <div class="at tick" style="left: 888px"></div>
+
+      <!-- The second destructive act, and it lives INSIDE the books: burning a berth's
+           cargo is the one act whose whole cost is a number on this strip. Inert here —
+           the fitting in hand carries 0/0, so there is nothing to burn, and it takes no
+           coral. -->
+      <div class="at body" style="left: 912px; top: 582px">Jettison</div>
+      <div class="at body muted" style="left: 996px; top: 582px">cargo, not the berth</div>
+
+      <!-- ------------------------------------------------------------- over the side -->
+
+      <div class="at shade" style="left: 25px; top: 646px; width: 268px; height: 52px"></div>
+      <div class="at bin">
+        <span class="body" style="top: 12px">Over the Side</span>
+        <span class="body muted" style="top: 34px">she leaves the ship</span>
+      </div>
+
+      <div class="at body over-water" style="left: 1196px; top: 676px">dev</div>
+    </div>
+
+    <div class="note">
+      <h1>At Anchor — one sheet: the voyage above, her plan below</h1>
+      <dl class="port-cost">
+        <dt>level</dt><dd class="level">house</dd>
+        <dt>forced</dt><dd>The chart got the room and the ship paid for it: Home is one sheet of parchment, the voyage above and her plan below.</dd>
+      </dl>
+
+      <p>
+        <strong>The chart got the room, and she paid for it.</strong> Home is one sheet of parchment
+        floating on the sea. The voyage is inked across its top two-thirds
+        (<code>1156&times;272</code>, roughly twice the area her plan gets); her own drawing is ruled
+        along its foot (<code>756&times;164</code>), with one waterline rule between her weather deck
+        and her hold. There is no tab, no <code>chart_raise</code>, no scrim, no mid-flip frame where
+        input is swallowed. There is also no second state to be in, which is the point: today the
+        answer to "where am I and where can I go" costs a click, a tween and a modal that hides the
+        ship you were just working on.
+      </p>
+
+      <p>
+        <strong>What the constraint forced, and it is not a small thing: she stops being a picture.</strong>
+        The reason the shipped screen can afford to hide the chart is that the ship <em>is</em> the
+        screen — a lit three-quarter cutaway filling 1244&times;700, whose berths are picked as
+        projected quads on her hull (<code>galleon_room_at</code>). Those quads are already small. Give
+        half the screen away and they stop being hittable; there is no version of this layout where
+        the rendered galleon shrinks and the refit still works. So the ship on this screen is
+        <strong>a plan, in the chart's own ink, on the chart's own paper</strong> — and the berths get
+        <em>bigger</em> as the ship gets smaller. A Small hold is a 139px compartment and a Large one
+        is 190px, at <code>galleon_size_weight</code>'s own shares (1.0 / 1.55 / 2.3), so size is still
+        read off the drawing rather than off a word. Exposed above the waterline, Concealed below it:
+        the same geography the 3D cutaway carries, flattened. Paper in a berth means something is
+        fitted; bare timber means it is empty.
+      </p>
+
+      <p>
+        The honest cost, stated plainly: <strong>the best-looking thing in the game is no longer on its
+        main screen.</strong> And <code>draw_build_surface_body</code>'s <code>at_home</code> flag stops
+        being a two-line difference between Home and Refit — a Home that is a chart and a Refit that is
+        a cutaway are two screens, not one body with a boolean. Either Refit adopts the plan too, or
+        the pair forks. That is a decision, not a detail, and this mockup is what forces it.
+      </p>
+
+      <p>
+        <strong>The two destructive acts are separated by ground before they are separated by words.</strong>
+        <em>Over the Side</em> is <strong>off the paper</strong> — a card down in the water past the
+        sheet's bottom edge, which is exactly what dragging a fitting off a ship looks like.
+        <em>Jettison</em> is <strong>inside the books</strong>, the right-hand cell of the stats strip,
+        because burning a berth's cargo is the one act whose entire cost is a number on that strip.
+        A player can tell them apart without reading either, which the shipped pair (a bin bottom-left,
+        the ledger bottom-centre, both parchment, both washed coral at the same moment) cannot quite
+        claim.
+      </p>
+
+      <p>
+        <strong>Putting the chart on the refit screen breaks a palette law, and the fix is the most
+        interesting thing here.</strong> Coral is reserved, appears once per screen, and currently has
+        two owners: the chart's Haven X, and <code>ui_alarm</code>'s destructive drops. Today they never
+        meet, because the chart is a modal. Share one screen and they meet constantly. The resolution
+        drawn above is a <strong>lease</strong>: at rest the Haven holds the coral; the instant a
+        fitting leaves its berth the lease transfers, the Haven falls back to sepia (which is why its
+        mark is rock-toned in this frame) and coral lights only the two drop targets. One colour, one
+        meaning, at every instant &mdash; enforced rather than argued about in a comment.
+      </p>
+
+      <p>
+        <strong>Three things this frame is honest about being weaker at.</strong> The chart is 272px
+        tall against the raised chart's 640: four lanes fit, five would crowd, and a voyage that ever
+        grows a lane wants this layout re-argued rather than squeezed. Long occupant names do not fit a
+        Medium compartment &mdash; "Captain's Quarters" measures about 162px at 16px in a 128px berth,
+        which is only invisible here because that fitting happens to be in the player's hand. And the
+        harness cannot draw a diagonal, so the two slanting legs of the fan are blocked in as runs of
+        4px marks; the game draws them with <code>DrawLineEx</code> and they are not a new capability.
+      </p>
+
+      <h1>What I would need from <code>presentation/ui.odin</code> (and its widgets) that does not exist yet</h1>
+      <ul>
+        <li>
+          <strong>A chart that takes a rect.</strong> <code>draw_map</code> draws at
+          <code>MAP_AREA</code>, a package-level <code>var</code> that <code>map_width_set</code>
+          mutates &mdash; <em>width only</em>, with a whole comment explaining that each screen must
+          re-assert it every frame so hit-testing agrees with drawing. This design needs the chart at an
+          arbitrary rect, height included, with the node field re-laid out to match. The shape wanted is
+          <code>draw_map(state, area, mouse)</code> and <code>map_node_at(state, area, point)</code>,
+          taking the rect as an argument rather than reading a global. Everything else here is layout;
+          this one is the change that makes the whole idea possible.
+        </li>
+        <li>
+          <strong>A coral lease.</strong> <code>ui_alarm</code> is documented as the only place coral is
+          drawn as chrome, and it has no idea what else on the screen is spending coral. Something like
+          <code>ui_danger_claim() -&gt; bool</code> / <code>Ui_Danger_Lease</code>, consulted by
+          <code>ui_alarm</code> <em>and</em> by the Haven's mark inside <code>draw_map</code>, so
+          "coral appears once per screen" becomes a thing the widgets enforce. Today the rule survives
+          only because the two owners are on different screens, and this mockup ends that.
+        </li>
+        <li>
+          <strong>A plan row.</strong> <code>ui_plan_row(rect, sizes) -&gt; []rl.Rectangle</code> &mdash;
+          N compartments laid across a rect in proportion to <code>galleon_size_weight</code>, gapped by
+          a bulkhead, returned as rects so the draw and the hit-test consume the same list. The
+          derivation exists in <code>cutaway.galleon_rooms</code>, tangled up with hull tapers and a
+          3D floor; the 2D plan wants the weights and none of the hull. This is what the whole lower
+          half of the screen stands on, and it must return rects rather than draw, exactly as
+          "split composition from polling" demands.
+        </li>
+        <li>
+          <strong>A compartment surface that is not <code>ui_card</code>.</strong> <code>ui_card</code>
+          is parchment plus a frame plus (at Floating) a shadow. A berth needs three grounds on one
+          axis: <em>paper</em> (fitted), <em>bare timber</em> (empty), <em>shaded paper</em>
+          (unavailable). <code>Ui_Emphasis</code> covers the third; there is no vocabulary at all for
+          "this surface is hull, not paper", and inventing it at the call site is how a screen ends up
+          reaching for a colour. Wanted: a <code>Ui_Ground</code> the widget takes, with
+          <code>ui_ink</code> already knowing which text tones each ground admits &mdash; which also
+          settles what muted ink means over sand, a pairing the guide's two-grounds rule does not
+          currently cover.
+        </li>
+        <li>
+          <strong>Text that measures and elides.</strong> <code>ui_text</code> places a measured string
+          in a rect; nothing shortens one that does not fit. A 128px Medium berth cannot hold
+          "Captain's Quarters", and the plan is not shippable until
+          <code>ui_text_fit(rect, text, ...) -&gt; (drawn: string, fit: bool)</code> exists &mdash;
+          with a truncation mark that is <em>not</em> U+2026, which the atlas does not carry.
+        </li>
+        <li>
+          <strong>A ledger that hands back its cells.</strong> <code>draw_build_ledger</code> measures
+          its own columns and draws them, and arms the <em>whole strip</em> as the burn target. Here one
+          cell of it is the drop target and the rest stays a readout, so the measuring has to be split
+          out: <code>build_ledger_cells(rect, fields) -&gt; []rl.Rectangle</code>, with the draw and the
+          hit-test both reading the result.
+        </li>
+        <li>
+          <strong>A leader between two rects.</strong> The rule tying her mark on the chart to her plan
+          below is one <code>DrawRectangleRec</code>; the part worth owning is the derivation &mdash;
+          which edge, struck where, stopping at what. <code>ui_leader(from, to) -&gt; rl.Rectangle</code>.
+          Wrong once by hand, wrong again the moment either end moves.
+        </li>
+        <li>
+          <strong>Not a <code>ui.odin</code> item, but recorded so it is not rediscovered:</strong> the
+          style guide's recessive faded-ink tone is missing from <code>harness.css</code>'s
+          <code>:root</code> and from <code>check-mock.py</code>'s <code>ROSTER</code>, and it is not a
+          shade of any swatch that is there. Every recessive mark on this mockup &mdash; the fog nodes,
+          the unsailed routes, the reading card's divider &mdash; borrows <code>--sand</code> instead,
+          which is a touch too warm and too present for the job. Adding the swatch is a one-line change
+          to two files that this mockup was not allowed to make.
+        </li>
+      </ul>
+    </div>
+  </body>
+</html>
