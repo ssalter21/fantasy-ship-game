@@ -121,6 +121,9 @@ screen_workbench_main :: proc(name: string) -> bool {
 	defer {
 		frame_overlay = nil
 		screen_workbench_bench = nil
+		// Every steered layout put back, so nothing this tool did outlives it — the same
+		// promise the hull mode makes about cutaway.galleon_loft.
+		workbench_reset(&w)
 	}
 
 	for !rl.WindowShouldClose() {

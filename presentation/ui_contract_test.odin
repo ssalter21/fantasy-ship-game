@@ -20,8 +20,24 @@ import "core:testing"
 // build chrome is a fact about the source, not about any value the program computes.
 
 // The calls that build a rectangle by hand. A screen wanting one of these wants a widget.
+//
+// Every way raylib fills or outlines a rectangle, not just the two the migrations happened to
+// use — a contract that named two spellings of the same act would be one rename away from
+// nothing, and `rl.DrawRectangle` is the same chrome as `rl.DrawRectangleRec`.
+//
+// Deliberately absent: the gradient calls. `DrawRectangleGradientV/H` draw the vignette, the
+// title scrim and the sky — atmosphere and world, which have no widget and should not. A
+// screen that built a *panel* out of a gradient would slip through, and that is the known
+// edge of this check rather than an oversight.
 @(private = "file")
-STROKED_CHROME := [?]string{"rl.DrawRectangleRec(", "rl.DrawRectangleLinesEx("}
+STROKED_CHROME := [?]string {
+	"rl.DrawRectangle(",
+	"rl.DrawRectangleRec(",
+	"rl.DrawRectangleV(",
+	"rl.DrawRectanglePro(",
+	"rl.DrawRectangleLines(",
+	"rl.DrawRectangleLinesEx(",
+}
 
 // Where a hand-stroked rectangle is still legitimate, and why. Every entry is a claim that
 // the rectangles in that file are **not chrome** — and each one is worth re-reading when the

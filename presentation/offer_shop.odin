@@ -487,12 +487,7 @@ offer_shop_card_row :: proc(rect: rl.Rectangle, row: int) -> rl.Rectangle {
 // unaffordable card cannot dim two of its three lines and ship.
 offer_shop_row_emphasis :: proc(row: int, affordable: bool) -> Ui_Emphasis {
 	ranked := [?]Ui_Emphasis{.Primary, .Secondary, .Muted}
-	if !affordable {
-		// One step down the axis, every row. Emphasis is ordered, so demotion is arithmetic
-		// rather than a second table that could disagree with the first.
-		return Ui_Emphasis(int(ranked[row]) + 1)
-	}
-	return ranked[row]
+	return affordable ? ranked[row] : ui_emphasis_down(ranked[row])
 }
 
 // draw_offer_shop_price lays a crate-and-number price flush to the right of `row`, measured

@@ -152,7 +152,8 @@ Two rules fall out of the roster:
 - **Never `RAYWHITE`, `LIGHTGRAY`, `BEIGE`, `MAROON`, `SKYBLUE`, `GRAY`, or `WHITE` again.** Every stock raylib
   named colour has a replacement above. The stock palette is the single largest programmer-art signal in the
   current build.
-- **Text colour is hierarchy.** Rank by colour first, size second — there are only two type sizes (below).
+- **Text colour ranks within a block; size says which block to read first.** The scale is three sizes and
+  closed (below).
 
 ### Controls do not have a signal colour
 
@@ -347,7 +348,7 @@ is closed, and `48/32/16` is all of it.
 
 ### A size is a font, not a parameter
 
-The scale is **two `rl.Font`s, not one font drawn at two sizes.** One `rl.Font` is one glyph atlas rasterized
+The scale is **one `rl.Font` per size, not one font drawn at three sizes.** One `rl.Font` is one glyph atlas rasterized
 at one size: ask `DrawTextEx` for 16px from an atlas baked at 32 and it resamples, giving up exactly the
 pixel-exactness the table was measured to buy. Bake each size once and keep both (`presentation/ui.odin`'s
 `ui_font_title` / `ui_font_body`).
@@ -402,7 +403,7 @@ enforce are enforced by the widget**. Reach for these rather than for a rectangl
 | A surface that holds things | `ui_panel(rect, elevation)` | blitted frame, never a stroked rect |
 | A thing in a panel, or on the world | `ui_card(rect, emphasis, elevation)` | opaque over water, cast shadow, dims by tone |
 | A control | `ui_button(rect, label, state)` | no signal colour; hover is the frame's own face |
-| A title or heading | `ui_heading(rect, text, level, ground)` | only the two baked sizes exist |
+| A title or heading | `ui_heading(rect, text, level, ground)` | only the three baked sizes exist |
 | A divider | `ui_divider(rect, weight, ground)` | weight is the signal |
 | The crate, the caret | `ui_icon(rect, icon, ground)` | shapes, never a codepoint |
 | A destructive target | `ui_alarm(rect, lit)` | **the only place coral is drawn as chrome** |

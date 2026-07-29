@@ -290,9 +290,10 @@ the_widgets_are_inert_without_an_atlas :: proc(t: ^testing.T) {
 	ui_text(rect, "18", .Body, .Water, .Muted, .Right)
 }
 
-// Nothing is migrated in this ticket, so the Shop still draws from its own constants and the
-// shot manifest does not move. The widgets land beside the hand-rolled draws, not over them.
+// The one live layout a tool can steer is at its shipped value in a player session. The
+// workbench writes straight into it (screen_workbench.odin) and puts it back on the way out;
+// a run that left it moved would ship whatever the last drag happened to leave.
 @(test)
-no_screen_has_been_migrated_yet :: proc(t: ^testing.T) {
+the_steerable_layout_ships_at_its_shipped_value :: proc(t: ^testing.T) {
 	testing.expect_value(t, offer_shop_layout, OFFER_SHOP_LAYOUT)
 }

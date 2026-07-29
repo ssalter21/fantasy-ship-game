@@ -12,21 +12,18 @@ import rl "vendor:raylib"
 // ceiling is *well-arranged rectangles*, and well-arranged rectangles is what the screens
 // have hit.
 //
-// **What is here is what the mockups asked for.** Four independent designs of the Shop were
-// generated first (docs/ui/mock/shop/README.md), each under a different governing constraint,
-// and each recorded what it needed that did not exist. Building the widget layer before the
-// mockups existed would have risked building the wrong components; these are the ones the
-// designs actually reached for, and the README says which asked for what.
+// The component set is the one four independently-constrained designs of the Shop actually
+// reached for, rather than the one that seemed likely — docs/ui/mock/shop/README.md records
+// which design asked for what.
 //
 // Two axes and a scale run through all of it:
 //
-//   Emphasis    how loudly a thing speaks. Three of the four mockups asked for
-//               *unavailable* to be a value on this axis rather than three coordinated
-//               edits at the call site — a screen that dims two of three and ships is the
-//               failure that keeps happening.
-//   Elevation   how far a thing sits off its ground. `mostly-parchment` is why Inset exists:
-//               a blit only makes a thing sit *above* its ground, and parchment on parchment
-//               needs containment carved rather than stacked.
+//   Emphasis    how loudly a thing speaks. Unavailable is a value on this axis rather than
+//               three coordinated tone choices at a call site, because a block that dims two
+//               of its three rows and ships is the failure that keeps happening.
+//   Elevation   how far a thing sits off its ground. Inset is carved rather than laid on: a
+//               blit only makes a thing sit *above* its ground, which says nothing when the
+//               thing behind is the same material.
 //   Space       a named scale. A screen that spaces itself off bare numbers cannot be
 //               re-rhythmed without finding every one of them.
 //
@@ -35,8 +32,9 @@ import rl "vendor:raylib"
 // the widget resolves it. That is the enforcement — a screen can still reach for a raw
 // DrawRectangleRec today, and #496 is where that stops.
 //
-// This ticket is the expand half only. Nothing is migrated; the screens draw exactly as they
-// did, and the shot manifest does not move.
+// **The screens draw through these, and a test enforces it** — no_screen_strokes_its_own_chrome
+// (ui_contract_test.odin) fails the build on a hand-stroked rectangle outside a reasoned
+// exemption list.
 
 // Ui_Emphasis is how loudly a thing speaks, and it is the only rank there is. Colour carries
 // hierarchy in this game, so this axis is what colour means.
@@ -86,6 +84,8 @@ Ui_Space :: enum {
 	Vast,
 }
 
+// `:=` rather than `::`: Odin cannot index a constant array with a runtime value, and
+// these are looked up by a value the caller supplies. Immutable by convention.
 UI_SPACE := [Ui_Space]f32 {
 	.None  = 0,
 	.Hair  = 2,
@@ -108,6 +108,8 @@ Ui_Level :: enum {
 	Body,
 }
 
+// `:=` rather than `::`: Odin cannot index a constant array with a runtime value, and
+// these are looked up by a value the caller supplies. Immutable by convention.
 UI_LEVEL_SIZE := [Ui_Level]f32 {
 	.Display = UI_DISPLAY_SIZE,
 	.Title   = UI_TITLE_SIZE,
@@ -123,14 +125,15 @@ Ui_Anchor :: enum {
 	Right,
 }
 
-// Ui_Weight is a divider's weight, and weight is the signal. `mostly-parchment` carries its
-// whole structure on five rules where another screen would use boxes, and `no-container` uses
-// weight to say whether a line separates two things or *is* a control.
+// Ui_Weight is a divider's weight, and weight is the signal: whether a line separates two
+// things or *is* a control. A screen can carry its whole structure on rules alone.
 Ui_Weight :: enum {
 	Hair,
 	Rule,
 }
 
+// `:=` rather than `::`: Odin cannot index a constant array with a runtime value, and
+// these are looked up by a value the caller supplies. Immutable by convention.
 UI_WEIGHT_PX := [Ui_Weight]f32 {
 	.Hair = 1,
 	.Rule = 2,
@@ -152,6 +155,14 @@ ui_drawable :: proc() -> bool {
 	return rl.IsWindowReady()
 }
 
+// ui_emphasis_down is one step down the rank — what a block does to every one of its rows
+// when the whole block is unavailable. Emphasis is ordered, so demotion is arithmetic rather
+// than a second table that could disagree with the first; the faintest rank stays put rather
+// than running off the end.
+ui_emphasis_down :: proc(emphasis: Ui_Emphasis) -> Ui_Emphasis {
+	return Ui_Emphasis(min(int(emphasis) + 1, int(max(Ui_Emphasis))))
+}
+
 // ui_space is a named gap in pixels.
 ui_space :: proc(space: Ui_Space) -> f32 {
 	return UI_SPACE[space]
@@ -171,10 +182,15 @@ ui_inset :: proc(rect: rl.Rectangle, space: Ui_Space) -> rl.Rectangle {
 
 // ui_ink is the text tone for an emphasis on a ground.
 //
-// The water column is the ramp `no-container` had to derive for itself: parchment has three
-// ink levels and water had exactly one, so that mockup borrowed swatches the roster names as
-// *surfaces* and used them as ink. Naming the ramp here is what stops four call sites each
-// deciding privately that sand is a text colour.
+// The water column is the ramp a container-less mockup had to derive for itself: parchment
+// carries three ink levels and water carried exactly one, so it borrowed swatches the roster
+// names as *surfaces* and used them as ink. Naming the ramp here is what stops four call
+// sites each deciding privately that sand is a text colour.
+//
+// A switch rather than an [Ui_Ground][Ui_Emphasis]rl.Color table, which is otherwise this
+// file's idiom: two entries are colour_shade of a swatch, and a package-level initialiser has
+// no context to call it with. Kept as a shade rather than spelled as a literal so the
+// relationship to the swatch survives — it is what every-ink-is-on-the-roster checks.
 ui_ink :: proc(ground: Ui_Ground, emphasis: Ui_Emphasis) -> rl.Color {
 	switch ground {
 	case .Parchment:
@@ -203,19 +219,22 @@ ui_ink :: proc(ground: Ui_Ground, emphasis: Ui_Emphasis) -> rl.Color {
 	return COLOUR_INK_PRIMARY
 }
 
-// ui_surface_tint dims a blitted frame by emphasis. A tint multiplies, so one factor carries
-// the whole frame — its field and its border together — where the hand-rolled version dimmed
-// the two separately and could dim one and ship.
+// UI_SURFACE_TINT is how far a blitted frame dims at each rank. A tint multiplies, so one
+// factor carries the whole frame — its field and its border together — where the hand-rolled
+// version dimmed the two separately and could dim one and ship.
+//
+// `:=` rather than `::`: Odin cannot index a constant array with a runtime value, and this is
+// looked up by a value the caller supplies. Immutable by convention.
+UI_SURFACE_TINT := [Ui_Emphasis]f32 {
+	.Primary     = 1,
+	.Secondary   = 1,
+	.Muted       = 0.95,
+	.Unavailable = 0.90,
+}
+
+// ui_surface_tint is UI_SURFACE_TINT's factor as a tint colour.
 ui_surface_tint :: proc(emphasis: Ui_Emphasis) -> rl.Color {
-	switch emphasis {
-	case .Primary, .Secondary:
-		return rl.WHITE
-	case .Muted:
-		return colour_shade(rl.WHITE, 0.95)
-	case .Unavailable:
-		return colour_shade(rl.WHITE, 0.90)
-	}
-	return rl.WHITE
+	return colour_shade(rl.WHITE, UI_SURFACE_TINT[emphasis])
 }
 
 // UI_SHADOW_OFFSET is how far a Floating surface throws its shadow, and UI_SHADOW_ALPHA how

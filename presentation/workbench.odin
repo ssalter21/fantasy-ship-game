@@ -131,14 +131,21 @@ workbench_keys :: proc(w: ^Workbench) {
 	// R is the way back: every knob to what it ships at, whatever has been dragged. A tool you
 	// can get lost in is one you stop trusting what you see in.
 	if rl.IsKeyPressed(.R) {
-		for &knob in w.knobs {
-			knob.value^ = knob.shipped
-		}
+		workbench_reset(w)
 	}
 	if rl.IsKeyPressed(.C) {
 		source := workbench_emit(w)
 		rl.SetClipboardText(fmt.ctprintf("%s", source))
 		w.copied = len(source)
+	}
+}
+
+// workbench_reset puts every knob back to what it ships at. Both the R key and the way out
+// of a run, so a tool that steers the geometry the game draws from leaves none of it moved.
+@(private)
+workbench_reset :: proc(w: ^Workbench) {
+	for &knob in w.knobs {
+		knob.value^ = knob.shipped
 	}
 }
 
