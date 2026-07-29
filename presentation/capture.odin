@@ -947,19 +947,5 @@ capture_shots_arg :: proc(args: []string) -> bool {
 // listing what can be asked for.
 @(private)
 capture_shot_arg :: proc(args: []string) -> (name: string, requested: bool) {
-	FLAG :: "--shot"
-	for arg, i in args {
-		if strings.has_prefix(arg, FLAG + "=") {
-			return arg[len(FLAG) + 1:], true
-		}
-		if arg == FLAG {
-			// A following flag is the next request, not this one's name — `--shot --capture`
-			// names nothing rather than asking for a screen called "--capture".
-			if i + 1 < len(args) && !strings.has_prefix(args[i + 1], "--") {
-				return args[i + 1], true
-			}
-			return "", true
-		}
-	}
-	return "", false
+	return arg_value(args, "--shot")
 }

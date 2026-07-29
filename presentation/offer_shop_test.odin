@@ -38,7 +38,7 @@ the_column_is_one_aligned_block :: proc(t: ^testing.T) {
 		testing.expectf(t, rects[i].width == rects[0].width, "card %d shares the column's width", i)
 		testing.expectf(t, rects[i].height == rects[0].height, "card %d shares the column's height", i)
 		if i > 0 {
-			testing.expectf(t, rects[i].y - rects[i - 1].y == OFFER_SHOP_PITCH, "card %d keeps the rhythm", i)
+			testing.expectf(t, rects[i].y - rects[i - 1].y == offer_shop_layout.pitch, "card %d keeps the rhythm", i)
 			testing.expectf(t, rects[i].y > previous_bottom, "card %d clears the one above it", i)
 		}
 		previous_bottom = rects[i].y + rects[i].height
@@ -65,10 +65,10 @@ a_shorter_shelf_closes_up_under_its_last_card :: proc(t: ^testing.T) {
 
 	rects := offer_shop_shelf_rects(options)
 	testing.expect_value(t, rects[1], rl.Rectangle{}) // no rect, and no gap left for one
-	testing.expect_value(t, rects[2].y - rects[0].y, OFFER_SHOP_PITCH)
+	testing.expect_value(t, rects[2].y - rects[0].y, offer_shop_layout.pitch)
 
 	leave := offer_shop_leave_rect(options)
-	testing.expect_value(t, leave.y, rects[2].y + OFFER_SHOP_PITCH + OFFER_SHOP_LEAVE_GAP)
+	testing.expect_value(t, leave.y, rects[2].y + offer_shop_layout.pitch + offer_shop_layout.leave_gap)
 	testing.expect(t, leave.y > rects[2].y + rects[2].height, "the control clears the last card")
 	testing.expect(t, leave.y < offer_shop_leave_rect(full_shelf()).y, "a shorter shelf closes up")
 }

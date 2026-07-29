@@ -59,9 +59,18 @@ frame_begin :: proc() {
 	rl.BeginTextureMode(fullscreen_target)
 }
 
+// frame_overlay is drawn into every logical frame just before it is presented, and is nil in
+// every player session. A screen owns its own frame boundaries, so a tool that draws *over*
+// one — the workbench's slider panel — has to be let in rather than sequenced after it. The
+// game sets this nowhere; only the workbench does, and only for as long as it runs.
+frame_overlay: proc()
+
 // frame_end stands in for rl.EndDrawing: closes the logical frame, then presents it
 // scaled-to-fit over black letterbox bars.
 frame_end :: proc() {
+	if frame_overlay != nil {
+		frame_overlay()
+	}
 	if !fullscreen_active {
 		rl.EndDrawing()
 		return

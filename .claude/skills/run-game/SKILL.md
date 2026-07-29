@@ -403,20 +403,50 @@ Capture is the fast path, not the whole picture. Three blind spots, all real:
   `--capture` draws at logical size with no texture in the path. A whole class of bug lives only in the real
   window — see the style guide's "A render texture loses alpha". Measure translucency there, never in a shot.
 
-## The hull workbench: stop iterating on the ship screen by text
+## The workbench: stop iterating on a screen by text
 
 ```bash
-odin run cmd/game -- --workbench
+odin run cmd/game -- --workbench          # the hull
+odin run cmd/game -- --workbench shop     # a 2D screen
 ```
 
-An interactive entry beside `--capture`, `--hull-sheet` and the session, and **use it before editing any number
-in `cutaway/galleon.odin`**. Where the sheet is one look at six fixed eyes, this is the one you steer — reach
+An interactive entry beside `--capture`, `--hull-sheet` and the session. **Reach for it before editing any
+geometry constant.** Two modes over one instrument: a named 2D screen, or — with no name — the hull.
+
+Both give the same panel. Every number that decides the layout is a slider, what it decides redraws under the
+mouse, `C` copies the tuned block to the clipboard as an Odin literal that pastes back over the constant it
+came from, `R` returns every knob to what it ships at, and `Tab` hides the panel. The tool never writes to the
+repo and the game never links a control from it — a test asserts the live layouts and the frame overlay are
+untouched in a player session.
+
+### A 2D screen
+
+The point is not convenience. It moves tuning out of the model's context entirely: a human tunes by eye at zero
+token cost, and the model only ever writes structure. So when a screen's spacing, weights or type sizes are the
+question, hand it over rather than guessing a number, rebuilding and shooting it.
+
+A steerable screen is **a capture shot plus a knob list** (`presentation/screen_workbench.odin`). Staging and
+composing come from the `capture_shots` entry of the same name, so what is under the panel is the screen a
+capture would photograph — there is no second staging path to drift. Adding one is therefore two edits:
+
+1. Give the screen's constants a layout struct and a live var beside the shipped literal — `Offer_Shop_Layout`
+   / `OFFER_SHOP_LAYOUT` / `offer_shop_layout` in `presentation/offer_shop.odin` is the worked example.
+2. Add a `workbench_screens` row naming the capture shot, a knob proc, and the constant `C` replaces.
+
+A knob names the struct field it edits, and the emit is composed off the knob table — so a field with a knob is
+a field that gets emitted, with no second list to fall out of step. A test asserts every field of the layout
+has exactly one knob, that each knob's range contains its shipped value, and that the emit names them all.
+
+An unknown screen name lists what can be asked for and exits 1 without opening a window.
+
+### The hull
+
+With no screen named. **Use it before editing any number in `cutaway/galleon.odin`**. Where the sheet is one look at six fixed eyes, this is the one you steer — reach
 for it once the sheet has said *which* surface is wrong. It draws the real `draw_ship_cutaway` into the real
 logical frame with a control panel over it:
 
-- **Every curve in the loft is a slider** — keel camber, sheer, the entry, the run, the wale, tumblehome. The
-  ship redraws under the mouse. `C` copies the tuned `GALLEON_LOFT` to the clipboard as Odin to paste back;
-  the tool never writes to the repo. `R` returns to the shipped hull and the shipped framing.
+- **Every curve in the loft is a slider** — keel camber, sheer, the entry, the run, the wale, tumblehome. `C`
+  copies the tuned `GALLEON_LOFT`. What this mode adds beyond the shared panel is a camera and two paints:
 - **`N` paints by normal** — +x red, +y green, +z blue, negatives dark. Turn this on *first* when a surface
   looks merely dull. Every hard bug on this screen has been a face pointing the wrong way, and shaded that is
   a slightly-off shade at best and nothing at all at worst; here it is the wrong colour outright.
