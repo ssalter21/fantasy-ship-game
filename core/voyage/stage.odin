@@ -88,8 +88,12 @@ Stage_Option :: struct {
 // opponent is baked at generation from two independent axes: an archetype drawn
 // from the hostile roster for its loadout — from whose weight its Speed derives
 // (ADR-0020) — scaled at this node's stakes for its hull and fire.
+// `archetype` is the drawn entry's name (Hostile_Archetype.name) — the character half of the
+// pair, kept beside the baked ship because nothing about a fitted-out opponent says which
+// entry it came off (voyage_pve_opponent).
 Stage_Fight :: struct {
-	opponent: ship.Ship,
+	opponent:  ship.Ship,
+	archetype: string,
 }
 
 // Stage_Offer presents a few distinct roster items to place by hand (ADR-0012).

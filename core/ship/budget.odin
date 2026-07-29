@@ -19,8 +19,16 @@ package ship
 // terms were multiplied in.
 Points :: distinct int
 
-// POINT is one point — one magnitude of Fire, five hull of swing over the reference fight.
+// POINT is one point — one magnitude of Fire, POINT_HULL_SWING hull of swing over the
+// reference fight.
 POINT :: Points(100)
+
+// POINT_HULL_SWING is the anchor POINT is denominated in: the hull a point of Fire swings
+// over the reference fight (Open Sea, combat's baseline round count, STARTING_HULL). Nothing
+// in the pricing reads it — every rate below is already quoted in points — but it is the one
+// figure that says what a point *is* in the game's own units, so it is published here beside
+// them rather than restated wherever a battle is measured against the budget.
+POINT_HULL_SWING :: 5
 
 // GRANT_SIZE_BASE and GRANT_SIZE_RANK are the grant table, spelled as the two ladders it
 // is built from: a cell grants `base[size] + rank[size] x tier_index`, so tier buys more in

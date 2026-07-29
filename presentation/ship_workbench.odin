@@ -8,9 +8,13 @@ import cutaway "./cutaway"
 import sim "../core/sim"
 import rl "vendor:raylib"
 
-// The hull workbench: `game.exe --workbench`. A fourth entry beside --capture and the player
-// session, and the answer to a fair question — whether there is a better way to model this ship
-// than editing a number, rebuilding, taking a screenshot and looking at it.
+// The hull workbench: `game.exe --workbench`. An entry beside --capture, --hull-sheet and the
+// player session, and the answer to a fair question — whether there is a better way to model this
+// ship than editing a number, rebuilding, taking a screenshot and looking at it.
+//
+// It is the one you *steer*, which is what separates it from the contact sheet (hull_sheet.odin):
+// the sheet finds the surface that is wrong from six fixed eyes in one PNG, and this is where you
+// go to see why.
 //
 // There is, and it is this. Every hard defect on the ship screen so far has been a *diagnostic*
 // failure rather than an expressive one: the loft could always describe a fine bow, but nothing
@@ -116,8 +120,7 @@ workbench_main :: proc() {
 
 	// Left as the game leaves them, so nothing this tool did outlives it.
 	cutaway.galleon_loft = cutaway.GALLEON_LOFT
-	ship_debug_normals = false
-	ship_debug_wires = false
+	ship_debug_paint = .Shaded
 }
 
 // workbench_knobs spells the panel: the camera first, because flying round her is what answers
@@ -155,10 +158,10 @@ workbench_knobs :: proc(w: ^Workbench) {
 @(private)
 workbench_keys :: proc(w: ^Workbench) {
 	if rl.IsKeyPressed(.N) {
-		ship_debug_normals = !ship_debug_normals
+		ship_debug_paint = workbench_paint(ship_debug_paint, .Normals)
 	}
 	if rl.IsKeyPressed(.M) {
-		ship_debug_wires = !ship_debug_wires
+		ship_debug_paint = workbench_paint(ship_debug_paint, .Wires)
 	}
 	if rl.IsKeyPressed(.TAB) {
 		w.panel = !w.panel
@@ -178,6 +181,14 @@ workbench_keys :: proc(w: ^Workbench) {
 	if scroll := rl.GetMouseWheelMove(); scroll != 0 {
 		w.eye.dist = clamp(w.eye.dist - scroll * 0.4, 2, 22)
 	}
+}
+
+// workbench_paint is the mode a view key asks for: the one it names, or back to the shipped
+// shading when that mode is the one already in force. Pressing a diagnosis off has to land
+// somewhere, and the shipped paint is the only view that is not a question.
+@(private)
+workbench_paint :: proc(current, asked: Ship_Paint) -> Ship_Paint {
+	return current == asked ? .Shaded : asked
 }
 
 // workbench_panel draws the controls and reads the mouse. Immediate mode throughout: a slider
@@ -236,11 +247,7 @@ workbench_panel :: proc(w: ^Workbench) {
 	}
 
 	y += 8
-	views := fmt.tprintf(
-		"N normals %s    M wires %s",
-		ship_debug_normals ? "on" : "off",
-		ship_debug_wires ? "on" : "off",
-	)
+	views := fmt.tprintf("N normals    M wires    painting %s", ship_debug_paint_name(ship_debug_paint))
 	workbench_text(views, panel.x + 10, y, COLOUR_SEA_SHALLOW)
 	workbench_text("R reset    C copy Loft as Odin    Tab hide", panel.x + 10, y + 18, COLOUR_FOAM)
 	if w.copied > 0 {

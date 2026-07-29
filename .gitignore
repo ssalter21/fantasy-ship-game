@@ -1,6 +1,8 @@
 # Claude Code
 .claude/worktrees/
 .claude/settings.local.json
+.claude/commands/
+.claude/skills/audit/
 
 # OS
 .DS_Store
@@ -18,6 +20,9 @@ Thumbs.db
 node_modules/
 dist/
 build/
+
+# Python bytecode — importing scripts/shot.py rather than running it leaves this behind
+__pycache__/
 
 # Capture output — regenerable with `odin run cmd/game -- --capture`
 docs/ui/shots/

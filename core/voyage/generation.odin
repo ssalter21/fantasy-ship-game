@@ -383,7 +383,8 @@ voyage_bake_stage :: proc(spec: Stage_Spec, site: Scaling_Site, gen: rand.Genera
 
 	switch spec.kind {
 	case .Fight:
-		return Stage_Fight{opponent = voyage_pve_opponent(site, gen)}
+		opponent, archetype := voyage_pve_opponent(site, gen)
+		return Stage_Fight{opponent = opponent, archetype = archetype}
 	case .Offer:
 		return Stage_Offer{options = voyage_item_offer_options(site, gen)}
 	case .Trade:

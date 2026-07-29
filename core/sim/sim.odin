@@ -291,10 +291,15 @@ Event_Arrived_At_Node :: struct {
 }
 
 // Event_Ship_Battle_Sighted is dispatched once, when a Ship Battle starts: the opponent's full
-// ship data. The UI reads each slot's base visibility itself when rendering it
-// (see Event_Voyage_Started for why Sim doesn't gate this).
+// ship data, and the name of the roster entry it was built from
+// (voyage.Hostile_Archetype.name). The UI reads each slot's base visibility itself when
+// rendering it (see Event_Voyage_Started for why Sim doesn't gate this).
+//
+// `archetype` points at authored static data rather than the Sim's run arena, so unlike the
+// rest of this event it stays readable after the Sim it came from is destroyed.
 Event_Ship_Battle_Sighted :: struct {
-	opponent: ship.Ship,
+	opponent:  ship.Ship,
+	archetype: string,
 }
 
 // Event_Battle_Menu is dispatched every time a battle command decision is about to be asked

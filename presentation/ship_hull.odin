@@ -148,7 +148,10 @@ hull_bulwark_t :: proc(x: f32) -> f32 {
 // bottom a dark olive wedge beside bright turquoise: it read as a hole in her side rather than
 // as copper seen through a fathom of clear water.
 hull_water :: proc(lit: rl.Color, y: f32) -> rl.Color {
-	if y >= 0 {
+	// Under normal paint the colour *is* the reading, so nothing is laid over it. Tinting toward
+	// the sea and darkening on depth would leave the whole submerged skin two shades of one mud —
+	// and the eye standing under her keel sees nothing but submerged skin.
+	if y >= 0 || ship_debug_paint == .Normals {
 		return lit
 	}
 	depth := min(-y / HULL_TINT_SPAN, 1)

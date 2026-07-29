@@ -38,7 +38,7 @@ odin build cmd/game        # under a second; produces ./game.exe
 odin build cmd/headless
 
 foreach ($pkg in 'core/combat','core/voyage','core/ship','core/sim','presentation','presentation/cutaway','cmd/headless') { odin test $pkg }
-# 405 core (54+131+140+80), 92 presentation, 11 presentation/cutaway, 1 cmd/headless — same list CI runs
+# 405 core (54+131+140+80), 105 presentation, 17 presentation/cutaway, 1 cmd/headless — same list CI runs
 ```
 
 There is **no wildcard**: `odin test core/...` is a syntax error ("Empty directory that contains no .odin
@@ -87,9 +87,11 @@ The two lists are the two ways a screen is reached, and they cost differently:
   carrying that name and **stops there** — so `--shot travel` is instant, `--shot battle` is about five seconds,
   and neither pays for the rest of the walk.
 
-`refit` and `ended` are nameable but off this walk's route: the scripted player declines everything, so it never
-opens a Refit, and the session returns on the voyage-ended event before an Ended screen is ever a decision.
-Asking for either sails the whole voyage and then says so, exiting 1 — it does not invent a file.
+Every voyage screen is on this walk's route, `refit` and `ended` included: the scripted player takes Offers and
+buys from Shops, so a Refit opens and `--shot refit` stops at the first one like any other voyage screen. `ended`
+is the one exception to stopping early — it is a screen but never a decision (`run_session` returns on the
+voyage-ended event), so the walk shoots it *after* the session returns and asking for it sails the whole voyage.
+A screen the route never met still says so and exits 1 — it does not invent a file.
 
 **A state is a line in that table, not a source edit.** Each entry pairs a name with a `stage` (builds the
 world it draws from — a ship, a ticked Sim — and runs once) and a `frame` (composes one frame, and runs
@@ -135,6 +137,49 @@ Get-ChildItem -Filter '??-*.png' | Remove-Item        # repo root, not docs/ui/s
 
 If you do run the full walk, use **PowerShell**, not the Bash tool: backgrounding with `&` there blocks the
 tool until the walk finishes anyway.
+
+## The hull contact sheet: the whole ship in one Read
+
+```bash
+odin run cmd/game -- --hull-sheet
+```
+
+**Reach for this before reasoning about the hull's geometry by text.** One PNG, a few seconds, no mouse and no
+keyboard: `docs/ui/shots/hull-sheet.png`, eighteen tiles of the galleon — six named eyes (**bow, stern, beam,
+quarter, above, below**) across each of three rows, one row per paint mode (**shaded, normal paint,
+wireframe**). Every tile is captioned with both. Two runs write byte-identical pixels, so it diffs like any
+other shot. A run that cannot write it says so and exits 1 without naming a file it didn't write — the previous
+sheet is still sitting there, so check the exit code, not the file's presence.
+
+It is also a **shot-manifest entry** (below), so you don't have to think of running this to find out the hull
+moved: `python scripts/shot.py check` re-renders the sheet and names it. Reach for `--hull-sheet` directly when
+you want to *look*; the check only tells you there is something to look at.
+
+Read it **in pairs across a row**: bow against stern, beam against quarter, above against below. A face that is
+solid from one eye and missing from its opposite is a winding, and nothing else looks like that — which is the
+whole answer to *silent culling* below, invisible in a resting shot from the shipped quarter.
+
+Then read it **down a column**, which is what the rows are for — the same eye in three paints:
+
+- **Shaded** is the screen the game draws. A face turned the wrong way is invisible here, not subtle: every
+  surface is lit from whichever side the eye is on, so a reversed one paints the *identical* colour. Turn every
+  deckhouse roof on the ship upside down and this row does not change by a single pixel.
+- **Normal paint** is where that face is the wrong colour outright — +x red, +y green, +z blue, negatives dark,
+  and unlike the shaded row it keeps each surface's own normal rather than turning it to the eye. A deck that
+  reads dark green is pointing down. The sea tint and the inboard dusk are off in this row, so a colour means
+  one thing: her submerged bottom and the inside of a hold are readable, not two shades of mud. Her **canvas
+  and spars are not** — `ship_quad_cloth` lights a sail from both faces on purpose and a spar carries a fixed
+  normal, so the rig answers the wireframe row, not this one.
+- **Wireframe** is the loft's resolution, a quad gone degenerate, and daylight between two pieces that should
+  meet.
+
+The five moved eyes are `cutaway.GALLEON_EYE` swung, through the same `galleon_view_from` the workbench flies
+(`quarter` **is** the shipped framing, so the other five read against the screen the game actually draws). The
+sheet has no framing of its own to tune and must not grow one — a test asserts every eye keeps the shipped
+lens, the shipped standoff and the shipped target height.
+
+For *why* a surface looks wrong once the sheet says which one it is, go to the workbench below: the sheet takes
+the three paints from six fixed eyes, and the workbench is where you steer one.
 
 ## Look every time — then check the numbers
 
@@ -210,17 +255,17 @@ Sizes must match; a mismatch is reported with both dimensions rather than silent
 
 ## Which screens did this change move?
 
-A change to shared chrome alters every screen that draws it, and the source diff doesn't say which.
-`docs/ui/shot-manifest.txt` is a committed hash per named shot, and the check names the screens that
-moved:
+A change to shared chrome alters every screen that draws it — and a change to a loft curve moves the
+ship screen — and the source diff doesn't say which. `docs/ui/shot-manifest.txt` is a committed hash
+per named shot, and the check names the ones that moved:
 
 ```bash
 python scripts/shot.py check      # re-render the named shots, report what moved, exit 1 if any did
 python scripts/shot.py accept     # record the current shots as intended
 ```
 
-`check` rebuilds `game.exe`, renders the whole registry with `--shots` and compares. The report is
-screen names, never file numbers:
+`check` rebuilds `game.exe`, renders the whole registry with `--shots` and the hull contact sheet
+with `--hull-sheet`, and compares. The report is screen names, never file numbers:
 
 ```
 9 of 18 shots moved:
@@ -248,10 +293,10 @@ the screens that moved but cannot show you a frame it has already replaced.
 
 Two limits worth knowing before you trust a result:
 
-- **The registry's shots only.** The voyage screens are askable for by name, but they are reached by
-  walking and numbered by position — the churn the manifest exists to avoid — so `travel`, `trade` and
-  `battle` sit outside the check until they become registry entries. Shoot one and look at it; the
-  check will not tell you it moved.
+- **The registry's shots, plus `hull-sheet`.** The voyage screens are askable for by name, but they
+  are reached by walking and numbered by position — the churn the manifest exists to avoid — so
+  `travel`, `trade` and `battle` sit outside the check until they become registry entries. Shoot one
+  and look at it; the check will not tell you it moved.
 - **One machine.** The hashes are the pixels one GPU and driver produced. A wholesale mismatch after
   switching machines is not a design change; re-`accept` there.
 
@@ -259,9 +304,28 @@ The hash is over **decoded RGB pixels**, not the PNG, so it moves when the scree
 the encoder or the file's timestamp does. It is keyed by name and sorted by name, so adding a shot
 adds one line rather than renumbering the file.
 
-**This is an instrument for 2D chrome.** Geometry bugs on the 3D ship screen are invisible rather than small,
-and magnifying a correctly-drawn but wrong-facing surface tells you nothing. The workbench's normal paint and
-wireframe views are what serve those (below).
+### The hull is in the check too — what that does and doesn't buy you
+
+`hull-sheet` is an entry like any other, so **a change to a loft curve or to the hull painter names
+itself**: `check` re-renders the sheet, reports `hull-sheet` moved and exits 1, and `accept` records
+it. Two runs of `--hull-sheet` write byte-identical pixels, which is what makes that hash mean
+something. What it covers, and what it still cannot say:
+
+- **It covers the whole hull, not one angle of it.** The entry is every tile at once, so a face
+  missing from one of the six eyes moves the hash even though the shipped quarter looks fine. That
+  narrows the *silent culling* blind spot below: finding a winding still takes reading the sheet,
+  but noticing there is one to find no longer takes someone thinking to run `--hull-sheet` at all.
+- **It says the hull moved. It never says it moved for the better.** True of every entry, but worth
+  saying twice here — a hull is a shape, and "moved" covers the fix and the regression equally. The
+  sheet is a PNG sitting in `docs/ui/shots/` after the check; **open it before you accept.**
+- **It does not aim you at the surface.** A moved hash names the sheet, not the tile. Read the sheet
+  in pairs across a row and down its columns (above), then take the workbench to whatever that
+  points at — magnifying a correctly-drawn but wrong-facing surface still tells you nothing.
+- **It sees only what the sheet photographs.** Six fixed eyes, three paints, one staged ship, no
+  cursor and no drag. A defect that shows only from a seventh angle, or only under the fullscreen
+  blit, is outside it.
+- **One machine, more so.** The 2D shots' driver caveat applies harder to a 3D render: re-`accept`
+  the sheet after switching machines rather than reading the mismatch as a design change.
 
 ## Context budget: look every iteration, scout the source
 
@@ -309,6 +373,10 @@ Capture is the fast path, not the whole picture. Three blind spots, all real:
   real window (below).
 - **Silent culling.** A wrongly-wound `rl.DrawTriangle` draws *nothing* rather than something wrong, so a
   resting shot looks fine and the bug ships. If a shape is missing, suspect winding before you suspect colour.
+  One shot of the ship screen cannot show this at all — `--hull-sheet` (above) is the entry that can, because a
+  face missing from one eye and solid from its opposite is a winding by construction. The manifest check
+  re-renders that sheet, so a winding you open today is named by `check` rather than left for whoever next
+  thinks to look; reading the sheet is still what tells you which face it was.
 - **Anything the fullscreen blit does.** The player session composes into a render texture and blits it;
   `--capture` draws at logical size with no texture in the path. A whole class of bug lives only in the real
   window — see the style guide's "A render texture loses alpha". Measure translucency there, never in a shot.
@@ -319,24 +387,29 @@ Capture is the fast path, not the whole picture. Three blind spots, all real:
 odin run cmd/game -- --workbench
 ```
 
-The ship screen has a fourth entry beside `--capture` and the session, and **use it before editing any number
-in `cutaway/galleon.odin`**. It draws the real `draw_ship_cutaway` into the real logical frame with a control
-panel over it:
+An interactive entry beside `--capture`, `--hull-sheet` and the session, and **use it before editing any number
+in `cutaway/galleon.odin`**. Where the sheet is one look at six fixed eyes, this is the one you steer — reach
+for it once the sheet has said *which* surface is wrong. It draws the real `draw_ship_cutaway` into the real
+logical frame with a control panel over it:
 
 - **Every curve in the loft is a slider** — keel camber, sheer, the entry, the run, the wale, tumblehome. The
   ship redraws under the mouse. `C` copies the tuned `GALLEON_LOFT` to the clipboard as Odin to paste back;
   the tool never writes to the repo. `R` returns to the shipped hull and the shipped framing.
 - **`N` paints by normal** — +x red, +y green, +z blue, negatives dark. Turn this on *first* when a surface
-  looks merely dull. Every hard bug on this screen has been a face pointing the wrong way, and in normal paint
-  that looks like a slightly-off shade; here it is the wrong colour outright.
+  looks merely dull. Every hard bug on this screen has been a face pointing the wrong way, and shaded that is
+  a slightly-off shade at best and nothing at all at worst; here it is the wrong colour outright.
 - **`M` is wireframe** — the loft's resolution, degenerate quads, and daylight between two pieces that should
   meet. (rlgl batches geometry, so wire mode needs `DrawRenderBatchActive` either side of it or it lands on
   whatever was in flight. `draw_ship_cutaway` does that.)
+- The two are **one mode, not two flags** (`Ship_Paint`, `presentation/ship_debug.odin`): each key presses its
+  paint on, and presses it off back to the shipped shading. The mode is state on the drawing path rather than a
+  key toggle, which is what lets the contact sheet photograph all three without a keyboard.
 - **The camera flies** — yaw, distance, height, look and fov, plus the wheel to dolly. This is the one that
   answers *is this thing actually solid*: orbit and a room standing through the planking is obvious.
 
-The shipped framing is not tunable and must not become so: `galleon_view` builds from the five constants and
-`galleon_view_from` exists only for this tool. A test asserts the two agree.
+The shipped framing is not tunable and must not become so: `galleon_view` builds from the five constants, and
+`galleon_view_from` exists for the two things that move an eye off them — this tool's sliders and the contact
+sheet's six. A test asserts `galleon_view` and `galleon_view_from(GALLEON_EYE, …)` agree.
 
 Why it is not in the Forge: **the Forge never imports `presentation/`**, in writing, and everything that paints
 this hull lives there. Moving it needs the galleon's painter and the palette extracted into shared packages.
@@ -406,7 +479,8 @@ synthetic mouse above. `WaitForExit` then tells you whether it stopped.
 - There is no `cmd/capture`: capture lives in the presentation package beside the private `draw_scene`,
   `Game_State` and `dispatch` it photographs, and `cmd/game` enters it behind `--capture` and `--shot`
   (ADR-0003 argues against linking the renderer into `cmd/headless`, not against this).
-- The scripted walk declines everything, so it reaches *a* screen of most kinds and never opens a Refit at all.
+- The scripted walk plays the voyage by the stated rules in `core/sim/scripted_player.odin`, so it reaches *a*
+  screen of every kind its route presents.
   `--shot` names a screen, not an occasion: a voyage name means the *first* screen of that phase on the route,
   so "the trade screen" is askable for and "the trade screen at the third Deep node" is not.
 - **A targeted walk stops from inside the driver, not with an `os.exit`.** `Input_Source.should_stop` is an
