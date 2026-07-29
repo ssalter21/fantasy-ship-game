@@ -55,7 +55,7 @@ UI_FRAME_BUTTON := Ui_Frame {
 // the frame as authored — a call site that wants a frame dimmed passes a shade of white
 // rather than a second sprite.
 ui_nine_slice :: proc(frame: Ui_Frame, rect: rl.Rectangle, state := 0, tint := rl.WHITE) {
-	if frame.texture.id == 0 {
+	if !ui_drawable() || frame.texture.id == 0 {
 		// No window, so no atlas: under `odin test` and before art_load every texture is the
 		// zero value, and blitting one draws a white box over whatever is there.
 		return
