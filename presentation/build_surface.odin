@@ -422,133 +422,33 @@ draw_build_hull :: proc(region: cutaway.Region) {
 // mislaid in the corner. The guide's first hierarchy level is a heading at the display size,
 // cream where it is placed over the sea, which is exactly where this one is.
 draw_build_heading :: proc(title: string) {
-	rl.DrawTextEx(ui_font_title, fmt.ctprintf("%s", title), rl.Vector2{45, BUILD_HEADING_Y}, UI_TITLE_SIZE, 1, COLOUR_CREAM)
+	ui_heading({45, BUILD_HEADING_Y, WINDOW_WIDTH - 90, UI_TITLE_SIZE}, title, .Title, .Water)
 }
 
-// draw_build_card draws one slot: a filled fitting (steel-bordered, draggable), a bare
-// hold (quieter recessive-blue border), or an empty slot (dashed steel outline). A legal
-// berth for the current drag lights cyan; an illegal one while a drag is up is dimmed, so
-// the surface points at where a fitting can go (#302).
-draw_build_card :: proc(rect: rl.Rectangle, layout_slot: ship.Layout_Slot, dim: bool, legal: bool) {
-	fitting, has_fitting := layout_slot.fitting.?
-	is_hold := has_fitting && ship.ship_fitting_is_hold(fitting)
-
-	// The card's role decides its border tone: steel for an interactive fitting, recessive
-	// blue for inert cargo, dashed steel for an empty berth (framing: a 2px role border over
-	// a translucent ground, never a filled box).
-	if !has_fitting {
-		draw_build_dashed_rect(rect, legal ? COLOUR_CYAN : COLOUR_STEEL)
-	} else {
-		rl.DrawRectangleRec(rect, rl.Fade(COLOUR_GROUND, 0.55))
-		border := is_hold ? COLOUR_BLUE_RECESSIVE : COLOUR_STEEL
-		if legal {
-			border = COLOUR_CYAN
-		}
-		rl.DrawRectangleLinesEx(rect, 2, border)
-	}
-	if legal {
-		rl.DrawRectangleRec(rect, rl.Fade(COLOUR_CYAN, 0.12))
-	}
-
-	x := rect.x + 12
-	// Name (cream), or the empty-slot note (dim steel, ADR-0004's size spelled out).
-	if !has_fitting {
-		rl.DrawTextEx(
-			ui_font_body,
-			fmt.ctprintf("(empty %v)", layout_slot.slot.size),
-			rl.Vector2{x, rect.y + 10},
-			UI_BODY_SIZE,
-			1,
-			rl.Fade(COLOUR_STEEL, 0.6),
-		)
-	} else {
-		name_tone := is_hold ? rl.Fade(COLOUR_CREAM, 0.75) : COLOUR_CREAM
-		rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", fitting.name), rl.Vector2{x, rect.y + 10}, UI_BODY_SIZE, 1, name_tone)
-
-		if is_hold {
-			rl.DrawTextEx(
-				ui_font_body,
-				fmt.ctprintf("holds %d", fitting.cargo_held),
-				rl.Vector2{x, rect.y + 38},
-				UI_BODY_SIZE,
-				1,
-				COLOUR_STEEL,
-			)
-		} else {
-			// Phase is a steel chip (no new hue — the guide is silent on category colour
-			// and #302 keeps it that way), the effect intent steel beside/under it.
-			chip_w := draw_build_phase_chip(rl.Vector2{x, rect.y + 36}, fitting_phase_label(fitting))
-			rl.DrawTextEx(
-				ui_font_body,
-				fmt.ctprintf("%s", fitting_effect_intent(fitting)),
-				rl.Vector2{x + chip_w + 8, rect.y + 38},
-				UI_BODY_SIZE,
-				1,
-				COLOUR_STEEL,
-			)
-		}
-	}
-
-	// The slot's name and size, recessive — present, never read first.
-	rl.DrawTextEx(
-		ui_font_body,
-		fmt.ctprintf("%s %v", layout_slot.slot.name, layout_slot.slot.size),
-		rl.Vector2{x, rect.y + rect.height - 26},
-		UI_BODY_SIZE,
-		1,
-		COLOUR_BLUE_RECESSIVE,
-	)
-
-	if dim {
-		rl.DrawRectangleRec(rect, rl.Fade(COLOUR_VIGNETTE, 0.55))
-	}
+// draw_fitting_card lays down the paper a fitting is written up on. A ui_card carries the
+// parchment, the border and — at Floating — the cast shadow, so this is now only the choice
+// of elevation: a card at rest sits on the surface, a card in hand is off it. The berth cards
+// (draw_ship_slot_card) are the same object drawn the same way; keep the two in step.
+draw_fitting_card :: proc(rect: rl.Rectangle, elevation := Ui_Elevation.Flush) {
+	ui_card(rect, .Primary, elevation)
 }
 
-// draw_build_phase_chip draws the phase chip — a steel-outlined tag, no fill, no new hue —
-// and returns its width so the effect intent can sit beside it. Takes the label rather than
-// a phase because an item may feed both (fitting_phase_label).
-draw_build_phase_chip :: proc(pos: rl.Vector2, phases: string) -> f32 {
-	label := fmt.ctprintf("%s", phases)
-	text_w := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1).x
-	chip := rl.Rectangle{x = pos.x, y = pos.y, width = text_w + 12, height = 24}
-	rl.DrawRectangleLinesEx(chip, 1, rl.Fade(COLOUR_STEEL, 0.8))
-	rl.DrawTextEx(ui_font_body, label, rl.Vector2{pos.x + 6, pos.y + 2}, UI_BODY_SIZE, 1, COLOUR_STEEL)
-	return chip.width
-}
+// BUILD_CARD_INSET is the margin a card's writing keeps off its own edge, and BUILD_CARD_ROW
+// the step between its lines — both off the named scale, so the shelf, the ghost and the
+// berth cards share one rhythm rather than three copies of the same numbers.
+BUILD_CARD_INSET :: Ui_Space.Base
+BUILD_CARD_ROW :: Ui_Space.Loose
 
-// draw_build_dashed_rect outlines an empty slot in dashes — raylib has no dash pattern, so
-// the border is drawn as segments, the same technique as the Chart Table's route.
-draw_build_dashed_rect :: proc(rect: rl.Rectangle, colour: rl.Color) {
-	corners := [4]rl.Vector2 {
-		{rect.x, rect.y},
-		{rect.x + rect.width, rect.y},
-		{rect.x + rect.width, rect.y + rect.height},
-		{rect.x, rect.y + rect.height},
+// build_card_row is where one of a card's lines runs: the full inset width, stepped down by
+// the scale. One derivation, so a card's lines cannot disagree about its margins.
+build_card_row :: proc(rect: rl.Rectangle, row: int) -> rl.Rectangle {
+	inset := ui_space(BUILD_CARD_INSET)
+	return rl.Rectangle {
+		x = rect.x + inset,
+		y = rect.y + inset - ui_space(.Hair) + f32(row) * ui_space(BUILD_CARD_ROW),
+		width = rect.width - 2 * inset,
+		height = UI_BODY_SIZE,
 	}
-	DASH :: 8
-	tint := rl.Fade(colour, 0.7)
-	for i in 0 ..< 4 {
-		a, b := corners[i], corners[(i + 1) % 4]
-		span := rl.Vector2Distance(a, b)
-		steps := max(1, int(span / DASH))
-		for s in 0 ..< steps {
-			if s % 2 == 1 {
-				continue
-			}
-			t0 := f32(s) / f32(steps)
-			t1 := f32(s + 1) / f32(steps)
-			rl.DrawLineEx(linalg.lerp(a, b, t0), linalg.lerp(a, b, t1), 2, tint)
-		}
-	}
-}
-
-// draw_fitting_card lays down the paper a fitting is written up on: parchment under the
-// sea-deep border that marks anything on this surface you can operate. `alpha` fades the
-// ground for a card in flight. The berth cards (draw_ship_slot_card) are the same object drawn
-// the same way; keep the three in step.
-draw_fitting_card :: proc(rect: rl.Rectangle, alpha: f32 = 1) {
-	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, alpha))
-	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
 }
 
 // draw_build_shelf draws a granted item at rest. Nothing about the card singles it out — no
@@ -558,18 +458,17 @@ draw_fitting_card :: proc(rect: rl.Rectangle, alpha: f32 = 1) {
 draw_build_shelf :: proc(incoming: ship.Fitting) {
 	rect := build_shelf_rect(incoming)
 	draw_fitting_card(rect)
-	x := rect.x + 12
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", incoming.name), rl.Vector2{x, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
+
 	spec, intent := fitting_summary_lines(incoming)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", spec), rl.Vector2{x, rect.y + 38}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", intent), rl.Vector2{x, rect.y + 62}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
-	rl.DrawTextEx(
-		ui_font_body,
+	for text, row in ([?]string{incoming.name, spec, intent}) {
+		ui_text(build_card_row(rect, row), text, .Body, .Parchment)
+	}
+
+	ui_text(
+		{rect.x, rect.y + rect.height + ui_space(.Hair), rect.width, UI_BODY_SIZE},
 		"drag me to a berth",
-		rl.Vector2{rect.x, rect.y + rect.height + 6},
-		UI_BODY_SIZE,
-		1,
-		COLOUR_CREAM_BRIGHT,
+		.Body,
+		.Water,
 	)
 }
 
@@ -580,9 +479,12 @@ draw_build_shelf :: proc(incoming: ship.Fitting) {
 draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
 	w, h := cutaway.cutaway_card_dims(fitting.size)
 	rect := rl.Rectangle{x = mouse.x - w / 2, y = mouse.y - h / 2, width = w, height = h}
-	draw_fitting_card(rect, 0.85)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%s", fitting.name), rl.Vector2{rect.x + 12, rect.y + 10}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
-	rl.DrawTextEx(ui_font_body, fmt.ctprintf("%v", fitting.size), rl.Vector2{rect.x + 12, rect.y + 38}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
+	// Floating rather than faded: a card in hand is one that has been lifted *off* the
+	// surface, and over a bright sea translucency costs it its own ground (ADR-0032). The
+	// shadow says lifted; following the cursor says in hand.
+	draw_fitting_card(rect, .Floating)
+	ui_text(build_card_row(rect, 0), fitting.name, .Body, .Parchment)
+	ui_text(build_card_row(rect, 1), fmt.tprintf("%v", fitting.size), .Body, .Parchment, .Secondary)
 }
 
 // draw_build_ledger is the stats strip along the bottom, always visible: the shared
@@ -596,24 +498,22 @@ draw_build_ghost :: proc(fitting: ship.Fitting, mouse: rl.Vector2) {
 // ledger is both what the burn costs and where it is paid.
 draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool = false) {
 	panel := build_ledger_rect()
-	rl.DrawRectangleRec(panel, rl.Fade(COLOUR_PARCHMENT, 0.94))
-	rl.DrawRectangleLinesEx(panel, 2, armed ? BUILD_DANGER : COLOUR_CLIFF)
+	ui_panel(panel, .Flush)
 	baseline := panel.y + (BUILD_LEDGER_H - UI_BODY_SIZE) / 2
 
 	// Armed, the bar stops being a readout and becomes a target. The stats give way to the one
 	// instruction, centred: a cargo is already in the air, and what the captain needs off this
 	// strip at that moment is what a release here would cost, not her weight.
 	if armed {
-		rl.DrawRectangleRec(panel, rl.Fade(BUILD_DANGER, hovered ? 0.35 : 0.15))
-		hint := fmt.ctprint("drop to burn this cargo")
-		size := rl.MeasureTextEx(ui_font_body, hint, UI_BODY_SIZE, 1)
-		rl.DrawTextEx(
-			ui_font_body,
-			hint,
-			rl.Vector2{panel.x + (panel.width - size.x) / 2, baseline},
-			UI_BODY_SIZE,
-			1,
-			COLOUR_INK_PRIMARY,
+		ui_alarm(panel, hovered)
+		// Left, where the stats read from — not centred. The card in hand is opaque and centred
+		// on the cursor, and a cursor over this strip is a cursor over its middle, so a centred
+		// instruction is an instruction under the very thing it is instructing about.
+		ui_text(
+			{panel.x + ui_space(BUILD_CARD_INSET), baseline, panel.width, UI_BODY_SIZE},
+			"drop to burn this cargo",
+			.Body,
+			.Parchment,
 		)
 		return
 	}
@@ -632,36 +532,27 @@ draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool
 	// both. Measured columns give the row one rhythm, and each rule falls midway between the two
 	// terms it divides.
 	fields := ship_stat_fields(s = &state.player, weight = true)
-	INSET :: f32(14)
+	inset := ui_space(BUILD_CARD_INSET)
 	widths := make([]f32, len(fields), context.temp_allocator)
 	packed := f32(0)
 	for field, i in fields {
-		widths[i] = rl.MeasureTextEx(ui_font_body, fmt.ctprintf("%s %s", field.label, field.value), UI_BODY_SIZE, 1).x
+		widths[i] = ui_text_size(fmt.tprintf("%s %s", field.label, field.value), .Body).x
 		packed += widths[i]
 	}
-	gutter := (panel.width - INSET * 2 - packed) / f32(max(len(fields) - 1, 1))
-	x := panel.x + INSET
+	gutter := (panel.width - inset * 2 - packed) / f32(max(len(fields) - 1, 1))
+	x := panel.x + inset
 	for field, i in fields {
 		if i > 0 {
-			rl.DrawRectangleRec({x - gutter / 2, panel.y + 8, 1, BUILD_LEDGER_H - 16}, COLOUR_CLIFF)
+			ui_divider(
+				{x - gutter / 2, panel.y + ui_space(.Snug), UI_WEIGHT_PX[.Hair], BUILD_LEDGER_H - 2 * ui_space(.Snug)},
+				.Hair,
+				.Parchment,
+			)
 		}
-		gap := rl.MeasureTextEx(ui_font_body, fmt.ctprintf("%s ", field.label), UI_BODY_SIZE, 1).x
-		rl.DrawTextEx(
-			ui_font_body,
-			fmt.ctprintf("%s", field.label),
-			rl.Vector2{x, baseline},
-			UI_BODY_SIZE,
-			1,
-			COLOUR_INK_MUTED,
-		)
-		rl.DrawTextEx(
-			ui_font_body,
-			fmt.ctprintf("%s", field.value),
-			rl.Vector2{x + gap, baseline},
-			UI_BODY_SIZE,
-			1,
-			COLOUR_INK_PRIMARY,
-		)
+		gap := ui_text_size(fmt.tprintf("%s ", field.label), .Body).x
+		row := rl.Rectangle{x, baseline, widths[i], UI_BODY_SIZE}
+		ui_text(row, field.label, .Body, .Parchment, .Secondary)
+		ui_text({row.x + gap, row.y, row.width - gap, row.height}, field.value, .Body, .Parchment)
 		x += widths[i] + gutter
 	}
 }
@@ -670,17 +561,7 @@ draw_build_ledger :: proc(state: ^Game_State, armed: bool = false, hovered: bool
 // ground lifting on hover (hover is carried by the ground, never by a change of colour).
 draw_build_done :: proc(mouse: rl.Vector2) {
 	rect := build_done_rect()
-	hovered := rl.CheckCollisionPointRec(mouse, rect)
-	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, hovered ? 1.0 : 0.88))
-	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
-	rl.DrawTextEx(
-		ui_font_body,
-		"Done",
-		rl.Vector2{rect.x + 44, rect.y + (rect.height - UI_BODY_SIZE) / 2},
-		UI_BODY_SIZE,
-		1,
-		COLOUR_INK_PRIMARY,
-	)
+	ui_button(rect, "Done", rl.CheckCollisionPointRec(mouse, rect) ? .Hover : .Rest)
 }
 
 // draw_build_discard_zone draws the "this thing leaves the ship" target, only while a drag is
@@ -689,11 +570,10 @@ draw_build_done :: proc(mouse: rl.Vector2) {
 // which is the ledger's drop, so the two destructive targets never share a name.
 draw_build_discard_zone :: proc(hovered: bool) {
 	rect := build_discard_rect()
-	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, 0.92))
-	rl.DrawRectangleRec(rect, rl.Fade(BUILD_DANGER, hovered ? 0.4 : 0.2))
-	rl.DrawRectangleLinesEx(rect, 2, BUILD_DANGER)
-	rl.DrawTextEx(ui_font_body, "Over the Side", rl.Vector2{rect.x + 14, rect.y + 12}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
-	rl.DrawTextEx(ui_font_body, "drag off to bin", rl.Vector2{rect.x + 14, rect.y + 40}, UI_BODY_SIZE, 1, COLOUR_INK_MUTED)
+	ui_card(rect, .Primary, .Flush)
+	ui_alarm(rect, hovered)
+	ui_text(build_card_row(rect, 0), "Over the Side", .Body, .Parchment)
+	ui_text(build_card_row(rect, 1), "drag off to bin", .Body, .Parchment, .Secondary)
 }
 
 // draw_build_confirm draws the release-to-confirm gate: a scrim over the surface and one button
@@ -713,33 +593,31 @@ draw_build_confirm :: proc(state: ^Game_State, confirm: Build_Confirm, mouse: rl
 		cargo = fitting.cargo_held
 	}
 
-	prompt := fmt.ctprintf("Put %s over the side? There is no getting it back.", name)
-	label := fmt.ctprint("Over the side")
+	prompt := fmt.tprintf("Put %s over the side? There is no getting it back.", name)
+	label := "Over the side"
 	if confirm.burn {
 		// The berth, not the fitting: a bare hold is named "Cargo", so "the cargo in Cargo"
 		// says nothing, where the slot's name points at the card on screen.
-		prompt = fmt.ctprintf(
+		prompt = fmt.tprintf(
 			"Jettison the %d cargo in %s? That is score, gone for good.",
 			cargo,
 			state.player.layout[confirm.slot].slot.name,
 		)
-		label = fmt.ctprint("Jettison it")
+		label = "Jettison it"
 	}
-	size := rl.MeasureTextEx(ui_font_body, prompt, UI_BODY_SIZE, 1)
-	rl.DrawTextEx(ui_font_body, prompt, rl.Vector2{(WINDOW_WIDTH - size.x) / 2, 320}, UI_BODY_SIZE, 1, COLOUR_CREAM)
+	ui_text({0, 320, WINDOW_WIDTH, UI_BODY_SIZE}, prompt, .Body, .Water, .Primary, .Centre)
 
 	yes := build_confirm_yes_rect()
-	rl.DrawRectangleRec(yes, rl.Fade(COLOUR_PARCHMENT, 0.92))
-	rl.DrawRectangleRec(yes, rl.Fade(BUILD_DANGER, 0.3))
-	rl.DrawRectangleLinesEx(yes, 2, BUILD_DANGER)
-	rl.DrawTextEx(ui_font_body, label, rl.Vector2{yes.x + 16, yes.y + (yes.height - UI_BODY_SIZE) / 2}, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
-	rl.DrawTextEx(
-		ui_font_body,
+	ui_card(yes, .Primary, .Flush)
+	ui_alarm(yes, false)
+	ui_text(yes, label, .Body, .Parchment, .Primary, .Centre)
+	ui_text(
+		{0, yes.y + yes.height + ui_space(.Snug), WINDOW_WIDTH, UI_BODY_SIZE},
 		"click anywhere else to keep it",
-		rl.Vector2{(WINDOW_WIDTH - 260) / 2, yes.y + yes.height + 10},
-		UI_BODY_SIZE,
-		1,
-		COLOUR_CYAN_DIM,
+		.Body,
+		.Water,
+		.Muted,
+		.Centre,
 	)
 }
 
@@ -1033,41 +911,47 @@ draw_home :: proc(
 draw_home_chart_tab :: proc(raise: f32, mouse: rl.Vector2) {
 	rect := home_chart_tab_rect()
 	hovered := rl.CheckCollisionPointRec(mouse, rect)
-	rl.DrawRectangleRec(rect, rl.Fade(COLOUR_PARCHMENT, hovered ? 1.0 : 0.88))
-	rl.DrawRectangleLinesEx(rect, 2, COLOUR_SEA_DEEP)
 
 	// Past the midpoint the tab reads "Lower" and its caret points down; at rest raise is 0 or 1,
 	// so this tracks chart_target, and mid-flip it turns over as the chart crosses halfway.
 	chart_raised := raise >= 0.5
+	label := chart_raised ? "Lower" : "Chart"
 
-	label := chart_raised ? fmt.ctprint("Lower") : fmt.ctprint("Chart")
-	lsize := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1)
-	CARET := f32(16)
-	GAP := f32(6)
-	group_x := rect.x + (rect.width - (CARET + GAP + lsize.x)) / 2
-	caret_cx := group_x + CARET / 2
-	cy := rect.y + rect.height / 2
-	if chart_raised {
-		rl.DrawTriangle(
-			rl.Vector2{caret_cx - 7, cy - 4},
-			rl.Vector2{caret_cx, cy + 6},
-			rl.Vector2{caret_cx + 7, cy - 4},
-			COLOUR_INK_PRIMARY,
-		)
-	} else {
-		rl.DrawTriangle(
-			rl.Vector2{caret_cx - 7, cy + 4},
-			rl.Vector2{caret_cx + 7, cy + 4},
-			rl.Vector2{caret_cx, cy - 6},
-			COLOUR_INK_PRIMARY,
-		)
-	}
-	rl.DrawTextEx(
-		ui_font_body,
+	// The frame carries the ground and the hover; only the caret beside the label is this
+	// control's own, so the label is placed against the space the caret leaves rather than
+	// against the whole tab.
+	CARET :: Ui_Space.Wide
+	caret := ui_space(CARET)
+	gap := ui_space(.Hair) * 3
+	group := caret + gap + ui_text_size(label, .Body).x
+	group_x := rect.x + (rect.width - group) / 2
+
+	ui_button(rect, "", hovered ? .Hover : .Rest)
+	ui_text(
+		{group_x + caret + gap, rect.y, rect.width, rect.height},
 		label,
-		rl.Vector2{group_x + CARET + GAP, rect.y + (rect.height - UI_BODY_SIZE) / 2},
-		UI_BODY_SIZE,
-		1,
-		COLOUR_INK_PRIMARY,
+		.Body,
+		.Parchment,
 	)
+	draw_home_chart_caret({group_x, rect.y + (rect.height - caret) / 2, caret, caret}, chart_raised)
+}
+
+// draw_home_chart_caret points the tab's caret up to raise the chart or down to lower it.
+// ui_icon's caret points right — it is the marker in a menu row's margin — and this one turns
+// through a quarter, so the shape is wound here rather than growing a rotation axis on an icon
+// that has one job everywhere else.
+draw_home_chart_caret :: proc(rect: rl.Rectangle, chart_raised: bool) {
+	if !ui_drawable() {
+		return
+	}
+	box := ui_pixel_rect(rect)
+	cx := box.x + box.width / 2
+	tone := ui_ink(.Parchment, .Primary)
+	// Vertex order is raylib's counter-clockwise requirement — reverse it and the triangle is
+	// culled, drawing nothing at all.
+	if chart_raised {
+		rl.DrawTriangle({box.x, box.y}, {cx, box.y + box.height}, {box.x + box.width, box.y}, tone)
+	} else {
+		rl.DrawTriangle({box.x, box.y + box.height}, {box.x + box.width, box.y + box.height}, {cx, box.y}, tone)
+	}
 }

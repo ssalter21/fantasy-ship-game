@@ -2,6 +2,7 @@
 package presentation
 
 import "core:fmt"
+import "core:math/linalg"
 import combat "../core/combat"
 import cutaway "./cutaway"
 import ship "../core/ship"
@@ -600,4 +601,46 @@ draw_fight_damage_number :: proc(area_x: f32, damage: int) {
 	size := rl.MeasureTextEx(ui_font_title, text, UI_TITLE_SIZE, 1)
 	centre_x := region.x + region.w / 2
 	rl.DrawTextEx(ui_font_title, text, rl.Vector2{centre_x - size.x / 2, region.deck_y + 20}, UI_TITLE_SIZE, 1, stage_tint(.Fight))
+}
+
+// The phase chip and the dashed berth outline. Both live here because the Fight is the only
+// screen that draws them: they were the Build surface's until that surface's slot list was
+// replaced by the ship cutaway, and they moved with their last caller rather than staying
+// behind in a file that no longer uses them (#495).
+// draw_build_phase_chip draws the phase chip — a steel-outlined tag, no fill, no new hue —
+// and returns its width so the effect intent can sit beside it. Takes the label rather than
+// a phase because an item may feed both (fitting_phase_label).
+draw_build_phase_chip :: proc(pos: rl.Vector2, phases: string) -> f32 {
+	label := fmt.ctprintf("%s", phases)
+	text_w := rl.MeasureTextEx(ui_font_body, label, UI_BODY_SIZE, 1).x
+	chip := rl.Rectangle{x = pos.x, y = pos.y, width = text_w + 12, height = 24}
+	rl.DrawRectangleLinesEx(chip, 1, rl.Fade(COLOUR_STEEL, 0.8))
+	rl.DrawTextEx(ui_font_body, label, rl.Vector2{pos.x + 6, pos.y + 2}, UI_BODY_SIZE, 1, COLOUR_STEEL)
+	return chip.width
+}
+
+// draw_build_dashed_rect outlines an empty slot in dashes — raylib has no dash pattern, so
+// the border is drawn as segments, the same technique as the Chart Table's route.
+draw_build_dashed_rect :: proc(rect: rl.Rectangle, colour: rl.Color) {
+	corners := [4]rl.Vector2 {
+		{rect.x, rect.y},
+		{rect.x + rect.width, rect.y},
+		{rect.x + rect.width, rect.y + rect.height},
+		{rect.x, rect.y + rect.height},
+	}
+	DASH :: 8
+	tint := rl.Fade(colour, 0.7)
+	for i in 0 ..< 4 {
+		a, b := corners[i], corners[(i + 1) % 4]
+		span := rl.Vector2Distance(a, b)
+		steps := max(1, int(span / DASH))
+		for s in 0 ..< steps {
+			if s % 2 == 1 {
+				continue
+			}
+			t0 := f32(s) / f32(steps)
+			t1 := f32(s + 1) / f32(steps)
+			rl.DrawLineEx(linalg.lerp(a, b, t0), linalg.lerp(a, b, t1), 2, tint)
+		}
+	}
 }

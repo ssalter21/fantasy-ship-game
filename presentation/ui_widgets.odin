@@ -331,6 +331,27 @@ ui_icon :: proc(rect: rl.Rectangle, icon: Ui_Icon, ground: Ui_Ground, emphasis :
 	}
 }
 
+// UI_ALARM_WASH is how strongly a destructive target washes at rest, and UI_ALARM_LIT when
+// the cursor is over it — the difference is what says a release *here* is the one that acts.
+UI_ALARM_WASH :: 0.2
+UI_ALARM_LIT :: 0.4
+
+// ui_alarm marks a surface as the destructive one: the reserved coral, washed over a surface
+// already laid down, with a border in the same tone.
+//
+// **This is the only place coral is drawn as chrome, and that is the point.** The roster keeps
+// `COLOUR_CORAL` for danger and damage, and scarcity is a rule that gets remembered rather
+// than enforced — until there is exactly one proc that spends it and every destructive target
+// on every screen goes through that proc.
+ui_alarm :: proc(rect: rl.Rectangle, lit: bool) {
+	if !ui_drawable() {
+		return
+	}
+	box := ui_pixel_rect(rect)
+	rl.DrawRectangleRec(box, rl.Fade(COLOUR_CORAL, lit ? UI_ALARM_LIT : UI_ALARM_WASH))
+	rl.DrawRectangleLinesEx(box, UI_WEIGHT_PX[.Rule], COLOUR_CORAL)
+}
+
 // ui_text_size measures a string at a level. Zero before the atlases are baked (under
 // `odin test`, and before art_load), so a layout computed without a window is zero rather
 // than whatever an unbaked font reports.
