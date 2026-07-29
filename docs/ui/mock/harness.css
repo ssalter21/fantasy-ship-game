@@ -116,22 +116,64 @@ body {
 }
 
 /* A cast shadow is a second rectangle offset behind the first, which is exactly what
- * draw_offer_shop_card does. Offsets are whole pixels and the ground is a roster tone at an
- * alpha the game can pass to rl.Fade. */
+ * ui_shadow does: (x + 4, y + 5) at the card's own size, COLOUR_SEA_DEEP faded 0.45
+ * (UI_SHADOW_OFFSET is Ui_Space.Tight = 4, and the drop carries one extra pixel down).
+ *
+ * It CANNOT be a single pseudo-element behind the card. `z-index: -1` puts the pseudo in the
+ * nearest ancestor that forms a stacking context, and neither `.stage` (position: relative,
+ * z-index: auto) nor an `.at` div forms one — so it escapes to the document root and paints
+ * before the stage's own background, i.e. nowhere at all. The failure is silent: the class is
+ * spelled, the mockup looks fine, and the shadow the style guide leans on is simply absent.
+ * Giving the card a stacking context of its own only moves the bug, since a stacking
+ * context's own background paints BEFORE its negative children — the shadow would then tint
+ * the card it is supposed to sit under.
+ *
+ * So the shadow is drawn as the two strips of itself an opaque card does not cover, which is
+ * pixel-for-pixel what the single offset rectangle leaves visible. No stacking games, no
+ * discipline asked of the mockup, and it works over a world layer or the bare stage alike.
+ *
+ * The one subtlety: an absolutely positioned pseudo is measured from its parent's PADDING
+ * box, so the parent's own border run has to be added back or the throw comes out short by
+ * the border weight. `--edge` carries it, per frame. */
 .cast-shadow {
   position: relative;
+  --edge: 0px;
 }
 
-.cast-shadow::before {
+.frame-panel.cast-shadow,
+.frame-button.cast-shadow {
+  --edge: 1px;
+}
+
+.frame-card.cast-shadow,
+.frame-button--hover.cast-shadow {
+  --edge: 2px;
+}
+
+.cast-shadow::before,
+.cast-shadow::after {
   content: "";
   position: absolute;
-  left: 5px;
-  top: 6px;
-  right: -5px;
-  bottom: -6px;
   background: var(--sea-deep);
   opacity: 0.45;
-  z-index: -1;
+  pointer-events: none;
+}
+
+/* Down the right edge: the full height of the offset rectangle. */
+.cast-shadow::before {
+  left: calc(100% + var(--edge));
+  top: calc(5px - var(--edge));
+  width: 4px;
+  height: calc(100% + 2 * var(--edge));
+}
+
+/* Along the foot, stopping where the strip above already covers, so the corner is one
+ * thickness of 0.45 rather than two. */
+.cast-shadow::after {
+  left: calc(4px - var(--edge));
+  top: calc(100% + var(--edge));
+  width: calc(100% + 2 * var(--edge) - 4px);
+  height: 5px;
 }
 
 /* Absolute placement is the default posture, because every raylib draw call takes an
