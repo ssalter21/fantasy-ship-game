@@ -29,6 +29,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 MOCK = REPO / "docs" / "ui" / "mock"
+HARNESS = MOCK / "harness.css"
+
+# A screen's options are assembled into an index page (scripts/mock-divergence.py), which is
+# a contact sheet of iframes rather than a mockup and has no stage of its own.
+NOT_A_MOCKUP = {"index.html"}
 
 # docs/ui/style-guide.md, "The roster", plus the navy ramp the unre-coloured screens still
 # draw from. Named so a finding can say which swatch a colour nearly was.
@@ -150,13 +155,16 @@ def check(path):
         findings.append(f"{match.group(0)} is not a whole pixel; a draw call cannot ask for one")
 
     if path.suffix == ".html":
-        css = (path.parent / "harness.css").read_text(encoding="utf-8")
-        size = STAGE_SIZE.search(css)
+        # One harness, wherever the mockup sits. A screen's options live in
+        # docs/ui/mock/<screen>/ and link ../harness.css, so this cannot resolve relative to
+        # the mockup — and a per-directory copy of the harness would be a second set of
+        # constraints to drift.
+        size = STAGE_SIZE.search(HARNESS.read_text(encoding="utf-8"))
         if not size:
             findings.append("harness.css does not fix the stage size")
         elif (int(size.group(1)), int(size.group(2))) != (STAGE_W, STAGE_H):
             findings.append(f"the stage is {size.group(1)}x{size.group(2)}, not {STAGE_W}x{STAGE_H}")
-        if 'href="harness.css"' not in text:
+        if 'harness.css"' not in text:
             findings.append("the mockup does not link harness.css, so none of its constraints apply")
         if 'class="stage"' not in text:
             findings.append("the mockup has no .stage, so it is not drawn at the window's size")
@@ -174,7 +182,11 @@ def label(path):
 
 
 def main():
-    targets = [Path(a) for a in sys.argv[1:]] or sorted(MOCK.glob("*.html"))
+    # Recursive: a screen's options live one level down, and a sweep that only saw the top
+    # level would pass while every option under it went unchecked.
+    targets = [Path(a) for a in sys.argv[1:]] or sorted(
+        p for p in MOCK.glob("**/*.html") if p.name not in NOT_A_MOCKUP
+    )
     if not targets:
         sys.exit(f"no mockups under {MOCK}")
 

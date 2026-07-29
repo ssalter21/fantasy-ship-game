@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop — the stock laid around her</title>
+    <link rel="stylesheet" href="../harness.css" />
+    <style>
+      /* ------------------------------------------------------------------ the world
+
+         The galleon, blocked in with plain rectangles exactly as shop.html does. She
+         already exists and already looks right, and here she is doing more work than
+         she does on the shipped screen: every card is placed against her silhouette,
+         so her block is the layout's anchor and not merely the thing left of it. */
+      .horizon {
+        left: 0;
+        top: 0;
+        width: 1244px;
+        height: 300px;
+        background: linear-gradient(to bottom, var(--sky-high), var(--haze));
+      }
+
+      .water {
+        left: 0;
+        top: 300px;
+        width: 1244px;
+        height: 400px;
+        background: linear-gradient(to bottom, var(--sea-bright), var(--sea));
+      }
+
+      /* The anchor rect the whole composition is measured off: 416,372 452x156. */
+      .hull {
+        left: 416px;
+        top: 372px;
+        width: 452px;
+        height: 156px;
+        background: var(--rock);
+        border-top: 26px solid var(--cliff);
+      }
+
+      .mast {
+        top: 200px;
+        width: 8px;
+        height: 172px;
+        background: var(--trunk);
+      }
+
+      .sail {
+        height: 18px;
+        background: var(--cream-bright);
+      }
+
+      /* ------------------------------------------------------------------ the stock
+
+         Four cards at three sizes, dealt around the hull rather than stacked down a
+         column. Size is the price rank — the dearest fitting is the largest object on
+         the screen and the cheapest is the smallest, so the eye ranks the stock before
+         it reads a single digit. Each card is tethered to the part of her it fits.
+
+         A size class fixes the height, the padding and the row pitch. The width is free,
+         because the width is what the longest intent line needs, not what the price says. */
+      .card {
+        position: absolute;
+      }
+
+      .card .name,
+      .card .intent,
+      .card .spec,
+      .card .price {
+        position: absolute;
+      }
+
+      /* Large — pad 22, pitch 44. */
+      .card--lg {
+        height: 148px;
+      }
+
+      .card--lg .name,
+      .card--lg .price {
+        top: 22px;
+      }
+
+      .card--lg .name {
+        left: 22px;
+      }
+
+      .card--lg .price {
+        right: 22px;
+      }
+
+      .card--lg .intent {
+        left: 22px;
+        top: 66px;
+      }
+
+      .card--lg .spec {
+        left: 22px;
+        top: 110px;
+      }
+
+      /* Medium — pad 16, pitch 36. */
+      .card--md {
+        height: 120px;
+      }
+
+      .card--md .name,
+      .card--md .price {
+        top: 16px;
+      }
+
+      .card--md .name {
+        left: 16px;
+      }
+
+      .card--md .price {
+        right: 16px;
+      }
+
+      .card--md .intent {
+        left: 16px;
+        top: 52px;
+      }
+
+      .card--md .spec {
+        left: 16px;
+        top: 88px;
+      }
+
+      /* Small — pad 14, pitch 30. Two cards share it at two widths. */
+      .card--sm {
+        height: 104px;
+      }
+
+      .card--sm .name,
+      .card--sm .price {
+        top: 14px;
+      }
+
+      .card--sm .name {
+        left: 14px;
+      }
+
+      .card--sm .price {
+        right: 14px;
+      }
+
+      .card--sm .intent {
+        left: 14px;
+        top: 44px;
+      }
+
+      .card--sm .spec {
+        left: 14px;
+        top: 74px;
+      }
+
+      /* Where each one lies. Not a pitch — four placements against the hull's four sides. */
+      .c-titan {
+        left: 20px;
+        top: 268px;
+        width: 372px;
+      }
+
+      .c-chain {
+        left: 464px;
+        top: 44px;
+        width: 344px;
+      }
+
+      .c-outriggers {
+        left: 900px;
+        top: 360px;
+        width: 296px;
+      }
+
+      .c-nines {
+        left: 304px;
+        top: 548px;
+        width: 252px;
+      }
+
+      /* The tether: one axis-aligned 2px rectangle from a card's edge to the hull's,
+       * which is one DrawRectangleRec. Nothing diagonal, because a diagonal is not a rect. */
+      .tether {
+        background: var(--parchment);
+      }
+
+      .crate {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 1px solid currentColor;
+        margin-right: 6px;
+        vertical-align: -2px;
+      }
+
+      /* Unaffordable dims by TONE, never by alpha (ADR-0032) — over a bright sea,
+       * translucency costs a panel its own ground and the water stains through it.
+       * Here the dearest is also the biggest, so the one thing she cannot have is the
+       * largest and the dullest object on the screen at the same time. */
+      .card--dear {
+        background: #dfce9d; /* parchment shaded 0.95 — colour_shade's job in Odin */
+        border-color: var(--cliff);
+        color: var(--ink-muted);
+      }
+
+      /* Leave is no longer "the last row of the column", so it needs a berth of its own:
+       * the one quarter of the ring the stock does not occupy. */
+      .leave {
+        left: 1000px;
+        top: 596px;
+        width: 196px;
+        height: 40px;
+        text-align: center;
+        line-height: 38px;
+        color: var(--sea-deep);
+      }
+
+      .heading {
+        left: 40px;
+        top: 24px;
+      }
+
+      .stat-line {
+        right: 16px;
+        top: 20px;
+      }
+
+      .chart-tab {
+        left: 497px;
+        bottom: 0;
+        width: 250px;
+        height: 28px;
+        background: var(--sea-deep);
+        opacity: 0.75;
+        text-align: center;
+        line-height: 28px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="at horizon"></div>
+      <div class="at water"></div>
+
+      <div class="at hull"></div>
+      <div class="at mast" style="left: 516px"></div>
+      <div class="at mast" style="left: 636px"></div>
+      <div class="at mast" style="left: 756px"></div>
+      <div class="at sail" style="left: 470px; top: 240px; width: 100px"></div>
+      <div class="at sail" style="left: 590px; top: 258px; width: 100px"></div>
+      <div class="at sail" style="left: 710px; top: 232px; width: 100px"></div>
+
+      <!-- The vignette frames the world and the chrome sits on top of it, as
+           draw_offer_shop composes. It matters more here than on the shipped screen:
+           the ring puts paper within 20px of three edges, and every one of those cards
+           has to stay off the dimmed band rather than sit in it. -->
+      <div class="vignette"></div>
+
+      <div class="at heading body over-water">Market</div>
+      <div class="at stat-line body over-water">Hull 100/100 &middot; SPD 4 &middot; Cargo 50/90</div>
+
+      <!-- Tethers: card edge → hull edge, one rectangle each, struck at the midpoint of
+           the span the two rects share — not at the card's own midpoint, which on three
+           of these four points at open water beside her. -->
+      <div class="at tether" style="left: 392px; top: 394px; width: 24px; height: 2px"></div>
+      <div class="at tether" style="left: 639px; top: 164px; width: 2px; height: 36px"></div>
+      <div class="at tether" style="left: 868px; top: 417px; width: 32px; height: 2px"></div>
+      <div class="at tether" style="left: 485px; top: 528px; width: 2px; height: 20px"></div>
+
+      <!-- Amidships, against her frames: the dearest thing in the stock, and out of reach. -->
+      <div class="card card--lg card--dear c-titan frame-card cast-shadow">
+        <span class="name body">Titan's Heart</span>
+        <span class="intent body">+5 Repair</span>
+        <span class="spec body muted">Large &middot; Brace &middot; Artifact</span>
+        <span class="price body"><i class="crate"></i>120</span>
+      </div>
+
+      <!-- Aloft, against the rigging it cuts. -->
+      <div class="card card--md c-chain frame-card cast-shadow">
+        <span class="name body">Chain &amp; Bar Shot</span>
+        <span class="intent body">+7 Offense when its condition holds</span>
+        <span class="spec body muted">Medium &middot; Fire &middot; Weapon</span>
+        <span class="price body"><i class="crate"></i>34</span>
+      </div>
+
+      <!-- Off her beam, where an outrigger goes. -->
+      <div class="card card--sm c-outriggers frame-card cast-shadow">
+        <span class="name body">Outriggers</span>
+        <span class="intent body">+1 Speed, +1 Offense</span>
+        <span class="spec body muted">Small &middot; Fire &middot; Artifact</span>
+        <span class="price body"><i class="crate"></i>26</span>
+      </div>
+
+      <!-- Under her, at the gundeck. -->
+      <div class="card card--sm c-nines frame-card cast-shadow">
+        <span class="name body">Long Nines</span>
+        <span class="intent body">+8 Offense</span>
+        <span class="spec body muted">Large &middot; Fire &middot; Weapon</span>
+        <span class="price body"><i class="crate"></i>18</span>
+      </div>
+
+      <div class="at leave frame-button body">Leave</div>
+
+      <div class="at chart-tab body over-water">Chart</div>
+    </div>
+
+    <div class="note">
+      <h1>Shop — the stock laid around her</h1>
+      <p>
+        <strong>The constraint: the stock does not run down a column.</strong> It is dealt around
+        the galleon — one card against each side of her hull rect (<code>400,372 452&times;156</code>),
+        tethered to it by a 2px rule, and <strong>sized by price rank</strong>: Titan's Heart at 120
+        is a 372&times;148 card, Chain &amp; Bar Shot at 34 is 344&times;120, and Outriggers and Long
+        Nines at 26 and 18 share the 104px small size at two widths. There is no pitch anywhere in
+        this layout, and no two cards are the same shape.
+      </p>
+      <p>
+        <strong>What that forced.</strong> The shipped screen orders the stock by <em>position in a
+        list</em>, which is an order the data does not have — the four fittings arrive unranked and
+        the column asserts one anyway. Taking the column away meant finding a real order, and price
+        was the only one on the card already. So size became the price signal, which then does the
+        unaffordable card's work for free: the dearest fitting is the <em>largest</em> object on the
+        screen and simultaneously the dullest, which reads as "the big prize, and not for you" in a
+        way a dimmed row three of four never could. It still dims by <strong>tone</strong>
+        (<code>#dfce9d</code>, parchment shaded 0.95, plus a cliff border and muted ink), never by
+        alpha — ADR-0032's rule holds whatever the layout is.
+      </p>
+      <p>
+        Placing paper on all four sides of the ship also changes who the ship <em>is</em>. In the
+        column she is scenery with 424px of screen to herself; here she is the armature, and the
+        cards have to clear her rigging and her waterline rather than merely stay off her. The
+        tethers are what make that legible instead of accidental — each card sits where its fitting
+        would go aboard: chain shot aloft at the masts, the brace amidships against her frames, the
+        outriggers off her beam, the long nines under the gundeck. And <strong>Leave</strong> stops
+        being "the last row of the column" the moment there is no column; it takes the one quarter
+        of the ring the stock does not use.
+      </p>
+      <p>
+        <strong>The cost, stated honestly.</strong> Four cards at four corners is more eye travel
+        than four rows in one place, and a fifth item has nowhere obvious to go — a ring has four
+        sides. If the Shop ever stocks six, this layout is the wrong one and should be said so
+        rather than stretched.
+      </p>
+
+      <h1>What I would need from <code>ui.odin</code> that does not exist yet</h1>
+      <p>
+        Every one of these exists today as literals inside <code>draw_offer_shop_card</code>, which
+        knows exactly one geometry (392&times;92) and exactly one way to stack it.
+      </p>
+      <ul>
+        <li>
+          <strong>A card at three sizes</strong> — <code>ui_offer_card(rect, item, size)</code> with
+          <code>Card_Size :: enum { Small, Medium, Large }</code>. The <em>axis is the size class</em>
+          and it drives padding and row pitch together (14/30, 16/36, 22/44); the <em>width stays
+          free</em>, because width is set by the longest intent line and not by the size class. One
+          proc that reflows its four rows from a rect, not three procs.
+        </li>
+        <li>
+          <strong>A rank-to-size map</strong> — <code>card_size_for(price, stock)</code>. Size is
+          only honest if it is derived from the stock the shop actually rolled; hand-assigning
+          Large to Titan's Heart in a layout struct would make this mockup a lie the first time
+          prices differ.
+        </li>
+        <li>
+          <strong>A placement helper that works against another rect, not against an origin</strong>
+          — <code>ui_place_beside(anchor, side, size) -> rl.Rectangle</code>, centring a card on one
+          of an anchor rect's four sides with a gap. Today all layout is <code>x0/y0 + i*pitch</code>;
+          there is no vocabulary at all for "beside this other thing". This is the component the
+          whole mockup stands on.
+        </li>
+        <li>
+          <strong>A tether</strong> — <code>ui_tether(card, anchor) -> rl.Rectangle</code>. The draw
+          is one <code>DrawRectangleRec</code>; the part worth having is the derivation, and it is
+          less obvious than it looks — the stub is struck at the midpoint of the span the two rects
+          <em>share</em>, not at the card's own midpoint, which on three of these four points at open
+          water beside her. That is the kind of thing that is wrong once by hand and wrong four times
+          when a card moves.
+        </li>
+        <li>
+          <strong>A price cluster with real right alignment</strong> —
+          <code>ui_price(right_edge, top, price, tone)</code>. The crate is a 14px outlined square
+          drawn as a primitive (the style guide's "glyphs are shapes" rule), and putting it plus a
+          1&ndash;3 digit number flush right needs the measure-then-place text helper the style
+          guide already records as the one missing layout helper.
+        </li>
+        <li>
+          <strong>The placement pass has to return rects, not draw them.</strong> The poll loop
+          hit-tests the same four cards it draws, and with placement this irregular the two cannot
+          be written twice. Whatever computes the ring returns <code>[4]rl.Rectangle</code> that both
+          the draw and the hit-test consume — the style guide's "split composition from polling",
+          applied to layout rather than to buttons.
+        </li>
+      </ul>
+    </div>
+  </body>
+</html>
