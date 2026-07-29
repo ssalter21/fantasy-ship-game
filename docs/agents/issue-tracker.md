@@ -13,7 +13,7 @@ Issues and PRDs for this repo live as GitHub Issues in `ssalter21/fantasy-ship-g
 
 ## Review boundary
 
-Where human review happens. Two modes; **this repo uses `ticket`**.
+Where human review happens. Two modes; **this repo uses `effort`**.
 
 - **`ticket`** (default): each implement ticket ends in its own PR to `main`, with `/code-review` run before the PR opens.
 - **`effort`**: one PR per feature. At `/to-tickets` publish time, cut `effort/<slug>` from `main`; each implement ticket carries a `## Target branch` section naming it and lands there as one unsquashed commit (per-ticket `/code-review` is the gate at that granularity). A final **integrate ticket** — blocked by every other ticket — rebases the branch on `main`, runs the full suite and `/code-review` against the merge-base, then opens the single PR `effort/<slug>` → `main`, its body assembled from the spec and the map's Decisions-so-far.
