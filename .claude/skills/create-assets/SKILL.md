@@ -18,13 +18,17 @@ session; stop and say so rather than working around it.
 `docs/ui/style-guide.md` is the fixed target for "good" — the same guide run-game reads. Two of its rulings
 decide whether an asset belongs here at all, so read them *before* you generate, not after:
 
-- **This game draws its chrome, it does not source it.** The Chart Table's background, its rose, its buttons
-  are raylib primitives, drawn from the roster — precisely so they *cannot* clash with the palette. A generated
-  panel or button is swimming against that current. The legitimate targets for sourced art are the ones the
-  guide files under **out of scope with a carve-out**: illustration, **ship art**, **node icons**, and a
-  *sourced* Chart Table background ([#284](https://github.com/ssalter21/fantasy-ship-game/issues/284)). Generate
-  those. Don't generate UI chrome that the guide already draws — you'd be replacing measured, conformant
-  primitives with art that has to be dragged back onto the roster.
+- **Chrome is art now, but it is roster-exact art.** The guide used to hold that this game draws its chrome and
+  never sources it. It no longer does: panels, cards and button faces are 9-sliced sprites (`ui_nine_slice`,
+  `presentation/ui_frame.odin`). What has not changed is *why* the old rule existed — sourced chrome that lands
+  near the palette rather than on it reads as a foreign object against a background that is exactly on it. So
+  chrome is the one class of asset where **conforming afterwards is not good enough**: the three shipped frames
+  are authored a pixel at a time by `scripts/make-ui-frames.py`, where every pixel is a named swatch by
+  construction. Generate chrome only if you will quantize it to the roster *exactly* and prove it with a scan;
+  otherwise extend that script, which is cheaper and lands true.
+- The other legitimate targets for sourced art are the ones the guide files under **out of scope with a
+  carve-out**: illustration, **ship art**, **node icons**, and a *sourced* Chart Table background
+  ([#284](https://github.com/ssalter21/fantasy-ship-game/issues/284)).
 - **The palette is one flat roster, and it is law.** Not a ramp: a fixed set of named swatches, and no asset
   may reach outside it. Read the guide's *The roster* tables for the hexes — sea `#1FA9D0`, shallow `#63E2EC`,
   sea-deep `#1786BC`, foam `#F2FBFB`; parchment `#EBD9A6`, sand `#D2A968`, cliff `#B98A50`, rock `#7E5C3A`;
@@ -48,7 +52,8 @@ Pick the `create_*` tool by what the asset *is*. Each has a matching `get_*` (po
 | A node / encounter icon | `create_map_object` | Small, transparent, one per stage kind (Fight, Trade, Shop…). |
 | Sea / coast autotiles | `create_topdown_tileset` | 16-tile Wang set; `lower_description` deep water, `upper_description` coast. |
 | A sourced chart background | `create_map_object` or `create_1_direction_object` | The #284 carve-out. Must not outshine the chrome (below). |
-| A UI panel (rare) | `create_ui_asset` | Only where the guide sanctions sourced chrome — usually it doesn't. |
+| A UI panel / button / card frame | `scripts/make-ui-frames.py` | Authored, not generated: roster-exact by construction. Extend it. |
+| A UI panel, generated | `create_ui_asset` | **Costs 20–40 generations per call.** Check `get_balance` first; a trial with fewer left will fail mid-run. Must be quantized to the roster exactly afterwards. |
 | A pixel font | `create_font` | Alternative to Pixelify Sans; the guide's type rules and `#load` embedding still apply. |
 
 `get_balance`, `list_objects`, `list_characters`, `agent_help` round it out. Reach for `agent_help` when a

@@ -20,9 +20,26 @@ Written for [Write the style guide](https://github.com/ssalter21/fantasy-ship-ga
 
 "Good" here means **shapes, a real typeface, a deliberate palette, spacing, hierarchy, and framing**. It does
 not mean illustration. The UI reads as programmer art today because of raylib's stock font, raylib's stock
-named colours (`LIGHTGRAY` / `BEIGE` / `MAROON`), and no hierarchy — not because art is missing. Every rule
-below is reachable with raylib primitives (`DrawRectangleRec`, `DrawRectangleLinesEx`, `DrawTextEx`,
-`DrawTriangle`, `DrawPoly`) and no new renderer.
+named colours (`LIGHTGRAY` / `BEIGE` / `MAROON`), and no hierarchy — not because art is missing.
+
+**Chrome may be blitted art, not only stroked primitives.** This guide used to close that sentence with "and no
+new renderer", meaning every rule had to be reachable with `DrawRectangleRec` / `DrawRectangleLinesEx` /
+`DrawTextEx` / `DrawTriangle` / `DrawPoly`. That was the right constraint when the problem was programmer art
+and the risk was a sourced panel clashing with a measured palette. It became the binding constraint on getting
+*past* programmer art: the best-looking thing in the game is a generated asset, and the worst-looking thing sat
+directly on top of it — a translucent scrim with a hairline border, which is what a renderer can draw rather
+than what the world looks like.
+
+So the rule is now about the **palette**, not the technique. A frame may be a 9-sliced sprite
+(`ui_nine_slice`, `presentation/ui_frame.odin`) provided:
+
+- **every pixel of it is a roster swatch** — which is why the frames are authored a pixel at a time by
+  `scripts/make-ui-frames.py` rather than sourced and then dragged back onto the roster;
+- **it is embedded, not shipped beside the exe** (ADR-0009), like the font and the background;
+- **it blits on integer pixel boundaries under a `POINT` filter**, so nothing softens the grid.
+
+Text, carets and the chart's own marks are still primitives — see *Glyphs are shapes, not text*. The change is
+that a **border, a panel and a button face are art**.
 
 ## Where this came from
 

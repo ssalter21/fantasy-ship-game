@@ -35,11 +35,23 @@ PARCHMENT_PAGE_PNG :: #load("../assets/art/parchment-page.png")
 // the sheet's own height, so a heading indexes a column (view.odin draw_ship_sprite).
 SHIP_SPRITE_PNG :: #load("../assets/art/ship-sprite.png")
 
+// The chrome frames the screens blit instead of stroking (ui_frame.odin). Authored a pixel
+// at a time onto the roster by scripts/make-ui-frames.py rather than sourced, which is why
+// they need no conform pass: every pixel is already a named swatch. The panel carries a rock
+// outline over a cliff-and-sand bevel, the card the sea-deep border the stock already reads
+// by, and the button its three states side by side in one strip.
+UI_FRAME_PANEL_PNG :: #load("../assets/art/ui-frame-panel.png")
+UI_FRAME_CARD_PNG :: #load("../assets/art/ui-frame-card.png")
+UI_FRAME_BUTTON_PNG :: #load("../assets/art/ui-frame-button.png")
+
 // The uploaded atlases. GPU resources like the font, so they are loaded after InitWindow
 // and freed by art_unload.
 menu_island_tex: rl.Texture2D
 parchment_page_tex: rl.Texture2D
 ship_sprite_tex: rl.Texture2D
+ui_frame_panel_tex: rl.Texture2D
+ui_frame_card_tex: rl.Texture2D
+ui_frame_button_tex: rl.Texture2D
 
 // art_texture uploads one embedded PNG. POINT filtering is the same rule the font atlas
 // needs: raylib defaults to bilinear, which softens pixel art on upload and undoes
@@ -57,10 +69,16 @@ art_load :: proc() {
 	menu_island_tex = art_texture(MENU_ISLAND_PNG)
 	parchment_page_tex = art_texture(PARCHMENT_PAGE_PNG)
 	ship_sprite_tex = art_texture(SHIP_SPRITE_PNG)
+	ui_frame_panel_tex = art_texture(UI_FRAME_PANEL_PNG)
+	ui_frame_card_tex = art_texture(UI_FRAME_CARD_PNG)
+	ui_frame_button_tex = art_texture(UI_FRAME_BUTTON_PNG)
 }
 
 art_unload :: proc() {
 	rl.UnloadTexture(menu_island_tex)
 	rl.UnloadTexture(parchment_page_tex)
 	rl.UnloadTexture(ship_sprite_tex)
+	rl.UnloadTexture(ui_frame_panel_tex)
+	rl.UnloadTexture(ui_frame_card_tex)
+	rl.UnloadTexture(ui_frame_button_tex)
 }

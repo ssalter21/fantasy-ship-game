@@ -42,6 +42,25 @@ CHART_TABLE_TITLE_SPACING :: 13
 // inset leaves. A centred label in a centred box gives the eye no edge to run down.
 CHART_TABLE_LABEL_INSET :: 44
 
+// The panel the stack stands on: a blitted frame (ui_frame.odin), which is what makes this
+// screen's chrome an object on the table rather than an outline over the scene behind it.
+// It clears the buttons on all four sides, so the frame's own border is the margin.
+CHART_TABLE_PANEL_PAD_X :: 26
+CHART_TABLE_PANEL_PAD_Y :: 22
+
+// chart_table_panel_rect encloses the whole button stack. A pure function of the stack, so
+// the panel cannot drift from what it is behind.
+chart_table_panel_rect :: proc() -> rl.Rectangle {
+	buttons := chart_table_buttons()
+	first, last := buttons[0].rect, buttons[len(buttons) - 1].rect
+	return rl.Rectangle {
+		x = first.x - CHART_TABLE_PANEL_PAD_X,
+		y = first.y - CHART_TABLE_PANEL_PAD_Y,
+		width = first.width + 2 * CHART_TABLE_PANEL_PAD_X,
+		height = (last.y + last.height) - first.y + 2 * CHART_TABLE_PANEL_PAD_Y,
+	}
+}
+
 Chart_Table_Button :: struct {
 	rect:   rl.Rectangle,
 	label:  string,
@@ -117,6 +136,7 @@ draw_chart_table :: proc(hovered: int) {
 	origin := rl.Vector2{(WINDOW_WIDTH - size.x) / 2, CHART_TABLE_TITLE_CENTRE_Y - size.y / 2}
 	rl.DrawTextEx(ui_font_title, title, origin, UI_TITLE_SIZE, CHART_TABLE_TITLE_SPACING, COLOUR_CREAM)
 
+	ui_nine_slice(UI_FRAME_PANEL, chart_table_panel_rect())
 	for b, i in buttons {
 		draw_chart_table_button(b, i == hovered)
 	}
@@ -159,13 +179,13 @@ draw_menu_title_scrim :: proc() {
 	rl.DrawRectangleGradientV(0, CHART_TABLE_TITLE_CENTRE_Y, WINDOW_WIDTH, MENU_TITLE_SCRIM_HALF, dark, clear)
 }
 
-// draw_chart_table_button renders one row of the stack: a steel border and label over a scrim,
+// draw_chart_table_button renders one row of the stack: a blitted button frame and a label,
 // the same for every row, because no colour on the roster means "act here" (style guide,
 // "Controls do not have a signal colour"). Begin reads as the one to press by standing at the
 // head of the stack and by what it says.
 //
-// Hover is carried by the caret and a lift in the scrim, and no row is claimed in advance, so
-// either can take them.
+// Hover is carried by the frame's own hover face — the outline lights — and by the caret in
+// the label's margin. No row is claimed in advance, so either can take them.
 draw_chart_table_button :: proc(button: Chart_Table_Button, hovered: bool) {
 	label := fmt.ctprint(button.label)
 	text_pos := rl.Vector2 {
@@ -173,14 +193,14 @@ draw_chart_table_button :: proc(button: Chart_Table_Button, hovered: bool) {
 		button.rect.y + (CHART_TABLE_BUTTON_H - UI_BODY_SIZE) / 2,
 	}
 
-	rl.DrawRectangleRec(button.rect, rl.Fade(COLOUR_GROUND, hovered ? 0.75 : 0.55))
-	rl.DrawRectangleLinesEx(button.rect, 2, COLOUR_STEEL)
-	rl.DrawTextEx(ui_font_body, label, text_pos, UI_BODY_SIZE, 1, COLOUR_STEEL)
+	state := hovered ? Ui_Button_State.Hover : Ui_Button_State.Rest
+	ui_nine_slice(UI_FRAME_BUTTON, button.rect, int(state))
+	rl.DrawTextEx(ui_font_body, label, text_pos, UI_BODY_SIZE, 1, COLOUR_INK_PRIMARY)
 
 	if hovered {
 		draw_caret(
 			rl.Vector2{button.rect.x + CHART_TABLE_LABEL_INSET / 2, button.rect.y + CHART_TABLE_BUTTON_H / 2},
-			COLOUR_STEEL,
+			COLOUR_INK_PRIMARY,
 		)
 	}
 }
