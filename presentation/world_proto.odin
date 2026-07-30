@@ -130,10 +130,15 @@ world_proto_soft_light: bool
 // key to the far side. Squaring it puts the contrast back that wrapping takes out. This is the
 // cheapest thing that is actually the reference's *soft light falloff on flat-shaded low-poly*
 // rather than an imitation of it, and it costs one multiply.
+//
+// The ambient was 0.46 and the hull came back **too dark** — the shipped model's floor is 0.60, and
+// dropping below it darkens every surface turned away from the sun, which on a three-quarter view
+// is most of her. Raised past the shipped floor: the point of this model is the *shape* of the
+// falloff and the *colour* of the light, not less light.
 @(private)
-WORLD_PROTO_SOFT_AMBIENT :: f32(0.46)
+WORLD_PROTO_SOFT_AMBIENT :: f32(0.66)
 @(private)
-WORLD_PROTO_SOFT_KEY :: f32(0.74)
+WORLD_PROTO_SOFT_KEY :: f32(0.62)
 
 // **A cool ambient broken by one warm key** — the reference's colour structure, and the thing the
 // current four scalars cannot express at all, because `colour_shade` multiplies a swatch by a
@@ -146,10 +151,16 @@ WORLD_PROTO_SOFT_KEY :: f32(0.74)
 // style-guide.md:142), and a key light spends its colour over the whole frame. This warm is a
 // low-saturation gold that does not read as the danger swatch; whether it may exist at all is
 // #516's call, not this prototype's.
+//
+// The cool was {138, 186, 255} — which multiplies the red channel by 0.54, so warm timber in
+// shadow lost over **half** its red and the hull went muddy. That was the real cause of "too dark",
+// more than the ambient was: a strong cool ambient does not dim a warm surface evenly, it
+// desaturates it. Pulled back to take a fifth off red instead of a half, which keeps the cast on
+// the water — the part that was worth keeping — without crushing her planking.
 @(private)
-WORLD_PROTO_KEY_WARM :: rl.Color{255, 216, 158, 255}
+WORLD_PROTO_KEY_WARM :: rl.Color{255, 219, 168, 255}
 @(private)
-WORLD_PROTO_AMBIENT_COOL :: rl.Color{138, 186, 255, 255}
+WORLD_PROTO_AMBIENT_COOL :: rl.Color{202, 223, 255, 255}
 
 // world_proto_modulate is light times surface, per channel — real modulation rather than a lerp
 // toward the light colour. A lerp washes a surface out toward the light as the light strengthens;
@@ -237,10 +248,37 @@ world_proto_wave_normal :: proc(x, z, swell: f32) -> rl.Vector3 {
 // carries the hull's below-waterline slicing with it and none of that applies here.
 @(private)
 world_proto_quad :: proc(a, b, c, d: rl.Vector3, colour: rl.Color) {
-	rl.DrawTriangle3D(a, b, c, colour)
-	rl.DrawTriangle3D(a, c, d, colour)
-	rl.DrawTriangle3D(c, b, a, colour)
-	rl.DrawTriangle3D(d, c, a, colour)
+	world_proto_quad_smooth(a, b, c, d, colour, colour, colour, colour)
+}
+
+// world_proto_quad_smooth is the same surface with **a colour at each corner**, interpolated across
+// the face by the GPU.
+//
+// This is the whole answer to "too many edges, blocks and pixels", and it needs no shader. Every
+// 3D surface in this game is painted by `rl.DrawTriangle3D`, which takes **one colour for the whole
+// triangle** — so a gradient can only ever be as fine as the geometry is, and the sea comes out in
+// visible flat plates however carefully it is lit. Dropping to rlgl's immediate mode instead lets
+// each vertex carry its own colour, and raylib's default shader interpolates between them for free:
+// the same triangles, now with a continuous grade across them.
+//
+// Which is worth being precise about, because it is the cheap half of what the reference does.
+// Smooth *gradients* are this. Smooth *edges* are MSAA (set in the live mode). Neither is glow —
+// that is bloom, it is a post-process pass, and there is no way to fake it here.
+@(private)
+world_proto_quad_smooth :: proc(a, b, c, d: rl.Vector3, ca, cb, cc, cd: rl.Color) {
+	vert :: proc(p: rl.Vector3, col: rl.Color) {
+		rlgl.Color4ub(col.r, col.g, col.b, col.a)
+		rlgl.Vertex3f(p.x, p.y, p.z)
+	}
+	rlgl.CheckRenderBatchLimit(12)
+	rlgl.Begin(rlgl.TRIANGLES)
+	vert(a, ca);vert(b, cb);vert(c, cc)
+	vert(a, ca);vert(c, cc);vert(d, cd)
+	// Wound both ways, like everything else out here: these surfaces are seen from grazing angles
+	// and a culled face is a hole.
+	vert(c, cc);vert(b, cb);vert(a, ca)
+	vert(d, cd);vert(c, cc);vert(a, ca)
+	rlgl.End()
 }
 
 // world_proto_inside_hull reports whether a point on the water plane stands inside her waterline
@@ -332,21 +370,34 @@ world_proto_sea_cell :: proc(view: cutaway.View, r0, r1, a0, a1, density, swell:
 	s0, c0 := math.sin(a0), math.cos(a0)
 	s1, c1 := math.sin(a1), math.cos(a1)
 
-	p00 := world_proto_wave_point(eye.x + r0 * s0, eye.z + r0 * c0, swell)
-	p01 := world_proto_wave_point(eye.x + r0 * s1, eye.z + r0 * c1, swell)
-	p11 := world_proto_wave_point(eye.x + r1 * s1, eye.z + r1 * c1, swell)
-	p10 := world_proto_wave_point(eye.x + r1 * s0, eye.z + r1 * c0, swell)
+	// Lit and hazed **per corner**, not per cell. The normal is the true wave normal at that point
+	// rather than one taken at the middle and spread over the whole plate, so the water grades
+	// continuously across a cell and the flat facets go away without a single extra triangle.
+	p00, k00 := world_proto_sea_vertex(eye, eye.x + r0 * s0, eye.z + r0 * c0, swell, density)
+	p01, k01 := world_proto_sea_vertex(eye, eye.x + r0 * s1, eye.z + r0 * c1, swell, density)
+	p11, k11 := world_proto_sea_vertex(eye, eye.x + r1 * s1, eye.z + r1 * c1, swell, density)
+	p10, k10 := world_proto_sea_vertex(eye, eye.x + r1 * s0, eye.z + r1 * c0, swell, density)
 
-	centre := (p00 + p01 + p11 + p10) / 4
-	n := world_proto_wave_normal(centre.x, centre.z, swell)
+	world_proto_quad_smooth(p00, p01, p11, p10, k00, k01, k11, k10)
+}
 
+// world_proto_sea_vertex is one point of water: where it stands, and what colour it is there.
+@(private)
+world_proto_sea_vertex :: proc(
+	eye: rl.Vector3,
+	x, z, swell, density: f32,
+) -> (
+	rl.Vector3,
+	rl.Color,
+) {
+	p := world_proto_wave_point(x, z, swell)
+	n := world_proto_wave_normal(x, z, swell)
 	// A crest catches the sky and a trough is the deep looking up through itself. Off the height
 	// rather than off a noise field, so the shading agrees with the shape.
-	crest := clamp(centre.y / max(swell, 0.001) * 0.5 + 0.5, 0, 1)
+	crest := clamp(p.y / max(swell, 0.001) * 0.5 + 0.5, 0, 1)
 	base := colour_mix(COLOUR_SEA_DEEP, COLOUR_SEA_SHALLOW, crest)
-	lit := ship_lit(base, n)
-	dist := rl.Vector3Length(centre - eye)
-	world_proto_quad(p00, p01, p11, p10, world_proto_fogged(lit, dist, density))
+	// ship_lit carries the soft-light hook, so the water answers `L` along with the hull.
+	return p, world_proto_fogged(ship_lit(base, n), rl.Vector3Length(p - eye), density)
 }
 
 // The sky as geometry: a dome, banded by elevation. Deliberately **not** fogged — the sky is what
@@ -371,10 +422,11 @@ world_proto_sky_3d :: proc(view: cutaway.View) {
 	for band in 0 ..< WORLD_PROTO_DOME_BANDS {
 		e0 := math.to_radians(LOW + (HIGH - LOW) * f32(band) / f32(WORLD_PROTO_DOME_BANDS))
 		e1 := math.to_radians(LOW + (HIGH - LOW) * f32(band + 1) / f32(WORLD_PROTO_DOME_BANDS))
-		// The band's colour by elevation: haze at the hem climbing to the deep of the zenith. Real
-		// interpolation, no ordered dither — that retirement is the point of the whole map.
-		k0 := f32(band) / f32(WORLD_PROTO_DOME_BANDS)
-		colour := colour_mix(world_proto_fog_colour(), COLOUR_SKY_HIGH, k0 * k0)
+		// The band's colour at each of its two elevations, graded across the quad rather than
+		// filled flat. Ten bands filled flat is ten visible stripes up the sky; ten bands *graded*
+		// is a continuous sky that happens to be built out of ten rings.
+		low := world_proto_sky_colour(e0)
+		high := world_proto_sky_colour(e1)
 
 		for seg in 0 ..< WORLD_PROTO_DOME_SEGMENTS {
 			a0 := 2 * math.PI * f32(seg) / f32(WORLD_PROTO_DOME_SEGMENTS)
@@ -387,15 +439,27 @@ world_proto_sky_3d :: proc(view: cutaway.View) {
 					eye.z + r * math.cos(elev) * math.cos(azim),
 				}
 			}
-			world_proto_quad(
+			world_proto_quad_smooth(
 				point(eye, e0, a0),
 				point(eye, e0, a1),
 				point(eye, e1, a1),
 				point(eye, e1, a0),
-				colour,
+				low,
+				low,
+				high,
+				high,
 			)
 		}
 	}
+}
+
+// world_proto_sky_colour is the sky at one elevation: haze on the horizon climbing to the deep of
+// the zenith. Squared so the pale band hugs the horizon the way a real one does instead of
+// spreading halfway up the frame.
+@(private)
+world_proto_sky_colour :: proc(elev: f32) -> rl.Color {
+	k := clamp(elev / (math.PI / 2), 0, 1)
+	return colour_mix(world_proto_fog_colour(), COLOUR_SKY_HIGH, k * k)
 }
 
 // The islands: the reference's receding planes of rock, and the only content this prototype draws
@@ -923,6 +987,11 @@ world_proto_live_requested :: proc() -> bool {
 // water plane. Whether a 3D sea is worth having is mostly a question about that number, and the
 // only honest way to see it is to move it.
 world_proto_live_main :: proc() -> bool {
+	// Smooth *edges*, where per-vertex colour gives smooth *gradients*. The two are separate
+	// complaints and separate fixes: a polygon silhouette is a staircase however finely it is
+	// shaded, and no amount of interpolation touches it. A hint, not a guarantee — the driver may
+	// refuse it — and it must be set before the window exists.
+	rl.SetConfigFlags({.MSAA_4X_HINT})
 	rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Fantasy Ship Game (world prototype)")
 	defer rl.CloseWindow()
 	fullscreen_init()
