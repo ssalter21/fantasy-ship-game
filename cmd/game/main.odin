@@ -38,6 +38,21 @@ main :: proc() {
 		}
 		return
 	}
+	// PROTOTYPE — throwaway, and this dispatch goes out with it. The world-register
+	// prototype for issue #512: nine frames of the galleon in three structurally
+	// different worlds, as a sheet, or steerable in the real window.
+	if presentation.world_proto_requested() {
+		if !presentation.world_proto_main() {
+			os.exit(1)
+		}
+		return
+	}
+	if presentation.world_proto_live_requested() {
+		if !presentation.world_proto_live_main() {
+			os.exit(1)
+		}
+		return
+	}
 	if presentation.capture_requested() {
 		presentation.capture_main()
 		return

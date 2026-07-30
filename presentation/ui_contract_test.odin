@@ -66,6 +66,9 @@ EXEMPT := [?]Exempt {
 	// player sees.
 	{"workbench.odin", "the workbench's slider panel — a tool, never in a player session"},
 	{"hull_sheet.odin", "the contact sheet's caption plate — a tool's output, not a screen"},
+	// PROTOTYPE — throwaway, and this exemption goes out with it (#512). Its rectangles are
+	// candidate sea, sky and island plates plus a caption, and no player session can reach it.
+	{"world_proto.odin", "the world-register prototype's plates and caption — throwaway (#512)"},
 
 	// The voyage screens the guide has not re-coloured yet. These draw on the superseded navy
 	// ramp, and the widgets are parchment: migrating them is a re-colour, which the style
