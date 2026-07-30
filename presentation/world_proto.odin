@@ -799,12 +799,18 @@ world_proto_live_main :: proc() -> bool {
 	scene := Capture_Scene{}
 	defer capture_scene_destroy(&scene)
 	capture_stage_refit(&scene)
+	capture_dir_prepare()
+	defer capture_dir_release()
 
 	world := World_Proto_World.Space
 	density := WORLD_PROTO_HAZES[1].density
 	swell := WORLD_PROTO_SWELL
 	eye := cutaway.GALLEON_EYE
 	help := true
+	// Frames to wait before grabbing, so a shot is never one frame stale. rl.TakeScreenshot reads
+	// back the framebuffer EndDrawing has *already presented*, so grabbing in the same iteration as
+	// the keypress photographs the settings as they were before it.
+	pending := 0
 
 	for !rl.WindowShouldClose() {
 		if rl.IsKeyPressed(.ONE) {world = .Space}
@@ -829,15 +835,80 @@ world_proto_live_main :: proc() -> bool {
 			swell = WORLD_PROTO_SWELL
 		}
 
+		if rl.IsKeyPressed(.P) {
+			pending = 2
+		}
+
 		view := cutaway.galleon_view_from(eye, WINDOW_WIDTH, WINDOW_HEIGHT)
 		frame_begin()
 		world_proto_draw(&scene.game, view, world, density, swell)
-		if help {
+		// The help panel is suppressed for the frame that is about to be grabbed: a shot taken to
+		// show what a register looks like should not have a slider readout across the corner of it.
+		// The settings ride in the filename instead.
+		if help && pending != 1 {
 			world_proto_help(world, density, swell, eye)
 		}
 		frame_end()
+
+		if pending > 0 {
+			pending -= 1
+			if pending == 0 {
+				world_proto_grab(world, density, swell, eye)
+			}
+		}
 	}
 	return true
+}
+
+// world_proto_grab photographs **what is actually on the monitor** — the logical frame after
+// fullscreen_target's scale-to-fit BILINEAR upscale, at the panel's own resolution.
+//
+// This is the one thing in the tree that can do it. `--capture` and `--shot` draw at logical size
+// with no render texture in the path (fullscreen.odin's header says so outright), so the whole
+// gallery and every `docs/ui/shot-manifest.txt` hash is taken at exact 1244x700 and **the upscale a
+// player sees has never been photographed**. That blind spot is tolerable for flat pixel art and is
+// not tolerable here: what the upscale does to a soft gradient is precisely what #514 has to
+// decide, and you cannot decide it from a frame that never went through one.
+//
+// rl.TakeScreenshot after frame_end reads the presented framebuffer, which is the monitor-sized
+// one — so the PNG comes out at panel resolution, letterbox bars and all, not at 1244x700.
+//
+// Every setting rides in the filename. The point of the shot is to be able to say "this one" and
+// have the numbers travel with it.
+@(private)
+world_proto_grab :: proc(world: World_Proto_World, density, swell: f32, eye: cutaway.Eye) {
+	tag := ""
+	switch world {
+	case .Space:
+		tag = "space"
+	case .Plates:
+		tag = "plates"
+	case .Hybrid:
+		tag = "hybrid"
+	}
+	name := fmt.tprintf(
+		"world-proto-%s-eye%.2f-swell%.2f-fog%.4f-yaw%.1f-dist%.2f.png",
+		tag,
+		eye.height,
+		swell,
+		density,
+		eye.yaw,
+		eye.dist,
+	)
+	rl.TakeScreenshot(strings.clone_to_cstring(name, context.temp_allocator))
+
+	// raylib drops any path prefix and writes into the process's cwd, so the shot is moved out of
+	// the repo root — `*.png` there is not gitignored and a stranded one is a `git add .` away from
+	// being committed (capture_write, capture.odin).
+	dest := fmt.tprintf("%s/%s", capture_dir(), name)
+	if err := os.rename(name, dest); err != nil {
+		fmt.eprintfln("world-proto: could not move %s into %s (%v)", name, capture_dir(), err)
+		if err := os.remove(name); err != nil {
+			fmt.eprintfln("world-proto: %s is stranded in the working directory (%v)", name, err)
+		}
+		return
+	}
+	fmt.printfln("world-proto: wrote %s (panel resolution, through the blit)", dest)
 }
 
 @(private)
@@ -852,6 +923,7 @@ world_proto_help :: proc(
 		fmt.tprintf("- =    swell: %.3f  (0 = a flat plane through the eye)", swell),
 		fmt.tprintf("W/S    eye height: %.2f  (shipped: 0.00, level with the waterline)", eye.height),
 		fmt.tprintf("A/D    yaw: %.1f      Q/E  standoff: %.2f", eye.yaw, eye.dist),
+		"P      grab a shot AT PANEL RESOLUTION, through the blit",
 		"R      reset      Tab  hide this",
 	}
 	PAD :: f32(10)
