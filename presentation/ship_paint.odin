@@ -72,6 +72,14 @@ ship_lit :: proc(base: rl.Color, normal: rl.Vector3) -> rl.Color {
 		}
 		return rl.Color{axis(n.x), axis(n.y), axis(n.z), 255}
 	}
+	// PROTOTYPE HOOK — throwaway, and it goes out with world_proto.odin (#512). Off in every
+	// session; only --world-proto-live sets it, so the shipped light is untouched. It sits here
+	// rather than at the call sites because this is the one procedure every lit surface on the
+	// ship passes through, which is exactly what makes a whole-ship light comparison possible at
+	// the cost of one branch.
+	if world_proto_soft_light {
+		return world_proto_lit(base, n)
+	}
 	sun := rl.Vector3Normalize(SHIP_SUN)
 	lambert := max(rl.Vector3DotProduct(n, sun), 0)
 	fill := SHIP_SKY_FILL * max(n.y, 0) + SHIP_SEA_FILL * max(-n.y, 0)

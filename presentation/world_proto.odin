@@ -113,6 +113,73 @@ world_proto_fogged :: proc(colour: rl.Color, dist, density: f32) -> rl.Color {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The light model: the shipped one, or a go at the reference's
+// ---------------------------------------------------------------------------------------------
+
+// When set, every lit surface in the frame — the world this file draws *and* the hull, through a
+// hook at the top of `ship_lit` — takes the model below instead of the shipped one. Prototype
+// state, and the hook in ship_paint.odin goes out with it.
+world_proto_soft_light: bool
+
+// The shipped model is `AMBIENT + SUNLIGHT * max(dot(n, sun), 0)` — a hard terminator, because
+// everything facing more than 90 degrees off the sun clamps to exactly the same ambient. That is
+// what makes the current hull read as faceted-and-hard rather than faceted-and-soft, and no amount
+// of raising the ambient fixes it: it flattens the lit half without ever softening the edge.
+//
+// Half-Lambert wraps the light right round the form instead, so the falloff is continuous from the
+// key to the far side. Squaring it puts the contrast back that wrapping takes out. This is the
+// cheapest thing that is actually the reference's *soft light falloff on flat-shaded low-poly*
+// rather than an imitation of it, and it costs one multiply.
+@(private)
+WORLD_PROTO_SOFT_AMBIENT :: f32(0.46)
+@(private)
+WORLD_PROTO_SOFT_KEY :: f32(0.74)
+
+// **A cool ambient broken by one warm key** — the reference's colour structure, and the thing the
+// current four scalars cannot express at all, because `colour_shade` multiplies a swatch by a
+// *scalar*: a lit face and a shadowed one are the same hue at two brightnesses. Here the light
+// itself carries colour, so a surface travels cool-to-warm as it turns to the key rather than
+// dark-to-bright at one hue.
+//
+// Both are normalised to a 255 peak so modulating by them tints without dimming. **Deliberately
+// not coral** — the roster's only saturated warm is reserved for danger and the chart's X (#516,
+// style-guide.md:142), and a key light spends its colour over the whole frame. This warm is a
+// low-saturation gold that does not read as the danger swatch; whether it may exist at all is
+// #516's call, not this prototype's.
+@(private)
+WORLD_PROTO_KEY_WARM :: rl.Color{255, 216, 158, 255}
+@(private)
+WORLD_PROTO_AMBIENT_COOL :: rl.Color{138, 186, 255, 255}
+
+// world_proto_modulate is light times surface, per channel — real modulation rather than a lerp
+// toward the light colour. A lerp washes a surface out toward the light as the light strengthens;
+// a multiply keeps the surface's own hue and lets the light colour it, which is the difference
+// between tinted timber and beige.
+@(private)
+world_proto_modulate :: proc(surface, light: rl.Color) -> rl.Color {
+	channel :: proc(s, l: u8) -> u8 {
+		return u8(clamp(f32(s) * f32(l) / 255, 0, 255))
+	}
+	return {
+		channel(surface.r, light.r),
+		channel(surface.g, light.g),
+		channel(surface.b, light.b),
+		surface.a,
+	}
+}
+
+// world_proto_lit is one surface under the soft model.
+world_proto_lit :: proc(base: rl.Color, normal: rl.Vector3) -> rl.Color {
+	n := rl.Vector3Normalize(normal)
+	sun := rl.Vector3Normalize(SHIP_SUN)
+	wrap := rl.Vector3DotProduct(n, sun) * 0.5 + 0.5
+	wrap *= wrap
+	fill := SHIP_SKY_FILL * max(n.y, 0) + SHIP_SEA_FILL * max(-n.y, 0)
+	lit := colour_shade(base, WORLD_PROTO_SOFT_AMBIENT + WORLD_PROTO_SOFT_KEY * wrap + fill)
+	return world_proto_modulate(lit, colour_mix(WORLD_PROTO_AMBIENT_COOL, WORLD_PROTO_KEY_WARM, wrap))
+}
+
+// ---------------------------------------------------------------------------------------------
 // The 3D world: sea, sky and islands as geometry
 // ---------------------------------------------------------------------------------------------
 
@@ -176,6 +243,26 @@ world_proto_quad :: proc(a, b, c, d: rl.Vector3, colour: rl.Color) {
 	rl.DrawTriangle3D(d, c, a, colour)
 }
 
+// world_proto_inside_hull reports whether a point on the water plane stands inside her waterline
+// plan — her exact shape where she cuts the surface, from the same loft the hull is drawn off
+// (`galleon_frame_half_beam(x, 0)`), not a box drawn round her.
+//
+// **This is what stops the sea filling her open side.** She is a cutaway: her port side is opened
+// and her below-deck compartments are meant to be looked into, and several of them sit below the
+// waterline. An opaque sea of real geometry runs between the camera and that opening and hides
+// them — which is a correctness failure, not a cosmetic one, because those rooms are hover targets
+// and drag targets (`galleon_room_at`). So the water is cut away exactly where she is, the way a
+// museum cutaway cuts the water away around the model. What you see through the hole is her own
+// interior — the sole, the bulkheads, the inboard planking — because the hull encloses it. There is
+// no void to fall through.
+@(private)
+world_proto_inside_hull :: proc(x, z: f32) -> bool {
+	if x < cutaway.GALLEON_STERN_X || x > cutaway.GALLEON_BOW_X {
+		return false
+	}
+	return abs(z) < cutaway.galleon_frame_half_beam(x, 0)
+}
+
 // world_proto_sea_3d is the water as geometry, centred on the eye and lit by the same sun and the
 // same Lambert the hull takes (ship_lit), then hazed by each quad's real distance. This is the
 // candidate's whole claim: depth cueing becomes a function of z rather than something drawn in.
@@ -190,27 +277,76 @@ world_proto_sea_3d :: proc(view: cutaway.View, density, swell: f32) {
 		for seg in 0 ..< WORLD_PROTO_SEA_SEGMENTS {
 			a0 := 2 * math.PI * f32(seg) / f32(WORLD_PROTO_SEA_SEGMENTS)
 			a1 := 2 * math.PI * f32(seg + 1) / f32(WORLD_PROTO_SEA_SEGMENTS)
-			s0, c0 := math.sin(a0), math.cos(a0)
-			s1, c1 := math.sin(a1), math.cos(a1)
 
-			p00 := world_proto_wave_point(eye.x + r0 * s0, eye.z + r0 * c0, swell)
-			p01 := world_proto_wave_point(eye.x + r0 * s1, eye.z + r0 * c1, swell)
-			p11 := world_proto_wave_point(eye.x + r1 * s1, eye.z + r1 * c1, swell)
-			p10 := world_proto_wave_point(eye.x + r1 * s0, eye.z + r1 * c0, swell)
+			// How much of this quad her waterline plan takes out. A quad clear of her is drawn
+			// whole; a quad wholly inside her is skipped; and only a quad on the boundary pays for
+			// subdivision. That local refinement is the whole reason the hole can follow her
+			// planking: the grid out here is more than a unit across at her range, which would carve
+			// her a hole about six quads long and read as a torn rectangle rather than as a ship.
+			in00 := world_proto_sea_inside(eye, r0, a0, swell)
+			in01 := world_proto_sea_inside(eye, r0, a1, swell)
+			in11 := world_proto_sea_inside(eye, r1, a1, swell)
+			in10 := world_proto_sea_inside(eye, r1, a0, swell)
 
-			centre := (p00 + p01 + p11 + p10) / 4
-			n := world_proto_wave_normal(centre.x, centre.z, swell)
-
-			// A crest catches the sky and a trough is the deep looking up through itself. Off the
-			// height rather than off a noise field, so the shading agrees with the shape.
-			crest := clamp(centre.y / max(swell, 0.001) * 0.5 + 0.5, 0, 1)
-			base := colour_mix(COLOUR_SEA_DEEP, COLOUR_SEA_SHALLOW, crest)
-			lit := ship_lit(base, n)
-			dist := rl.Vector3Length(centre - eye)
-			world_proto_quad(p00, p01, p11, p10, world_proto_fogged(lit, dist, density))
+			if in00 && in01 && in11 && in10 {
+				continue
+			}
+			if in00 || in01 || in11 || in10 {
+				world_proto_sea_patch(view, r0, r1, a0, a1, density, swell)
+				continue
+			}
+			world_proto_sea_cell(view, r0, r1, a0, a1, density, swell)
 		}
 		r0 = r1
 	}
+}
+
+@(private)
+world_proto_sea_inside :: proc(eye: rl.Vector3, r, a, swell: f32) -> bool {
+	return world_proto_inside_hull(eye.x + r * math.sin(a), eye.z + r * math.cos(a))
+}
+
+// world_proto_sea_patch subdivides one boundary quad and draws the sub-cells that are still water.
+@(private)
+world_proto_sea_patch :: proc(view: cutaway.View, r0, r1, a0, a1, density, swell: f32) {
+	SUB :: 10
+	for i in 0 ..< SUB {
+		ri0 := r0 + (r1 - r0) * f32(i) / SUB
+		ri1 := r0 + (r1 - r0) * f32(i + 1) / SUB
+		for j in 0 ..< SUB {
+			aj0 := a0 + (a1 - a0) * f32(j) / SUB
+			aj1 := a0 + (a1 - a0) * f32(j + 1) / SUB
+			rm, am := (ri0 + ri1) / 2, (aj0 + aj1) / 2
+			if world_proto_sea_inside(view.camera.position, rm, am, swell) {
+				continue
+			}
+			world_proto_sea_cell(view, ri0, ri1, aj0, aj1, density, swell)
+		}
+	}
+}
+
+// world_proto_sea_cell paints one cell of water, lit and hazed.
+@(private)
+world_proto_sea_cell :: proc(view: cutaway.View, r0, r1, a0, a1, density, swell: f32) {
+	eye := view.camera.position
+	s0, c0 := math.sin(a0), math.cos(a0)
+	s1, c1 := math.sin(a1), math.cos(a1)
+
+	p00 := world_proto_wave_point(eye.x + r0 * s0, eye.z + r0 * c0, swell)
+	p01 := world_proto_wave_point(eye.x + r0 * s1, eye.z + r0 * c1, swell)
+	p11 := world_proto_wave_point(eye.x + r1 * s1, eye.z + r1 * c1, swell)
+	p10 := world_proto_wave_point(eye.x + r1 * s0, eye.z + r1 * c0, swell)
+
+	centre := (p00 + p01 + p11 + p10) / 4
+	n := world_proto_wave_normal(centre.x, centre.z, swell)
+
+	// A crest catches the sky and a trough is the deep looking up through itself. Off the height
+	// rather than off a noise field, so the shading agrees with the shape.
+	crest := clamp(centre.y / max(swell, 0.001) * 0.5 + 0.5, 0, 1)
+	base := colour_mix(COLOUR_SEA_DEEP, COLOUR_SEA_SHALLOW, crest)
+	lit := ship_lit(base, n)
+	dist := rl.Vector3Length(centre - eye)
+	world_proto_quad(p00, p01, p11, p10, world_proto_fogged(lit, dist, density))
 }
 
 // The sky as geometry: a dome, banded by elevation. Deliberately **not** fogged — the sky is what
@@ -817,6 +953,7 @@ world_proto_live_main :: proc() -> bool {
 		if rl.IsKeyPressed(.TWO) {world = .Plates}
 		if rl.IsKeyPressed(.THREE) {world = .Hybrid}
 		if rl.IsKeyPressed(.TAB) {help = !help}
+		if rl.IsKeyPressed(.L) {world_proto_soft_light = !world_proto_soft_light}
 		if rl.IsKeyDown(.LEFT_BRACKET) {density = max(density * 0.97, 0.0002)}
 		if rl.IsKeyDown(.RIGHT_BRACKET) {density = min(density * 1.03, 0.2)}
 		if rl.IsKeyDown(.MINUS) {swell = max(swell - 0.004, 0)}
@@ -836,16 +973,22 @@ world_proto_live_main :: proc() -> bool {
 		}
 
 		if rl.IsKeyPressed(.P) {
-			pending = 2
+			// Generous on purpose. Two frames was not enough — the panel still came back in the
+			// shot, so the driver's readback is staler than the one frame raylib's own docs imply
+			// (a swap chain may be three deep, and the value is not worth pinning down here).
+			// Ten frames is a sixth of a second, invisible to the hand on the key, and it makes the
+			// suppression window wider than any plausible readback lag.
+			pending = 10
 		}
 
 		view := cutaway.galleon_view_from(eye, WINDOW_WIDTH, WINDOW_HEIGHT)
 		frame_begin()
 		world_proto_draw(&scene.game, view, world, density, swell)
-		// The help panel is suppressed for the frame that is about to be grabbed: a shot taken to
-		// show what a register looks like should not have a slider readout across the corner of it.
-		// The settings ride in the filename instead.
-		if help && pending != 1 {
+		// The help panel is suppressed for *every* frame between the keypress and the grab. Only
+		// the frame after it was suppressed, which is one frame too late: TakeScreenshot reads the
+		// framebuffer EndDrawing has already presented, so the grab lands on the frame *before* the
+		// one it was fired on — and the first shot came back with the panel across the corner of it.
+		if help && pending == 0 {
 			world_proto_help(world, density, swell, eye)
 		}
 		frame_end()
@@ -887,8 +1030,9 @@ world_proto_grab :: proc(world: World_Proto_World, density, swell: f32, eye: cut
 		tag = "hybrid"
 	}
 	name := fmt.tprintf(
-		"world-proto-%s-eye%.2f-swell%.2f-fog%.4f-yaw%.1f-dist%.2f.png",
+		"world-proto-%s-%s-eye%.2f-swell%.2f-fog%.4f-yaw%.1f-dist%.2f.png",
 		tag,
+		world_proto_soft_light ? "softlight" : "hardlight",
 		eye.height,
 		swell,
 		density,
@@ -923,6 +1067,12 @@ world_proto_help :: proc(
 		fmt.tprintf("- =    swell: %.3f  (0 = a flat plane through the eye)", swell),
 		fmt.tprintf("W/S    eye height: %.2f  (shipped: 0.00, level with the waterline)", eye.height),
 		fmt.tprintf("A/D    yaw: %.1f      Q/E  standoff: %.2f", eye.yaw, eye.dist),
+		fmt.tprintf(
+			"L      light: %s",
+			world_proto_soft_light \
+			? "SOFT — wrapped falloff, cool ambient + one warm key" \
+			: "shipped — hard terminator, one hue at two brightnesses",
+		),
 		"P      grab a shot AT PANEL RESOLUTION, through the blit",
 		"R      reset      Tab  hide this",
 	}
